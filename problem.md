@@ -816,3 +816,77 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 
 **用户反馈**：（待填）
 
+
+---
+
+## 问题9：LLM 客户端 provider 耦合，应支持任意 OpenAI 兼容 base_url
+
+**用户原问**：「llm 应该使用任意的 baseurl 都可以，只要是 openai 格式的。现在有点太耦合了」
+
+**诊断**：
+
+```
+原实现耦合点：
+1. ProviderName Literal 写死 deepseek|qwen|stub
+2. DeepSeekClient / QwenClient 是空壳子类（只 provider 字段不同）
+3. get_llm_client 用 if provider == "deepseek": ... elif "qwen": ... 分发到固定 env 名
+4. 想接 OpenAI / 智谱 / Ollama / vLLM 都得改代码
+```
+
+**解决方案**：
+
+1. 新增**主接口**三件套：`LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL`，任意 OpenAI 兼容 endpoint 都能直接接入
+2. 通用客户端 `OpenAICompatibleClient`：任何遵循 OpenAI Chat Completions API（/v1/chat/completions）的服务直接构造
+3. `_resolve_creds()` 解析优先级：主接口 > 旧 `DEEPSEEK_*`/`QWEN_*` 兼容 > 默认 OpenAI 兜底
+4. `_infer_provider_from_url()` 根据 hostname 自动推断 provider 展示名（仅日志/UI 用）
+5. **保留 `DeepSeekClient` / `QwenClient` 作为别名**：老代码 `import DeepSeekClient` 不破
+6. **降级路径**：`get_llm_client()` 失败（缺 API key）→ refiner 走 _rule_fallback / planner 切回 rule mode（trace 推 agent_thought 提示）
+7. 测试 conftest 默认设 `LLM_PROVIDER=stub`，避免误连真服务
+
+**支持的服务**（验证 9 种场景全过）：
+
+```
+| 服务            | base_url 示例                                                  |
+|-----------------|---------------------------------------------------------------|
+| DeepSeek        | https://api.deepseek.com/v1                                    |
+| 通义            | https://dashscope.aliyuncs.com/compatible-mode/v1              |
+| OpenAI          | https://api.openai.com/v1                                      |
+| 智谱 GLM        | https://open.bigmodel.cn/api/paas/v4                           |
+| 月之暗面        | https://api.moonshot.cn/v1                                     |
+| Ollama 本地     | http://localhost:11434/v1                                      |
+| LM Studio 本地  | http://localhost:1234/v1                                       |
+| vLLM 自部署     | http://your-host:8000/v1                                       |
+| 任意其他兼容服务| 用户填什么就接什么                                              |
+```
+
+**验证矩阵**：
+
+```
+✓ 主接口（新）：LLM_API_KEY/BASE_URL/MODEL → 直接构造 OpenAICompatibleClient
+✓ 旧 .env 兼容：LLM_PROVIDER=deepseek + DEEPSEEK_* → 旧名仍生效
+✓ 旧 .env 兼容：LLM_PROVIDER=qwen + QWEN_* → 旧名仍生效
+✓ stub：LLM_PROVIDER=stub → 仍走 StubLLMClient
+✓ 无任何环境变量：默认 OpenAI 兜底，调用时才报缺 API key（友好错误）
+✓ 缺 API key 时：refiner 自动 _rule_fallback / planner 切回 rule mode（不抛异常）
+✓ pytest 128/128 全过
+✓ B verify_refine 13/13 双模式仍过
+✓ provider 自动从 hostname 推断 9 种展示名
+```
+
+**修改的代码文件**：
+
+- 重写：`backend/agent/llm_client.py`（197 → 较为通用的解耦版）
+- 修改：`backend/agent/refiner.py`（catch ValueError → _rule_fallback）
+- 修改：`backend/agent/planner.py`（plan_itinerary_with_mode 缺 client 时降级 rule）
+- 修改：`backend/.env.example`（主接口三件套 + 服务示例 + 旧名兼容说明）
+- 修改：`backend/tests/conftest.py`（默认 LLM_PROVIDER=stub 隔离）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- user 接任意 OpenAI 兼容服务只需改 .env 的 LLM_API_KEY/BASE_URL/MODEL，**零代码改动**
+- 评委演示时可以现场切到 OpenAI / 智谱 / 本地 Ollama 任意一个，不用重新部署
+- 老代码的 `DeepSeekClient`/`QwenClient` 别名保留；不破已有 import
+
+**用户反馈**：（待填）
+
