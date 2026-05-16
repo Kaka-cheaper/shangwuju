@@ -73,3 +73,32 @@
 - 不违反「workspace 优先于全局」的规则优先级
 - 90% 的纯咨询/文档调整只进 problem.md，避免重复劳动
 
+
+---
+
+## 问题3：跑 CodeSee 流程，生成项目功能图
+
+**解决方案**：
+
+按 `.codesee/prompts/scan.md` 第一步规模自检，项目处于纯文档/规划阶段（无源码），走 **planning 模式**：
+
+1. 用 `manifest.lang = "zh-CN"`（沿用全局规则的中文要求）
+2. 按用户旅程划 5 个 Epic：`input → discovery → planning → execution → sharing`
+3. 抽 15 个 planned feature，覆盖 8 个 Tool + 意图解析 + 行程组装 + 异常重规划 + 用户确认 + 转发文案 + 链路可视化
+4. 每个 feature 标 `tags: ['planned']`、`confidence ≤ 0.5`、`refs: []`（规划阶段无代码）
+5. 画 24 条 cross_feature 关系（含 triggers / depends_on / publishes / subscribes 四类）+ 5 条 epic_flow
+6. 跑 `node .codesee/scripts/validate-features.mjs` 通过，初版含 3 条 SHOULD 级警告
+7. 修复警告：`call_llm` 改名 `extract`；为外部入口 feature 补 error 分支（empty / fail / cancel / fallback / too_far / constraint_fail）；side-effect 链补 async 边
+8. 复跑校验：`✓ 通过：未发现结构问题`（零错零警）
+
+**修改的代码文件**：
+
+- `.codesee/features.json`（新建）
+- `.codesee/.gitignore` / `.codesee/prompts/*` / `.codesee/scripts/*` 一并入库
+
+**应当达成的效果**：
+
+- 团队成员和后来 AI 在 CodeSee 画布上能直接看到「规划中 vs 已实现」的全景图
+- 进入编码阶段后，每完成一个 feature 触发 `sync.md` 把 `planned` 升级为 `implemented`，同时补 refs
+- 评分项 1（场景理解）、2（规划链路）、3（Tool 设计）、5（异常处理）的设计意图全部可视化，对应 cross_feature 与 error 分支
+
