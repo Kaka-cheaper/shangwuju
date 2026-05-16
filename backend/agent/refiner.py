@@ -64,7 +64,7 @@ def refine_intent(
     original: IntentExtraction,
     feedback_text: str,
     *,
-    client: LLMClient,
+    client: LLMClient | None = None,
     max_retries: int = 1,
 ) -> RefinementOutput:
     """合并反馈进原 intent。
@@ -75,7 +75,14 @@ def refine_intent(
     3. Pydantic v2 校验（refined_intent 必须合法 IntentExtraction）
     4. 若失败 → 错误回灌 1 次
     5. 若仍失败 → _rule_fallback 兜底（不抛异常）
+
+    `client` 缺省时通过 get_llm_client() 自动按 LLM_PROVIDER 环境变量构造，
+    便于 HTTP 层（main.py）直接 `refine_intent(original, feedback)` 调用而不必关心 LLM 接线。
     """
+    if client is None:
+        from .llm_client import get_llm_client
+
+        client = get_llm_client()
     original_json = original.model_dump_json()
 
     error_feedback: str | None = None
