@@ -3,17 +3,21 @@
 import { useEffect } from "react";
 
 import { useChatStore } from "@/lib/store";
-import { generateSessionId } from "@/lib/utils";
+import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
 
 import ChatPanel from "./ChatPanel";
 import ItineraryCard from "./ItineraryCard";
 import PlannerModeBadge from "./PlannerModeBadge";
+import PreferencesPanel from "./PreferencesPanel";
 import QuickScenarios from "./QuickScenarios";
 import ToastStack from "./ToastStack";
 import ToolTracePanel from "./ToolTracePanel";
+import UserSwitcher from "./UserSwitcher";
 
 export default function HomeView() {
   const loadScenarios = useChatStore((s) => s.loadScenarios);
+  const loadPersonas = useChatStore((s) => s.loadPersonas);
+  const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const reset = useChatStore((s) => s.reset);
   const sessionId = useChatStore((s) => s.sessionId);
 
@@ -22,8 +26,15 @@ export default function HomeView() {
     if (sessionId === "sess_pending") {
       useChatStore.setState({ sessionId: generateSessionId() });
     }
+    // Phase 0.7：从 cookie 恢复 user_id（演示连续切 user 体验稳）
+    const persisted = getUserIdFromCookie();
+    if (persisted) {
+      useChatStore.setState({ currentUserId: persisted });
+    }
     loadScenarios();
-  }, [loadScenarios, sessionId]);
+    loadPersonas();
+    refreshPreferences();
+  }, [loadScenarios, loadPersonas, refreshPreferences, sessionId]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50">
@@ -38,9 +49,10 @@ export default function HomeView() {
             </span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 text-xs text-ink-500 shrink-0">
+            <UserSwitcher />
             <PlannerModeBadge />
             <span
-              className="hidden sm:inline truncate max-w-[180px]"
+              className="hidden sm:inline truncate max-w-[160px]"
               title={`当前会话 ID：${sessionId}`}
             >
               {sessionId}
@@ -62,6 +74,7 @@ export default function HomeView() {
 
           <aside className="lg:col-span-5 space-y-4">
             <ItineraryCard />
+            <PreferencesPanel />
             <ToolTracePanel />
           </aside>
         </div>

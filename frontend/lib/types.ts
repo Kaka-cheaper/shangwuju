@@ -208,3 +208,47 @@ export interface HealthResponse {
   llm_provider: string;
   planner_mode?: PlannerMode;
 }
+
+// ============================================================
+// Persona + Memory（schemas/persona.py，Phase 0.7）
+// ============================================================
+
+export interface PersonaDefaultTags {
+  physical: string[];
+  dietary: string[];
+  experience: string[];
+  suitable_for_priority: SocialContext[];
+}
+
+export interface Persona {
+  user_id: string;
+  label: string;
+  icon: string;
+  notes: string;
+  home_location: string;
+  default_distance_max_km: number;
+  default_budget: number;
+  default_tags: PersonaDefaultTags;
+}
+
+export interface UserMemory {
+  user_id: string;
+  accepted_tags: { counts: Record<string, number> };
+  rejected_tags: { counts: Record<string, number> };
+  distance_history: number[];
+  last_updated_ms?: number | null;
+}
+
+export interface UserPreferenceView {
+  persona: Persona;
+  memory: UserMemory;
+  top_priors: string[];
+  suggested_distance_max_km?: number | null;
+}
+
+export interface PersonasResponse {
+  personas: Persona[];
+}
+
+// 在 ChatStreamRequest / ChatConfirmRequest 之外，仍透传 X-User-Id header
+// 旧字段不变，仅在 sse.ts 加 user_id header；store 层管理 currentUserId

@@ -154,6 +154,8 @@ class ChatStreamRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500)
     session_id: str = Field(..., min_length=1, max_length=128)
     scenario_id: Optional[str] = None
+    # Phase 0.7：可选；缺省时按 X-User-Id header > "demo_user" 兜底
+    user_id: Optional[str] = Field(default=None, max_length=64)
 
 
 class ChatConfirmRequest(BaseModel):
@@ -161,6 +163,18 @@ class ChatConfirmRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=128)
     decision: str = Field(..., pattern="^(confirm|reject|modify)$")
     modifications: Optional[dict[str, Any]] = None
+    user_id: Optional[str] = Field(default=None, max_length=64)
+
+
+def _resolve_user_id(
+    body_user_id: Optional[str],
+    header_user_id: Optional[str],
+) -> str:
+    """优先级：body.user_id > X-User-Id header > "demo_user"。"""
+    for candidate in (body_user_id, header_user_id):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return "demo_user"
 
 
 # session_id -> {"intent": ..., "itinerary": ...}（demo 级 in-memory）
@@ -221,12 +235,151 @@ def scenarios() -> dict[str, list[dict[str, str]]]:
     return {"scenarios": SCENARIOS}
 
 
+# ============================================================
+# Phase 0.7：persona / preferences 端点
+# ============================================================
+
+
+@app.get("/personas")
+def list_personas() -> dict[str, list[dict[str, Any]]]:
+    """返回所有 mock persona（前端 user 切换器拉这个）。
+
+    payload 形态：
+    {
+      "personas": [
+        { "user_id": "u_dad", "label": "新手爸爸", "icon": "👨‍👩‍👧",
+          "notes": "...", "default_distance_max_km": 5.0,
+          "default_tags": {...} },
+        ...
+      ]
+    }
+    """
+    from data.memory_store import load_personas
+
+    return {
+        "personas": [p.model_dump() for p in load_personas()],
+    }
+
+
+@app.get("/preferences/{user_id}")
+def get_user_preferences(user_id: str) -> dict[str, Any]:
+    """合并 persona + memory 给前端偏好面板用。"""
+    from data.memory_store import compute_priors
+
+    view = compute_priors(user_id)
+    return view.model_dump()
+
+
+@app.post("/preferences/{user_id}/reset")
+def reset_user_preferences(user_id: str) -> dict[str, Any]:
+    """清掉某 user 的累积 memory（演示完清场用）。"""
+    from data.memory_store import reset_memory
+
+    fresh = reset_memory(user_id)
+    return {"status": "ok", "memory": fresh.model_dump()}
+
+
+# ============================================================
+# Memory 累积 helper（confirm/refine 路径调用）
+# ============================================================
+
+
+def _collect_itinerary_tags(itinerary_dict: dict[str, Any]) -> list[str]:
+    """从已确认 itinerary 里抽出命中的 tag（用于 memory accept）。
+
+    策略：
+    - 主活动 POI 的 tags + suitable_for
+    - 用餐餐厅的 tags + suitable_for
+    - 去重；tag 词典外的不写入（防漂移）
+    """
+    from schemas.tags import (
+        DIETARY_TAGS,
+        EXPERIENCE_TAGS,
+        PHYSICAL_TAGS,
+        SOCIAL_CONTEXTS,
+    )
+
+    valid = PHYSICAL_TAGS | DIETARY_TAGS | EXPERIENCE_TAGS | SOCIAL_CONTEXTS
+
+    out: set[str] = set()
+
+    # 注：这里没有完整的 POI/Restaurant 对象，仅能从 stages 拿到 id；
+    # demo 安全做法：从 mock_data 反查
+    try:
+        from data.loader import load_pois, load_restaurants
+
+        pois_by_id = {p.id: p for p in load_pois()}
+        rests_by_id = {r.id: r for r in load_restaurants()}
+    except Exception:  # noqa: BLE001
+        pois_by_id = {}
+        rests_by_id = {}
+
+    for stage in itinerary_dict.get("stages") or []:
+        if stage.get("poi_id"):
+            poi = pois_by_id.get(stage["poi_id"])
+            if poi is not None:
+                out.update(poi.tags or [])
+                out.update(poi.suitable_for or [])
+        if stage.get("restaurant_id"):
+            rest = rests_by_id.get(stage["restaurant_id"])
+            if rest is not None:
+                out.update(rest.tags or [])
+                out.update(rest.suitable_for or [])
+
+    return [t for t in out if t in valid]
+
+
+def _accumulate_memory_after_confirm(
+    cached: dict[str, Any],
+    itinerary_dict: dict[str, Any],
+) -> None:
+    """confirm 后：把 itinerary 命中的 tag 写进 user memory。
+
+    cached 里的 user_id 由 _planner_stream 写入；缺失时跳过累积（不阻塞主流程）。
+    """
+    user_id = cached.get("user_id")
+    if not user_id:
+        return
+    from data.memory_store import record_accepted
+
+    tags = _collect_itinerary_tags(itinerary_dict)
+    intent = cached.get("intent") or {}
+    distance = intent.get("distance_max_km")
+    try:
+        record_accepted(
+            user_id,
+            tags=tags,
+            distance_km=float(distance) if distance is not None else None,
+        )
+    except Exception:  # noqa: BLE001
+        # 累积失败不阻塞主流程
+        pass
+
+
+def _accumulate_memory_after_refine(
+    cached: dict[str, Any],
+    rejected_tags: list[str],
+) -> None:
+    """refine 中如果反馈含「去掉 X」类的 tag，写进 user memory rejected。"""
+    user_id = cached.get("user_id")
+    if not user_id or not rejected_tags:
+        return
+    from data.memory_store import record_rejected
+
+    try:
+        record_rejected(user_id, tags=rejected_tags)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/chat/stream")
 async def chat_stream(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
     """主入口：一句话 → SSE 流式输出。
 
     解析 PLANNER_MODE：
         header X-Planner-Mode > env PLANNER_MODE > default("rule")
+    解析 user_id（Phase 0.7）：
+        body.user_id > X-User-Id header > "demo_user"
 
     分发：
         PLANNER_USE_REAL=1（或 LLM_PROVIDER 非 stub）→ 走真 planner（_planner_stream）
@@ -236,14 +389,15 @@ async def chat_stream(req: ChatStreamRequest, request: Request) -> EventSourceRe
         header_value=request.headers.get("X-Planner-Mode"),
         env_value=os.getenv("PLANNER_MODE"),
     )
+    user_id = _resolve_user_id(req.user_id, request.headers.get("X-User-Id"))
     if _use_real_planner():
-        inner = _planner_stream(req, mode=mode)
+        inner = _planner_stream(req, mode=mode, user_id=user_id)
     else:
         inner = _stub_stream(req)
     return EventSourceResponse(
         _safe_stream(inner),
         media_type="text/event-stream",
-        headers={"X-Planner-Mode": mode},
+        headers={"X-Planner-Mode": mode, "X-User-Id": user_id},
     )
 
 
@@ -822,9 +976,10 @@ async def _stream_tracer_events(
         await _delay(delay_ms)
 
 
-def _intent_via_llm(message: str) -> IntentExtraction:
+def _intent_via_llm(message: str, *, user_id: str | None = None) -> IntentExtraction:
     """用真 LLM 客户端跑意图解析；任何失败 → 兜底家庭主场景 fixture。
 
+    Phase 0.7：传 user_id 时 prompt 注入 persona/memory prior（"我是谁 + 学过什么"）。
     Demo 安全网：评委网络抖动或 API 限流时也能跑通。
     """
     from agent.intent_parser import parse_intent
@@ -832,7 +987,7 @@ def _intent_via_llm(message: str) -> IntentExtraction:
 
     try:
         client = get_llm_client()
-        return parse_intent(message, client=client)
+        return parse_intent(message, client=client, user_id=user_id)
     except Exception:  # noqa: BLE001
         return IntentExtraction(
             start_time="today_afternoon",
@@ -858,8 +1013,12 @@ async def _planner_stream(
     mode: str,
     intent_override: Optional[IntentExtraction] = None,
     starting_seq: int = 0,
+    user_id: str | None = None,
 ) -> AsyncIterator[SseEvent]:
     """真 planner 链路：意图解析 → plan_itinerary_with_mode → 实时推送 tracer 事件。
+
+    Phase 0.7：传 user_id 时意图解析注入 persona/memory prior；
+    最终 session 也把 user_id 一并存下，confirm/refine 路径可读到。
 
     实时推送策略（重要）：
         plan_itinerary_with_mode 在 LLM mode 下会跑 30-60s（多轮 LLM chat）。
@@ -912,7 +1071,7 @@ async def _planner_stream(
             if intent_override is not None:
                 intent = intent_override
             else:
-                intent = _intent_via_llm(req.message)
+                intent = _intent_via_llm(req.message, user_id=user_id)
                 # 立刻 emit intent_parsed，让前端尽快看到结果
                 tracer.emit("intent_parsed", intent.model_dump())
             plan_result_holder["intent"] = intent
@@ -980,6 +1139,7 @@ async def _planner_stream(
         _SESSION_STORE[req.session_id] = {
             "intent": intent.model_dump(),
             "itinerary": result.itinerary.model_dump(),
+            "user_id": user_id or "demo_user",
         }
 
     # ---- 推 done ----
@@ -1041,20 +1201,32 @@ async def _refine_stream_real(
     except Exception:  # noqa: BLE001 — 防 LLM 抖动；走 stub refiner 兜底
         refinement = _stub_refine(original, req.feedback_text or "")
 
+    # Phase 0.7：累积 memory rejected（推断 user 拒绝的 tag）
+    refined = refinement.refined_intent
+    rejected_tags: list[str] = []
+    rejected_tags.extend(set(original.dietary_constraints) - set(refined.dietary_constraints))
+    rejected_tags.extend(set(original.experience_tags) - set(refined.experience_tags))
+    rejected_tags.extend(set(original.physical_constraints) - set(refined.physical_constraints))
+    if rejected_tags:
+        _accumulate_memory_after_refine(cached, rejected_tags)
+
     # ---- 1: refinement_done ----
     yield emit(SseEventType.REFINEMENT_DONE, refinement.model_dump())
     await _delay(220)
 
     # ---- 2..N: 真 planner 重跑 ----
+    user_id = cached.get("user_id")
     placeholder_req = ChatStreamRequest(
         message=refinement.refined_intent.raw_input,
         session_id=req.session_id,
+        user_id=user_id,
     )
     async for ev in _planner_stream(
         placeholder_req,
         mode=mode,
         intent_override=refinement.refined_intent,
         starting_seq=seq,
+        user_id=user_id,
     ):
         yield ev
         seq = ev.seq + 1
@@ -1150,6 +1322,8 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         ]
         itin_dict["share_message"] = share_msg
         _SESSION_STORE[req.session_id] = {**cached, "itinerary": itin_dict}
+        # Phase 0.7：confirm 累积 memory（记录 itinerary 命中的所有 tag）
+        _accumulate_memory_after_confirm(cached, itin_dict)
         yield emit(SseEventType.ITINERARY_READY, itin_dict)
         await _delay(140)
 

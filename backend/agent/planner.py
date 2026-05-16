@@ -60,8 +60,11 @@ from tools.registry import ToolInvocationResult, invoke_tool
 # 一次会话内单 Tool 最大调用次数（pitfalls P3-预埋 LLM 过度规划防御）
 MAX_TOOL_CALLS_PER_KIND = 3
 
+# 查询类 Tool 单独的更高上限（多级降级重试用）
+MAX_TOOL_CALLS_FOR_SEARCH = 5
+
 # 一次会话内总 Tool 调用上限
-MAX_TOTAL_TOOL_CALLS = 12
+MAX_TOTAL_TOOL_CALLS = 16
 
 # 标准用餐时段（按演示场景集 §S1）
 DEFAULT_DINING_TIMES = ["17:00", "17:30", "18:00"]
@@ -121,9 +124,15 @@ def plan_itinerary(
 
     counters: dict[str, int] = {}
 
+    _SEARCH_TOOLS = {"search_pois", "search_restaurants"}
+
     def _bumped(name: str) -> bool:
         counters[name] = counters.get(name, 0) + 1
-        if counters[name] > MAX_TOOL_CALLS_PER_KIND:
+        # 查询类 Tool 走更高上限（多级降级重试）；其他 Tool 仍走原 3 次
+        cap = (
+            MAX_TOOL_CALLS_FOR_SEARCH if name in _SEARCH_TOOLS else MAX_TOOL_CALLS_PER_KIND
+        )
+        if counters[name] > cap:
             return True
         if sum(counters.values()) > MAX_TOTAL_TOOL_CALLS:
             return True
@@ -237,39 +246,123 @@ def _query_pois(
     call,
     tracer: Tracer,
 ) -> list[Poi] | FailureReason:
-    """查询 POI；空集时放宽距离 +2km 重试 1 次。"""
+    """查询 POI；空集时多级降级重试。
+
+    降级链（顺序尝试）：
+    1. 原约束（distance + tags + social_context + preferred_types）
+    2. 放宽距离 +2km
+    3. 剥 preferred_types（用户没明示 POI 类型时该字段是 prior 注入，可去）
+    4. 剥 physical_constraints + experience_tags（prior 注入的偏好让步）
+    5. 仅按 distance + social_context（最宽松，仍有调性匹配）
+    任一级命中候选立即返回。
+    """
     age_in_party = [c.age for c in intent.companions if c.age is not None]
 
-    def _do(distance: float) -> SearchPoisOutput:
+    def _do(
+        distance: float,
+        *,
+        physical: list[str] | None = None,
+        experience: list[str] | None = None,
+        preferred_types: list[str] | None = None,
+        social_context: str | None = None,
+    ) -> SearchPoisOutput:
         result = call(
             "search_pois",
             SearchPoisInput(
                 distance_max_km=distance,
-                physical_constraints=list(intent.physical_constraints),
-                experience_tags=list(intent.experience_tags),
-                social_context=intent.social_context,
+                physical_constraints=physical
+                if physical is not None
+                else list(intent.physical_constraints),
+                experience_tags=experience
+                if experience is not None
+                else list(intent.experience_tags),
+                social_context=social_context
+                if social_context is not None
+                else intent.social_context,
                 age_in_party=age_in_party or None,
-                preferred_types=list(intent.preferred_poi_types),
+                preferred_types=preferred_types
+                if preferred_types is not None
+                else list(intent.preferred_poi_types),
             ).model_dump(),
         )
         return SearchPoisOutput.model_validate(result.output) if result.success else SearchPoisOutput(
             success=False, reason=result.reason
         )
 
+    # 第 1 级：原约束
     out = _do(intent.distance_max_km)
     if out.success and out.candidates:
         return list(out.candidates)
-    if out.reason in (FailureReason.EMPTY_CANDIDATES, None):
-        # 重规划：放宽距离 +2km
+
+    # 仅 EMPTY_CANDIDATES 才走降级；其他错误直接返
+    if out.reason not in (FailureReason.EMPTY_CANDIDATES, None):
+        return out.reason or FailureReason.UPSTREAM_FAILURE
+
+    # 第 2 级：放宽距离 +2km
+    tracer.emit(
+        "replan_triggered",
+        {
+            "reason": FailureReason.EMPTY_CANDIDATES.value,
+            "from_tool": "search_pois",
+            "action": "loosen_distance",
+        },
+    )
+    out = _do(intent.distance_max_km + 2)
+    if out.success and out.candidates:
+        return list(out.candidates)
+
+    # 第 3 级：剥 preferred_types
+    if intent.preferred_poi_types:
         tracer.emit(
             "replan_triggered",
-            {"reason": FailureReason.EMPTY_CANDIDATES.value, "from_tool": "search_pois", "action": "loosen_distance"},
+            {
+                "reason": FailureReason.EMPTY_CANDIDATES.value,
+                "from_tool": "search_pois",
+                "action": "drop_preferred_types",
+            },
         )
-        loosened = _do(intent.distance_max_km + 2)
-        if loosened.success and loosened.candidates:
-            return list(loosened.candidates)
-        return FailureReason.EMPTY_CANDIDATES
-    return out.reason or FailureReason.UPSTREAM_FAILURE
+        out = _do(intent.distance_max_km + 2, preferred_types=[])
+        if out.success and out.candidates:
+            return list(out.candidates)
+
+    # 第 4 级：剥 physical + experience tag（prior 注入的偏好让步）
+    if intent.physical_constraints or intent.experience_tags:
+        tracer.emit(
+            "replan_triggered",
+            {
+                "reason": FailureReason.EMPTY_CANDIDATES.value,
+                "from_tool": "search_pois",
+                "action": "drop_optional_tags",
+            },
+        )
+        out = _do(
+            intent.distance_max_km + 2,
+            physical=[],
+            experience=[],
+            preferred_types=[],
+        )
+        if out.success and out.candidates:
+            return list(out.candidates)
+
+    # 第 5 级：仅 distance + social_context（最宽松，仍有调性匹配）
+    tracer.emit(
+        "replan_triggered",
+        {
+            "reason": FailureReason.EMPTY_CANDIDATES.value,
+            "from_tool": "search_pois",
+            "action": "minimal_constraint",
+        },
+    )
+    out = _do(
+        intent.distance_max_km + 4,
+        physical=[],
+        experience=[],
+        preferred_types=[],
+    )
+    if out.success and out.candidates:
+        return list(out.candidates)
+
+    return FailureReason.EMPTY_CANDIDATES
 
 
 def _query_restaurants(
@@ -277,36 +370,113 @@ def _query_restaurants(
     call,
     tracer: Tracer,
 ) -> list[Restaurant] | FailureReason:
-    """查询餐厅；空集时放宽距离 +2km 重试 1 次。"""
+    """查询餐厅；空集时多级降级重试。
 
-    def _do(distance: float) -> SearchRestaurantsOutput:
+    降级链（顺序尝试）：
+    1. 原约束（distance + dietary + experience + social_context + capacity）
+    2. 放宽距离 +2km
+    3. 剥 experience_tags（prior 注入的弱约束）
+    4. 剥 dietary 中 prior 注入的偏好（保留用户明示的）
+    5. 仅 distance + social_context（最宽松，但仍调性匹配）
+    """
+
+    def _do(
+        distance: float,
+        *,
+        dietary: list[str] | None = None,
+        experience: list[str] | None = None,
+        social_context: str | None = None,
+        capacity: int | None = None,
+    ) -> SearchRestaurantsOutput:
         result = call(
             "search_restaurants",
             SearchRestaurantsInput(
                 distance_max_km=distance,
-                dietary_constraints=list(intent.dietary_constraints),
-                experience_tags=list(intent.experience_tags),
-                social_context=intent.social_context,
-                capacity_requirement=intent.capacity_requirement,
+                dietary_constraints=dietary
+                if dietary is not None
+                else list(intent.dietary_constraints),
+                experience_tags=experience
+                if experience is not None
+                else list(intent.experience_tags),
+                social_context=social_context
+                if social_context is not None
+                else intent.social_context,
+                capacity_requirement=capacity
+                if capacity is not None
+                else intent.capacity_requirement,
             ).model_dump(),
         )
         return SearchRestaurantsOutput.model_validate(result.output) if result.success else SearchRestaurantsOutput(
             success=False, reason=result.reason
         )
 
+    # 第 1 级
     out = _do(intent.distance_max_km)
     if out.success and out.candidates:
         return list(out.candidates)
-    if out.reason in (FailureReason.EMPTY_CANDIDATES, None):
+    if out.reason not in (FailureReason.EMPTY_CANDIDATES, None):
+        return out.reason or FailureReason.UPSTREAM_FAILURE
+
+    # 第 2 级：放宽距离
+    tracer.emit(
+        "replan_triggered",
+        {
+            "reason": FailureReason.EMPTY_CANDIDATES.value,
+            "from_tool": "search_restaurants",
+            "action": "loosen_distance",
+        },
+    )
+    out = _do(intent.distance_max_km + 2)
+    if out.success and out.candidates:
+        return list(out.candidates)
+
+    # 第 3 级：剥 experience
+    if intent.experience_tags:
         tracer.emit(
             "replan_triggered",
-            {"reason": FailureReason.EMPTY_CANDIDATES.value, "from_tool": "search_restaurants", "action": "loosen_distance"},
+            {
+                "reason": FailureReason.EMPTY_CANDIDATES.value,
+                "from_tool": "search_restaurants",
+                "action": "drop_experience",
+            },
         )
-        loosened = _do(intent.distance_max_km + 2)
-        if loosened.success and loosened.candidates:
-            return list(loosened.candidates)
-        return FailureReason.EMPTY_CANDIDATES
-    return out.reason or FailureReason.UPSTREAM_FAILURE
+        out = _do(intent.distance_max_km + 2, experience=[])
+        if out.success and out.candidates:
+            return list(out.candidates)
+
+    # 第 4 级：剥 dietary（仅当有 dietary）
+    if intent.dietary_constraints:
+        tracer.emit(
+            "replan_triggered",
+            {
+                "reason": FailureReason.EMPTY_CANDIDATES.value,
+                "from_tool": "search_restaurants",
+                "action": "drop_dietary",
+            },
+        )
+        out = _do(intent.distance_max_km + 2, experience=[], dietary=[])
+        if out.success and out.candidates:
+            return list(out.candidates)
+
+    # 第 5 级：最宽松
+    tracer.emit(
+        "replan_triggered",
+        {
+            "reason": FailureReason.EMPTY_CANDIDATES.value,
+            "from_tool": "search_restaurants",
+            "action": "minimal_constraint",
+        },
+    )
+    out = _do(
+        intent.distance_max_km + 4,
+        experience=[],
+        dietary=[],
+        capacity=None,
+    )
+    if out.success and out.candidates:
+        return list(out.candidates)
+
+    return FailureReason.EMPTY_CANDIDATES
 
 
 def _negotiate_dining(

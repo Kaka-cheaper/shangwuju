@@ -181,3 +181,97 @@ PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent Plann
 - 不要发明 Tool 名（只调 TOOL_REGISTRY 里的）
 - 不要在中间步骤里把方案"假装下单"——必须等用户确认（MVP-2 规则）
 """
+
+
+
+# ============================================================
+# Phase 0.7：persona + memory prior 注入
+# ============================================================
+
+
+def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
+    """在 INTENT_PARSER_SYSTEM_PROMPT 末尾追加 user 的 persona/memory prior。
+
+    设计原则（D9 不破）：
+    - persona 是 user 维度（"我是谁"），与 scene_type 枚举不同——不引入新分支
+    - prior 仅作"用户没明说时的默认补全"，**用户输入永远优先**
+    - 用户输入与 prior 冲突时，prior 让步并写入 ambiguous_fields
+    - 若 user_id 为 None / 找不到 persona → 返回原始 prompt 不动
+
+    用法：
+        from agent.prompts.system_prompt import build_intent_parser_system_prompt_with_priors
+        system = build_intent_parser_system_prompt_with_priors(user_id)
+        # 替代直接用 INTENT_PARSER_SYSTEM_PROMPT
+    """
+    if not user_id:
+        return INTENT_PARSER_SYSTEM_PROMPT
+
+    # 延迟 import 避免循环依赖
+    try:
+        from data.memory_store import compute_priors
+    except Exception:  # noqa: BLE001
+        return INTENT_PARSER_SYSTEM_PROMPT
+
+    try:
+        view = compute_priors(user_id)
+    except Exception:  # noqa: BLE001
+        return INTENT_PARSER_SYSTEM_PROMPT
+
+    persona = view.persona
+    top_priors = view.top_priors
+    median = view.suggested_distance_max_km
+
+    # 构造 memory 摘要：accepted top 3
+    accepted_top = persona.label  # placeholder 初始化
+    accepted_top_lines: list[str] = []
+    for tag, count in view.memory.accepted_tags.top(3):
+        accepted_top_lines.append(f"  - {tag}（已接受 {count} 次）")
+    memory_section = (
+        "\n".join(accepted_top_lines) if accepted_top_lines else "  - （暂无）"
+    )
+
+    rejected_top_lines: list[str] = []
+    for tag, count in view.memory.rejected_tags.top(3):
+        rejected_top_lines.append(f"  - {tag}（已拒绝 {count} 次，**不要主动加**）")
+    rejected_section = (
+        "\n".join(rejected_top_lines) if rejected_top_lines else "  - （暂无）"
+    )
+
+    top_priors_str = "、".join(top_priors) if top_priors else "（暂无累积）"
+
+    addendum = f"""
+
+【当前用户档案 + 历史偏好（仅作 prior，用户输入优先）】
+
+档案：{persona.label}（{persona.notes}）
+建议默认距离：{median} km
+合并后高优先 tag：{top_priors_str}
+
+历史接受 top 3：
+{memory_section}
+
+历史拒绝 top 3（**慎重**主动加）：
+{rejected_section}
+
+【prior 使用规则（关键：用户输入永远优先；prior 仅作"补全空字段"）】
+
+1. **social_context 是 user 身份标识**——优先用 persona 的 suitable_for_priority 第一项：
+   - 用户没明示场景（如「今天下午想出去玩」）→ 直接用 persona 的 suitable_for_priority[0]
+   - 用户明示了场景（如「带女朋友看展」）→ 按用户的来，prior 让步
+
+2. distance_max_km：
+   - 用户没明示距离 → 用「建议默认距离」
+   - 用户明示了「太远」「近一点」「3 公里以内」→ 按用户的来
+
+3. physical / dietary / experience tag（**保守补全，避免候选过严**）：
+   - 用户输入有明确暗示（如「带孩子」「想吃辣」「网红」）→ 按用户输入抽
+   - 用户输入完全无暗示 → **保持空数组**（**不要**主动用 prior 塞 2-3 个 tag，
+     这会让 search_pois/search_restaurants 候选过严返空集；prior 仅在 social_context
+     已经定向后影响候选排序，不需要再叠加 tag 双重过滤）
+   - 例外：若用户明确说「按我平常的来」「我不挑」之类，可以补 1 个最高优先 tag
+
+4. 用户输入与 prior 冲突时**以用户输入为准**，并把字段名写入 ambiguous_fields
+
+5. parse_confidence 不要因 prior 加注而强行抬高：仅按用户输入清晰度打分
+"""
+    return INTENT_PARSER_SYSTEM_PROMPT + addendum

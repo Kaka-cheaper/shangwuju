@@ -1,0 +1,77 @@
+[
+  {
+    "user_id": "u_dad",
+    "label": "新手爸爸",
+    "icon": "👨‍👩‍👧",
+    "notes": "带 5 岁男孩，偏好近距离 + 室内备份；老婆在减肥；不要太累，孩子能玩 1.5h+",
+    "home_location": "嘉绿苑",
+    "default_distance_max_km": 5.0,
+    "default_budget": 280,
+    "default_tags": {
+      "physical": ["亲子友好", "适合 5-10 岁", "低强度"],
+      "dietary": ["低脂", "健康轻食", "有儿童餐"],
+      "experience": [],
+      "suitable_for_priority": ["家庭日常"]
+    }
+  },
+  {
+    "user_id": "u_biz",
+    "label": "商务白领",
+    "icon": "💼",
+    "notes": "经常临时接客户；预算高、要体面；偏好交通便捷的核心商圈",
+    "home_location": "钱江新城",
+    "default_distance_max_km": 8.0,
+    "default_budget": 800,
+    "default_tags": {
+      "physical": [],
+      "dietary": ["高人均", "有包间", "粤菜"],
+      "experience": ["商务体面", "礼仪感", "安静聊天"],
+      "suitable_for_priority": ["商务接待", "纪念日仪式感"]
+    }
+  },
+  {
+    "user_id": "u_grandma",
+    "label": "孝顺儿女",
+    "icon": "👵",
+    "notes": "经常带父母外出；老人腿脚不便；偏好近 + 软烂菜 + 无台阶",
+    "home_location": "西湖区文一路",
+    "default_distance_max_km": 3.0,
+    "default_budget": 200,
+    "default_tags": {
+      "physical": ["适合老人", "无台阶", "可休息", "低强度"],
+      "dietary": ["软烂"],
+      "experience": [],
+      "suitable_for_priority": ["老人伴助", "纪念日仪式感"]
+    }
+  },
+  {
+    "user_id": "u_solo",
+    "label": "独居青年",
+    "icon": "🌿",
+    "notes": "工作高压，下午常一个人放空；偏好安静 / 室内 / 单人友好",
+    "home_location": "城西银泰",
+    "default_distance_max_km": 5.0,
+    "default_budget": 150,
+    "default_tags": {
+      "physical": [],
+      "dietary": [],
+      "experience": ["独处舒缓", "安静聊天", "室内", "学习成长"],
+      "suitable_for_priority": ["独处放空"]
+    }
+  },
+  {
+    "user_id": "u_couple",
+    "label": "情侣党",
+    "icon": "💑",
+    "notes": "和女朋友周末出门，偏好看展 / 网红 / 安静聊天",
+    "home_location": "湖滨银泰",
+    "default_distance_max_km": 6.0,
+    "default_budget": 400,
+    "default_tags": {
+      "physical": [],
+      "dietary": ["下午茶", "甜品"],
+      "experience": ["看展", "拍照友好", "网红打卡", "亲密情侣", "安静聊天"],
+      "suitable_for_priority": ["情侣亲密", "闺蜜聊天"]
+    }
+  }
+]

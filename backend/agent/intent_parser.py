@@ -24,6 +24,7 @@ from .llm_client import LLMChatResponse, LLMClient, LLMMessage, strip_json_fence
 from .prompts.system_prompt import (
     INTENT_PARSER_FEW_SHOTS,
     INTENT_PARSER_SYSTEM_PROMPT,
+    build_intent_parser_system_prompt_with_priors,
 )
 
 
@@ -39,10 +40,23 @@ class IntentParseError(Exception):
         return f"IntentParseError({self.reason})"
 
 
-def _build_messages(user_input: str, error_feedback: str | None = None) -> list[LLMMessage]:
-    """组装 system + few-shot + user 消息。"""
+def _build_messages(
+    user_input: str,
+    error_feedback: str | None = None,
+    *,
+    user_id: str | None = None,
+) -> list[LLMMessage]:
+    """组装 system + few-shot + user 消息。
+
+    user_id 不为空时，system prompt 会拼接 persona/memory prior（Phase 0.7）。
+    """
+    system_prompt = (
+        build_intent_parser_system_prompt_with_priors(user_id)
+        if user_id
+        else INTENT_PARSER_SYSTEM_PROMPT
+    )
     messages: list[LLMMessage] = [
-        LLMMessage(role="system", content=INTENT_PARSER_SYSTEM_PROMPT),
+        LLMMessage(role="system", content=system_prompt),
     ]
     for fs_user, fs_assistant in INTENT_PARSER_FEW_SHOTS:
         messages.append(LLMMessage(role="user", content=fs_user))
@@ -89,8 +103,12 @@ def parse_intent(
     *,
     client: LLMClient,
     max_retries: int = 1,
+    user_id: str | None = None,
 ) -> IntentExtraction:
     """主入口：用 LLM 抽取意图，Pydantic 二次校验。
+
+    Phase 0.7：传 user_id 时 system prompt 注入 persona+memory prior（"我是谁 + 学过什么"）。
+    user_id 为 None 时退化为原行为（无 prior，按 §5.7 D-SoT 抽取）。
 
     流程：
     1. 调 LLM（response_format=json_object）
@@ -102,7 +120,7 @@ def parse_intent(
     last_response: LLMChatResponse | None = None
 
     for attempt in range(max_retries + 1):
-        messages = _build_messages(user_input, error_feedback)
+        messages = _build_messages(user_input, error_feedback, user_id=user_id)
         last_response = client.chat(
             messages,
             temperature=0.1,

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 会话状态：用户输入 / SSE 流事件 / 当前行程 / 加载态。
  *
  * 为什么用 Zustand：
@@ -14,6 +14,8 @@ import type {
   Itinerary,
   IntentExtraction,
   PlannerMode,
+  Persona,
+  PersonasResponse,
   RefinementDonePayload,
   RefinementStartPayload,
   ReplanTriggeredPayload,
@@ -22,6 +24,7 @@ import type {
   StreamErrorPayload,
   ToolCallEndPayload,
   ToolCallStartPayload,
+  UserPreferenceView,
 } from "./types";
 import {
   API_BASE,
@@ -29,6 +32,8 @@ import {
   generateSessionId,
   getPlannerModeFromCookie,
   setPlannerModeCookie,
+  getUserIdFromCookie,
+  setUserIdCookie,
 } from "./utils";
 
 export type ChatRole = "user" | "agent";
@@ -89,6 +94,12 @@ export interface ChatState {
   // 规划模式
   plannerMode: PlannerMode;
 
+  // Phase 0.7：用户身份
+  currentUserId: string | null;
+  personas: Persona[];
+  personasLoaded: boolean;
+  preferences: UserPreferenceView | null;
+
   // 流式状态
   streaming: boolean;
   streamError: string | null;
@@ -118,6 +129,10 @@ export interface ChatState {
   cancel: () => void;
   reset: () => void;
   setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean }) => void;
+  setCurrentUserId: (userId: string, options?: { silent?: boolean }) => void;
+  loadPersonas: () => Promise<void>;
+  refreshPreferences: () => Promise<void>;
+  resetUserMemory: () => Promise<void>;
   pushToast: (toast: Omit<ToastItem, "id">) => void;
   dismissToast: (id: string) => void;
 }
@@ -131,6 +146,10 @@ const initialState: Omit<
   | "cancel"
   | "reset"
   | "setPlannerMode"
+  | "setCurrentUserId"
+  | "loadPersonas"
+  | "refreshPreferences"
+  | "resetUserMemory"
   | "pushToast"
   | "dismissToast"
 > = {
@@ -139,6 +158,11 @@ const initialState: Omit<
   scenarios: [],
   scenariosLoaded: false,
   plannerMode: "rule",
+  // Phase 0.7：默认 demo_user，客户端 mount 后由 cookie 改写
+  currentUserId: "demo_user",
+  personas: [],
+  personasLoaded: false,
+  preferences: null,
   streaming: false,
   streamError: null,
   messages: [],
@@ -165,6 +189,12 @@ function nextToastId(): string {
 /** 当前 planner mode 对应的 header；服务端渲染期间返空对象不暴露 cookie。 */
 function plannerHeader(mode: PlannerMode): Record<string, string> {
   return { "X-Planner-Mode": mode };
+}
+
+/** Phase 0.7：当前 user_id header；与 plannerHeader 合并后透传给 SSE 请求。 */
+function userHeader(userId: string | null | undefined): Record<string, string> {
+  if (!userId) return {};
+  return { "X-User-Id": userId };
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -247,7 +277,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       },
       undefined,
-      { headers: plannerHeader(get().plannerMode) },
+      { headers: { ...plannerHeader(get().plannerMode), ...userHeader(get().currentUserId) } },
     );
   },
 
@@ -269,10 +299,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({
             streamError: formatStreamError(err.reason, err.detail),
           }),
-        onDone: () => set({ streaming: false }),
+        onDone: () => {
+          set({ streaming: false });
+          // Phase 0.7：confirm 后异步刷偏好（让评委看到 accepted_tags 累加）
+          get().refreshPreferences().catch(() => {});
+        },
       },
       undefined,
-      { headers: plannerHeader(get().plannerMode) },
+      { headers: { ...plannerHeader(get().plannerMode), ...userHeader(get().currentUserId) } },
     );
   },
 
@@ -333,10 +367,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }));
           }
           set({ streaming: false });
+          // Phase 0.7：refine 后刷偏好（rejected_tags 可能 +1）
+          get().refreshPreferences().catch(() => {});
         },
       },
       undefined,
-      { headers: plannerHeader(get().plannerMode) },
+      { headers: { ...plannerHeader(get().plannerMode), ...userHeader(get().currentUserId) } },
     );
   },
 
@@ -360,10 +396,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   reset: () => {
     abortController?.abort();
+    const cur = get();
     set({
       ...initialState,
       sessionId: generateSessionId(),
-      plannerMode: get().plannerMode,
+      plannerMode: cur.plannerMode,
+      // Phase 0.7：reset 不清 user 身份（演示连续切换 user 体验稳）
+      currentUserId: cur.currentUserId,
+      personas: cur.personas,
+      personasLoaded: cur.personasLoaded,
+      preferences: cur.preferences,
     });
     // reset 后立刻刷一次场景缓存（loadScenarios 会复用 scenariosLoaded 跳过）
     void get().loadScenarios();
@@ -381,6 +423,69 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ? "已切换到 LLM 自主决策模式"
           : "已切换到规则化模式（Demo 安全网）",
     });
+  },
+
+  setCurrentUserId: (userId, options) => {
+    if (get().currentUserId === userId) return;
+    setUserIdCookie(userId);
+    set({ currentUserId: userId, preferences: null });
+    // 切 user 后立即拉新偏好（异步，不阻塞 UI）
+    get().refreshPreferences().catch(() => {});
+    if (options?.silent) return;
+    const persona = get().personas.find((p) => p.user_id === userId);
+    get().pushToast({
+      kind: "info",
+      text: persona ? `已切到「${persona.label}」${persona.icon}` : `已切到 ${userId}`,
+    });
+  },
+
+  loadPersonas: async () => {
+    if (get().personasLoaded) return;
+    try {
+      const resp = await fetch(`${API_BASE}/personas`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as PersonasResponse;
+      set({ personas: data.personas, personasLoaded: true });
+    } catch (e) {
+      get().pushToast({
+        kind: "warn",
+        text: `加载用户档案失败：${(e as Error).message}`,
+      });
+    }
+  },
+
+  refreshPreferences: async () => {
+    const userId = get().currentUserId;
+    if (!userId) return;
+    try {
+      const resp = await fetch(
+        `${API_BASE}/preferences/${encodeURIComponent(userId)}`,
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = (await resp.json()) as UserPreferenceView;
+      set({ preferences: data });
+    } catch {
+      // 偏好失败不阻塞主流程
+    }
+  },
+
+  resetUserMemory: async () => {
+    const userId = get().currentUserId;
+    if (!userId) return;
+    try {
+      const resp = await fetch(
+        `${API_BASE}/preferences/${encodeURIComponent(userId)}/reset`,
+        { method: "POST" },
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await get().refreshPreferences();
+      get().pushToast({ kind: "success", text: "已清空当前用户的偏好记忆" });
+    } catch (e) {
+      get().pushToast({
+        kind: "warn",
+        text: `清空失败：${(e as Error).message}`,
+      });
+    }
   },
 
   pushToast: (toast) => {

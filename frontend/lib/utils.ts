@@ -88,3 +88,26 @@ export function setPlannerModeCookie(mode: PlannerMode): void {
   const oneYear = 60 * 60 * 24 * 365;
   document.cookie = `${PLANNER_MODE_COOKIE}=${mode}; Max-Age=${oneYear}; Path=/; SameSite=Lax`;
 }
+
+
+// ============================================================
+// Phase 0.7：user_id cookie（评委演示时切换 user 持久化）
+// ============================================================
+
+const USER_ID_COOKIE = "shangwuju_user_id";
+
+export function getUserIdFromCookie(): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const m = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${USER_ID_COOKIE}=([^;]+)`),
+  );
+  if (!m) return undefined;
+  const v = decodeURIComponent(m[1]).trim();
+  return v || undefined;
+}
+
+export function setUserIdCookie(userId: string): void {
+  if (typeof document === "undefined") return;
+  const oneYear = 60 * 60 * 24 * 365;
+  document.cookie = `${USER_ID_COOKIE}=${encodeURIComponent(userId)}; Max-Age=${oneYear}; Path=/; SameSite=Lax`;
+}
