@@ -28,6 +28,7 @@ from . import (  # noqa: F401  ── side-effect import
     check_restaurant_availability,
     estimate_route_time,
     reserve_restaurant,
+    buy_ticket,
     generate_share_message,
     get_user_profile,
 )

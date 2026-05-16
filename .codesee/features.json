@@ -217,9 +217,9 @@
         { "file": "backend/tools/search_pois.py", "lines": [1, 80] },
         { "file": "backend/tools/_helpers.py", "lines": [1, 45] },
         { "file": "backend/data/loader.py", "lines": [40, 55] },
-        { "file": "mock_data/pois.json", "lines": [1, 220] }
+        { "file": "mock_data/pois.json", "lines": [1, 286] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T15:00:00Z"
@@ -257,9 +257,9 @@
         { "file": "backend/tools/search_restaurants.py", "lines": [1, 80] },
         { "file": "backend/tools/_helpers.py", "lines": [1, 45] },
         { "file": "backend/data/loader.py", "lines": [40, 60] },
-        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+        { "file": "mock_data/restaurants.json", "lines": [1, 571] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T15:00:00Z"
@@ -293,9 +293,9 @@
       ],
       "refs": [
         { "file": "backend/tools/check_restaurant_availability.py", "lines": [1, 95] },
-        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+        { "file": "mock_data/restaurants.json", "lines": [1, 571] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T15:00:00Z"
@@ -324,9 +324,9 @@
       "refs": [
         { "file": "backend/tools/estimate_route_time.py", "lines": [1, 40] },
         { "file": "backend/tools/_helpers.py", "lines": [40, 55] },
-        { "file": "mock_data/routes.json", "lines": [1, 70] }
+        { "file": "mock_data/routes.json", "lines": [1, 107] }
       ],
-      "confidence": 0.88,
+      "confidence": 0.9,
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T15:00:00Z"
@@ -467,9 +467,9 @@
       ],
       "refs": [
         { "file": "backend/tools/reserve_restaurant.py", "lines": [1, 75] },
-        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+        { "file": "mock_data/restaurants.json", "lines": [1, 571] }
       ],
-      "confidence": 0.88,
+      "confidence": 0.9,
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T15:00:00Z"
@@ -477,31 +477,45 @@
     {
       "id": "f-buy-ticket",
       "name": "门票购买执行",
-      "summary": "Mock 购票，含售罄案例 E2",
+      "summary": "Mock 购票返伪造 order_id；P_SOLD 售罄触发 E2；超量/0 量返 invalid_input",
       "epicId": "execution",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 buy_ticket Tool" }
       ],
       "steps": [
         { "id": "receive", "name": "接收购票参数", "role": "input" },
-        { "id": "check_inv", "name": "查库存", "role": "data-read" },
-        { "id": "pay", "name": "模拟支付", "role": "side-effect" },
-        { "id": "log", "name": "推送购票事件", "role": "side-effect" },
-        { "id": "return_ok", "name": "返回票号", "role": "output" },
-        { "id": "return_sold_out", "name": "返回售罄", "role": "error" }
+        { "id": "load", "name": "加载 POI 全集", "role": "data-read" },
+        { "id": "find_poi", "name": "查找目标 POI", "role": "compute" },
+        { "id": "validate_qty", "name": "校验购票数量", "role": "validation" },
+        { "id": "check_inv", "name": "检查库存余量", "role": "compute" },
+        { "id": "calc_price", "name": "计算总价", "role": "compute" },
+        { "id": "make_order_id", "name": "生成订单号", "role": "compute" },
+        { "id": "return_ok", "name": "返回票号与总价", "role": "output" },
+        { "id": "return_sold_out", "name": "返回售罄", "role": "error" },
+        { "id": "return_invalid", "name": "返回数量不合法", "role": "error" },
+        { "id": "return_not_found", "name": "返回 POI 未找到", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "check_inv", "kind": "next" },
-        { "from": "check_inv", "to": "pay", "kind": "conditional", "condition": "有库存" },
-        { "from": "check_inv", "to": "return_sold_out", "kind": "error", "condition": "sold_out=true（埋点 E2）" },
-        { "from": "pay", "to": "log", "kind": "async" },
-        { "from": "pay", "to": "return_ok", "kind": "next" }
+        { "from": "receive", "to": "load", "kind": "next" },
+        { "from": "load", "to": "find_poi", "kind": "next" },
+        { "from": "find_poi", "to": "validate_qty", "kind": "conditional", "condition": "POI id 命中" },
+        { "from": "find_poi", "to": "return_not_found", "kind": "error", "condition": "POI id 不存在" },
+        { "from": "validate_qty", "to": "check_inv", "kind": "conditional", "condition": "quantity > 0" },
+        { "from": "validate_qty", "to": "return_invalid", "kind": "error", "condition": "quantity == 0" },
+        { "from": "check_inv", "to": "calc_price", "kind": "conditional", "condition": "available_slots > 0 且足量" },
+        { "from": "check_inv", "to": "return_sold_out", "kind": "error", "condition": "available_slots == 0（E2 埋点 P_SOLD）" },
+        { "from": "check_inv", "to": "return_invalid", "kind": "error", "condition": "quantity > available_slots" },
+        { "from": "calc_price", "to": "make_order_id", "kind": "next" },
+        { "from": "make_order_id", "to": "return_ok", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "backend/tools/buy_ticket.py", "lines": [1, 90] },
+        { "file": "mock_data/pois.json", "lines": [1, 286] }
+      ],
+      "confidence": 0.92,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T16:00:00Z"
     },
     {
       "id": "f-order-extra",

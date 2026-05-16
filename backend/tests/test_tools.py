@@ -12,6 +12,7 @@ import tools  # noqa: F401  触发注册
 from data.loader import load_pois, load_restaurants
 from schemas.errors import FailureReason
 from schemas.tools import (
+    BuyTicketInput,
     CheckRestaurantAvailabilityInput,
     EstimateRouteTimeInput,
     GenerateShareMessageInput,
@@ -21,6 +22,7 @@ from schemas.tools import (
     SearchRestaurantsInput,
 )
 from tools import TOOL_REGISTRY, invoke_tool
+from tools.buy_ticket import buy_ticket
 from tools.check_restaurant_availability import check_restaurant_availability
 from tools.estimate_route_time import estimate_route_time
 from tools.generate_share_message import generate_share_message
@@ -41,6 +43,7 @@ def test_registry_contains_seven_tools():
         "check_restaurant_availability",
         "estimate_route_time",
         "reserve_restaurant",
+        "buy_ticket",
         "generate_share_message",
         "get_user_profile",
     }
@@ -250,6 +253,52 @@ def test_reserve_restaurant_unknown_restaurant():
 
 
 # ============================================================
+# T6.5 buy_ticket
+# ============================================================
+
+def test_buy_ticket_success():
+    """P001 库存 45，买 2 张应成功并返 total_price=160（unit=80）。"""
+    out = buy_ticket(BuyTicketInput(poi_id="P001", quantity=2, visitor_ages=[5, 35]))
+    assert out.success
+    assert out.order_id and out.order_id.startswith("T-P001-")
+    assert out.quantity == 2
+    assert out.total_price == 160.0
+
+
+def test_buy_ticket_sold_out():
+    """E2 异常：P_SOLD 售罄案例必须触发 TICKET_SOLD_OUT。"""
+    out = buy_ticket(BuyTicketInput(poi_id="P_SOLD", quantity=1))
+    assert not out.success
+    assert out.reason == FailureReason.TICKET_SOLD_OUT
+    assert out.order_id is None
+
+
+def test_buy_ticket_unknown_poi():
+    out = buy_ticket(BuyTicketInput(poi_id="P_NONE", quantity=1))
+    assert not out.success
+    assert out.reason == FailureReason.NOT_FOUND
+
+
+def test_buy_ticket_invalid_quantity_zero():
+    out = buy_ticket(BuyTicketInput(poi_id="P001", quantity=0))
+    assert not out.success
+    assert out.reason == FailureReason.INVALID_INPUT
+
+
+def test_buy_ticket_invalid_quantity_over_stock():
+    out = buy_ticket(BuyTicketInput(poi_id="P001", quantity=999))
+    assert not out.success
+    assert out.reason == FailureReason.INVALID_INPUT
+
+
+def test_buy_ticket_free_poi_zero_total():
+    """免费/无 price_range 的 POI 应按 0 元计算（P005 江畔老人公园）。"""
+    out = buy_ticket(BuyTicketInput(poi_id="P005", quantity=2))
+    assert out.success
+    assert out.total_price == 0.0
+
+
+# ============================================================
 # T6 generate_share_message
 # ============================================================
 
@@ -388,6 +437,43 @@ def test_coverage_failure_cases_at_least_eight():
         f"失败埋点不足 8：POI={[p.id for p in poi_fails]}, "
         f"Restaurant={[r.id for r in restaurant_fails]}"
     )
+
+
+def test_coverage_pois_at_least_20():
+    """D4 mock 规模标准：POI ≥ 20 条。"""
+    pois = load_pois()
+    assert len(pois) >= 20, f"POI 不足 20：当前 {len(pois)} 条"
+
+
+def test_coverage_restaurants_at_least_30():
+    """D4 mock 规模标准：Restaurant ≥ 30 条。"""
+    rs = load_restaurants()
+    assert len(rs) >= 30, f"Restaurant 不足 30：当前 {len(rs)} 条"
+
+
+def test_coverage_healthy_food_at_least_12():
+    """D4：健康轻食 cuisine 餐厅 ≥ 12 条（家庭场景主力）。"""
+    rs = load_restaurants()
+    healthy = [r for r in rs if "健康轻食" in r.tags]
+    assert len(healthy) >= 12, f"健康轻食仅 {len(healthy)} 条"
+
+
+def test_coverage_social_context_breadth():
+    """演示场景集 §四：mock 数据要覆盖 6+ 种 social_context。"""
+    pois = load_pois()
+    rs = load_restaurants()
+    poi_ctx = {c for p in pois for c in p.suitable_for}
+    rest_ctx = {c for r in rs for c in r.suitable_for}
+    assert len(poi_ctx) >= 6, f"POI suitable_for 仅覆盖 {sorted(poi_ctx)}"
+    assert len(rest_ctx) >= 6, f"Restaurant suitable_for 仅覆盖 {sorted(rest_ctx)}"
+
+
+def test_coverage_e2_ticket_sold_out_explicit():
+    """演示场景集 §六 加分项：E2 售罄案例必须有显式 P_SOLD 标识。"""
+    pois = load_pois()
+    p_sold = [p for p in pois if p.id == "P_SOLD"]
+    assert len(p_sold) == 1, "缺 P_SOLD 案例（专门给 buy_ticket E2 演示用）"
+    assert p_sold[0].capacity.available_slots == 0
 
 
 # ============================================================

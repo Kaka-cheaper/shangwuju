@@ -30,6 +30,8 @@
     "reservation_slots": [
       { "time": "12:00", "available": false, "queue_minutes": 0 },
       { "time": "12:30", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
       { "time": "18:00", "available": true, "queue_minutes": 15 }
     ],
     "tags": ["粤菜", "高人均", "有包间", "礼仪感", "适合老人", "软烂"],
@@ -66,7 +68,10 @@
     "reservation_slots": [
       { "time": "14:30", "available": false, "queue_minutes": 0 },
       { "time": "15:00", "available": true, "queue_minutes": 60 },
-      { "time": "16:00", "available": true, "queue_minutes": 25 }
+      { "time": "16:00", "available": true, "queue_minutes": 25 },
+      { "time": "17:00", "available": true, "queue_minutes": 10 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
     "suitable_for": ["闺蜜聊天", "情侣亲密"]
@@ -100,6 +105,8 @@
     "rating": 4.7,
     "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
     "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
       { "time": "18:00", "available": false, "queue_minutes": 0 },
       { "time": "18:30", "available": true, "queue_minutes": 0 },
       { "time": "19:30", "available": true, "queue_minutes": 0 }
@@ -136,6 +143,9 @@
     "rating": 4.8,
     "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
     "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 },
       { "time": "18:30", "available": false, "queue_minutes": 0 },
       { "time": "19:00", "available": true, "queue_minutes": 0 },
       { "time": "19:30", "available": true, "queue_minutes": 0 }
@@ -156,7 +166,10 @@
     "reservation_slots": [
       { "time": "14:00", "available": true, "queue_minutes": 0 },
       { "time": "15:00", "available": true, "queue_minutes": 0 },
-      { "time": "16:00", "available": true, "queue_minutes": 0 }
+      { "time": "16:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["独处舒缓", "安静聊天", "下午茶", "甜品"],
     "suitable_for": ["独处放空"]
@@ -192,7 +205,10 @@
     "reservation_slots": [
       { "time": "14:00", "available": true, "queue_minutes": 15 },
       { "time": "15:00", "available": true, "queue_minutes": 5 },
-      { "time": "16:00", "available": true, "queue_minutes": 0 }
+      { "time": "16:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 5 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
     "suitable_for": ["闺蜜聊天", "情侣亲密"]
@@ -228,7 +244,10 @@
     "reservation_slots": [
       { "time": "14:00", "available": true, "queue_minutes": 0 },
       { "time": "15:00", "available": true, "queue_minutes": 0 },
-      { "time": "16:00", "available": true, "queue_minutes": 0 }
+      { "time": "16:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["独处舒缓", "安静聊天", "下午茶"],
     "suitable_for": ["独处放空"]
@@ -244,6 +263,8 @@
     "rating": 4.6,
     "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
     "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 },
       { "time": "18:30", "available": true, "queue_minutes": 0 },
       { "time": "19:00", "available": true, "queue_minutes": 0 },
       { "time": "19:30", "available": true, "queue_minutes": 0 }
@@ -282,7 +303,10 @@
     "reservation_slots": [
       { "time": "14:30", "available": true, "queue_minutes": 5 },
       { "time": "15:30", "available": true, "queue_minutes": 0 },
-      { "time": "16:30", "available": true, "queue_minutes": 0 }
+      { "time": "16:30", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
     "suitable_for": ["闺蜜聊天", "情侣亲密"]
@@ -316,6 +340,8 @@
     "rating": 4.7,
     "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
     "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 },
       { "time": "18:30", "available": true, "queue_minutes": 0 },
       { "time": "19:00", "available": true, "queue_minutes": 0 },
       { "time": "19:30", "available": true, "queue_minutes": 0 }
@@ -335,10 +361,211 @@
     "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
     "reservation_slots": [
       { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 },
       { "time": "18:30", "available": true, "queue_minutes": 0 },
       { "time": "19:00", "available": true, "queue_minutes": 0 }
     ],
     "tags": ["商务体面", "高人均", "有包间", "礼仪感", "粤菜", "适合老人"],
     "suitable_for": ["商务接待", "纪念日仪式感"]
+  },
+  {
+    "id": "R020",
+    "name": "绿野鲜厨 · 健康轻食",
+    "cuisine": "健康轻食",
+    "location": { "name": "西溪银泰" },
+    "distance_km": 2.0,
+    "opening_hours": "10:00-21:30",
+    "avg_price": 78,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 5 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "亲子友好"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R021",
+    "name": "鲜活轻碗 · 杂粮饭",
+    "cuisine": "健康轻食",
+    "location": { "name": "城西万象城" },
+    "distance_km": 3.4,
+    "opening_hours": "10:30-22:00",
+    "avg_price": 70,
+    "rating": 4.4,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["低脂", "健康轻食", "高蛋白"],
+    "suitable_for": ["家庭日常", "独处放空"]
+  },
+  {
+    "id": "R022",
+    "name": "七彩沙拉 · 单人友好",
+    "cuisine": "健康轻食",
+    "location": { "name": "钱江新城" },
+    "distance_km": 4.0,
+    "opening_hours": "09:00-22:00",
+    "avg_price": 65,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "独处舒缓"],
+    "suitable_for": ["独处放空", "家庭日常"]
+  },
+  {
+    "id": "R023",
+    "name": "鲸落·健康简餐",
+    "cuisine": "健康轻食",
+    "location": { "name": "嘉里中心" },
+    "distance_km": 3.6,
+    "opening_hours": "11:00-21:30",
+    "avg_price": 88,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": false, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "拍照友好", "亲子友好"],
+    "suitable_for": ["家庭日常", "闺蜜聊天"]
+  },
+  {
+    "id": "R024",
+    "name": "原味馆 · 蒸汽轻食",
+    "cuisine": "健康轻食",
+    "location": { "name": "天目里" },
+    "distance_km": 4.0,
+    "opening_hours": "10:30-21:30",
+    "avg_price": 95,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R025",
+    "name": "麦境厨房 · 全麦轻食",
+    "cuisine": "健康轻食",
+    "location": { "name": "湖滨银泰" },
+    "distance_km": 4.5,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 80,
+    "rating": 4.4,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食"],
+    "suitable_for": ["家庭日常", "闺蜜聊天"]
+  },
+  {
+    "id": "R026",
+    "name": "青苗轻食 · 城西店",
+    "cuisine": "健康轻食",
+    "location": { "name": "文一西路" },
+    "distance_km": 2.9,
+    "opening_hours": "10:30-21:00",
+    "avg_price": 72,
+    "rating": 4.3,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "亲子友好"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R027",
+    "name": "蓝鲸轻食 · 海鲜碗",
+    "cuisine": "健康轻食",
+    "location": { "name": "万象城" },
+    "distance_km": 4.2,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 110,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["低脂", "健康轻食", "高蛋白", "拍照友好"],
+    "suitable_for": ["家庭日常", "闺蜜聊天"]
+  },
+  {
+    "id": "R028",
+    "name": "禅食小馆 · 素食养生",
+    "cuisine": "健康轻食",
+    "location": { "name": "龙井路" },
+    "distance_km": 4.5,
+    "opening_hours": "11:00-21:00",
+    "avg_price": 105,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "软烂", "适合老人", "无台阶", "有包间"],
+    "suitable_for": ["老人伴助", "家庭日常"]
+  },
+  {
+    "id": "R029",
+    "name": "悠选轻食 · 拍照网红",
+    "cuisine": "健康轻食",
+    "location": { "name": "良渚文化村" },
+    "distance_km": 4.4,
+    "opening_hours": "10:30-22:00",
+    "avg_price": 95,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 10 },
+      { "time": "15:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "网红打卡", "拍照友好", "下午茶"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
+  },
+  {
+    "id": "R030",
+    "name": "校园食堂 · 同学小聚",
+    "cuisine": "杭帮菜",
+    "location": { "name": "玉古路" },
+    "distance_km": 3.5,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 60,
+    "rating": 4.3,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 },
+      { "time": "18:30", "available": true, "queue_minutes": 10 }
+    ],
+    "tags": ["热闹", "社交"],
+    "suitable_for": ["同学重聚", "朋友热闹"]
   }
 ]

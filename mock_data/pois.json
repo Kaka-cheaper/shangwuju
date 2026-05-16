@@ -202,7 +202,7 @@
     "rating": 4.6,
     "price_range": [200, 400],
     "tags": ["商务体面", "礼仪感", "安静聊天", "室内"],
-    "suitable_for": ["商务接待"],
+    "suitable_for": ["商务接待", "纪念日仪式感"],
     "capacity": { "daily_quota": 40, "available_slots": 18 }
   },
   {
@@ -218,5 +218,69 @@
     "tags": ["亲子友好", "适合 5-10 岁", "拍照友好", "室内", "低强度"],
     "suitable_for": ["家庭日常"],
     "capacity": { "daily_quota": 200, "available_slots": 60 }
+  },
+  {
+    "id": "P018",
+    "name": "西湖游船码头",
+    "type": "城市观光",
+    "location": { "name": "断桥" },
+    "distance_km": 4.7,
+    "opening_hours": "08:00-20:00",
+    "rating": 4.7,
+    "price_range": [70, 130],
+    "tags": ["户外", "拍照友好", "网红打卡", "可休息"],
+    "suitable_for": ["情侣亲密", "闺蜜聊天", "朋友热闹", "家庭日常"],
+    "capacity": { "daily_quota": 500, "available_slots": 220 }
+  },
+  {
+    "id": "P019",
+    "name": "玉皇山陶艺工坊",
+    "type": "DIY 工坊",
+    "location": { "name": "玉皇山南麓" },
+    "distance_km": 4.4,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.5,
+    "price_range": [120, 180],
+    "tags": ["学习成长", "亲密情侣", "拍照友好", "室内", "低强度"],
+    "suitable_for": ["情侣亲密", "闺蜜聊天", "家庭日常"],
+    "capacity": { "daily_quota": 60, "available_slots": 28 }
+  },
+  {
+    "id": "P020",
+    "name": "运河文化夜跑步道",
+    "type": "运动步道",
+    "location": { "name": "运河南端" },
+    "distance_km": 1.8,
+    "opening_hours": "00:00-23:59",
+    "rating": 4.4,
+    "tags": ["户外", "低强度", "可休息", "适合老人", "无台阶"],
+    "suitable_for": ["独处放空", "老人伴助", "家庭日常"],
+    "capacity": { "daily_quota": null, "available_slots": 9999 }
+  },
+  {
+    "id": "P_SOLD",
+    "name": "热门草莓音乐节限定场",
+    "type": "演出",
+    "location": { "name": "黄龙体育中心" },
+    "distance_km": 4.6,
+    "opening_hours": "14:00-22:00",
+    "rating": 4.8,
+    "price_range": [380, 880],
+    "tags": ["热闹", "网红打卡", "拍照友好", "户外", "高强度"],
+    "suitable_for": ["朋友热闹", "情侣亲密", "闺蜜聊天"],
+    "capacity": { "daily_quota": 5000, "available_slots": 0 }
+  },
+  {
+    "id": "P021",
+    "name": "礼遇花园 · 家宴庆典广场",
+    "type": "庆典花园",
+    "location": { "name": "钱江世纪城" },
+    "distance_km": 4.6,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.7,
+    "price_range": [60, 120],
+    "tags": ["礼仪感", "拍照友好", "适合老人", "无台阶", "可休息", "户外"],
+    "suitable_for": ["纪念日仪式感", "老人伴助"],
+    "capacity": { "daily_quota": 100, "available_slots": 50 }
   }
 ]
