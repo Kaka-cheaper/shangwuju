@@ -1,0 +1,162 @@
+"""refiner_prompt —— 用户反馈合并提示词。
+
+目标：把 (原 IntentExtraction + 用户反馈文本) → 调整后的 IntentExtraction。
+
+设计要点：
+1. 词典出口约束（同 system_prompt.py，pitfalls P1-预埋）：三类 tag + social_context 9 选 1
+2. 字段最小修改原则：只动反馈直接命中的字段；其他字段照搬
+3. raw_input 严禁修改（保留首次输入语义）
+4. 输出 changed_fields 中文字段变更摘要列表，给前端 toast 用
+5. 反馈为空时：refiner 走"轻量调整"——把 distance_max_km 缩 1 公里 OR 把 capacity_requirement 调灵活
+   （是给"用户拒绝但懒得说"的兜底，让 Demo 仍能往下走）
+
+不负责：
+- LLM 调用（在 refiner.py）
+- planner 重算（refiner 只产出新 intent）
+"""
+
+from __future__ import annotations
+
+from schemas.tags import (
+    DIETARY_TAGS,
+    EXPERIENCE_TAGS,
+    PHYSICAL_TAGS,
+    SOCIAL_CONTEXTS,
+)
+
+
+def _format_set(values: frozenset[str]) -> str:
+    return "[" + ", ".join(f'"{v}"' for v in sorted(values)) + "]"
+
+
+REFINER_SYSTEM_PROMPT = f"""你是「晌午局」的反馈合并模块。
+
+【任务】
+用户对方才规划的方案不满，给出了反馈。你需要：
+1. 理解反馈核心诉求
+2. 在原 IntentExtraction 基础上，**最小幅度**修改字段
+3. 输出新的 IntentExtraction（结构与原始完全一致）+ 中文变更摘要
+
+【输入格式】
+你会同时收到：
+- 原 IntentExtraction JSON（字段全部已合法）
+- feedback_text 字符串（可能为空）
+
+【输出格式（必须严格 JSON，禁止围栏）】
+{{
+  "refined_intent": {{ ...同 IntentExtraction §5.7 schema 完整结构... }},
+  "changed_fields": ["距离上限：5km → 3km", "加忌口：不辣"],
+  "refiner_note": "已按你的反馈把范围缩到 3 公里以内，并避开辣菜。"
+}}
+
+【硬性约束】
+1. refined_intent.raw_input **必须**与原 raw_input 完全一致（保留首次输入语义）
+2. refined_intent 不得出现 scene_type / relation_type / is_family / is_friends（D9）
+3. tag 仍然只能从下面词典选：
+   physical: {_format_set(PHYSICAL_TAGS)}
+   dietary : {_format_set(DIETARY_TAGS)}
+   experience: {_format_set(EXPERIENCE_TAGS)}
+   social_context（9 选 1）: {_format_set(SOCIAL_CONTEXTS)}
+4. 仅修改反馈直接命中的字段；其他字段从原 intent 原样复制（包括 ambiguous_fields / parse_confidence）
+5. changed_fields 是面向用户的中文短句列表，每条形如「字段：旧 → 新」或「加 X / 去 X」
+6. 输出**纯 JSON**，**不要**用 ```json 围栏
+
+【反馈意图分类与默认调整】
+- "太远了" / "近一点"           → distance_max_km 缩到原值 60%（最低 2km）
+- "再远一点也行" / "不限距离"   → distance_max_km × 1.5（最高 15km）
+- "太贵了" / "便宜点"           → 加 dietary "健康轻食"；去 "高人均"；experience 去 "商务体面"
+- "想吃 X"（X 是菜系）          → dietary 加对应菜系 tag（必须在词典内）
+- "不想吃 X"                    → dietary 加忌口 tag（如"不辣"，必须词典内）
+- "换个氛围"                    → experience 调整（如安静聊天 ↔ 热闹）
+- "时间紧"                      → duration_hours 改 [2, 3]
+- "时间多"                      → duration_hours 改 [5, 7]
+- "不要餐厅 X" / "不要 POI Y"   → 在 ambiguous_fields 加备注「上次推荐的 X 不行」（refined_intent 不直接排 id；planner 后续会避开重复）
+- 反馈为空字符串                → 默认走"距离 -1km、capacity 弹性 +1"轻量调整
+- 完全无法理解的反馈            → changed_fields 留空，refiner_note 写「未识别可执行调整，已重新打散候选排序」
+
+【写 changed_fields 的规则】
+- 原值与新值一目了然；用单位（km、人、小时）
+- 例：「距离上限：5km → 3km」「加忌口：不辣」「去掉：商务体面 / 高人均」「时长：[3,5] → [2,3] 小时」
+- 没真改字段时不加条目（即使 refiner_note 仍要写）
+
+【信心打分】
+不修改 parse_confidence；保留原值。
+"""
+
+
+# Few-shot：3 个典型场景
+REFINER_FEW_SHOTS: list[tuple[str, str]] = [
+    # 1. "太远了"
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"妻子","count":1},'
+        '{"role":"孩子","age":5,"count":1}],"physical_constraints":["亲子友好","适合 5-10 岁"],'
+        '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
+        '"social_context":"家庭日常","raw_input":"今天下午带老婆孩子",'
+        '"parse_confidence":0.92,"ambiguous_fields":[],'
+        '"start_weekday":null,"capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[]} | feedback="太远了，希望 3 公里以内"',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[3,5],"distance_max_km":3,'
+        '"companions":[{"role":"妻子","age":null,"count":1,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":false},'
+        '{"role":"孩子","age":5,"count":1,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":["亲子友好","适合 5-10 岁"],'
+        '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
+        '"social_context":"家庭日常","capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[],'
+        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[]},'
+        '"changed_fields":["距离上限：5km → 3km"],'
+        '"refiner_note":"已把活动范围缩到 3 公里以内，更适合带孩子。"}',
+    ),
+    # 2. "便宜点"
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"商务客户","count":1,"is_special_role":true}],'
+        '"physical_constraints":[],"dietary_constraints":["高人均","有包间"],'
+        '"experience_tags":["商务体面","礼仪感"],"social_context":"商务接待",'
+        '"raw_input":"接客户","parse_confidence":0.82,"ambiguous_fields":[],'
+        '"start_weekday":null,"capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[]} | feedback="预算紧，便宜点"',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[3,5],"distance_max_km":5,'
+        '"companions":[{"role":"商务客户","age":null,"count":1,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":true}],'
+        '"physical_constraints":[],"dietary_constraints":["有包间","健康轻食"],'
+        '"experience_tags":["礼仪感"],"social_context":"商务接待",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
+        '"raw_input":"接客户","parse_confidence":0.82,"ambiguous_fields":[]},'
+        '"changed_fields":["去掉：高人均","加：健康轻食","去掉体验：商务体面"],'
+        '"refiner_note":"已调到中等档位，仍保留包间与礼仪感。"}',
+    ),
+    # 3. 反馈为空
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"朋友","count":4,"gender_mix":"2男2女"}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
+        '"capacity_requirement":4,"raw_input":"和朋友 4 人",'
+        '"parse_confidence":0.88,"ambiguous_fields":[],'
+        '"start_weekday":null,"extra_services":[],"preferred_poi_types":[]} | feedback=""',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[3,5],"distance_max_km":4,'
+        '"companions":[{"role":"朋友","age":null,"count":4,"gender_mix":"2男2女",'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
+        '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":[],'
+        '"raw_input":"和朋友 4 人","parse_confidence":0.88,"ambiguous_fields":[]},'
+        '"changed_fields":["距离上限：5km → 4km"],'
+        '"refiner_note":"已把搜索范围稍微收紧，重新打散候选试试。"}',
+    ),
+]
+
+
+def build_user_message(original_intent_json: str, feedback_text: str) -> str:
+    """组装单轮 user 消息（intent + feedback 拼一起）。"""
+    return (
+        f"原 IntentExtraction JSON：\n{original_intent_json}\n\n"
+        f"用户反馈：「{feedback_text or '（用户未填反馈）'}」\n\n"
+        f"请按 schema 输出 refined_intent / changed_fields / refiner_note。"
+    )
