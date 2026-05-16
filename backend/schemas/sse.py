@@ -34,6 +34,10 @@ class SseEventType(str, Enum):
     REFINEMENT_START = "refinement_start"
     # refiner 合并完毕，下游进入完整 plan 流程；payload = RefinementOutput.model_dump()
     REFINEMENT_DONE = "refinement_done"
+    # ===== 输入域路由（Phase 0.8 新增） =====
+    # 非 planning 输入（chitchat / meta / emotional / off_topic / ambiguous）
+    # 的 Agent 暖心回话气泡；payload = RouterDecision.model_dump()
+    CHITCHAT_REPLY = "chitchat_reply"
     # 错误（区别于 Tool 内部失败：这是流终止）
     STREAM_ERROR = "stream_error"
     # 流结束
@@ -55,6 +59,7 @@ class SseEvent(BaseModel):
     - ITINERARY_READY payload = Itinerary.model_dump()
     - REFINEMENT_START payload = {"feedback_text": str}
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
+    - CHITCHAT_REPLY   payload = RouterDecision.model_dump()
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}
     """

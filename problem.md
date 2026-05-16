@@ -1106,3 +1106,109 @@ LLM_API_KEY=tp-xxx（已脱敏）
 
 **用户反馈**：（待填）
 
+
+
+---
+
+## 问题13：真 LLM 模式下「你是谁」类无关输入被机械处理为 unknown
+
+**用户原问**：
+
+> 切换到真实 llm 模式时，假如用户发一句无关的话比如「你是谁」，目前的 agent 并没有这种处理机制，只会机械的处理为 unknown，信息概率输出。这种是什么问题？我想的是先输出暖心、有人情味的话（"看来用户比较无聊呢"），然后绕一圈回到下午行程主题。
+
+**根因分析**：
+
+链路缺失 input domain routing。所有输入直接进 intent_parser → planner → 6 Tool 流程，对「闲聊 / 问能力 / 情绪表达 / 无关问题」无识别能力，强行抽 IntentExtraction 后 social_context 兜底为「家庭日常」，输出无意义方案。
+
+**方案对比**：
+
+```
+| 方案 | 通用性 | 延迟 | 工时 | 评分价值 |
+|------|--------|------|------|----------|
+| A · LLM 前置分类器       | 强  | +1-3s | 4-5h | +6-8 分（用户选）|
+| B · 单次 LLM 双输出       | 弱  | +0s   | 6h   | +3 分     |
+| C · 关键词 fast path     | 弱  | +0s   | 2h   | +2 分     |
+| D · 关键词 + LLM 兜底    | 中  | 视情况 | 5h   | +5 分     |
+```
+
+**用户选定方案 A**，并要求「借鉴方案 D 的展示形态」——预设 agent 气泡样式 + 引导按钮，让 LLM 直接调用展示。
+
+**解决方案（Phase 0.8 输入域路由）**：
+
+LLM 一次性输出**结构化结果**（不需要二次调用生成回话），含 input_kind / reply_text / cta_chips；前端预设暖心气泡组件直接渲染。
+
+1. **契约层**（`backend/schemas/`）：
+   - 新建 `router.py`：`InputKind` 枚举（6 类）+ `CtaChip` + `RouterDecision`（含 tone/reply_text/cta_chips）
+   - `sse.py` 加 `CHITCHAT_REPLY` SseEventType
+   - `__init__.py` 导出
+
+2. **路由器**（`backend/agent/router.py` + `prompts/router_prompt.py`）：
+   - LLM 调用一次产出完整 RouterDecision
+   - **白名单校验**：cta_chips.send 必须从 8 个预设白名单文案精确复制（防 LLM 发明输入文本污染下游意图解析）
+   - planning 类强制清空 chips
+   - 失败时抛 RouterError；fallback_decision 兜底返 PLANNING
+
+3. **接入层**（`backend/main.py`）：
+   - chat_stream 入口拆出 `_routed_stream_real` / `_routed_stream_stub`
+   - 真链路：先推 agent_thought 心跳防首字节超时 → 后台线程跑 router LLM → 分流
+   - stub 模式：5 类关键词 fast path 直接命中（demo 离线兜底也能演示）
+   - planning 类：把 reply_text 作 thought 透出，进 _planner_stream（starting_seq=2）
+
+4. **前端**（`frontend/`）：
+   - `lib/types.ts` 加 `RouterDecision` / `ChitchatReplyPayload`
+   - `lib/store.ts` 加 `chitchatReplies` 状态 + `chitchat_reply` 事件处理
+   - `components/ChitchatBubble.tsx` 新建：4 套 tone 配色（amber/sky/rose/emerald 避紫粉）+ 引导按钮 chips；点击直接 sendMessage(chip.send) 重入主链路
+   - `components/ChatPanel.tsx` 在消息流插入气泡渲染
+
+5. **测试**（`backend/tests/test_router.py`）14 项：
+   - 6 类分类正确性 + 白名单校验（拒绝发明 send）+ 去重 + 截断 + planning 强制清 chips
+   - LLM 失败 / JSON 解析失败 / schema 校验失败 → RouterError
+   - fallback_decision 总返 PLANNING 兜底
+
+6. **端到端验证**（`backend/scripts/verify_router.py`）7 项：
+   - stub 模式 5 类输入分别推 chitchat_reply（含 chips ≥ 1）
+   - 主路径透传含 itinerary_ready + intent_parsed
+   - 422 校验缺字段
+
+7. **CodeSee sync**（owner=A）：
+   - 新增 `f-input-router` feature（25 epic_features 校验通过）
+   - 加 3 条 cross_feature：quick-input → router → intent-parse / tool-trace
+
+**期间小坑**：
+
+- **Pydantic icon max_length=4 拒了"👨‍👩‍👧"**：family ZWJ emoji 序列含 7 个 codepoint（👨 + ZWJ + 👩 + ZWJ + 👧），超过 4 → 整个 chip 被 sanitize 丢弃。改成 max_length=12。
+- **pytest 编码问题误诊**：4 项测试初版失败，输出乱码让人误以为是源文件 cp936 解码问题；实际是 emoji 长度校验失败导致 chip 被 silent drop，与编码无关。
+
+**修改的代码文件**：
+
+新建：
+- `backend/schemas/router.py`
+- `backend/agent/router.py`
+- `backend/agent/prompts/router_prompt.py`
+- `backend/tests/test_router.py`
+- `backend/scripts/verify_router.py`
+- `frontend/components/ChitchatBubble.tsx`
+
+修改：
+- `backend/schemas/sse.py`（加 CHITCHAT_REPLY 类型）
+- `backend/schemas/__init__.py`（导出 router 类型）
+- `backend/agent/__init__.py`（导出 router 函数）
+- `backend/main.py`（chat_stream 接 router；新增 _stub_route / _routed_stream_real / _routed_stream_stub / _make_chitchat_event 等）
+- `frontend/lib/types.ts`（加 RouterDecision 类型）
+- `frontend/lib/store.ts`（加 chitchatReplies state + 事件处理）
+- `frontend/components/ChatPanel.tsx`（消息流插入气泡）
+- `.codesee/features.json`（+f-input-router + 3 cross_feature，25 features 校验通过）
+- `docs/00-overview/progress.md`（Phase 0.8 + 测试矩阵 177→205）
+- `problem.md`（本条）
+
+**应当达成的效果**：
+
+- 评委即兴问「你是谁」「我累死了」「1+1=?」→ Agent 暖心回话 + 一键重入主路径按钮
+- 评分项 1（场景理解）+3-5 分；项 6（Demo 闭环）+3 分
+- 真 LLM 链路加固 SSE 心跳 → 防首字节 8s 超时
+- 不破 D9：router 也是开放语义（LLM 输出 input_kind 之一），不是 if scene_type 枚举分支
+- 不破 W1/W2 测试：155/155 后端 + 30/30 前端 + 7/7 verify_router 全过
+- 现场离线兜底：stub 模式关键词 fast path 也能演示 5 类气泡
+
+**用户反馈**：（待填）
+

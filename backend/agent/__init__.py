@@ -24,6 +24,7 @@ from .planner import (
 )
 from .llm_planner import plan_itinerary_llm
 from .refiner import refine_intent, RefinementError
+from .router import classify_input, fallback_decision, RouterError
 from .intent_parser import parse_intent, IntentParseError
 from .executor import execute_plan, ExecutionResult
 from .trace import Tracer, TraceRecord
@@ -40,6 +41,10 @@ __all__ = [
     # refiner
     "refine_intent",
     "RefinementError",
+    # router (Phase 0.8)
+    "classify_input",
+    "fallback_decision",
+    "RouterError",
     # intent
     "parse_intent",
     "IntentParseError",

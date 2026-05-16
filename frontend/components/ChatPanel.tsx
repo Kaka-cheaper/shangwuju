@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import ChitchatBubble from "./ChitchatBubble";
 import IntentSummary from "./IntentSummary";
 
 /** 聊天主面板：消息流 + 输入框。 */
@@ -14,6 +15,7 @@ export default function ChatPanel() {
   const streamError = useChatStore((s) => s.streamError);
   const intent = useChatStore((s) => s.intent);
   const thoughts = useChatStore((s) => s.thoughts);
+  const chitchatReplies = useChatStore((s) => s.chitchatReplies);
   const sendMessage = useChatStore((s) => s.sendMessage);
 
   const [draft, setDraft] = useState("");
@@ -25,7 +27,7 @@ export default function ChatPanel() {
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages.length, thoughts.length, streaming]);
+  }, [messages.length, thoughts.length, chitchatReplies.length, streaming]);
 
   const submit = () => {
     if (!draft.trim()) return;
@@ -60,6 +62,11 @@ export default function ChatPanel() {
 
         {messages.map((m) => (
           <MessageBubble key={m.id} role={m.role} text={m.text} />
+        ))}
+
+        {/* Phase 0.8 暖心回话气泡 */}
+        {chitchatReplies.map((rec) => (
+          <ChitchatBubble key={rec.id} payload={rec.payload} />
         ))}
 
         {streaming && intent && (

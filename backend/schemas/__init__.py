@@ -42,6 +42,11 @@ from schemas.refine import (
     RefinementInput,
     RefinementOutput,
 )
+from schemas.router import (
+    InputKind,
+    CtaChip,
+    RouterDecision,
+)
 from schemas.planner_mode import (
     PlannerMode,
     DEFAULT_MODE as DEFAULT_PLANNER_MODE,
@@ -103,6 +108,10 @@ __all__ = [
     # refine + planner mode (Phase 0.6)
     "RefinementInput",
     "RefinementOutput",
+    # router (Phase 0.8)
+    "InputKind",
+    "CtaChip",
+    "RouterDecision",
     "PlannerMode",
     "DEFAULT_PLANNER_MODE",
     "normalize_planner_mode",

@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.7 个性化（persona + memory）完成 + 浏览器端到端实测全过**（2026-05-17）
+**阶段**：**Phase 0.8 输入域路由（LLM 前置分类器 + 暖心回话气泡）完成**（2026-05-17）
 
 **MVP 状态**：
 
@@ -17,10 +17,11 @@
 | MVP-2    | 95% ✅     | 8 Tool / 8 场景全跑通 / 用户确认 / 双 planner mode / 反馈重规划 |
 | MVP-2.5  | 100% ✅    | LLM 客户端解耦（任意 OpenAI 兼容 base_url）                |
 | MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
+| MVP-3 输入域路由 | 100% ✅ | LLM 前置 6 类分类 + 暖心气泡 + 引导按钮（Phase 0.8）  |
 | MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
-**测试矩阵**：141 项 pytest + 23 vitest + 13 verify_refine = 177 全过
+**测试矩阵**：155 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router = 205 全过
 
 ```
 | 套件                          | 通过项 |
@@ -34,10 +35,13 @@
 | llm_planner 单测（A4）          | 13/13  |
 | 联调矩阵（A6）                 | 40/40  |
 | persona+memory（P0.7）         | 13/13  |
-| 后端合计                       |141/141 |
+| 输入域路由 router（P0.8）      | 14/14  |
+| 后端合计                       |155/155 |
 | 前端 vitest（W3）              | 23/23  |
+| 前端 store 测试                |  7/7   |
 | B 的 verify_refine（双模式）    | 13/13  |
-| 总计                           |177/177 |
+| 路由端到端 verify_router        |  7/7   |
+| 总计                           |205/205 |
 ```
 
 **真 LLM 链路实测**：MimMo (mimo-v2.5-pro) 端到端浏览器实测全过——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 全部跑通

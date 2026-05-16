@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { streamSse } from "./sse";
 import type {
   AgentThoughtPayload,
+  ChitchatReplyPayload,
   Itinerary,
   IntentExtraction,
   PlannerMode,
@@ -85,6 +86,13 @@ export interface RefinementSummary {
   timestampMs?: number;
 }
 
+/** Phase 0.8：暖心回话气泡（chitchat / meta / emotional / off_topic / ambiguous）。 */
+export interface ChitchatReplyRecord {
+  id: string;
+  payload: ChitchatReplyPayload;
+  receivedAtMs: number;
+}
+
 export interface ChatState {
   // 会话
   sessionId: string;
@@ -117,6 +125,8 @@ export interface ChatState {
   cancelled: boolean;
   /** 上一次 refinement_done 摘要，用于「我已为你调整」面板。 */
   lastRefinement: RefinementSummary | null;
+  /** Phase 0.8：本次会话内收到的所有暖心回话气泡（按时序追加，不清空）。 */
+  chitchatReplies: ChitchatReplyRecord[];
 
   // UI 通知
   toasts: ToastItem[];
@@ -173,6 +183,7 @@ const initialState: Omit<
   itinerary: null,
   cancelled: false,
   lastRefinement: null,
+  chitchatReplies: [],
   toasts: [],
 };
 
@@ -231,6 +242,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       itinerary: null,
       cancelled: false,
       lastRefinement: null,
+      chitchatReplies: [],
       messages: [
         ...s.messages,
         {
@@ -662,6 +674,21 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     case "stream_error": {
       const p = ev.payload as unknown as StreamErrorPayload;
       set({ streamError: `${p.reason}: ${p.detail}` });
+      break;
+    }
+
+    case "chitchat_reply": {
+      const p = ev.payload as unknown as ChitchatReplyPayload;
+      set((s) => ({
+        chitchatReplies: [
+          ...s.chitchatReplies,
+          {
+            id: `c-${ev.seq}-${Date.now()}`,
+            payload: p,
+            receivedAtMs: ev.timestamp_ms ?? Date.now(),
+          },
+        ],
+      }));
       break;
     }
 

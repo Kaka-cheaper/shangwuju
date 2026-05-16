@@ -20,6 +20,8 @@ export const SseEventType = {
   // 用户反馈 → 重规划（Phase 0.6 /chat/refine 专用）
   RefinementStart: "refinement_start",
   RefinementDone: "refinement_done",
+  // Phase 0.8 输入域路由（非 planning 输入的暖心回话气泡）
+  ChitchatReply: "chitchat_reply",
   StreamError: "stream_error",
   Done: "done",
 } as const;
@@ -64,6 +66,37 @@ export interface RefinementDonePayload {
   changed_fields: string[];
   refiner_note?: string | null;
 }
+
+// ============================================================
+// 输入域路由（schemas/router.py，Phase 0.8）
+// ============================================================
+
+export type InputKind =
+  | "planning"
+  | "chitchat"
+  | "meta"
+  | "emotional"
+  | "off_topic"
+  | "ambiguous";
+
+export type ReplyTone = "warm" | "neutral" | "empathetic" | "playful";
+
+export interface CtaChip {
+  label: string;
+  send: string;
+  icon?: string | null;
+}
+
+export interface RouterDecision {
+  input_kind: InputKind;
+  confidence: number;
+  reply_text: string;
+  tone: ReplyTone;
+  cta_chips: CtaChip[];
+  rationale?: string | null;
+}
+
+export type ChitchatReplyPayload = RouterDecision;
 
 export interface StreamErrorPayload {
   reason: string;

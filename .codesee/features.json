@@ -1164,6 +1164,99 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
+      "id": "f-input-router",
+      "name": "输入域路由器",
+      "summary": "LLM 前置 6 类分类（planning/chitchat/meta/emotional/off_topic/ambiguous），非 planning 输入推暖心回话气泡 + 引导按钮（Phase 0.8）",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "http", "detail": "POST /chat/stream 收到任意输入" }
+      ],
+      "steps": [
+        {
+          "id": "heartbeat",
+          "name": "推心跳防首字节超时",
+          "role": "output",
+          "note": "立刻推 agent_thought「正在理解你的需求……」",
+          "refs": [{ "file": "backend/main.py", "lines": [1480, 1500] }]
+        },
+        {
+          "id": "classify_llm",
+          "name": "调 LLM 6 类分类",
+          "role": "compute",
+          "note": "一次性输出 input_kind + reply_text + cta_chips；后台线程跑避免阻塞 SSE",
+          "refs": [
+            { "file": "backend/agent/router.py", "lines": [80, 145] },
+            { "file": "backend/agent/prompts/router_prompt.py" }
+          ]
+        },
+        {
+          "id": "sanitize_chips",
+          "name": "白名单校验引导按钮",
+          "role": "validation",
+          "note": "send 必须从白名单精确复制；发明的 send 直接丢弃；去重；截断到 4 个",
+          "refs": [{ "file": "backend/agent/router.py", "lines": [60, 90] }]
+        },
+        {
+          "id": "branch_planning",
+          "name": "走主规划分支",
+          "role": "side-effect",
+          "note": "input_kind=planning → reply_text 作 thought 透出，进 _planner_stream",
+          "refs": [{ "file": "backend/main.py", "lines": [1530, 1545] }]
+        },
+        {
+          "id": "branch_chitchat",
+          "name": "推送暖心回话事件",
+          "role": "output",
+          "note": "input_kind ∈ chitchat/meta/emotional/off_topic/ambiguous → 推 chitchat_reply + done",
+          "refs": [
+            { "file": "backend/main.py", "lines": [1505, 1525] },
+            { "file": "backend/schemas/sse.py", "lines": [25, 50] },
+            { "file": "backend/schemas/router.py" }
+          ]
+        },
+        {
+          "id": "render_bubble",
+          "name": "前端渲染暖心气泡",
+          "role": "output",
+          "note": "tone-amber/sky/rose/emerald 4 套配色；引导按钮点击重入 sendMessage",
+          "refs": [
+            { "file": "frontend/components/ChitchatBubble.tsx" },
+            { "file": "frontend/components/ChatPanel.tsx", "lines": [55, 80] }
+          ]
+        },
+        {
+          "id": "fallback_keyword",
+          "name": "失败降级关键词路由",
+          "role": "error",
+          "note": "网络异常时降级用关键词字典；仍未命中按 PLANNING 兜底（fallback_decision）",
+          "refs": [{ "file": "backend/main.py", "lines": [1370, 1455] }]
+        }
+      ],
+      "flow": [
+        { "from": "heartbeat", "to": "classify_llm", "kind": "next" },
+        { "from": "classify_llm", "to": "sanitize_chips", "kind": "next" },
+        { "from": "sanitize_chips", "to": "branch_planning", "kind": "conditional", "condition": "input_kind=planning" },
+        { "from": "sanitize_chips", "to": "branch_chitchat", "kind": "conditional", "condition": "其他 5 类" },
+        { "from": "branch_chitchat", "to": "render_bubble", "kind": "next" },
+        { "from": "classify_llm", "to": "fallback_keyword", "kind": "error", "condition": "LLM 异常 / JSON 解析失败 / schema 校验失败" }
+      ],
+      "refs": [
+        { "file": "backend/schemas/router.py" },
+        { "file": "backend/agent/router.py" },
+        { "file": "backend/agent/prompts/router_prompt.py" },
+        { "file": "backend/main.py", "lines": [1370, 1545] },
+        { "file": "backend/tests/test_router.py" },
+        { "file": "backend/scripts/verify_router.py" },
+        { "file": "frontend/components/ChitchatBubble.tsx" },
+        { "file": "frontend/lib/types.ts", "lines": [78, 110] },
+        { "file": "frontend/lib/store.ts" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
     }
   ],
   "cross_feature": [
@@ -1218,7 +1311,10 @@
     { "from": "f-persona-prior", "to": "f-memory-learning", "kind": "subscribes", "note": "compute_priors 订阅 memory 变化" },
     { "from": "f-itinerary-card", "to": "f-memory-learning", "kind": "triggers", "note": "确认下单触发 accepted_tags 累加" },
     { "from": "f-refine-replan", "to": "f-memory-learning", "kind": "triggers", "note": "反馈合并后触发 rejected_tags 累加" },
-    { "from": "f-memory-learning", "to": "f-quick-input", "kind": "publishes", "note": "preferences 端点产出，前端切 user 时拉取" }
+    { "from": "f-memory-learning", "to": "f-quick-input", "kind": "publishes", "note": "preferences 端点产出，前端切 user 时拉取" },
+    { "from": "f-quick-input", "to": "f-input-router", "kind": "triggers", "note": "任意输入先经 router 6 类分类" },
+    { "from": "f-input-router", "to": "f-intent-parse", "kind": "triggers", "note": "planning 类透传给意图解析" },
+    { "from": "f-input-router", "to": "f-tool-trace", "kind": "publishes", "note": "chitchat_reply 事件推前端展示" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
