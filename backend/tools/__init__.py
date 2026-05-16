@@ -1,4 +1,4 @@
-"""tools —— 8 个 Tool 的实现 + Function Calling 注册表。
+"""tools —— 7 个 Tool 的实现 + Function Calling 注册表。
 
 每个 Tool 一个文件，模块顶部 docstring 必须说明：
 - 这个 Tool 做什么（一句话）
@@ -13,16 +13,29 @@
 - LLM 调用（在 agent/llm_client.py）
 - Mock 数据加载（在 data/loader.py）
 - 规划决策（不允许 Tool 互相调用）
+
+注册副作用：
+- 导入本模块即把 7 个 Tool 注册进 TOOL_REGISTRY；
+- 顺序无关，但保留下面 import 顺序便于人工 grep。
 """
 
-from typing import Any, Callable
+from .registry import TOOL_REGISTRY, ToolSpec, invoke_tool, register_tool, all_specs
 
-from pydantic import BaseModel
-
-from .registry import TOOL_REGISTRY, ToolSpec, register_tool
+# 触发副作用：每个 Tool 模块顶部 @register_tool 把自己加进 TOOL_REGISTRY
+from . import (  # noqa: F401  ── side-effect import
+    search_pois,
+    search_restaurants,
+    check_restaurant_availability,
+    estimate_route_time,
+    reserve_restaurant,
+    generate_share_message,
+    get_user_profile,
+)
 
 __all__ = [
     "TOOL_REGISTRY",
     "ToolSpec",
+    "invoke_tool",
     "register_tool",
+    "all_specs",
 ]

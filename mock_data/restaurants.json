@@ -1,0 +1,344 @@
+[
+  {
+    "id": "R001",
+    "name": "轻语沙拉 · 西溪店",
+    "cuisine": "健康轻食",
+    "location": { "name": "西溪银泰" },
+    "distance_km": 2.1,
+    "opening_hours": "10:30-21:30",
+    "avg_price": 75,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": false, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "亲子友好"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R002",
+    "name": "粤味轩 · 老字号粤菜",
+    "cuisine": "粤菜",
+    "location": { "name": "湖滨商圈" },
+    "distance_km": 4.5,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 220,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": false, "queue_minutes": 0 },
+      { "time": "12:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 }
+    ],
+    "tags": ["粤菜", "高人均", "有包间", "礼仪感", "适合老人", "软烂"],
+    "suitable_for": ["纪念日仪式感", "商务接待", "老人伴助"]
+  },
+  {
+    "id": "R003",
+    "name": "蔬田主义 · 低卡轻食",
+    "cuisine": "健康轻食",
+    "location": { "name": "城西银泰" },
+    "distance_km": 3.0,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 85,
+    "rating": 4.4,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "亲子友好"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R004",
+    "name": "莓莓花房 · 网红下午茶",
+    "cuisine": "下午茶",
+    "location": { "name": "嘉里中心" },
+    "distance_km": 3.8,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:30", "available": false, "queue_minutes": 0 },
+      { "time": "15:00", "available": true, "queue_minutes": 60 },
+      { "time": "16:00", "available": true, "queue_minutes": 25 }
+    ],
+    "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
+  },
+  {
+    "id": "R005",
+    "name": "聚味居 · 朋友聚餐热闹堂",
+    "cuisine": "湘菜",
+    "location": { "name": "湖滨银泰" },
+    "distance_km": 4.6,
+    "opening_hours": "11:00-23:00",
+    "avg_price": 95,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 },
+      { "time": "18:30", "available": true, "queue_minutes": 25 }
+    ],
+    "tags": ["热闹", "网红打卡", "拍照友好", "社交"],
+    "suitable_for": ["朋友热闹", "同学重聚"]
+  },
+  {
+    "id": "R006",
+    "name": "夜灯 · 静谧法餐酒馆",
+    "cuisine": "法餐",
+    "location": { "name": "玉皇山路" },
+    "distance_km": 3.9,
+    "opening_hours": "17:00-23:30",
+    "avg_price": 380,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "18:00", "available": false, "queue_minutes": 0 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["安静聊天", "亲密情侣", "礼仪感", "高人均", "有包间"],
+    "suitable_for": ["情侣亲密", "纪念日仪式感"]
+  },
+  {
+    "id": "R007",
+    "name": "颐和居 · 软糯家常菜",
+    "cuisine": "本帮菜",
+    "location": { "name": "南山路" },
+    "distance_km": 2.6,
+    "opening_hours": "11:00-21:00",
+    "avg_price": 110,
+    "rating": 4.4,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["软烂", "适合老人", "无台阶", "可休息", "有包间"],
+    "suitable_for": ["老人伴助", "家庭日常"]
+  },
+  {
+    "id": "R008",
+    "name": "金樽 · 商务日料会所",
+    "cuisine": "日料",
+    "location": { "name": "钱江新城万象城" },
+    "distance_km": 4.7,
+    "opening_hours": "11:30-22:30",
+    "avg_price": 480,
+    "rating": 4.8,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "18:30", "available": false, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 },
+      { "time": "19:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["日料", "高人均", "有包间", "商务体面", "礼仪感", "安静聊天"],
+    "suitable_for": ["商务接待", "纪念日仪式感"]
+  },
+  {
+    "id": "R009",
+    "name": "独栖咖啡 · 单人友好",
+    "cuisine": "咖啡",
+    "location": { "name": "南宋御街" },
+    "distance_km": 4.8,
+    "opening_hours": "08:00-22:00",
+    "avg_price": 60,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": false, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 0 },
+      { "time": "15:00", "available": true, "queue_minutes": 0 },
+      { "time": "16:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["独处舒缓", "安静聊天", "下午茶", "甜品"],
+    "suitable_for": ["独处放空"]
+  },
+  {
+    "id": "R010",
+    "name": "粤珍轩 · 家宴粤菜",
+    "cuisine": "粤菜",
+    "location": { "name": "钱江世纪城" },
+    "distance_km": 4.9,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 260,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "12:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 }
+    ],
+    "tags": ["粤菜", "高人均", "有包间", "礼仪感", "适合老人", "软烂", "无台阶"],
+    "suitable_for": ["纪念日仪式感", "老人伴助", "家庭日常"]
+  },
+  {
+    "id": "R011",
+    "name": "云朵舒芙蕾 · 网红甜品店",
+    "cuisine": "下午茶",
+    "location": { "name": "天目里" },
+    "distance_km": 4.0,
+    "opening_hours": "10:30-22:00",
+    "avg_price": 90,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 15 },
+      { "time": "15:00", "available": true, "queue_minutes": 5 },
+      { "time": "16:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
+  },
+  {
+    "id": "R012",
+    "name": "千鹤居 · 商务雅致私房菜",
+    "cuisine": "杭帮菜",
+    "location": { "name": "玉皇山南" },
+    "distance_km": 4.8,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 360,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "18:00", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 },
+      { "time": "20:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["商务体面", "高人均", "有包间", "礼仪感", "安静聊天"],
+    "suitable_for": ["商务接待", "纪念日仪式感"]
+  },
+  {
+    "id": "R013",
+    "name": "晨与暮 · 独处书房咖啡",
+    "cuisine": "咖啡",
+    "location": { "name": "钱江新城" },
+    "distance_km": 4.1,
+    "opening_hours": "09:00-22:00",
+    "avg_price": 55,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 0 },
+      { "time": "15:00", "available": true, "queue_minutes": 0 },
+      { "time": "16:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["独处舒缓", "安静聊天", "下午茶"],
+    "suitable_for": ["独处放空"]
+  },
+  {
+    "id": "R014",
+    "name": "心湖法式餐厅",
+    "cuisine": "法餐",
+    "location": { "name": "西湖文化广场" },
+    "distance_km": 4.4,
+    "opening_hours": "17:30-23:00",
+    "avg_price": 320,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 },
+      { "time": "19:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["安静聊天", "亲密情侣", "礼仪感", "高人均"],
+    "suitable_for": ["情侣亲密", "纪念日仪式感"]
+  },
+  {
+    "id": "R015",
+    "name": "桃花源 · 拍照网红中餐厅",
+    "cuisine": "杭帮菜",
+    "location": { "name": "天目里" },
+    "distance_km": 4.0,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 130,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 },
+      { "time": "18:30", "available": true, "queue_minutes": 30 }
+    ],
+    "tags": ["网红打卡", "拍照友好", "热闹", "社交"],
+    "suitable_for": ["朋友热闹", "闺蜜聊天"]
+  },
+  {
+    "id": "R016",
+    "name": "甜屿 · 拍照下午茶",
+    "cuisine": "下午茶",
+    "location": { "name": "良渚文化村" },
+    "distance_km": 4.3,
+    "opening_hours": "10:00-21:00",
+    "avg_price": 100,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:30", "available": true, "queue_minutes": 5 },
+      { "time": "15:30", "available": true, "queue_minutes": 0 },
+      { "time": "16:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["下午茶", "甜品", "网红打卡", "拍照友好"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
+  },
+  {
+    "id": "R017",
+    "name": "归园 · 适老软食馆",
+    "cuisine": "本帮菜",
+    "location": { "name": "南山路" },
+    "distance_km": 2.9,
+    "opening_hours": "11:00-21:00",
+    "avg_price": 130,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["软烂", "适合老人", "无台阶", "可休息", "有包间", "粤菜"],
+    "suitable_for": ["老人伴助", "家庭日常"]
+  },
+  {
+    "id": "R018",
+    "name": "静居 · 亲密小聚法餐",
+    "cuisine": "法餐",
+    "location": { "name": "玉皇山路" },
+    "distance_km": 3.7,
+    "opening_hours": "17:30-23:00",
+    "avg_price": 360,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 },
+      { "time": "19:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["安静聊天", "亲密情侣", "礼仪感", "高人均", "有包间"],
+    "suitable_for": ["情侣亲密", "纪念日仪式感"]
+  },
+  {
+    "id": "R019",
+    "name": "翠竹苑 · 商务高端粤菜",
+    "cuisine": "粤菜",
+    "location": { "name": "钱江世纪城" },
+    "distance_km": 4.8,
+    "opening_hours": "11:00-22:30",
+    "avg_price": 480,
+    "rating": 4.8,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["商务体面", "高人均", "有包间", "礼仪感", "粤菜", "适合老人"],
+    "suitable_for": ["商务接待", "纪念日仪式感"]
+  }
+]

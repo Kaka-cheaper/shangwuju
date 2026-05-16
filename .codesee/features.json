@@ -126,23 +126,31 @@
       ],
       "steps": [
         { "id": "receive", "name": "接收调用", "role": "input" },
-        { "id": "read", "name": "读取硬编码画像", "role": "data-read" },
-        { "id": "return", "name": "返回画像", "role": "output" }
+        { "id": "load", "name": "加载用户画像", "role": "data-read" },
+        { "id": "match", "name": "匹配用户标识", "role": "compute" },
+        { "id": "return", "name": "返回画像", "role": "output" },
+        { "id": "not_found", "name": "返回未找到", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "read", "kind": "next" },
-        { "from": "read", "to": "return", "kind": "next" }
+        { "from": "receive", "to": "load", "kind": "next" },
+        { "from": "load", "to": "match", "kind": "next" },
+        { "from": "match", "to": "return", "kind": "conditional", "condition": "user_id=demo_user" },
+        { "from": "match", "to": "not_found", "kind": "error", "condition": "user_id 不匹配" }
       ],
-      "refs": [],
-      "confidence": 0.5,
+      "refs": [
+        { "file": "backend/tools/get_user_profile.py", "lines": [1, 50] },
+        { "file": "backend/data/loader.py", "lines": [60, 80] },
+        { "file": "mock_data/user_profile.json", "lines": [1, 9] }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-search-pois",
       "name": "查询活动地点",
-      "summary": "按距离 / tags / suitable_for 过滤 mock_data 中的 POI 候选",
+      "summary": "按距离 / tags / suitable_for / 同行年龄过滤 mock POI 候选",
       "epicId": "discovery",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 search_pois Tool" }
@@ -150,28 +158,39 @@
       "steps": [
         { "id": "receive", "name": "接收查询参数", "role": "input" },
         { "id": "validate", "name": "校验参数", "role": "validation" },
-        { "id": "filter", "name": "过滤候选", "role": "data-read" },
-        { "id": "rank", "name": "按匹配度排序", "role": "compute" },
+        { "id": "load", "name": "加载 POI 全集", "role": "data-read" },
+        { "id": "filter_distance", "name": "过滤距离上限", "role": "compute" },
+        { "id": "filter_tags", "name": "过滤约束标签", "role": "compute" },
+        { "id": "filter_age", "name": "过滤同行年龄", "role": "compute" },
+        { "id": "rank", "name": "按评分排序", "role": "compute" },
         { "id": "return", "name": "返回候选列表", "role": "output" },
         { "id": "empty", "name": "返回空集降级", "role": "error" }
       ],
       "flow": [
         { "from": "receive", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "filter", "kind": "next" },
-        { "from": "filter", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
-        { "from": "filter", "to": "empty", "kind": "error", "condition": "命中 0 条（约束过严）" },
+        { "from": "validate", "to": "load", "kind": "next" },
+        { "from": "load", "to": "filter_distance", "kind": "next" },
+        { "from": "filter_distance", "to": "filter_tags", "kind": "next" },
+        { "from": "filter_tags", "to": "filter_age", "kind": "next" },
+        { "from": "filter_age", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
+        { "from": "filter_age", "to": "empty", "kind": "error", "condition": "命中 0 条（约束过严）" },
         { "from": "rank", "to": "return", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.45,
+      "refs": [
+        { "file": "backend/tools/search_pois.py", "lines": [1, 80] },
+        { "file": "backend/tools/_helpers.py", "lines": [1, 45] },
+        { "file": "backend/data/loader.py", "lines": [40, 55] },
+        { "file": "mock_data/pois.json", "lines": [1, 220] }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-search-restaurants",
       "name": "查询餐厅",
-      "summary": "按 dietary / 距离 / capacity / suitable_for 过滤餐厅",
+      "summary": "按 dietary / 距离 / 桌型 / 包间 / suitable_for 过滤餐厅候选",
       "epicId": "discovery",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 search_restaurants Tool" }
@@ -179,77 +198,101 @@
       "steps": [
         { "id": "receive", "name": "接收查询参数", "role": "input" },
         { "id": "validate", "name": "校验参数", "role": "validation" },
-        { "id": "filter", "name": "过滤候选", "role": "data-read" },
-        { "id": "rank", "name": "按匹配度排序", "role": "compute" },
+        { "id": "load", "name": "加载餐厅全集", "role": "data-read" },
+        { "id": "filter_distance", "name": "过滤距离上限", "role": "compute" },
+        { "id": "filter_tags", "name": "过滤饮食与体验标签", "role": "compute" },
+        { "id": "filter_capacity", "name": "过滤桌型与包间", "role": "compute" },
+        { "id": "rank", "name": "按评分排序", "role": "compute" },
         { "id": "return", "name": "返回候选列表", "role": "output" },
         { "id": "empty", "name": "返回空集降级", "role": "error" }
       ],
       "flow": [
         { "from": "receive", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "filter", "kind": "next" },
-        { "from": "filter", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
-        { "from": "filter", "to": "empty", "kind": "error", "condition": "命中 0 条" },
+        { "from": "validate", "to": "load", "kind": "next" },
+        { "from": "load", "to": "filter_distance", "kind": "next" },
+        { "from": "filter_distance", "to": "filter_tags", "kind": "next" },
+        { "from": "filter_tags", "to": "filter_capacity", "kind": "next" },
+        { "from": "filter_capacity", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
+        { "from": "filter_capacity", "to": "empty", "kind": "error", "condition": "命中 0 条" },
         { "from": "rank", "to": "return", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.45,
+      "refs": [
+        { "file": "backend/tools/search_restaurants.py", "lines": [1, 80] },
+        { "file": "backend/tools/_helpers.py", "lines": [1, 45] },
+        { "file": "backend/data/loader.py", "lines": [40, 60] },
+        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-check-availability",
       "name": "查餐厅有无位",
-      "summary": "查指定餐厅指定时段是否可预订（含 Mock 失败案例 E1）",
+      "summary": "查指定餐厅指定时段是否可预订（含 Mock 失败案例 E1 + 备选时段建议）",
       "epicId": "discovery",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 check_restaurant_availability Tool" }
       ],
       "steps": [
         { "id": "receive", "name": "接收餐厅与时段", "role": "input" },
-        { "id": "read_slots", "name": "读取座位状态", "role": "data-read" },
+        { "id": "load", "name": "加载餐厅全集", "role": "data-read" },
+        { "id": "lookup", "name": "查找餐厅与时段", "role": "compute" },
         { "id": "determine", "name": "判断是否可订", "role": "compute" },
+        { "id": "suggest", "name": "推荐备选时段", "role": "compute" },
         { "id": "return_ok", "name": "返回可订", "role": "output" },
-        { "id": "return_full", "name": "返回已满", "role": "error" }
+        { "id": "return_full", "name": "返回已满", "role": "error" },
+        { "id": "not_found", "name": "返回未找到", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "read_slots", "kind": "next" },
-        { "from": "read_slots", "to": "determine", "kind": "next" },
+        { "from": "receive", "to": "load", "kind": "next" },
+        { "from": "load", "to": "lookup", "kind": "next" },
+        { "from": "lookup", "to": "determine", "kind": "conditional", "condition": "餐厅与时段存在" },
+        { "from": "lookup", "to": "not_found", "kind": "error", "condition": "餐厅 id 或时段不存在" },
         { "from": "determine", "to": "return_ok", "kind": "conditional", "condition": "available=true" },
-        { "from": "determine", "to": "return_full", "kind": "error", "condition": "available=false（埋点 E1）" }
+        { "from": "determine", "to": "suggest", "kind": "error", "condition": "available=false（埋点 E1）" },
+        { "from": "suggest", "to": "return_full", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.5,
+      "refs": [
+        { "file": "backend/tools/check_restaurant_availability.py", "lines": [1, 95] },
+        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-estimate-route",
       "name": "路线时间估算",
-      "summary": "查 A→B 步行 / 打车 / 公交分时段预估",
+      "summary": "查 A→B 步行 / 打车 / 公交分时段预估；找不到对返 not_found",
       "epicId": "discovery",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 estimate_route_time Tool" }
       ],
       "steps": [
         { "id": "receive", "name": "接收起终点", "role": "input" },
-        { "id": "lookup", "name": "查 routes mock", "role": "data-read" },
-        { "id": "compare", "name": "对比距离阈值", "role": "compute" },
+        { "id": "load", "name": "加载路线全集", "role": "data-read" },
+        { "id": "lookup", "name": "查找起终点对", "role": "compute" },
         { "id": "return", "name": "返回三种交通耗时", "role": "output" },
-        { "id": "too_far", "name": "返回超距告警", "role": "error" }
+        { "id": "not_found", "name": "返回未找到", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "lookup", "kind": "next" },
-        { "from": "lookup", "to": "compare", "kind": "next" },
-        { "from": "compare", "to": "return", "kind": "conditional", "condition": "在 distance_max_km 内" },
-        { "from": "compare", "to": "too_far", "kind": "error", "condition": "超出阈值（触发 E3）" }
+        { "from": "receive", "to": "load", "kind": "next" },
+        { "from": "load", "to": "lookup", "kind": "next" },
+        { "from": "lookup", "to": "return", "kind": "conditional", "condition": "命中起终点对" },
+        { "from": "lookup", "to": "not_found", "kind": "error", "condition": "未命中（mock 数据缺失）" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "backend/tools/estimate_route_time.py", "lines": [1, 40] },
+        { "file": "backend/tools/_helpers.py", "lines": [40, 55] },
+        { "file": "mock_data/routes.json", "lines": [1, 70] }
+      ],
+      "confidence": 0.88,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-plan-assembly",
@@ -363,31 +406,36 @@
     {
       "id": "f-reserve-restaurant",
       "name": "餐厅预约执行",
-      "summary": "Mock 下单返回订单号；同时在 Tool 链路记一条 info 日志",
+      "summary": "Mock 下单返回伪造 order_id；座位被抢占返 RESTAURANT_FULL",
       "epicId": "execution",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 reserve_restaurant Tool" }
       ],
       "steps": [
         { "id": "receive", "name": "接收预约参数", "role": "input" },
-        { "id": "check", "name": "复查座位", "role": "data-read" },
-        { "id": "book", "name": "模拟下单", "role": "side-effect" },
-        { "id": "log", "name": "推送订单事件", "role": "side-effect" },
+        { "id": "load", "name": "加载餐厅全集", "role": "data-read" },
+        { "id": "find_slot", "name": "复查座位时段", "role": "compute" },
+        { "id": "make_order_id", "name": "生成订单号", "role": "compute" },
         { "id": "return", "name": "返回订单号", "role": "output" },
-        { "id": "fail", "name": "返回预约失败", "role": "error" }
+        { "id": "fail_full", "name": "返回座位已满", "role": "error" },
+        { "id": "fail_not_found", "name": "返回未找到餐厅", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "check", "kind": "next" },
-        { "from": "check", "to": "book", "kind": "conditional", "condition": "座位仍可订" },
-        { "from": "check", "to": "fail", "kind": "error", "condition": "座位已被抢占" },
-        { "from": "book", "to": "log", "kind": "async" },
-        { "from": "book", "to": "return", "kind": "next" }
+        { "from": "receive", "to": "load", "kind": "next" },
+        { "from": "load", "to": "find_slot", "kind": "conditional", "condition": "餐厅 id 命中" },
+        { "from": "load", "to": "fail_not_found", "kind": "error", "condition": "餐厅 id 不存在" },
+        { "from": "find_slot", "to": "make_order_id", "kind": "conditional", "condition": "时段仍可订" },
+        { "from": "find_slot", "to": "fail_full", "kind": "error", "condition": "available=false 或时段不存在" },
+        { "from": "make_order_id", "to": "return", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "backend/tools/reserve_restaurant.py", "lines": [1, 75] },
+        { "file": "mock_data/restaurants.json", "lines": [1, 260] }
+      ],
+      "confidence": 0.88,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-buy-ticket",
@@ -446,27 +494,33 @@
     {
       "id": "f-share-message",
       "name": "转发文案生成",
-      "summary": "按 social_context 调性生成口语化文案（家长 / 闺蜜 / 商务等）",
+      "summary": "按 social_context 调性挑选模板生成口语文案（家长 / 闺蜜 / 商务等）",
       "epicId": "sharing",
       "triggers": [
         { "kind": "event", "detail": "Agent 调用 generate_share_message Tool" }
       ],
       "steps": [
         { "id": "receive", "name": "接收方案与上下文", "role": "input" },
-        { "id": "generate", "name": "生成口语文案", "role": "compute" },
-        { "id": "format", "name": "按调性润色", "role": "transform" },
-        { "id": "return", "name": "返回可复制文案", "role": "output" }
+        { "id": "validate", "name": "校验摘要非空", "role": "validation" },
+        { "id": "pick_template", "name": "按调性挑选模板", "role": "compute" },
+        { "id": "compose", "name": "拼装文案", "role": "transform" },
+        { "id": "return", "name": "返回可复制文案", "role": "output" },
+        { "id": "invalid", "name": "返回输入不合法", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "generate", "kind": "next" },
-        { "from": "generate", "to": "format", "kind": "next" },
-        { "from": "format", "to": "return", "kind": "next" }
+        { "from": "receive", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "pick_template", "kind": "conditional", "condition": "摘要非空" },
+        { "from": "validate", "to": "invalid", "kind": "error", "condition": "摘要全为空白" },
+        { "from": "pick_template", "to": "compose", "kind": "next" },
+        { "from": "compose", "to": "return", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "backend/tools/generate_share_message.py", "lines": [1, 80] }
+      ],
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-tool-trace",

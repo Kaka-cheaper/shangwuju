@@ -1,0 +1,10 @@
+{
+  "user_id": "demo_user",
+  "home_location": {
+    "name": "西溪诚园（用户家）",
+    "lat": 30.275,
+    "lng": 120.075
+  },
+  "default_budget": 300.0,
+  "transport_preference": "taxi"
+}
