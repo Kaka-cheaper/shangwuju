@@ -959,3 +959,85 @@ LLM_API_KEY=tp-xxx（已脱敏）
 
 **用户反馈**：（待填）
 
+
+---
+
+## 问题11：方案 C 完整体——persona + memory 双驱动个性化
+
+**用户原问**：「这其实也跟项目息息相关哦……人和人对爽的理解不一样所以一定要 label base……不能让用户一开始体验时把所有喜好输进去……应该记录用户喜好基于记忆。一个是假设一些人群的喜好，一个是给予记忆给我分析一下，给我几个方案」选 **方案 C 完整体**。
+
+**实现内容**：
+
+### 后端
+
+- **schemas/persona.py**：Persona / PersonaDefaultTags / TagCounter / UserMemory / UserPreferenceView
+- **mock_data/personas.json**：5 个 persona（u_dad / u_biz / u_grandma / u_solo / u_couple）
+- **data/memory_store.py**：persona 加载 / memory in-memory + 可选磁盘持久化 / compute_priors 合并打分（persona × 0.3 + memory × 0.7，rejected 强惩罚 1.5×）
+- **tools/get_user_profile.py**：按 user_id 选 persona；demo_user alias 兼容老测试；未知 ID 仍返 NOT_FOUND
+- **agent/prompts/system_prompt.py**：`build_intent_parser_system_prompt_with_priors(user_id)`，注入档案 + 累积偏好；保守补全规则（social_context 必注，physical/dietary/experience 默认空避免过严）
+- **agent/intent_parser.py**：`parse_intent(..., user_id=...)` 透传
+- **agent/planner.py**：`_query_pois` / `_query_restaurants` 升级为五级降级（距离 +2km / 剥 preferred / 剥 prior tag / 最宽松）；search Tool 上限 3→5 / 总上限 12→16
+- **main.py**：
+  - ChatStreamRequest / ChatConfirmRequest 加 `user_id`
+  - `_resolve_user_id`：body > X-User-Id header > "demo_user"
+  - `/personas` / `/preferences/{user_id}` / `/preferences/{user_id}/reset` 三端点
+  - `_accumulate_memory_after_confirm`：从 itinerary stage 反查 mock_data 的 tag/suitable_for，累计 accepted
+  - `_accumulate_memory_after_refine`：refined intent 与 original 的 tag 差集进 rejected
+  - `_planner_stream` / `_refine_stream_real` 透传 user_id
+
+### 前端
+
+- **lib/types.ts**：Persona / UserMemory / UserPreferenceView / PersonasResponse
+- **lib/utils.ts**：`getUserIdFromCookie` / `setUserIdCookie`
+- **lib/store.ts**：`currentUserId` / `personas` / `preferences` 状态 + `setCurrentUserId` / `loadPersonas` / `refreshPreferences` / `resetUserMemory` actions；三处 SSE 请求 header 合并 `X-Planner-Mode` + `X-User-Id`；confirm/refine 后异步刷 preferences
+- **components/UserSwitcher.tsx**：顶栏 user 切换下拉（5 persona + 头像 + label + notes）
+- **components/PreferencesPanel.tsx**：右栏偏好画像（persona 档案 / 高优先 tag / 建议距离 / 最近接受 top 5 / 最近拒绝 top 5 / 清空记忆按钮）
+- **components/HomeView.tsx**：mount 时拉 personas / 恢复 cookie / refresh preferences
+
+### 测试
+
+- **test_persona_memory.py 13 项**：persona 加载 / accept 累加 / reject 扣分 / reset / priors 合并 / memory 压制 persona / rejected 强惩罚 / suggested 中位数 / Tool 兼容
+- **后端总计**：128 → 141 全过
+
+### 浏览器实测（核心 Demo「哇时刻」）
+
+```
+✓ 切「商务白领」→ 输入「今天下午想出去玩」→ 云岚商务雅集茶室 + 金樽商务日料（distance=8km）
+✓ 切「新手爸爸」→ 同样输入 → 悦读亲子绘本馆 + 鲸落健康简餐（distance=5km，亲子+低脂注入）
+✓ 同句话两套完全不同方案 → 体现「Agent 知道我是谁」
+✓ 确认下单 → 偏好画像「最近接受 top 5」立刻 +1（家庭日常 / 健康轻食 / 适合 5-10 岁 / 拍照友好 / 低强度）
+✓ 顶栏 user 切换器 cookie 持久化（reset 不清 user）
+✓ 偏好面板「清空记忆」按钮可清场用
+```
+
+**关键设计抉择（迭代过程）**：
+
+```
+1. prior 注入策略首版："top 1-2 tag 都补"
+   → 商务白领模糊输入触发 empty_candidates（mock 数据商务走向只 1 条 POI）
+   → 改为保守："social_context 必注，其他默认空，避免双重过滤"
+
+2. social_context vs physical 注入第二版误抽:
+   → 改后 LLM 把"今天下午想出去玩"误判为「独处放空」
+   → 第三版强化："social_context 优先用 persona suitable_for_priority[0]"
+   → 测试通过
+
+3. mock 数据兜底：planner 加 5 级降级
+   → 即使 LLM 注入过严约束，也能逐级剥离 prior tag 重试，最终一定有候选
+   → search Tool quota 3→5 配套
+
+4. demo_user 兼容：W1 旧测试断言 user_id == "demo_user"
+   → 新接口 alias 兜底 + override_user_id 透传，141/141 全过
+```
+
+**修改的代码文件**：见 commit `bb7c43c` 的 stat（15 文件 / +1668 -64）
+
+**应当达成的效果**：
+
+- 评分项 1（场景理解准确度）+5-10 分：同句话不同 user 不同方案
+- 评分项 6（Demo 闭环）：persona 切换 + memory 学习两个维度都直观可演示
+- 不破 D9：persona 是 user 维度（不是 scene 枚举），Tool 仍对场景类型无感
+- 不破 W1 测试：demo_user alias + 未知 ID 返 NOT_FOUND 双兼容
+
+**用户反馈**：（待填）
+
