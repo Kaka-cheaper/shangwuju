@@ -6,36 +6,41 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.6 双范式 + 反馈重规划全部联调通过**（W4 round 2 收尾，2026-05-16）
+**阶段**：**Phase 0.7 个性化（persona + memory）完成 + 浏览器端到端实测全过**（2026-05-17）
 
 **MVP 状态**：
 
 ```
-| 阶段   | 完成度   | 说明                                                       |
-|--------|----------|------------------------------------------------------------|
-| MVP-1  | 100% ✅   | 6 Tool + 主场景闭环 + E1 显式触发 + Web UI + SSE          |
-| MVP-2  | 95% ✅    | 8 Tool / 8 场景全跑通 / 用户确认 / 双 planner mode / 反馈重规划 |
-| MVP-3  | 阻塞     | 真 LLM 鲁棒压测 + 录屏（依赖 user 提供 DEEPSEEK_API_KEY）    |
+| 阶段     | 完成度    | 说明                                                       |
+|----------|-----------|------------------------------------------------------------|
+| MVP-1    | 100% ✅    | 6 Tool + 主场景闭环 + E1 显式触发 + Web UI + SSE          |
+| MVP-2    | 95% ✅     | 8 Tool / 8 场景全跑通 / 用户确认 / 双 planner mode / 反馈重规划 |
+| MVP-2.5  | 100% ✅    | LLM 客户端解耦（任意 OpenAI 兼容 base_url）                |
+| MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
+| MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
-**测试矩阵**：128 项 pytest 全过
+**测试矩阵**：141 项 pytest + 23 vitest + 13 verify_refine = 177 全过
 
 ```
-| 套件                     | 通过项 |
-|--------------------------|--------|
-| schema 自检              |  6/6   |
-| Phase 0.5 并行基座       |  8/8   |
-| W1 真 Tool + Mock        | 39/39  |
-| W2 Agent 端到端          |  6/6   |
-| 8 场景集成测试（W4-r1）  | 17/17  |
-| refiner 单测（P0.6 A4）   |  5/5   |
-| llm_planner 单测（A4）    | 13/13  |
-| 联调矩阵（A6）           | 40/40  |
-| 后端合计                 |128/128 |
-| 前端 vitest（W3）        | 23/23  |
-| B 的 verify_refine       | 13/13  |
-| 总计                     |164/164 |
+| 套件                          | 通过项 |
+|-------------------------------|--------|
+| schema 自检                    |  6/6   |
+| Phase 0.5 并行基座             |  8/8   |
+| W1 真 Tool + Mock              | 39/39  |
+| W2 Agent 端到端                |  6/6   |
+| 8 场景集成测试（W4-r1）        | 17/17  |
+| refiner 单测（P0.6 A4）         |  5/5   |
+| llm_planner 单测（A4）          | 13/13  |
+| 联调矩阵（A6）                 | 40/40  |
+| persona+memory（P0.7）         | 13/13  |
+| 后端合计                       |141/141 |
+| 前端 vitest（W3）              | 23/23  |
+| B 的 verify_refine（双模式）    | 13/13  |
+| 总计                           |177/177 |
 ```
+
+**真 LLM 链路实测**：MimMo (mimo-v2.5-pro) 端到端浏览器实测全过——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 全部跑通
 
 **时间盒**：**1 个月**（3 人团队，至 2026-06-08 左右）
 
@@ -138,10 +143,26 @@
 - ✅ **A6 联调矩阵 40 项**（commit dc34a2b）：8 场景 × 2 mode × 含/不含反馈
 - ✅ **A7 设计文档双范式段**（commit a5e014b）：≤ 半页
 
+**Round 3（W4 r3，2026-05-16/17）：LLM 解耦 + 浏览器实测**
+
+- ✅ **LLM 客户端解耦**（commit 7d6fde1）：`OpenAICompatibleClient` 通用类；`LLM_API_KEY/BASE_URL/MODEL` 主接口；保留 DeepSeek/Qwen 别名向后兼容；支持 OpenAI / 智谱 / Ollama / vLLM 等任意兼容服务（详见 problem 问题9）
+- ✅ **浏览器真链路实测**（commit 9b800e3）：MimMo (mimo-v2.5-pro) 端到端跑通；修复 2 bug——(1) /health llm_provider 解耦回归 (2) LLM 同步阻塞触发 8s 首字节超时 → 心跳事件 + asyncio.Queue 实时流（详见 problem 问题10）
+
+**Round 4（W4 r4，2026-05-17）：方案 C persona + memory 个性化（Phase 0.7）**
+
+- ✅ **persona schema + 5 mock**（commit bb7c43c）：u_dad / u_biz / u_grandma / u_solo / u_couple，每个含 default_tags + suitable_for_priority
+- ✅ **memory 累积**（同 commit）：confirm 后 accepted_tags +1 + 距离历史；refine 中 rejected_tags +1
+- ✅ **compute_priors 合并打分**：persona × 0.3 + memory × 0.7，rejected 1.5× 强惩罚
+- ✅ **Prompt 注入**：`build_intent_parser_system_prompt_with_priors(user_id)`；保守补全规则（social_context 必注，physical/dietary/experience 默认空避免过严）
+- ✅ **planner 五级降级**：距离 +2km → 剥 preferred_types → 剥 prior tag → 最宽松；search Tool quota 3→5 / 总 12→16
+- ✅ **3 个新端点**：`GET /personas` / `GET /preferences/{user_id}` / `POST /preferences/{user_id}/reset`
+- ✅ **前端 UserSwitcher + PreferencesPanel**：顶栏切换器 + 偏好画像面板（accepted/rejected top 5）
+- ✅ **13 项 persona+memory 测试** + 浏览器实测 persona 切换+确认下单+偏好累积全跑通
+- ✅ **CodeSee sync**（pending）：features.json 加 f-persona-prior + f-memory-learning
+
 **仍待开**：
 
-- ⬜ **真 LLM 链路验证（A18）**：依赖 user 提供 DEEPSEEK_API_KEY
-- ⬜ **现场演示录屏 3 版本**：依赖真 LLM 链路稳定
+- ⬜ **现场演示录屏 3 版本**（B 录屏脚本 commit 8831805 已备好）
 - ⬜ **提交 + 修复最后翻车点**
 
 ## 三、待决策清单

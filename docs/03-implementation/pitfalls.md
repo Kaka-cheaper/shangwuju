@@ -196,3 +196,26 @@
   - commit 前用 `git diff --cached --stat` 看清晰范围；untracked 文件不应进 revert commit
   - 看到 features.json 失真不要本能去"修复"——多窗口异步是正常状态
 - **优先级**：P2（不影响 demo 跑通；但破坏 multi-agent 协作边界，留下错误的"长效解法"会污染后续 prompts 设计）
+
+### [P2] 2026-05-17 Phase 0.7 persona prior 注入策略迭代（保守补全 vs 过严候选）
+
+- **现象**：方案 C 个性化首版 prompt 写「prior 含相关 tag → 把 top 1-2 个补进去」。商务白领 persona 输入「今天下午想出去玩」时，LLM 把 physical/dietary/experience 三类 prior tag 全塞，加上 social_context=商务接待 + capacity 默认 → search_pois **empty_candidates**（mock 数据商务走向 POI 仅 1 条）。
+- **根因**：双重过滤陷阱——prior 把 tag 全塞进 IntentExtraction，下游 search_pois 用「全部命中」过滤，候选必空。
+- **二次踩坑**：第一版改成「保守补全（默认空）」后，LLM 把模糊输入误判为「独处放空」，因为没有 social_context prior 引导。
+- **第三版**（最终）：
+  - **social_context 必注**：persona.suitable_for_priority[0] 是 user 身份核心标识，**必须**注入
+  - **distance 必注**：persona.default_distance_max_km 也必注
+  - **physical/dietary/experience 默认空**：除非用户输入有明确暗示
+  - **planner 五级降级兜底**：即使 prior 过严，逐级剥离重试到候选非空
+- **解法**：
+  - `backend/agent/prompts/system_prompt.py` `build_intent_parser_system_prompt_with_priors`
+  - `backend/agent/planner.py` `_query_pois` / `_query_restaurants` 多级降级 + Tool quota 提升（3→5）
+- **相关文件**：
+  - 第一版 prompt：commit bb7c43c
+  - 第三版迭代：本次 commit
+  - 浏览器实测：商务白领与新手爸爸同句不同方案演示通过
+- **防再犯**：
+  - prior 注入「开放性维度（distance / social_context）必注，封闭性维度（tag）保守补」
+  - 任何 prior 影响下游过滤的设计，必带 fallback 兜底链
+  - mock 数据稀疏的 social_context 走向（商务、独处、跨代际）需要在 prior 注入时给「降级开关」
+- **优先级**：P2（不影响 demo 跑通；但首版会让评委演示时碰到 empty_candidates，影响印象）

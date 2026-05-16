@@ -1041,3 +1041,68 @@ LLM_API_KEY=tp-xxx（已脱敏）
 
 **用户反馈**：（待填）
 
+
+---
+
+## 问题12：项目文档同步度盘点（progress / features / 设计文档 / pitfalls / 演示场景集）
+
+**用户原问**：「看看项目中还有什么文档没有更新的，我自己发现你没有更新 progress 和 features」
+
+**盘点结果**：
+
+```
+| 文档/资源              | 状态     | 缺失                                     |
+|------------------------|----------|------------------------------------------|
+| progress.md            | ✗ 滞后  | 停在 P0.6 联调；缺 LLM 解耦 / P0.7         |
+| .codesee/features.json | ✗ 滞后  | 缺 f-persona-prior / f-memory-learning   |
+| 设计文档.md             | ✗ 滞后  | 缺 §十一 LLM 解耦 / §十二 个性化           |
+| pitfalls.md            | △ 部分  | 缺 P0.7 prior 注入策略迭代                 |
+| 演示场景集.md           | △ 可加  | 缺 §七 persona × 同句对比                  |
+| problem.md             | ✓ 同步  | 已记录到问题 11                            |
+```
+
+**修正动作**：
+
+1. **CodeSee features.json**：加 2 个 implemented feature（owner=A）
+   - `f-persona-prior`：persona+memory 注入意图解析
+   - `f-memory-learning`：confirm 后累积 / refine 后扣分 / 偏好面板可视化
+   - 加 6 条 cross_feature 关系连接 quick-input / intent-parse / refine-replan / itinerary-card
+   - 24 个 feature 校验通过
+
+2. **progress.md**：当前位置改为「Phase 0.7 完成」+ 测试矩阵 164→177 + 真 LLM 实测注记
+   - W4 段加 Round 3（LLM 解耦 + 浏览器实测）
+   - W4 段加 Round 4（方案 C persona+memory）
+
+3. **设计文档.md**：追加三段
+   - §十一 LLM 客户端解耦（OpenAI 兼容 + 接入示例 + 关键防御）
+   - §十二 个性化（5 persona + memory 累积 + 合并打分 + Prompt 注入纪律 + 五级降级 + D9 边界）
+   - §十三 最终验收证据（更新到 177 项测试 + 24 feature）
+
+4. **pitfalls.md**：追加 P2 「persona prior 注入策略迭代」
+   - 首版 top 1-2 tag 全塞 → empty_candidates
+   - 二版默认空 → social_context 误抽为「独处放空」
+   - 三版（最终）：social_context/distance 必注 + tag 保守补 + planner 五级降级
+
+5. **演示场景集.md**：追加 §七「persona × 同句对比演示路径」
+   - 60 秒 demo 脚本（切 user × 同句 → 不同方案）
+   - 5 persona × 模糊输入对应方案调性表
+   - memory 学习链路演示（额外 30 秒）
+
+**修改的代码文件**：
+
+- 修改：`docs/00-overview/progress.md`
+- 修改：`.codesee/features.json`（+2 feature + 6 cross-link）
+- 修改：`docs/05-design/设计文档.md`（+§十一 §十二 §十三）
+- 修改：`docs/03-implementation/pitfalls.md`（+1 条 P2 坑）
+- 修改：`docs/01-requirements/演示场景集.md`（+§七）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- 任何新 session 开 progress.md 30 秒能看清当前在 W4 r4
+- CodeSee 画布反映个性化两个新 feature 与现有 feature 的关系
+- 评委读设计文档能看到 LLM 解耦 + 个性化两个加分点的完整设计
+- 演示场景集补「persona × 同句对比」给评委 5 分钟内最强的"哇时刻"演示路径
+
+**用户反馈**：（待填）
+

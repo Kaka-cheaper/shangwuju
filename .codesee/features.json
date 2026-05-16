@@ -889,6 +889,97 @@
       "updated_at": "2026-05-16T19:30:00Z"
     },
     {
+      "id": "f-persona-prior",
+      "name": "Persona 注入意图",
+      "summary": "切换 user 后意图解析按 persona prior 补全 social_context / 距离（Phase 0.7）",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "ui", "detail": "顶栏 UserSwitcher 切换 persona" },
+        { "kind": "http", "detail": "X-User-Id header 或 body.user_id 透传" }
+      ],
+      "steps": [
+        { "id": "resolve_user", "name": "解析用户身份", "role": "compute" },
+        { "id": "load_persona", "name": "读取档案", "role": "data-read" },
+        { "id": "load_memory", "name": "读取偏好记忆", "role": "data-read" },
+        { "id": "merge_priors", "name": "合并打分", "role": "compute" },
+        { "id": "build_prompt", "name": "拼装提示词", "role": "transform" },
+        { "id": "call_llm", "name": "请求模型抽取", "role": "compute" },
+        { "id": "validate", "name": "校验意图字段", "role": "validation" },
+        { "id": "output", "name": "输出意图", "role": "output" },
+        { "id": "fallback", "name": "无 user 走原路径", "role": "error" }
+      ],
+      "flow": [
+        { "from": "resolve_user", "to": "load_persona", "kind": "conditional", "condition": "user_id 非空" },
+        { "from": "resolve_user", "to": "fallback", "kind": "error", "condition": "user_id 缺失" },
+        { "from": "load_persona", "to": "load_memory", "kind": "next" },
+        { "from": "load_memory", "to": "merge_priors", "kind": "next" },
+        { "from": "merge_priors", "to": "build_prompt", "kind": "next" },
+        { "from": "build_prompt", "to": "call_llm", "kind": "next" },
+        { "from": "call_llm", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "output", "kind": "next" },
+        { "from": "fallback", "to": "output", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/schemas/persona.py", "lines": [1, 151] },
+        { "file": "backend/data/memory_store.py", "lines": [1, 263] },
+        { "file": "backend/agent/prompts/system_prompt.py", "lines": [200, 310] },
+        { "file": "backend/agent/intent_parser.py", "lines": [40, 110] },
+        { "file": "backend/main.py", "lines": [185, 220] },
+        { "file": "mock_data/personas.json", "lines": [1, 77] },
+        { "file": "frontend/components/UserSwitcher.tsx", "lines": [1, 106] },
+        { "file": "backend/tests/test_persona_memory.py", "lines": [1, 168] }
+      ],
+      "confidence": 0.86,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
+      "id": "f-memory-learning",
+      "name": "偏好记忆累积",
+      "summary": "confirm 后命中 tag 累计 accepted；refine 拒过的 tag 累计 rejected；前端面板可视化（Phase 0.7）",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "event", "detail": "用户确认下单后由 _accumulate_memory_after_confirm 触发" },
+        { "kind": "event", "detail": "refine 完成后由 _accumulate_memory_after_refine 触发" },
+        { "kind": "ui", "detail": "前端偏好画像面板展开" }
+      ],
+      "steps": [
+        { "id": "collect_tags", "name": "抽取命中标签", "role": "compute" },
+        { "id": "filter_dict", "name": "过滤词典外", "role": "validation" },
+        { "id": "bump_accepted", "name": "累加接受计数", "role": "data-write" },
+        { "id": "diff_rejected", "name": "推断拒绝集合", "role": "compute" },
+        { "id": "bump_rejected", "name": "累加拒绝计数", "role": "data-write" },
+        { "id": "persist", "name": "落盘记忆", "role": "side-effect" },
+        { "id": "compute_priors", "name": "重算优先权重", "role": "compute" },
+        { "id": "publish_panel", "name": "推送偏好面板", "role": "output" },
+        { "id": "reset", "name": "清空记忆兜底", "role": "error" }
+      ],
+      "flow": [
+        { "from": "collect_tags", "to": "filter_dict", "kind": "next" },
+        { "from": "filter_dict", "to": "bump_accepted", "kind": "conditional", "condition": "confirm 路径" },
+        { "from": "filter_dict", "to": "diff_rejected", "kind": "conditional", "condition": "refine 路径" },
+        { "from": "diff_rejected", "to": "bump_rejected", "kind": "next" },
+        { "from": "bump_accepted", "to": "persist", "kind": "async" },
+        { "from": "bump_rejected", "to": "persist", "kind": "async" },
+        { "from": "persist", "to": "compute_priors", "kind": "next" },
+        { "from": "compute_priors", "to": "publish_panel", "kind": "next" },
+        { "from": "publish_panel", "to": "reset", "kind": "error", "condition": "用户点清空记忆" }
+      ],
+      "refs": [
+        { "file": "backend/data/memory_store.py", "lines": [120, 263] },
+        { "file": "backend/main.py", "lines": [275, 410] },
+        { "file": "backend/tools/get_user_profile.py", "lines": [1, 65] },
+        { "file": "frontend/components/PreferencesPanel.tsx", "lines": [1, 167] },
+        { "file": "frontend/lib/store.ts", "lines": [380, 470] },
+        { "file": "backend/tests/test_persona_memory.py", "lines": [70, 168] }
+      ],
+      "confidence": 0.84,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
       "id": "f-refinement-dialog",
       "name": "反馈弹窗",
       "summary": "用户拒绝方案时填反馈文本（含 6 条预设建议），提交触发 POST /chat/refine",
@@ -1121,7 +1212,13 @@
     { "from": "f-planner-mode-badge", "to": "f-toast-stack", "kind": "publishes", "note": "mode 切换推 info toast" },
     { "from": "f-planner-mode-badge", "to": "f-llm-planner", "kind": "triggers", "note": "切到 llm 模式后续请求由 llm planner 处理" },
     { "from": "f-planner-mode-badge", "to": "f-plan-assembly", "kind": "triggers", "note": "切到 rule 模式后续请求由规则 planner 处理" },
-    { "from": "f-planner-mode-badge", "to": "f-tool-trace", "kind": "publishes", "note": "X-Planner-Mode header 透传到所有 SSE 请求" }
+    { "from": "f-planner-mode-badge", "to": "f-tool-trace", "kind": "publishes", "note": "X-Planner-Mode header 透传到所有 SSE 请求" },
+    { "from": "f-quick-input", "to": "f-persona-prior", "kind": "depends_on", "note": "提交输入时携带当前 user_id" },
+    { "from": "f-persona-prior", "to": "f-intent-parse", "kind": "depends_on", "note": "意图解析消费 persona+memory prior" },
+    { "from": "f-persona-prior", "to": "f-memory-learning", "kind": "subscribes", "note": "compute_priors 订阅 memory 变化" },
+    { "from": "f-itinerary-card", "to": "f-memory-learning", "kind": "triggers", "note": "确认下单触发 accepted_tags 累加" },
+    { "from": "f-refine-replan", "to": "f-memory-learning", "kind": "triggers", "note": "反馈合并后触发 rejected_tags 累加" },
+    { "from": "f-memory-learning", "to": "f-quick-input", "kind": "publishes", "note": "preferences 端点产出，前端切 user 时拉取" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
