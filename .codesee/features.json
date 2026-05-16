@@ -83,28 +83,38 @@
       ],
       "steps": [
         { "id": "receive", "name": "接收用户输入", "role": "input" },
-        { "id": "extract", "name": "抽取意图约束", "role": "compute" },
-        { "id": "strip_fence", "name": "剥离 markdown 围栏", "role": "transform" },
-        { "id": "validate", "name": "校验 schema", "role": "validation" },
-        { "id": "fill_default", "name": "补默认值", "role": "compute" },
-        { "id": "publish_trace", "name": "推送解析事件", "role": "side-effect" },
-        { "id": "output", "name": "输出意图 JSON", "role": "output" },
-        { "id": "ask_back", "name": "回问澄清字段", "role": "error" }
+        { "id": "build_messages", "name": "拼装提示词", "role": "transform" },
+        { "id": "call_llm", "name": "请求模型抽取", "role": "compute" },
+        { "id": "strip_fence", "name": "剥离围栏", "role": "transform" },
+        { "id": "json_decode", "name": "解析 JSON", "role": "transform" },
+        { "id": "validate", "name": "校验意图字段", "role": "validation" },
+        { "id": "feedback_retry", "name": "回灌错误重试", "role": "compute" },
+        { "id": "fill_default", "name": "兜底原文", "role": "compute" },
+        { "id": "output", "name": "输出意图", "role": "output" },
+        { "id": "raise_error", "name": "抛出解析失败", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "extract", "kind": "next" },
-        { "from": "extract", "to": "strip_fence", "kind": "next" },
-        { "from": "strip_fence", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "fill_default", "kind": "conditional", "condition": "校验通过" },
-        { "from": "validate", "to": "ask_back", "kind": "error", "condition": "置信度 < 0.6 或字段缺失" },
-        { "from": "fill_default", "to": "output", "kind": "next" },
-        { "from": "fill_default", "to": "publish_trace", "kind": "async" }
+        { "from": "receive", "to": "build_messages", "kind": "next" },
+        { "from": "build_messages", "to": "call_llm", "kind": "next" },
+        { "from": "call_llm", "to": "strip_fence", "kind": "next" },
+        { "from": "strip_fence", "to": "json_decode", "kind": "next" },
+        { "from": "json_decode", "to": "validate", "kind": "conditional", "condition": "JSON 解析成功" },
+        { "from": "json_decode", "to": "feedback_retry", "kind": "error", "condition": "JSON 解析失败" },
+        { "from": "validate", "to": "fill_default", "kind": "conditional", "condition": "schema 校验通过" },
+        { "from": "validate", "to": "feedback_retry", "kind": "error", "condition": "schema 校验失败" },
+        { "from": "feedback_retry", "to": "build_messages", "kind": "loop", "condition": "重试次数未超限" },
+        { "from": "feedback_retry", "to": "raise_error", "kind": "error", "condition": "重试耗尽" },
+        { "from": "fill_default", "to": "output", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.45,
+      "refs": [
+        { "file": "backend/agent/intent_parser.py", "lines": [1, 130] },
+        { "file": "backend/agent/prompts/system_prompt.py", "lines": [50, 130] },
+        { "file": "backend/schemas/intent.py", "lines": [1, 110] }
+      ],
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T12:00:00Z"
     },
     {
       "id": "f-user-profile",
@@ -244,60 +254,86 @@
     {
       "id": "f-plan-assembly",
       "name": "行程组装",
-      "summary": "把候选组合为出发-主活动-转场-用餐-附加-返回六段结构",
+      "summary": "规则化 ReAct 主循环：从意图到六段 Itinerary",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "意图解析完成 + 候选齐全后由 Planner 触发" }
+        { "kind": "event", "detail": "意图解析完成后 plan_itinerary(intent) 调用" }
       ],
       "steps": [
-        { "id": "receive", "name": "接收意图与候选", "role": "input" },
-        { "id": "allocate", "name": "分配六段时间", "role": "compute" },
-        { "id": "select", "name": "选最优组合", "role": "compute" },
-        { "id": "validate", "name": "校验距离与时长", "role": "validation" },
-        { "id": "output", "name": "输出方案", "role": "output" },
-        { "id": "constraint_fail", "name": "返回组合不可行", "role": "error" }
+        { "id": "receive_intent", "name": "接收意图", "role": "input" },
+        { "id": "load_profile", "name": "取用户画像", "role": "data-read" },
+        { "id": "query_pois", "name": "查活动地点", "role": "data-read" },
+        { "id": "query_restaurants", "name": "查餐厅", "role": "data-read" },
+        { "id": "negotiate_dining", "name": "依序询问餐位", "role": "compute" },
+        { "id": "estimate_routes", "name": "估三段通勤", "role": "data-read" },
+        { "id": "assemble_stages", "name": "拼装时间轴", "role": "compute" },
+        { "id": "emit_ready", "name": "推送方案就绪", "role": "side-effect" },
+        { "id": "output", "name": "返回方案", "role": "output" },
+        { "id": "abort", "name": "异常中止", "role": "error" }
       ],
       "flow": [
-        { "from": "receive", "to": "allocate", "kind": "next" },
-        { "from": "allocate", "to": "select", "kind": "next" },
-        { "from": "select", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "output", "kind": "conditional", "condition": "约束全部满足" },
-        { "from": "validate", "to": "constraint_fail", "kind": "error", "condition": "总时长超 6h 或距离超限" }
+        { "from": "receive_intent", "to": "load_profile", "kind": "next" },
+        { "from": "load_profile", "to": "query_pois", "kind": "conditional", "condition": "画像可用" },
+        { "from": "load_profile", "to": "abort", "kind": "error", "condition": "画像缺失" },
+        { "from": "query_pois", "to": "query_restaurants", "kind": "conditional", "condition": "命中 POI" },
+        { "from": "query_pois", "to": "abort", "kind": "error", "condition": "POI 候选为空" },
+        { "from": "query_restaurants", "to": "negotiate_dining", "kind": "conditional", "condition": "命中餐厅" },
+        { "from": "query_restaurants", "to": "abort", "kind": "error", "condition": "餐厅候选为空" },
+        { "from": "negotiate_dining", "to": "estimate_routes", "kind": "conditional", "condition": "找到可订时段" },
+        { "from": "negotiate_dining", "to": "abort", "kind": "error", "condition": "全部餐厅满座" },
+        { "from": "estimate_routes", "to": "assemble_stages", "kind": "next" },
+        { "from": "assemble_stages", "to": "emit_ready", "kind": "async" },
+        { "from": "assemble_stages", "to": "output", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "backend/agent/planner.py", "lines": [80, 200] },
+        { "file": "backend/agent/trace.py", "lines": [1, 60] },
+        { "file": "backend/schemas/itinerary.py", "lines": [1, 70] }
+      ],
+      "confidence": 0.8,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T12:00:00Z"
     },
     {
       "id": "f-exception-replan",
       "name": "异常重规划",
-      "summary": "Tool 失败时分类异常并选备选（E1 餐厅满 / E2 票售罄 / E3 距离超限 / E4 时长超）",
+      "summary": "失败 reason 分发到放宽距离 / 切时段 / 切备选餐厅；E1 已端到端验证",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "查询 / 执行类 Tool 返回 available=false 或 success=false" }
+        { "kind": "event", "detail": "Tool 返回 success=false 时 planner 内部分发" }
       ],
       "steps": [
         { "id": "detect", "name": "侦测失败信号", "role": "input" },
-        { "id": "classify", "name": "分类异常类型", "role": "compute" },
-        { "id": "select_backup", "name": "挑选备选方案", "role": "compute" },
-        { "id": "recheck", "name": "复查备选可用", "role": "data-read" },
-        { "id": "output", "name": "回灌新方案", "role": "output" },
-        { "id": "degrade", "name": "降级提示无候选", "role": "error" }
+        { "id": "classify", "name": "按失败原因分类", "role": "compute" },
+        { "id": "loosen_distance", "name": "放宽距离重查", "role": "data-read" },
+        { "id": "next_slot", "name": "切下一时段", "role": "compute" },
+        { "id": "next_restaurant", "name": "切备选餐厅", "role": "compute" },
+        { "id": "emit_replan", "name": "推送重规划事件", "role": "side-effect" },
+        { "id": "recover", "name": "返回新方案", "role": "output" },
+        { "id": "degrade", "name": "全部备选失败降级", "role": "error" }
       ],
       "flow": [
         { "from": "detect", "to": "classify", "kind": "next" },
-        { "from": "classify", "to": "select_backup", "kind": "next" },
-        { "from": "select_backup", "to": "recheck", "kind": "next" },
-        { "from": "recheck", "to": "output", "kind": "conditional", "condition": "备选可用" },
-        { "from": "recheck", "to": "degrade", "kind": "error", "condition": "备选也失败" }
+        { "from": "classify", "to": "loosen_distance", "kind": "conditional", "condition": "reason=empty_candidates" },
+        { "from": "classify", "to": "next_slot", "kind": "conditional", "condition": "reason=restaurant_full 同店还有时段" },
+        { "from": "classify", "to": "next_restaurant", "kind": "conditional", "condition": "reason=restaurant_full 同店全满" },
+        { "from": "loosen_distance", "to": "emit_replan", "kind": "async" },
+        { "from": "next_slot", "to": "emit_replan", "kind": "async" },
+        { "from": "next_restaurant", "to": "emit_replan", "kind": "async" },
+        { "from": "loosen_distance", "to": "recover", "kind": "conditional", "condition": "重查命中" },
+        { "from": "next_slot", "to": "recover", "kind": "conditional", "condition": "切到的时段可订" },
+        { "from": "next_restaurant", "to": "recover", "kind": "conditional", "condition": "备选餐厅可订" },
+        { "from": "recover", "to": "degrade", "kind": "error", "condition": "全部备选耗尽" }
       ],
-      "refs": [],
-      "confidence": 0.35,
+      "refs": [
+        { "file": "backend/agent/planner.py", "lines": [180, 320] },
+        { "file": "backend/schemas/errors.py", "lines": [1, 35] }
+      ],
+      "confidence": 0.7,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T12:00:00Z"
     },
     {
       "id": "f-user-confirm",

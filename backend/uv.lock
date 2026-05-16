@@ -517,7 +517,11 @@ name = "shangwuju-backend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
+    { name = "openai" },
     { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "structlog" },
 ]
 
 [package.optional-dependencies]
@@ -526,22 +530,20 @@ dev = [
 ]
 runtime = [
     { name = "fastapi" },
-    { name = "openai" },
-    { name = "python-dotenv" },
     { name = "sse-starlette" },
-    { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.110,<1" },
-    { name = "openai", marker = "extra == 'runtime'", specifier = ">=1.30" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "openai", specifier = ">=1.30" },
     { name = "pydantic", specifier = ">=2.7,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "python-dotenv", marker = "extra == 'runtime'", specifier = ">=1.0" },
+    { name = "python-dotenv", specifier = ">=1.0" },
     { name = "sse-starlette", marker = "extra == 'runtime'", specifier = ">=2.1" },
-    { name = "structlog", marker = "extra == 'runtime'", specifier = ">=24.1" },
+    { name = "structlog", specifier = ">=24.1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'runtime'", specifier = ">=0.29" },
 ]
 provides-extras = ["dev", "runtime"]

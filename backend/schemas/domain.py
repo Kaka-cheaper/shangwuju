@@ -83,9 +83,13 @@ class Poi(BaseModel):
 
 class RestaurantCapacity(BaseModel):
     """各种桌型是否可用。Capacity 描述「桌位类型存在性」，
-    具体某天某时是否有空看 reservation_slots。"""
+    具体某天某时是否有空看 reservation_slots。
 
-    model_config = ConfigDict(extra="forbid")
+    `populate_by_name=True` 让 `model_dump()` 输出的字段名（two/four/...）
+    与 alias（"2"/"4"/...）都能反向 model_validate——
+    避免 invoke_tool 二次校验时炸（pitfalls P2-预埋 alias 漂移）。"""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     two: bool = Field(default=True, alias="2")
     four: bool = Field(default=True, alias="4")
