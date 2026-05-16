@@ -33,11 +33,12 @@
 
 按 D9 双轨 + 1 个月时间盒拆分：
 
-### Week 1 (当前周剩余)
+### Week 1 (当前周剩余) —— 拆分为 P0/P1/P2/P3 子阶段
 
-- **初始化项目骨架**：`backend/` (FastAPI) + `frontend/` (Next.js 14 App Router) + `mock_data/` 目录（按 架构选型.md D7）
-- **意图解析模块 MVP**：DeepSeek-V3 Function Calling + system prompt 输出严格按 `需求分析.md` §5.7 schema 的 JSON
-- **Mock 数据第一版骨架**：POI 20 + 餐厅 30（MVP-1 家庭走向优先）
+- ✅ **P0 契约基座**（2026-05-16 完成）：`backend/schemas/` 7 份 Pydantic v2 模型 + `mock_data/_samples/` 4 份典范样本 + `verify_schemas.py` 自检 6 项全过；含 D9 禁止字段拦截 + 词典外 tag 拦截两条反向测试
+- ⬜ **P1 数据+Tool**（C 扛）：扩 Mock 数据到 ≥20 POI + ≥30 餐厅（含 ≥2 个失败埋点）；实现 6 个 MVP-1 Tool
+- ⬜ **P2 Agent**（A 扛，可与 P1 末并行）：`llm_client.py` + `intent_parser.py` + `planner.py + executor.py`；DeepSeek-V3 Function Calling
+- ⬜ **P3 前端**（B 扛，可与 P2 并行）：`backend/main.py` SSE 端点 + Next.js 聊天框 + 行程卡片 + Tool 链路可视化
 
 ### Week 2
 

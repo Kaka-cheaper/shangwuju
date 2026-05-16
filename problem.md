@@ -102,3 +102,40 @@
 - 进入编码阶段后，每完成一个 feature 触发 `sync.md` 把 `planned` 升级为 `implemented`，同时补 refs
 - 评分项 1（场景理解）、2（规划链路）、3（Tool 设计）、5（异常处理）的设计意图全部可视化，对应 cross_feature 与 error 分支
 
+
+---
+
+## 问题4：四层协议盘点 + Phase 0 契约基座
+
+**用户原问**：四层之间的协议都完全确定了吗？是不是应该先打基座？mock 数据层是不是应该第一个来？
+
+**解决方案**：
+
+盘点结果：6 项已定 + 2 项部分定 + 7 项未定（详见聊天回复）。三人并行的前提是契约先定，否则 W1 末联调一定撞车。
+
+将 W1 拆成 P0/P1/P2/P3 四个子阶段，**P0 必须串行做**：
+
+```
+P0 契约基座（本次完成）→ P1 数据+Tool（C 扛）→ P2 Agent（A 扛）→ P3 前端（B 扛）
+```
+
+Phase 0 落地内容：
+
+- `backend/pyproject.toml`（uv + pydantic 2.13.4 已 sync 通过）
+- `backend/schemas/`：tags / errors / intent / domain / itinerary / tools / sse 共 7 份模型
+- `backend/scripts/verify_schemas.py`：自检脚本，6 项全过（含 2 条反向测试：D9 禁止字段拦截 + 词典外 tag 拦截）
+- `mock_data/_samples/`：4 份典范样本（POI / Restaurant / Route / Intent）
+
+修正了执行流程的一个盲点：**CodeSee sync 应当是每次代码改动的默认收尾步**，而非显式任务。本轮按 sync.md「新文件未接入：不追加」的边界情况处理，待 P1 Tool 实现把 schema 真正消费起来后再触发 planned → implemented 升级。
+
+**修改的代码文件**：
+
+- 新建：`backend/{pyproject.toml, .python-version, schemas/*, scripts/*}`
+- 新建：`mock_data/_samples/*.json`
+
+**应当达成的效果**：
+
+- 三方开发者（A/B/C）拿到同一份 Pydantic 模型即可独立推进，不再脑补字段
+- 任何下游代码若漂移字段名 / 发明 tag / 用 D9 禁止字段，会被 Pydantic 立刻拦截
+- 后续 `python -m scripts.verify_schemas` 是契约 regression 守门员
+
