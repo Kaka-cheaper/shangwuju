@@ -102,12 +102,13 @@
       "refs": [
         { "file": "frontend/components/QuickScenarios.tsx" },
         { "file": "frontend/lib/store.ts", "lines": [105, 168] },
-        { "file": "backend/main.py", "lines": [50, 134] }
+        { "file": "backend/main.py", "lines": [50, 134] },
+        { "file": "frontend/scripts/pressure-test-scenarios.mjs" }
       ],
-      "confidence": 0.92,
+      "confidence": 0.94,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T07:00:00Z"
+      "updated_at": "2026-05-16T18:00:00Z"
     },
     {
       "id": "f-intent-parse",
@@ -588,19 +589,29 @@
           "id": "open_stream",
           "name": "发起 SSE 请求",
           "role": "side-effect",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [21, 50] }]
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [54, 80] }]
+        },
+        {
+          "id": "arm_watchdog",
+          "name": "启动超时看门狗",
+          "role": "compute",
+          "note": "首字节默认 8s / 空闲默认 30s",
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [102, 135] }]
         },
         {
           "id": "decode",
           "name": "增量解码字节",
           "role": "transform",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [60, 98] }]
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [140, 175] }]
         },
         {
           "id": "parse",
           "name": "解析事件块",
           "role": "transform",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [105, 130] }]
+          "refs": [
+            { "file": "frontend/lib/sse.ts", "lines": [220, 245] },
+            { "file": "frontend/lib/sse.ts", "lines": [248, 270] }
+          ]
         },
         {
           "id": "dispatch",
@@ -616,7 +627,7 @@
         },
         {
           "id": "render_trace",
-          "name": "渲染 Tool 时间线",
+          "name": "渲染调用时间线",
           "role": "output",
           "refs": [{ "file": "frontend/components/ToolTracePanel.tsx" }]
         },
@@ -624,38 +635,45 @@
           "id": "render_replan",
           "name": "高亮异常重规划",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ToolTracePanel.tsx", "lines": [60, 78] }]
+          "refs": [{ "file": "frontend/components/ToolTracePanel.tsx", "lines": [55, 80] }]
         },
         {
           "id": "fallback",
           "name": "断流降级提示",
           "role": "error",
+          "note": "区分 timeout_first_event / idle_timeout / network / http / stream 五类",
           "refs": [
-            { "file": "frontend/lib/sse.ts", "lines": [38, 46] },
-            { "file": "frontend/components/ChatPanel.tsx", "lines": [75, 80] }
+            { "file": "frontend/lib/sse.ts", "lines": [180, 215] },
+            { "file": "frontend/lib/utils.ts", "lines": [44, 70] },
+            { "file": "frontend/components/ChatPanel.tsx", "lines": [70, 82] }
           ]
         }
       ],
       "flow": [
-        { "from": "open_stream", "to": "decode", "kind": "next" },
+        { "from": "open_stream", "to": "arm_watchdog", "kind": "next" },
+        { "from": "arm_watchdog", "to": "decode", "kind": "next" },
         { "from": "decode", "to": "parse", "kind": "loop", "condition": "每收到一个 SSE 块" },
         { "from": "parse", "to": "dispatch", "kind": "next" },
+        { "from": "dispatch", "to": "arm_watchdog", "kind": "async", "condition": "每条事件后重置空闲计时" },
         { "from": "dispatch", "to": "render_intent", "kind": "conditional", "condition": "事件 type=intent_parsed" },
         { "from": "dispatch", "to": "render_trace", "kind": "conditional", "condition": "事件 type=tool_call_*" },
         { "from": "dispatch", "to": "render_replan", "kind": "conditional", "condition": "事件 type=replan_triggered" },
-        { "from": "open_stream", "to": "fallback", "kind": "error", "condition": "SSE 断流或 HTTP 错误" }
+        { "from": "arm_watchdog", "to": "fallback", "kind": "error", "condition": "首字节或空闲超时" },
+        { "from": "open_stream", "to": "fallback", "kind": "error", "condition": "网络层 / HTTP 错误" }
       ],
       "refs": [
         { "file": "frontend/lib/sse.ts" },
+        { "file": "frontend/lib/sse.test.ts" },
         { "file": "frontend/lib/store.ts" },
+        { "file": "frontend/lib/utils.ts" },
         { "file": "frontend/components/ToolTracePanel.tsx" },
         { "file": "frontend/components/IntentSummary.tsx" },
         { "file": "frontend/components/ChatPanel.tsx" }
       ],
-      "confidence": 0.9,
+      "confidence": 0.95,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T07:00:00Z"
+      "updated_at": "2026-05-16T18:00:00Z"
     },
     {
       "id": "f-itinerary-card",
