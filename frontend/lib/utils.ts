@@ -33,6 +33,22 @@ export const FAILURE_REASON_LABEL: Record<string, string> = {
   upstream_failure: "上游服务失败",
 };
 
+/** SSE 流错误原因的中文显示（来自 lib/sse.ts SseStreamError.reason）。 */
+export const STREAM_ERROR_LABEL: Record<string, string> = {
+  network: "网络错误",
+  http: "服务端响应异常",
+  no_body: "服务端未返回数据流",
+  stream: "数据流异常中断",
+  timeout_first_event: "后端无响应（首字节超时）",
+  idle_timeout: "数据流长时间无新事件（疑似断流）",
+  parse: "解析失败",
+};
+
+export function formatStreamError(reason: string, detail?: string): string {
+  const label = STREAM_ERROR_LABEL[reason] ?? reason;
+  return detail ? `${label}：${detail}` : label;
+}
+
 /** 工具名 → 中文标签（评委可读）。 */
 export const TOOL_LABEL: Record<string, string> = {
   get_user_profile: "读取用户画像",

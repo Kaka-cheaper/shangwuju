@@ -20,7 +20,7 @@ import type {
   ToolCallEndPayload,
   ToolCallStartPayload,
 } from "./types";
-import { API_BASE, generateSessionId } from "./utils";
+import { API_BASE, formatStreamError, generateSessionId } from "./utils";
 
 export type ChatRole = "user" | "agent";
 
@@ -160,7 +160,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         onEvent: (ev) => handleEvent(set, get, ev),
         onError: (err) =>
           set({
-            streamError: `${err.reason}${err.detail ? `: ${err.detail}` : ""}`,
+            streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
           // 加一条 agent 总结消息（基于 itinerary）
@@ -200,7 +200,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         onEvent: (ev) => handleEvent(set, get, ev),
         onError: (err) =>
           set({
-            streamError: `${err.reason}${err.detail ? `: ${err.detail}` : ""}`,
+            streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => set({ streaming: false }),
       },
