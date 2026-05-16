@@ -890,3 +890,72 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 
 **用户反馈**：（待填）
 
+
+---
+
+## 问题10：浏览器真链路联调
+
+**用户原问**：「我设置好了 .env，跑真实链路验证。但是要在真实浏览器中跑，要不然我看不到结果」
+
+**.env 配置**（user 提供）：
+
+```
+LLM_BASE_URL=https://token-plan-cn.xiaomimimo.com/v1
+LLM_MODEL=mimo-v2.5-pro
+LLM_API_KEY=tp-xxx（已脱敏）
+```
+
+**联调发现并修复 2 个真实 bug**：
+
+### Bug 1：/health 显示 llm_provider=stub（解耦回归）
+
+- 现象：.env 里没显式设 LLM_PROVIDER，main.py 默认值 "stub" 让 `_use_real_planner()` 误判为 stub 模式
+- 根因：LLM 解耦后 LLM_PROVIDER 不再必填（应自动从 base_url 推断），但 main.py 还把它当主开关
+- 修复：
+  - LLM_PROVIDER 默认值改 "openai-compatible"
+  - `_use_real_planner()` 改为：PLANNER_USE_REAL > LLM_PROVIDER=stub > 有 LLM_API_KEY 就启用
+  - /health 增加 `planner_real` 字段，方便诊断
+  - llm_provider 字段从 base_url 自动推断展示名
+
+### Bug 2：LLM 同步阻塞触发前端 SSE 首字节 8s 超时
+
+- 现象：LLM mode 下点 S3，首字节超时（红色提示）；rule mode 也偶发
+- 根因：
+  - 前端 SSE 解析器 `firstEventTimeoutMs=8000`
+  - 后端 `_planner_stream` 同步调 `_intent_via_llm()`（5-15s）+ `plan_itinerary_with_mode`（20-60s）
+  - 全跑完才 yield 第一条事件 → 必然超时
+- 修复（核心）：
+  - 立刻 yield 一条 `agent_thought {"text":"正在理解你的需求……"}` 心跳事件（< 100ms 首字节）
+  - 把意图解析 + plan 跑在后台线程
+  - 主线程通过 `asyncio.Queue` 消费 Tracer 订阅 emit 的事件
+  - `loop.call_soon_threadsafe` 在线程间安全传递 TraceRecord
+  - sentinel `None` 唤醒主消费循环结束
+- 评分价值：评委演示真 LLM mode 时不会卡转圈
+
+**端到端浏览器实测**（Playwright + 视觉确认）：
+
+```
+✓ /health 返回 llm_provider=openai-compatible / planner_real=1
+✓ rule mode + S1 → 9 Tool / 2 重规划 / 鲸落 18:00 / 总时长 5.7h
+✓ rule mode + 反馈"太远了 3km" → distance=3 真传给 planner / 改用轻语沙拉 17:30 / 5.1h
+✓ 切到 LLM mode（顶栏徽章实时变）
+✓ LLM mode + S1 → 11 Tool（比 rule 多 2 次，模型真自主调） / 2 重规划 / 5.7h
+✓ LLM mode + 反馈"3km" → distance 真收紧 / 餐厅换近 / 9 Tool / 5.1h
+✓ 确认并预约 → 餐厅订单 R20260516_001 + 转发文案生成 + 复制按钮
+✓ 心跳 "正在理解你的需求……" 实时显示在对话栏
+✓ Tool 调用链路右栏实时滚动
+```
+
+**修改的代码文件**：
+
+- 修改：`backend/main.py`（LLM_PROVIDER 默认值 + _use_real_planner 重构 + /health 增强 + _planner_stream 重写为实时流）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- user 在浏览器实测真 LLM 链路完整闭环：意图解析 / Tool 调用链 / 异常重规划 / 反馈合并 / 双 mode 切换 / 用户确认下单 / 转发文案
+- LLM mode 演示稳定不超时（评分项 2 加分点真正可演示）
+- /health 能准确反映「当前真实 LLM 配置」和「真假 planner 路径」
+
+**用户反馈**：（待填）
+
