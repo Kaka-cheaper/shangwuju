@@ -5,11 +5,18 @@ import { useState } from "react";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-/** 行程卡片：六段时间轴 + 已为你预留清单 + 转发文案 + 复制按钮。 */
+import RefinementDialog from "./RefinementDialog";
+
+/** 行程卡片：六段时间轴 + 已为你预留清单 + 转发文案 + 三按钮（确认/反馈/取消）。 */
 export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
+  const cancelled = useChatStore((s) => s.cancelled);
+  const lastRefinement = useChatStore((s) => s.lastRefinement);
   const confirm = useChatStore((s) => s.confirm);
+  const cancel = useChatStore((s) => s.cancel);
+
+  const [refineOpen, setRefineOpen] = useState(false);
 
   if (!itinerary && !streaming) {
     return (
@@ -29,7 +36,7 @@ export default function ItineraryCard() {
 
   const totalH = (itinerary.total_minutes / 60).toFixed(1);
   const hasOrders = itinerary.orders.length > 0;
-  const canConfirm = !streaming && !hasOrders;
+  const canAct = !streaming && !hasOrders && !cancelled;
 
   return (
     <div className="card animate-fade-in">
@@ -42,6 +49,15 @@ export default function ItineraryCard() {
           {itinerary.summary}
         </div>
       </div>
+
+      {lastRefinement && lastRefinement.changedFields.length > 0 && (
+        <div className="px-4 pt-3">
+          <RefinementSummaryBanner
+            fields={lastRefinement.changedFields}
+            note={lastRefinement.refinerNote}
+          />
+        </div>
+      )}
 
       <ol className="relative px-4 py-4 space-y-3">
         {/* 时间轴竖线 */}
@@ -108,22 +124,74 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      <div className="flex gap-2 px-4 pb-4">
-        {!hasOrders && (
-          <button
-            className="btn-primary flex-1"
-            disabled={!canConfirm}
-            onClick={confirm}
-          >
-            {streaming ? "执行中..." : "确认并预约"}
-          </button>
+      <div className="px-4 pb-4">
+        {!hasOrders && !cancelled && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button
+              className="btn-primary"
+              disabled={!canAct}
+              onClick={confirm}
+            >
+              {streaming ? "执行中..." : "确认并预约"}
+            </button>
+            <button
+              className={cn(
+                "btn-secondary",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+              disabled={!canAct}
+              onClick={() => setRefineOpen(true)}
+            >
+              我说说哪不对
+            </button>
+            <button
+              className={cn(
+                "btn-ghost-bordered",
+                "disabled:opacity-50 disabled:cursor-not-allowed",
+              )}
+              disabled={!canAct}
+              onClick={cancel}
+            >
+              取消方案
+            </button>
+          </div>
         )}
         {hasOrders && (
-          <div className="flex-1 text-center text-xs text-emerald-700">
+          <div className="text-center text-xs text-emerald-700">
             ✓ 已完成下单与转发文案生成
           </div>
         )}
+        {cancelled && !hasOrders && (
+          <div className="text-center text-xs text-ink-500">
+            已取消方案，可重新输入或点击场景按钮
+          </div>
+        )}
       </div>
+
+      <RefinementDialog
+        open={refineOpen}
+        onClose={() => setRefineOpen(false)}
+      />
+    </div>
+  );
+}
+
+function RefinementSummaryBanner({
+  fields,
+  note,
+}: {
+  fields: string[];
+  note?: string | null;
+}) {
+  return (
+    <div className="rounded-md border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-800 animate-fade-in">
+      <div className="font-medium mb-1">🪄 已根据你的反馈调整</div>
+      <ul className="space-y-0.5 text-sky-900">
+        {fields.map((f, i) => (
+          <li key={i}>· {f}</li>
+        ))}
+      </ul>
+      {note && <div className="mt-1 text-sky-700/80">{note}</div>}
     </div>
   );
 }

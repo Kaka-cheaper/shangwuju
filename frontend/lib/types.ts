@@ -17,6 +17,9 @@ export const SseEventType = {
   ReplanTriggered: "replan_triggered",
   AgentThought: "agent_thought",
   ItineraryReady: "itinerary_ready",
+  // 用户反馈 → 重规划（Phase 0.6 /chat/refine 专用）
+  RefinementStart: "refinement_start",
+  RefinementDone: "refinement_done",
   StreamError: "stream_error",
   Done: "done",
 } as const;
@@ -50,6 +53,16 @@ export interface ReplanTriggeredPayload {
 
 export interface AgentThoughtPayload {
   text: string;
+}
+
+export interface RefinementStartPayload {
+  feedback_text: string;
+}
+
+export interface RefinementDonePayload {
+  refined_intent: IntentExtraction;
+  changed_fields: string[];
+  refiner_note?: string | null;
 }
 
 export interface StreamErrorPayload {
@@ -172,4 +185,26 @@ export interface ChatConfirmRequest {
   session_id: string;
   decision: "confirm" | "reject" | "modify";
   modifications?: Record<string, unknown> | null;
+}
+
+// ============================================================
+// 拒绝 + 反馈重规划（schemas/refine.py，POST /chat/refine）
+// ============================================================
+
+export interface ChatRefineRequest {
+  session_id: string;
+  feedback_text: string;
+}
+
+// ============================================================
+// 双范式 planner（schemas/planner_mode.py）
+// ============================================================
+
+export type PlannerMode = "rule" | "llm";
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  llm_provider: string;
+  planner_mode?: PlannerMode;
 }

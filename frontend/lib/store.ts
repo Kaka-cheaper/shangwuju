@@ -13,6 +13,9 @@ import type {
   AgentThoughtPayload,
   Itinerary,
   IntentExtraction,
+  PlannerMode,
+  RefinementDonePayload,
+  RefinementStartPayload,
   ReplanTriggeredPayload,
   Scenario,
   SseEvent,
@@ -20,7 +23,13 @@ import type {
   ToolCallEndPayload,
   ToolCallStartPayload,
 } from "./types";
-import { API_BASE, formatStreamError, generateSessionId } from "./utils";
+import {
+  API_BASE,
+  formatStreamError,
+  generateSessionId,
+  getPlannerModeFromCookie,
+  setPlannerModeCookie,
+} from "./utils";
 
 export type ChatRole = "user" | "agent";
 
@@ -55,11 +64,30 @@ export interface ReplanRecord {
   fromTool: string;
 }
 
+/** Toast 通知项（短暂显示后自动消失）。 */
+export interface ToastItem {
+  id: string;
+  kind: "info" | "success" | "warn";
+  text: string;
+}
+
+/** 上一次 refine 的结果（驱动「Agent 已为你调整」面板）。 */
+export interface RefinementSummary {
+  feedbackText: string;
+  changedFields: string[];
+  refinerNote?: string | null;
+  /** 服务端 timestamp_ms（来自 refinement_done 事件）。 */
+  timestampMs?: number;
+}
+
 export interface ChatState {
   // 会话
   sessionId: string;
   scenarios: Scenario[];
   scenariosLoaded: boolean;
+
+  // 规划模式
+  plannerMode: PlannerMode;
 
   // 流式状态
   streaming: boolean;
@@ -74,22 +102,43 @@ export interface ChatState {
 
   // 输出
   itinerary: Itinerary | null;
+  /** 用户已主动取消（和 reset 不同：不清空 trace，仅冻结按钮）。 */
+  cancelled: boolean;
+  /** 上一次 refinement_done 摘要，用于「我已为你调整」面板。 */
+  lastRefinement: RefinementSummary | null;
+
+  // UI 通知
+  toasts: ToastItem[];
 
   // actions
   loadScenarios: () => Promise<void>;
   sendMessage: (input: string, scenarioId?: string) => Promise<void>;
   confirm: () => Promise<void>;
+  refine: (feedbackText: string) => Promise<void>;
+  cancel: () => void;
   reset: () => void;
+  setPlannerMode: (mode: PlannerMode) => void;
+  pushToast: (toast: Omit<ToastItem, "id">) => void;
+  dismissToast: (id: string) => void;
 }
 
 const initialState: Omit<
   ChatState,
-  "loadScenarios" | "sendMessage" | "confirm" | "reset"
+  | "loadScenarios"
+  | "sendMessage"
+  | "confirm"
+  | "refine"
+  | "cancel"
+  | "reset"
+  | "setPlannerMode"
+  | "pushToast"
+  | "dismissToast"
 > = {
   // 服务端渲染期间用占位值；客户端 mount 后由 reset/loadScenarios 触发更新
   sessionId: "sess_pending",
   scenarios: [],
   scenariosLoaded: false,
+  plannerMode: "rule",
   streaming: false,
   streamError: null,
   messages: [],
@@ -98,11 +147,25 @@ const initialState: Omit<
   replans: [],
   thoughts: [],
   itinerary: null,
+  cancelled: false,
+  lastRefinement: null,
+  toasts: [],
 };
 
 let abortController: AbortController | null = null;
 // 跨整次会话的全局到达计数（confirm 与 stream 共用），保证 trace 面板稳定排序
 let arrivalCounter = 0;
+
+let toastSeq = 0;
+function nextToastId(): string {
+  toastSeq += 1;
+  return `t-${toastSeq}-${Date.now()}`;
+}
+
+/** 当前 planner mode 对应的 header；服务端渲染期间返空对象不暴露 cookie。 */
+function plannerHeader(mode: PlannerMode): Record<string, string> {
+  return { "X-Planner-Mode": mode };
+}
 
 export const useChatStore = create<ChatState>((set, get) => ({
   ...initialState,
@@ -136,6 +199,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replans: [],
       thoughts: [],
       itinerary: null,
+      cancelled: false,
+      lastRefinement: null,
       messages: [
         ...s.messages,
         {
@@ -181,6 +246,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set({ streaming: false });
         },
       },
+      undefined,
+      { headers: plannerHeader(get().plannerMode) },
     );
   },
 
@@ -204,15 +271,130 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }),
         onDone: () => set({ streaming: false }),
       },
+      undefined,
+      { headers: plannerHeader(get().plannerMode) },
     );
+  },
+
+  refine: async (feedbackText) => {
+    if (get().streaming) return;
+    if (!get().itinerary) return;
+
+    abortController?.abort();
+    abortController = new AbortController();
+
+    // refine 时只清掉 trace / itinerary（保留 intent，新一轮 refinement_done 会覆盖）
+    set((s) => ({
+      streaming: true,
+      streamError: null,
+      toolCalls: [],
+      replans: [],
+      thoughts: [],
+      itinerary: null,
+      cancelled: false,
+      lastRefinement: null,
+      messages: feedbackText.trim()
+        ? [
+            ...s.messages,
+            {
+              id: `u-${Date.now()}`,
+              role: "user",
+              text: `（反馈）${feedbackText.trim()}`,
+              createdAt: Date.now(),
+            },
+          ]
+        : s.messages,
+    }));
+    arrivalCounter = 0;
+
+    await streamSse(
+      `${API_BASE}/chat/refine`,
+      { session_id: get().sessionId, feedback_text: feedbackText.trim() },
+      abortController.signal,
+      {
+        onEvent: (ev) => handleEvent(set, get, ev),
+        onError: (err) =>
+          set({
+            streamError: formatStreamError(err.reason, err.detail),
+          }),
+        onDone: () => {
+          const itin = get().itinerary;
+          if (itin) {
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                {
+                  id: `a-${Date.now()}`,
+                  role: "agent",
+                  text: `已根据你的反馈重新规划：${itin.summary}`,
+                  createdAt: Date.now(),
+                },
+              ],
+            }));
+          }
+          set({ streaming: false });
+        },
+      },
+      undefined,
+      { headers: plannerHeader(get().plannerMode) },
+    );
+  },
+
+  cancel: () => {
+    abortController?.abort();
+    set((s) => ({
+      streaming: false,
+      cancelled: true,
+      messages: [
+        ...s.messages,
+        {
+          id: `a-${Date.now()}`,
+          role: "agent",
+          text: "已取消当前方案。可以重新点击场景按钮或输入一句话。",
+          createdAt: Date.now(),
+        },
+      ],
+    }));
+    get().pushToast({ kind: "warn", text: "已取消方案" });
   },
 
   reset: () => {
     abortController?.abort();
-    set({ ...initialState, sessionId: generateSessionId() });
+    set({
+      ...initialState,
+      sessionId: generateSessionId(),
+      plannerMode: get().plannerMode,
+    });
     // reset 后立刻刷一次场景缓存（loadScenarios 会复用 scenariosLoaded 跳过）
     void get().loadScenarios();
   },
+
+  setPlannerMode: (mode) => {
+    setPlannerModeCookie(mode);
+    set({ plannerMode: mode });
+    get().pushToast({
+      kind: "info",
+      text:
+        mode === "llm"
+          ? "已切换到 LLM 自主决策模式"
+          : "已切换到规则化模式（Demo 安全网）",
+    });
+  },
+
+  pushToast: (toast) => {
+    const id = nextToastId();
+    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
+    // 自动消失
+    setTimeout(() => {
+      const cur = get().toasts;
+      if (cur.some((t) => t.id === id)) {
+        set({ toasts: cur.filter((t) => t.id !== id) });
+      }
+    }, toast.kind === "warn" ? 4500 : 3500);
+  },
+
+  dismissToast: (id) =>
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
 
 // ============================================================
@@ -310,6 +492,65 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     case "itinerary_ready":
       set({ itinerary: ev.payload as unknown as Itinerary });
       break;
+
+    case "refinement_start": {
+      const p = ev.payload as unknown as RefinementStartPayload;
+      // 只用做轻量提示；refinement_done 才是真正的 changed_fields 来源
+      set((s) => ({
+        thoughts: [
+          ...s.thoughts,
+          {
+            seq: ev.seq,
+            text: p.feedback_text
+              ? `开始根据你的反馈调整：「${p.feedback_text}」`
+              : "开始重新规划...",
+          },
+        ],
+      }));
+      break;
+    }
+
+    case "refinement_done": {
+      const p = ev.payload as unknown as RefinementDonePayload;
+      // 找出最近一条用户反馈消息（用于把 feedbackText 填进 lastRefinement）
+      const msgs = get().messages;
+      let feedbackText = "";
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === "user" && m.text.startsWith("（反馈）")) {
+          feedbackText = m.text.replace(/^（反馈）/, "");
+          break;
+        }
+      }
+      // 用合并后的 intent 覆盖意图摘要面板
+      set({
+        intent: p.refined_intent,
+        lastRefinement: {
+          feedbackText,
+          changedFields: p.changed_fields ?? [],
+          refinerNote: p.refiner_note ?? null,
+          timestampMs: ev.timestamp_ms ?? Date.now(),
+        },
+      });
+      // 把变更摘要每一条作为一个 toast，让用户立刻看见 Agent 的调整
+      const fields = p.changed_fields ?? [];
+      if (fields.length === 0) {
+        get().pushToast({
+          kind: "info",
+          text: "没找到可执行的调整，已为你尝试重新组合候选",
+        });
+      } else if (fields.length <= 2) {
+        for (const f of fields) {
+          get().pushToast({ kind: "success", text: `Agent 调整：${f}` });
+        }
+      } else {
+        get().pushToast({
+          kind: "success",
+          text: `Agent 已为你调整 ${fields.length} 项：${fields[0]} 等`,
+        });
+      }
+      break;
+    }
 
     case "stream_error": {
       const p = ev.payload as unknown as StreamErrorPayload;

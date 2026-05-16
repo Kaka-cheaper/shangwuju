@@ -8,6 +8,7 @@ import { generateSessionId } from "@/lib/utils";
 import ChatPanel from "./ChatPanel";
 import ItineraryCard from "./ItineraryCard";
 import QuickScenarios from "./QuickScenarios";
+import ToastStack from "./ToastStack";
 import ToolTracePanel from "./ToolTracePanel";
 
 export default function HomeView() {
@@ -67,6 +68,8 @@ export default function HomeView() {
       <footer className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center text-[11px] sm:text-xs text-ink-400">
         美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
       </footer>
+
+      <ToastStack />
     </div>
   );
 }

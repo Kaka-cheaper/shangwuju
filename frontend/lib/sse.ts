@@ -45,6 +45,11 @@ export interface SseStreamOptions {
   idleTimeoutMs?: number;
 }
 
+export interface SseRequestOptions {
+  /** 额外请求头（如 X-Planner-Mode）。Content-Type / Accept 会自动设置。 */
+  headers?: Record<string, string>;
+}
+
 const DEFAULT_FIRST_EVENT_TIMEOUT = 8000;
 const DEFAULT_IDLE_TIMEOUT = 30000;
 
@@ -54,6 +59,7 @@ export async function streamSse(
   signal: AbortSignal,
   handlers: SseStreamHandlers,
   options: SseStreamOptions = {},
+  request: SseRequestOptions = {},
 ): Promise<void> {
   const firstTimeoutMs =
     options.firstEventTimeoutMs ?? DEFAULT_FIRST_EVENT_TIMEOUT;
@@ -66,6 +72,7 @@ export async function streamSse(
       headers: {
         "Content-Type": "application/json",
         Accept: "text/event-stream",
+        ...(request.headers ?? {}),
       },
       body: JSON.stringify(body),
       signal,

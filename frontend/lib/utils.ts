@@ -61,3 +61,30 @@ export const TOOL_LABEL: Record<string, string> = {
   generate_share_message: "生成转发文案",
   order_extra_service: "加购附加服务",
 };
+
+
+// ============================================================
+// PlannerMode cookie 读写（C4 切换器用）
+// ============================================================
+
+import type { PlannerMode } from "./types";
+
+const PLANNER_MODE_COOKIE = "shangwuju_planner_mode";
+
+/** 客户端读 cookie；SSR 期间总是返 undefined。 */
+export function getPlannerModeFromCookie(): PlannerMode | undefined {
+  if (typeof document === "undefined") return undefined;
+  const m = document.cookie.match(
+    new RegExp(`(?:^|;\\s*)${PLANNER_MODE_COOKIE}=([^;]+)`),
+  );
+  if (!m) return undefined;
+  const v = decodeURIComponent(m[1]).trim().toLowerCase();
+  return v === "rule" || v === "llm" ? (v as PlannerMode) : undefined;
+}
+
+/** 写 cookie，1 年过期。SameSite=Lax 满足同源跨端口（3000→8000 走 CORS）。 */
+export function setPlannerModeCookie(mode: PlannerMode): void {
+  if (typeof document === "undefined") return;
+  const oneYear = 60 * 60 * 24 * 365;
+  document.cookie = `${PLANNER_MODE_COOKIE}=${mode}; Max-Age=${oneYear}; Path=/; SameSite=Lax`;
+}
