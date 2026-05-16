@@ -114,4 +114,19 @@ describe("store · refinement", () => {
     expect(useChatStore.getState().plannerMode).toBe("rule");
     expect(globalThis.document.cookie).toMatch(/shangwuju_planner_mode=rule/);
   });
+
+  it("setPlannerMode silent：不推 toast，仍写 cookie", () => {
+    useChatStore.getState().setPlannerMode("llm", { silent: true });
+    const s = useChatStore.getState();
+    expect(s.plannerMode).toBe("llm");
+    expect(globalThis.document.cookie).toMatch(/shangwuju_planner_mode=llm/);
+    expect(s.toasts).toHaveLength(0);
+  });
+
+  it("setPlannerMode 同 mode：不重复推 toast / 不重写 cookie", () => {
+    useChatStore.getState().setPlannerMode("llm");
+    expect(useChatStore.getState().toasts).toHaveLength(1);
+    useChatStore.getState().setPlannerMode("llm");
+    expect(useChatStore.getState().toasts).toHaveLength(1);
+  });
 });

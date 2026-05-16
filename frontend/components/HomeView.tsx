@@ -7,6 +7,7 @@ import { generateSessionId } from "@/lib/utils";
 
 import ChatPanel from "./ChatPanel";
 import ItineraryCard from "./ItineraryCard";
+import PlannerModeBadge from "./PlannerModeBadge";
 import QuickScenarios from "./QuickScenarios";
 import ToastStack from "./ToastStack";
 import ToolTracePanel from "./ToolTracePanel";
@@ -37,6 +38,7 @@ export default function HomeView() {
             </span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 text-xs text-ink-500 shrink-0">
+            <PlannerModeBadge />
             <span
               className="hidden sm:inline truncate max-w-[180px]"
               title={`当前会话 ID：${sessionId}`}

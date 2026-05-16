@@ -117,7 +117,7 @@ export interface ChatState {
   refine: (feedbackText: string) => Promise<void>;
   cancel: () => void;
   reset: () => void;
-  setPlannerMode: (mode: PlannerMode) => void;
+  setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean }) => void;
   pushToast: (toast: Omit<ToastItem, "id">) => void;
   dismissToast: (id: string) => void;
 }
@@ -369,9 +369,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     void get().loadScenarios();
   },
 
-  setPlannerMode: (mode) => {
+  setPlannerMode: (mode, options) => {
+    if (get().plannerMode === mode) return;
     setPlannerModeCookie(mode);
     set({ plannerMode: mode });
+    if (options?.silent) return;
     get().pushToast({
       kind: "info",
       text:
