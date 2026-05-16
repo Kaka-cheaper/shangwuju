@@ -77,6 +77,14 @@
   - `backend/scripts/verify_refine.py` 13 项端到端断言全过：「太远了 3 公里以内」反馈下 distance_max_km 5→3，POI 候选从 3 条压到 1 条（仅 P007 2.8km）
   - CodeSee sync：仅升 f-refine-replan（planned → implemented，step 8→11，confidence 0.3→0.85，refs 补 4 项），不动 f-llm-planner（A owner）
 
+- ✅ **W3 拒绝+反馈 UI + Planner 模式切换器**（2026-05-17 完成，C 扛，commits 8ce2c0a → a0aa6fd 共 4 个）：
+  - **C1 三按钮**（commit 8ce2c0a）：ItineraryCard 由单一「确认并预约」拆为「确认/我说说哪不对/取消方案」三按钮网格；hasOrders / cancelled / streaming 三态切换；新建 ToastStack 右下角浮层
+  - **C2 RefinementDialog 弹窗**（含 C1 commit）：textarea 200 字限长 + 6 条预设建议 chip + Ctrl/⌘+Enter 提交 + ESC/遮罩关闭；fire-and-forget 提交后立即关，由 store 处理 SSE 流
+  - **C3 SSE 解析 refinement_* + toast**（commit 8b6225b）：store.handleEvent 处理 refinement_start/done；changed_fields ≤2 条独立 toast / >2 条聚合；新建 `verify-refine.mjs` 端到端联调脚本（refined_intent.distance_max_km 5→3 + X-Planner-Mode header 透传 + 非法 session 422）
+  - **C4 PlannerModeBadge 顶栏切换器**（commit 5b3609d）：低饱和 chip 单击循环 rule↔llm；mount 时 cookie > /health 兜底（silent 模式不弹 toast）；store.setPlannerMode 内写 cookie + 用户主动点弹提示；sendMessage/confirm/refine 全部带 X-Planner-Mode header
+  - **C5 CodeSee sync**（commit a0aa6fd）：升级 f-itinerary-card（confidence 0.88→0.92，confirm_btn 拆三按钮 + refinement_banner step）；新增 3 个 feature（f-refinement-dialog / f-planner-mode-badge / f-toast-stack）+ 8 条 cross_feature；不动 A 的 f-refine-replan / f-llm-planner、B 的 f-tool-trace
+  - 校验：30/30 vitest（23 sse + 7 store）；pnpm verify:all 4/4 全过（lint / ts / test / build，首页 19.2 kB）；浏览器实测三按钮 + 弹窗 + toast + 切换器全链路；零 console error；color 仅用 brand-orange + ink + emerald/sky/amber，全程无紫粉
+
 ### Week 2
 
 - ✅ **6 个核心 Tool 实现** + **buy_ticket** 共 8 个（参数按 §5.7 schema，无 `scene_type` / `relation`，由 P1 第二轮 376dedd 提前完成）

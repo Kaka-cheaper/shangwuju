@@ -672,3 +672,95 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 - 评分项 5 加分：refine 流仍触发 replan_triggered（E1 异常韧性双重叠加：refine + restaurant_full）
 - PLANNER_MODE 双范式接口已就绪：A 实现 llm_planner 后 main.py 仅需在 chat_stream / chat_refine 内根据 mode 分发到对应 planner，事件序列与前端零改动
 - 五关综合：verify_schemas 6/6 + verify_phase0_5 8/8 + verify_sse 全过 + verify_refine 13/13 + pytest 70/70 全绿
+
+
+---
+
+## 问题9：C 角色（前端拒绝+反馈 UI + planner mode 切换器）C1-C5 落地
+
+**用户原问**（W3 C 角色 5 项任务清单）：
+
+> 1. ItineraryCard 三按钮（确认 / 我说说哪不对 / 取消方案）
+> 2. RefinementDialog 弹窗（textarea + 提交 → POST /chat/refine）
+> 3. SSE 解析器消费 refinement_* 事件 + toast 显示 changed_fields
+> 4. PlannerModeBadge 顶栏切换器（写 cookie + X-Planner-Mode header）
+> 5. CodeSee sync owner=C 的 feature
+>
+> 边界：只动 frontend；避紫粉；mode 切换器低调可点；changed_fields 中文化
+
+**前置确认**：
+
+- A 已 Phase 0.6 完成 backend/main.py 的 /chat/refine + X-Planner-Mode 解析 + /health 暴露 planner_mode + refine 流推 refinement_start/done 事件
+- backend/schemas/{refine,planner_mode}.py 字段已锁定（changed_fields 字段已是中文人话）
+- 我作为 C 角色不动 backend/
+
+**解决方案**：
+
+按 C1-C5 顺序每完成一项 commit。
+
+**C1（commit 8ce2c0a）三按钮 + Toast 系统 + 类型/状态扩展**：
+
+- types.ts 扩 SseEventType.RefinementStart/Done + RefinementStartPayload/RefinementDonePayload + ChatRefineRequest + PlannerMode + HealthResponse（手抄 schemas/refine.py + planner_mode.py）
+- store.ts 扩 4 个 state（plannerMode / cancelled / lastRefinement / toasts）+ 5 个 action（refine / cancel / setPlannerMode / pushToast / dismissToast）；handleEvent 加 refinement_start（推 thought）/ refinement_done（覆盖 intent + 抽 changed_fields 生成 toast：≤2 条独立 / >2 条聚合）
+- sse.ts 加 SseRequestOptions 第 6 参数（headers），sendMessage/confirm/refine 全部带 X-Planner-Mode header
+- ItineraryCard：单按钮拆三按钮网格（btn-primary / btn-secondary / btn-ghost-bordered）+ refinement_banner（lastRefinement 非空时顶部 🪄 摘要）+ cancel_state 文案
+- RefinementDialog：textarea 200 字限长 + 6 条预设建议 chip + Ctrl/⌘+Enter / ESC 关闭 / 遮罩关闭
+- ToastStack：右下角 fixed 浮层（emerald/sky/amber 三色，避紫粉）
+- globals.css 新增 btn-secondary（描边主色）+ btn-ghost-bordered（描边灰）
+
+**C2（含 C1 commit）RefinementDialog**：
+
+弹窗在 C1 一并实现。浏览器端到端验证：点 S1 → 点「我说说哪不对」→ 选「太远了希望 3 公里以内」chip → 提交 → ItineraryCard 顶部出现 🪄 banner「距离上限：5km → 3km」+ 重新跑完整 Tool 链路 + intent.distance_max_km 真的 5→3。
+
+**C3（commit 8b6225b）联调脚本 + store 单测**：
+
+- frontend/scripts/verify-refine.mjs 纯 Node fetch 端到端：
+  - /chat/stream 默认 rule，X-Planner-Mode 响应头回 rule
+  - /chat/refine（带 X-Planner-Mode: llm）：16 条事件齐全（含 refinement_start + refinement_done）+ changed_fields 中文 + refined_intent.distance_max_km 5→3 + 响应头回 llm
+  - 非法 session_id → HTTP 422
+- frontend/lib/store.test.ts 5 项 vitest：cancel / pushToast 自动消失 / warn 4.5s / dismissToast / setPlannerMode 写 cookie
+
+**C4（commit 5b3609d）PlannerModeBadge**：
+
+- 低饱和 chip：ink 灰底 + 状态点（rule=ink-400 / llm=brand-500）+ 文字标签
+- 单击循环 rule ↔ llm，hover 显示 title「规则化 ReAct（Demo 安全网）」/「LLM 自主决策（评分加分）」
+- mount 时初始化优先级：cookie > /health.planner_mode > default rule
+- silent 模式：初始化时不弹 toast；用户主动点才弹（设计漏洞修复——一开始 mount 时也会弹一个 toast，加 options.silent 参数解决）
+- 同 mode 重复点不重写 cookie / 不弹重复 toast
+- 浏览器实测：cookie 写入 llm + 后续请求头带 X-Planner-Mode: llm（用 evaluate_script 拦截 fetch.init.headers 验证）
+
+**C5（commit a0aa6fd）CodeSee sync**：
+
+- 升级 f-itinerary-card：confidence 0.88→0.92；confirm_btn 拆为 action_buttons（三按钮）+ cancel_state；新增 refinement_banner step；render_share 单独抽出
+- 新增 3 个 feature：f-refinement-dialog（execution，confidence 0.9）/ f-planner-mode-badge（input，confidence 0.88）/ f-toast-stack（sharing，confidence 0.9）
+- 新增 8 条 cross_feature 把 C 的新 feature 接入既有图：itinerary→dialog→refine-replan / refine-replan→toast / itinerary→toast / badge→toast / badge→llm-planner / badge→plan-assembly / badge→tool-trace
+- 修两条 async 边（dialog.submit→close fire-and-forget；badge.persist→header 异步透传）压掉 SHOULD 警告
+- **不动**他人 feature：A 的 f-refine-replan / f-llm-planner、B 的 f-tool-trace 一字不改
+- 校验：22 features，零错零警
+
+**修改的代码文件**：
+
+新建：
+- `frontend/components/{RefinementDialog, ToastStack, PlannerModeBadge}.tsx`
+- `frontend/scripts/verify-refine.mjs`
+- `frontend/lib/store.test.ts`
+
+修改：
+- `frontend/components/{ItineraryCard, HomeView}.tsx`
+- `frontend/lib/{types, store, sse, utils}.ts`
+- `frontend/app/globals.css`
+- `.codesee/features.json`
+- `docs/00-overview/progress.md`（本 problem 同步）
+
+不动（按 owner 边界）：
+- 所有 `backend/`（C 角色边界）
+- `AGENTS.md` / `.codesee/prompts/*` / `backend/tests/fake_tools.py` 等他人 untracked 修改
+- 他人 owner 的 feature（f-refine-replan / f-llm-planner / f-tool-trace）
+
+**应当达成的效果**：
+
+- 评委可直观看到 Agent vs 聊天机器人的区别：方案出来不满意 → 「我说说哪不对」→「距离 3 公里以内」→ Agent 调整 distance_max_km 后 **复用原 intent 的其它字段** 重新规划，而不是从零再想一遍——评分项 1 + 5 加分点
+- 评委可在前端动态切 LLM 自主决策模式（PLANNER_MODE 双范式选项 2），评分项 2 加分点
+- header 透传后端会自动按 X-Planner-Mode 选 planner（A 的 plan_itinerary_with_mode）—— 现场切换只需点一次 chip
+- 30 项前端单测 + 端到端联调脚本作为 regression gate，A/B 后续改 schema 时立刻知道
+- pitfalls P2 严格执行：sync 前问 owner / commit 前 git diff --cached --stat / untracked 不带进 commit / 不动他人 feature
