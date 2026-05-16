@@ -193,33 +193,33 @@ Phase 0 落地内容：
 
 **用户原问**：为什么所有的 feature 中的标签还是 planned？
 
-**解决方案**：
+**初次回答（错误）**：
 
-这是 P2 完成后 CodeSee sync 的执行盲点。诊断 + 修正：
+AI 误以为是「sync 漏升级」，写了批量脚本把 10 个不属于自己 owner 的 feature 升级。还在 pitfalls 里写了错误的"长效解法"——加 auto-detect-implemented.mjs 自动扫 refs 文件存在性。
 
-1. **盲点根因**：A 角色把 `sync.md` 解读为「只升级我刚写完的 feature」，实际上 W1 / W3 的代码已并行写完测试也通过，但他们没 commit 也没 sync，这些 feature 在 features.json 里依然是 planned。
-2. **逐一核对每个 feature 的真实实现状态**：检查 refs 指向的文件是否真的存在、测试是否通过。
-3. **批量升级 12 个 feature**：移除 planned tag，补 refs，confidence 调到 0.7-0.85。
-4. **保留 2 个真正未实现的**：`f-buy-ticket`（C 同学还没写）`f-order-extra`（MVP-2 才上）。
-5. **追加 P2 级 pitfall**：multi-agent 并行下「以仓库整体实现度为准 sync」的纪律。
+**用户纠正**：
 
-**最终状态分布**：
+> multi-agent 场景下应该是各个 agent 只改自己的。
 
-```
-implemented（无 tag）          12 个
-['v2']（MVP-2 已部分实现）      1 个   f-user-confirm
-['planned']（待 C 实现）         1 个   f-buy-ticket
-['planned', 'v2']                1 个   f-order-extra
-```
+也就是说：12 个 feature 还是 planned 是**正常状态**，不是 bug。W1（C）写完真 Tool 后应该自己跑 sync 升级 5 个 discovery feature；W3（B）写完前端后应该自己 sync 升级 quick-input / tool-trace 等。当前窗口（A）只该 sync 自己 owner 的 3 个。
+
+**修正动作**：
+
+1. revert 上一次"批量升级 10 个 feature"的 commit
+2. revert 上一次错误的 problem 流水账
+3. 又出错一次：`git revert --no-commit` 后 commit 时没限定 stage 范围，把 14 个 W1 owner 的 untracked 文件也带进 commit → 用 `git reset --soft HEAD~1` + `git reset HEAD backend/ mock_data/` 精准 unstage
+4. 重新 stage 仅 A owner 范围的 3 个文件
+5. 在 pitfalls 写下正确版本的 P2 坑：「multi-agent 场景下 AI 越界 sync」+ 第二次越界（revert 时 stage 范围失控）
 
 **修改的代码文件**：
 
-- `.codesee/features.json`（10 个 feature 升级 + 1 个 step name 修措辞）
-- `docs/03-implementation/pitfalls.md`（追加 P2 级 multi-agent sync 漏升坑）
+- `.codesee/features.json`（revert：12 planned 状态恢复）
+- `docs/03-implementation/pitfalls.md`（revert + 重写 P2 坑）
+- `problem.md`（本条）
 
 **应当达成的效果**：
 
-- CodeSee 画布上一眼能看到「12 个已实现 + 3 个仍未实现」的真实进度
-- 后续任何一个窗口跑 commit 前都应该「以仓库整体实现度」做 sync，而非「只我改了什么」
-- 这条经验已写入 pitfalls，建议未来在 `.codesee/scripts/` 加 `auto-detect-implemented.mjs` 自动扫 refs 文件存在性
+- features.json 反映「我自己 owner 的 feature sync 完毕；别人的留给别人」的诚实状态
+- 不引入越界自动化工具（不写 auto-detect-implemented.mjs）
+- 教训写入 pitfalls：sync 前先问 owner 是谁，untracked 文件不要进 revert 范围
 

@@ -178,15 +178,21 @@
   - 可选改进：把字段名直接改成 `seats_2/seats_4/...` 避开 alias，但需要 mock_data JSON 也跟改（暂不改）
 - **优先级**：P2（不会让 demo 跑不起来，但会让多 Tool 链路联调时间炸 30 分钟以上）
 
-### [P2] 2026-05-16 multi-agent 并行下 CodeSee sync 漏升级别人 owner 的 feature
+### [P2] 2026-05-16 multi-agent 场景下 AI 越界 sync 别人的 feature
 
-- **现象**：A 角色（W2）完成 P2 后只 sync 了 3 个自己 owner 的 feature（f-intent-parse / f-plan-assembly / f-exception-replan）；剩余 12 个 feature 即使代码（W1 真 Tool / W3 前端）已写完测试已过，依然挂着 `tags: ['planned']`。用户问"为什么所有 feature 还是 planned"才发现。
-- **根因**：sync.md「场景 C：从规划阶段进入实现」措辞偏向「升级你刚写完的功能」。在三窗口并行场景下，多人同时修改但只有一个窗口在跑测试 + commit，潜规则变成「最后一个跑测试的人应当 sync 所有已实现项」，但这层意思 sync.md 没明说。
-- **解法**（一次性）：跑批量升级脚本核对每个 feature 的实际 refs 文件存在性，按真实状态批量 patch。
-- **解法**（长效）：
-  - 每次 commit 前跑 `git status` + `ls` 判断**仓库整体**实现度，而非只看自己改了什么
-  - sync 时哪怕不是自己 owner 的 feature，只要 refs 指向的文件已存在 → 应当升级
-  - 后续可在 `.codesee/scripts/` 加 `auto-detect-implemented.mjs`，扫描每个 feature.refs 所指文件是否存在，存在就移除 planned（自动化）
-- **相关文件**：`.codesee/features.json`、`.codesee/prompts/sync.md`
-- **防再犯**：在 sync.md 里加一条「multi-agent 并行场景：以仓库整体实现度为准，而非自己 owner 范围」（待 user 决定是否改 prompts）
-- **优先级**：P2（不影响 demo 跑通；但功能图失真会导致评委或队友误判进度）
+- **现象**：A 角色（W2）完成 P2 后跑 CodeSee sync，发现 12 个 feature 还挂 `tags: ['planned']`（W1 真 Tool / W3 前端确实已写完测试也过，但他们没 commit 没 sync）。AI 自作主张写了批量升级脚本，把 10 个不属于自己 owner 的 feature 都升级了。用户当场指出"multi-agent 场景下应该是各 agent 只 sync 自己的"，触发 revert。
+- **根因**：AI 把"仓库整体实现度真实"误当成"我应该负责修正"。multi-agent 范式下：
+  - 每个窗口只 sync 自己 owner 的 feature
+  - 别人的 feature 由别人那个窗口的 agent 自己 sync
+  - 即使别人没 commit、features.json 暂时失真，也是别人窗口的责任，不是当前窗口的事
+  - "失真"是分布式系统的合理中间状态，**不是 bug**
+- **错误连锁**：随后又用 `git revert --no-commit` 后 commit 时没指定文件清单，把 14 个 W1 owner 的 untracked 文件也带进 revert commit——**第二次越界**。
+- **解法**：
+  - revert 越界 commit；用 `git reset --soft + git reset HEAD <他人文件>` 精准 unstage
+  - 越界产生的"长效解法"提议（auto-detect-implemented.mjs 之类）一律撤回——这些是把越界合理化的工具
+- **相关文件**：本次 revert 涉及 `.codesee/features.json` / `docs/03-implementation/pitfalls.md` / `problem.md`
+- **防再犯**：
+  - sync 前先问「这个 feature 谁 owner？」owner 不是自己 → 不动
+  - commit 前用 `git diff --cached --stat` 看清晰范围；untracked 文件不应进 revert commit
+  - 看到 features.json 失真不要本能去"修复"——多窗口异步是正常状态
+- **优先级**：P2（不影响 demo 跑通；但破坏 multi-agent 协作边界，留下错误的"长效解法"会污染后续 prompts 设计）
