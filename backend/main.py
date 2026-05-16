@@ -58,7 +58,8 @@ from schemas.errors import FailureReason
 # ============================================================
 
 VERSION = "0.1.0"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "stub")
+# 仅作 /health 显示用；解耦后真假 planner 由 _use_real_planner() 单独判断
+LLM_PROVIDER = (os.getenv("LLM_PROVIDER") or "").strip() or "openai-compatible"
 CORS_ORIGINS_RAW = os.getenv("SHANGWUJU_CORS_ORIGINS", "http://localhost:3000")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
 
@@ -66,13 +67,26 @@ CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
 def _use_real_planner() -> bool:
     """是否启用真 planner 链路（意图解析 + plan_itinerary_with_mode）。
 
-    优先级：环境变量 PLANNER_USE_REAL=1 显式启用 → 否则按 LLM_PROVIDER 判断
-    （非 stub 默认启用真链路；stub 默认走 _stub_stream 兼容 B 的 verify_refine）。
+    解析顺序（优先级递减）：
+    1. PLANNER_USE_REAL 显式开关（1/true/yes/on → 真，0/false/no/off → 假）
+    2. LLM_PROVIDER=stub  → 假（开发/单测兼容）
+    3. 有任意 LLM credential（LLM_API_KEY 或旧名 DEEPSEEK_API_KEY/QWEN_API_KEY）→ 真
+    4. 默认 → 假（即纯 stub fixture，不调任何 LLM）
     """
     raw = os.getenv("PLANNER_USE_REAL")
-    if raw is not None:
-        return raw.strip() in ("1", "true", "True", "yes", "on")
-    return LLM_PROVIDER not in ("stub", "")
+    if raw is not None and raw.strip() != "":
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+
+    explicit_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    if explicit_provider == "stub":
+        return False
+
+    has_credential = bool(
+        (os.getenv("LLM_API_KEY") or "").strip()
+        or (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+        or (os.getenv("QWEN_API_KEY") or "").strip()
+    )
+    return has_credential
 
 
 # ============================================================
@@ -178,11 +192,27 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """健康检查 + 当前生效配置。
+
+    `llm_provider` 与 `planner_real` 反映**当前真实**配置（解耦后由 base_url 自动推断 +
+    _use_real_planner() 判断），不再被 .env 中是否显式设 LLM_PROVIDER 干扰。
+    """
+    # 推断真实 provider 展示名：stub 模式下显示 stub；否则由客户端工厂解析
+    if (os.getenv("LLM_PROVIDER") or "").strip().lower() == "stub":
+        provider_display = "stub"
+    else:
+        try:
+            from agent.llm_client import _resolve_creds
+
+            _, _, _, provider_display = _resolve_creds(None)
+        except Exception:  # noqa: BLE001
+            provider_display = "openai-compatible"
     return {
         "status": "ok",
         "version": VERSION,
-        "llm_provider": LLM_PROVIDER,
+        "llm_provider": provider_display,
         "planner_mode": current_env_mode(),
+        "planner_real": "1" if _use_real_planner() else "0",
     }
 
 
@@ -829,44 +859,152 @@ async def _planner_stream(
     intent_override: Optional[IntentExtraction] = None,
     starting_seq: int = 0,
 ) -> AsyncIterator[SseEvent]:
-    """真 planner 链路：意图解析 → plan_itinerary_with_mode → 推送 tracer 事件。
+    """真 planner 链路：意图解析 → plan_itinerary_with_mode → 实时推送 tracer 事件。
+
+    实时推送策略（重要）：
+        plan_itinerary_with_mode 在 LLM mode 下会跑 30-60s（多轮 LLM chat）。
+        若同步等它跑完才 yield，前端 SSE 解析器会触发首字节超时。
+        本函数把 plan 跑在 asyncio.to_thread 后台线程，主线程消费 Tracer 订阅
+        emit 的事件，通过 asyncio.Queue 实时 yield 给客户端。
 
     与 _stub_stream 接口对齐；refine 链路也复用本流程（intent_override / starting_seq）。
     """
-    # ---- 意图解析 ----
+    import asyncio
+    import threading
+
+    from agent.planner import plan_itinerary_with_mode
+    from agent.trace import TraceRecord, Tracer
+
+    seq = starting_seq
+
+    # ---- 意图解析判断（不立刻同步调 LLM，避免首字节超时）----
     if intent_override is not None:
-        intent = intent_override
         emit_intent_event = False
     else:
-        intent = _intent_via_llm(req.message)
         emit_intent_event = True
+        # 立刻发心跳：8s 首字节超时窗口内必须有字节
+        yield SseEvent(
+            type=SseEventType.AGENT_THOUGHT,
+            seq=seq,
+            payload={"text": "正在理解你的需求……"},
+            timestamp_ms=_now_ms(),
+        )
+        seq += 1
 
-    # ---- 真 planner 跑一遍（tracer 事件累积在内存）----
-    from agent.planner import plan_itinerary_with_mode
+    # ---- 准备 Tracer + 订阅队列 ----
+    tracer = Tracer()
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[TraceRecord | None] = asyncio.Queue()
 
-    result = plan_itinerary_with_mode(intent, mode)
+    def _on_record(record: TraceRecord) -> None:
+        # Tracer.emit 在 worker 线程触发；用 loop.call_soon_threadsafe 投入主线程队列
+        loop.call_soon_threadsafe(queue.put_nowait, record)
 
-    events = _tracer_to_events(result.tracer, starting_seq=starting_seq)
+    tracer.subscribe(_on_record)
 
-    if not emit_intent_event:
-        events = [e for e in events if e.type != SseEventType.INTENT_PARSED]
-        for i, e in enumerate(events):
-            e.seq = starting_seq + i  # type: ignore[misc]
+    # ---- 后台线程：意图解析（如需要） + 跑真 planner ----
+    plan_done = threading.Event()
+    plan_result_holder: dict[str, Any] = {}
 
-    # ---- 写 session（与 stub 链路一致，便于 confirm/refine 复用）----
-    if result.itinerary is not None:
+    def _run_plan() -> None:
+        try:
+            # 意图解析放后台线程，避免阻塞主线程导致首字节超时
+            if intent_override is not None:
+                intent = intent_override
+            else:
+                intent = _intent_via_llm(req.message)
+                # 立刻 emit intent_parsed，让前端尽快看到结果
+                tracer.emit("intent_parsed", intent.model_dump())
+            plan_result_holder["intent"] = intent
+            result = plan_itinerary_with_mode(intent, mode, tracer=tracer)
+            plan_result_holder["result"] = result
+        except Exception as e:  # noqa: BLE001
+            plan_result_holder["error"] = e
+        finally:
+            plan_done.set()
+            # 推一个 None sentinel 唤醒主消费循环（防止 queue.get() 永久阻塞）
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    threading.Thread(target=_run_plan, daemon=True).start()
+
+    # ---- 主循环：消费队列 → yield SSE ----
+    seen_intent_parsed = False
+
+    async def _drain_until_done() -> AsyncIterator[SseEvent]:
+        nonlocal seq, seen_intent_parsed
+        while True:
+            record = await queue.get()
+            if record is None:
+                # plan 已结束，把剩余队列内容也清干净
+                while not queue.empty():
+                    extra = queue.get_nowait()
+                    if extra is None:
+                        continue
+                    ev = _record_to_sse(extra, seq, seen_intent_parsed, emit_intent_event)
+                    if ev is not None:
+                        seq += 1
+                        if ev.type == SseEventType.INTENT_PARSED:
+                            seen_intent_parsed = True
+                        yield ev
+                return
+            ev = _record_to_sse(record, seq, seen_intent_parsed, emit_intent_event)
+            if ev is None:
+                continue
+            seq += 1
+            if ev.type == SseEventType.INTENT_PARSED:
+                seen_intent_parsed = True
+            yield ev
+
+    async for ev in _drain_until_done():
+        yield ev
+
+    # ---- 等后台线程收尾（轻量，因为 sentinel 已发）----
+    plan_done.wait(timeout=2)
+    if "error" in plan_result_holder:
+        # 意外异常：推 stream_error
+        err = plan_result_holder["error"]
+        yield SseEvent(
+            type=SseEventType.STREAM_ERROR,
+            seq=seq,
+            payload={
+                "reason": "planner_failed",
+                "detail": f"{type(err).__name__}: {err}",
+            },
+        )
+        seq += 1
+
+    # ---- 写 session ----
+    intent = plan_result_holder.get("intent")
+    result = plan_result_holder.get("result")
+    if intent is not None and result is not None and result.itinerary is not None:
         _SESSION_STORE[req.session_id] = {
             "intent": intent.model_dump(),
             "itinerary": result.itinerary.model_dump(),
         }
 
-    # ---- 按节奏推送 ----
-    async for ev in _stream_tracer_events(events):
-        yield ev
-
     # ---- 推 done ----
-    last_seq = events[-1].seq if events else starting_seq - 1
-    yield SseEvent(type=SseEventType.DONE, seq=last_seq + 1, payload={})
+    yield SseEvent(type=SseEventType.DONE, seq=seq, payload={})
+
+
+def _record_to_sse(
+    record: Any,
+    seq: int,
+    seen_intent_parsed: bool,
+    emit_intent_event: bool,
+) -> Optional[SseEvent]:
+    """单条 TraceRecord → SseEvent；refine 链路要跳过 INTENT_PARSED。"""
+    sse_type = _TRACER_TO_SSE.get(record.type)
+    if sse_type is None:
+        return None
+    if sse_type == SseEventType.INTENT_PARSED:
+        if not emit_intent_event or seen_intent_parsed:
+            return None
+    return SseEvent(
+        type=sse_type,
+        seq=seq,
+        payload=dict(record.payload),
+        timestamp_ms=record.timestamp_ms,
+    )
 
 
 async def _refine_stream_real(
