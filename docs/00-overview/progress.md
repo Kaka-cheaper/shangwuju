@@ -36,8 +36,10 @@
 ### Week 1 (当前周剩余) —— 拆分为 P0/P1/P2/P3 子阶段
 
 - ✅ **P0 契约基座**（2026-05-16 完成）：`backend/schemas/` 7 份 Pydantic v2 模型 + `mock_data/_samples/` 4 份典范样本 + `verify_schemas.py` 自检 6 项全过；含 D9 禁止字段拦截 + 词典外 tag 拦截两条反向测试
-- ⬜ **P1 数据+Tool**（C 扛）：扩 Mock 数据到 ≥20 POI + ≥30 餐厅（含 ≥2 个失败埋点）；实现 6 个 MVP-1 Tool
-- ⬜ **P2 Agent**（A 扛，可与 P1 末并行）：`llm_client.py` + `intent_parser.py` + `planner.py + executor.py`；DeepSeek-V3 Function Calling
+- ✅ **P1 数据+Tool**（2026-05-16 完成，C 扛，分两轮）：
+  - **第一轮 commit bcdc2e7**：mock_data 落 17 POI + 19 餐厅 + 56 路线 + 1 用户画像；7 个真 Tool 实现（search_pois / search_restaurants / check_restaurant_availability / estimate_route_time / reserve_restaurant / generate_share_message / get_user_profile）；tests/test_tools.py 33 项含演示场景集 §四 8 条覆盖率断言；CodeSee sync 7 个 owner=C 的 feature planned → implemented；verify_schemas 6/6 + verify_phase0_5 8/8 + pytest 39/39
+  - **第二轮 commit 376dedd**：mock 扩到 D4 规模（21 POI + 30 餐厅，健康轻食 12 条，9+ 处失败埋点含 P_SOLD/P021）；buy_ticket Tool 实现 5 失败分支 + E2 触发；test_tools 追加 6 项 buy_ticket + 4 项 D4 规模断言（共 14 项覆盖 gate）；CodeSee sync f-buy-ticket planned → implemented + 6 个 owner=C feature 更新 mock 行号；test_8_scenarios.py（W2 owner）8 场景全部端到端跑通；pytest 69 passed + 1 xpassed；已 push origin/main
+- ✅ **P2 Agent**（2026-05-16 完成，A 扛）：意图解析 + 规划循环 + 异常重规划，端到端测试通过（commit a88c34f / ae8bfd4）
 - ✅ **P3 前端 + SSE 网关**（2026-05-16 完成，B 扛）：
   - `backend/main.py`：FastAPI + sse-starlette，4 端点（/health /chat/stream /chat/confirm /scenarios），stub 模式按 api_contract.md §2 完整事件序列推送（含 E1 异常 → 重规划 → 成功）
   - `frontend/`：Next.js 14 App Router + TS strict + Tailwind + shadcn 风格自实现；pnpm + 淘宝镜像（绕开 npm fsevents 元数据 bug）
@@ -49,16 +51,16 @@
 
 ### Week 2
 
-- **6 个核心 Tool 实现**（参数按 §5.7 schema，无 `scene_type` / `relation`）
-- **家庭主场景端到端闭环**（CLI 先跑通） + 1 个异常分支 E1
-- **MVP-1 验收齐全**（按 验收标准.md A1-A15）
+- ✅ **6 个核心 Tool 实现** + **buy_ticket** 共 8 个（参数按 §5.7 schema，无 `scene_type` / `relation`，由 P1 第二轮 376dedd 提前完成）
+- ⬜ **家庭主场景端到端闭环**（CLI 先跑通） + 1 个异常分支 E1 — 已经 P2 端到端测试覆盖（test_e1_restaurant_full_recovery_in_family_scene）；待补 CLI 演示脚本
+- ⬜ **MVP-1 验收齐全**（按 验收标准.md A1-A15）— 待按模板录证据
 
 ### Week 3
 
-- **MVP-2 Tool 扩到 8 个**（加 `buy_ticket` + `estimate_route_time`），触发 E2
-- **Mock 数据扩到 30-40 POI + 50-60 餐厅**，覆盖 6-8 种 `suitable_for` 走向
-- **Next.js 前端上线**：聊天框 + 行程卡片 + Tool 调用链路可视化 + 流式 SSE
-- **6-8 个快捷输入按钮上线**、`演示场景集.md` S1-S8 全跑通
+- ✅ **Tool 扩到 8 个**（含 `buy_ticket` + `estimate_route_time`），E2 已端到端触发（test_buy_ticket_sold_out + test_e2_ticket_sold_out_recovery）
+- ✅ **Mock 数据扩到 21 POI + 30 餐厅**（健康轻食 12 条），覆盖 7 种 `suitable_for` 走向（家庭/情侣/闺蜜/独处/老人/朋友/商务/纪念日/同学重聚）
+- ✅ **Next.js 前端上线**：聊天框 + 行程卡片 + Tool 调用链路可视化 + 流式 SSE（P3 已完成）
+- ✅ **8 个快捷输入按钮上线**（P3 完成 8 按钮 + W3 压测脚本 efa8ee8）；`演示场景集.md` S1-S8 通过 test_8_scenarios.py 全部端到端跑通
 
 ### Week 4
 
