@@ -1,0 +1,16 @@
+{
+  "start_time": "today_afternoon",
+  "duration_hours": [4, 6],
+  "distance_max_km": 5,
+  "companions": [
+    { "role": "妻子", "count": 1 },
+    { "role": "孩子", "age": 5, "count": 1 }
+  ],
+  "physical_constraints": ["亲子友好", "适合 5-10 岁"],
+  "dietary_constraints": ["低脂", "健康轻食"],
+  "experience_tags": [],
+  "social_context": "家庭日常",
+  "raw_input": "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",
+  "parse_confidence": 0.88,
+  "ambiguous_fields": []
+}

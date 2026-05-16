@@ -1,0 +1,38 @@
+[
+  {
+    "id": "R001",
+    "name": "轻语沙拉 · 西溪店",
+    "cuisine": "健康轻食",
+    "location": { "name": "西溪银泰" },
+    "distance_km": 2.1,
+    "opening_hours": "10:30-21:30",
+    "avg_price": 75,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:00", "available": false, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["低脂", "健康轻食", "有儿童餐", "亲子友好"],
+    "suitable_for": ["家庭日常"]
+  },
+  {
+    "id": "R002",
+    "name": "粤味轩 · 老字号粤菜",
+    "cuisine": "粤菜",
+    "location": { "name": "湖滨商圈" },
+    "distance_km": 4.5,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 220,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": false, "queue_minutes": 0 },
+      { "time": "12:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 }
+    ],
+    "tags": ["粤菜", "高人均", "有包间", "礼仪感", "适合老人", "软烂"],
+    "suitable_for": ["纪念日仪式感", "商务接待", "老人伴助"]
+  }
+]

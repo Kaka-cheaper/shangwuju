@@ -1,0 +1,16 @@
+[
+  {
+    "from_location": "home",
+    "to_location": "P001",
+    "walking_minutes": null,
+    "taxi_minutes": 25,
+    "bus_minutes": 40
+  },
+  {
+    "from_location": "P001",
+    "to_location": "R001",
+    "walking_minutes": 18,
+    "taxi_minutes": 8,
+    "bus_minutes": 15
+  }
+]

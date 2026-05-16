@@ -1,0 +1,29 @@
+[
+  {
+    "id": "P001",
+    "name": "森林儿童探索乐园",
+    "type": "亲子乐园",
+    "location": { "name": "西溪湿地北门", "lat": 30.27, "lng": 120.07 },
+    "distance_km": 4.2,
+    "opening_hours": "09:00-18:00",
+    "rating": 4.6,
+    "age_range": [3, 10],
+    "price_range": [80, 120],
+    "tags": ["亲子友好", "适合 5-10 岁", "户外", "低强度"],
+    "suitable_for": ["家庭日常"],
+    "capacity": { "daily_quota": 200, "available_slots": 45 }
+  },
+  {
+    "id": "P002",
+    "name": "西溪艺术展中心 · 当季特展",
+    "type": "展览",
+    "location": { "name": "西溪文创园" },
+    "distance_km": 3.8,
+    "opening_hours": "10:00-20:00",
+    "rating": 4.4,
+    "price_range": [60, 60],
+    "tags": ["看展", "安静聊天", "拍照友好", "亲密情侣", "室内"],
+    "suitable_for": ["情侣亲密", "闺蜜聊天", "独处放空"],
+    "capacity": { "daily_quota": 300, "available_slots": 0 }
+  }
+]
