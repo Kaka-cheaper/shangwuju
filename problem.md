@@ -139,3 +139,50 @@ Phase 0 落地内容：
 - 任何下游代码若漂移字段名 / 发明 tag / 用 D9 禁止字段，会被 Pydantic 立刻拦截
 - 后续 `python -m scripts.verify_schemas` 是契约 regression 守门员
 
+
+---
+
+## 问题5：A 角色（Agent 编排层）P2 完成
+
+**用户原问**：（W2 启动指令——5 项任务清单）
+
+**解决方案**：
+
+按 Phase 0 → Phase 0.5 已就绪的契约，独立实现 Agent 4 大模块：
+
+1. **`agent/llm_client.py`**：用 OpenAI 兼容 SDK 实现 DeepSeekClient + QwenClient（`base_url` 切换），`get_llm_client(provider)` 工厂；含围栏剥离、超时 30s + 重试 2 次（指数退避）；`stub` provider 通过 `LLM_PROVIDER=stub` 环境变量启用，给 W3 联调用
+2. **`agent/prompts/system_prompt.py`**：意图解析提示词 + 2 条家庭/老人 few-shot；硬约束词典出口（防发明 tag、防 D9 禁止字段、防发明 social_context）
+3. **`agent/intent_parser.py`**：`parse_intent()` 含 LLM 调用、围栏剥离、Pydantic 二次校验、错误回灌重试 1 次、raw_input 兜底
+4. **`agent/planner.py`**：规则化 ReAct 主循环（plan_itinerary）；6 阶段 → get_user_profile → search_pois → search_restaurants → check_availability（按时段顺序）→ estimate_route_time × 3 → 拼装六段 Itinerary；MAX_TOOL_CALLS_PER_KIND=3 防过度规划
+5. **`agent/executor.py`**：用户确认后下发 reserve_restaurant + buy_ticket（可选）+ generate_share_message
+6. **`agent/trace.py`**：内部事件采集器 Tracer，可订阅，不与 SSE schema 强耦合
+
+**端到端测试**：6 项全过（家庭主场景跑通 + E1 显式触发 + D9 禁字段反向校验 + Tool quota 上限）。
+**全套测试**：53 项（schema 自检 6 + Phase0.5 8 + W1 真 Tool 33 + W2 Agent 6）全过。
+
+**意外发现并修复跨层 bug**（W1 + W2 协议交接处）：
+
+- 现象：search_restaurants 直接调函数能返候选，但通过 invoke_tool 二次校验崩 → UPSTREAM_FAILURE
+- 根因：RestaurantCapacity 用 `Field(alias="2")` 配 `two/four/six/eight` 字段名，`model_dump()` 默认输出字段名但 `model_validate()` 默认期待 alias → 字段名/alias 不匹配
+- 修复：`model_config` 加 `populate_by_name=True`（不改字段名 / 不改 mock_data 写法）
+- 已追加到 `pitfalls.md` P2 级
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/{llm_client,intent_parser,planner,executor,trace}.py`
+- `backend/agent/prompts/{__init__,system_prompt}.py`
+- `backend/tests/{conftest,test_agent_flow,test_intent_parser}.py`
+
+修改：
+- `backend/schemas/domain.py`（RestaurantCapacity 加 populate_by_name）
+- `backend/pyproject.toml` + `uv.lock`（依赖升级 openai/dotenv/structlog 进 dependencies）
+- `docs/03-implementation/pitfalls.md`（P2 alias 漂移坑）
+- `.codesee/features.json`（CodeSee sync：f-intent-parse / f-plan-assembly / f-exception-replan 三个 feature 从 planned 升级为 implemented，补 refs，confidence 升至 0.7-0.85）
+
+**应当达成的效果**：
+
+- W3 同学可立刻用 `LLM_PROVIDER=stub` 启动后端联调前端，不依赖真 LLM API key
+- 评分项 1（场景理解 20%）+ 项 2（规划链路 25%）+ 项 5（异常韧性 15%）已端到端验证可拿
+- 后续 P3 W3 写 `backend/main.py` SSE 网关时直接订阅 Tracer 事件转 SseEvent，不需要再设计协议
+- pitfalls 新增 P2 级警示，未来任何带 alias 的 Pydantic 模型避免重蹈覆辙
