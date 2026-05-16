@@ -33,7 +33,7 @@ from dotenv import load_dotenv
 # 双重保险加载 .env（uvicorn --reload 子进程会跳过 CLI 入口）
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
@@ -43,8 +43,12 @@ from schemas import (
     IntentExtraction,
     Itinerary,
     ItineraryStage,
+    RefinementInput,
+    RefinementOutput,
     SseEvent,
     SseEventType,
+    current_env_mode,
+    resolve_planner_mode,
 )
 from schemas.errors import FailureReason
 
@@ -166,6 +170,7 @@ def health() -> dict[str, str]:
         "status": "ok",
         "version": VERSION,
         "llm_provider": LLM_PROVIDER,
+        "planner_mode": current_env_mode(),
     }
 
 
@@ -175,25 +180,68 @@ def scenarios() -> dict[str, list[dict[str, str]]]:
 
 
 @app.post("/chat/stream")
-async def chat_stream(req: ChatStreamRequest) -> EventSourceResponse:
+async def chat_stream(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
     """主入口：一句话 → SSE 流式输出。
 
-    当前 W3：固定走 stub fixture。P2 完成后改为：
-        from agent.planner import run_planner
-        async for ev in run_planner(req): yield _to_sse(ev)
+    解析 PLANNER_MODE：
+        header X-Planner-Mode > env PLANNER_MODE > default("rule")
+    当前 W3：固定走 stub fixture（mode 透传到 X-Planner-Mode 响应头便于前端确认）。
+    P2 完成后改为按 mode 分发到 rule_planner / llm_planner。
     """
+    mode = resolve_planner_mode(
+        header_value=request.headers.get("X-Planner-Mode"),
+        env_value=os.getenv("PLANNER_MODE"),
+    )
     return EventSourceResponse(
         _safe_stream(_stub_stream(req)),
         media_type="text/event-stream",
+        headers={"X-Planner-Mode": mode},
     )
 
 
 @app.post("/chat/confirm")
-async def chat_confirm(req: ChatConfirmRequest) -> EventSourceResponse:
+async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSourceResponse:
     """MVP-2：用户确认后下发执行类 Tool。"""
+    mode = resolve_planner_mode(
+        header_value=request.headers.get("X-Planner-Mode"),
+        env_value=os.getenv("PLANNER_MODE"),
+    )
     return EventSourceResponse(
         _safe_stream(_stub_confirm(req)),
         media_type="text/event-stream",
+        headers={"X-Planner-Mode": mode},
+    )
+
+
+@app.post("/chat/refine")
+async def chat_refine(req: RefinementInput, request: Request) -> EventSourceResponse:
+    """Phase 0.6：用户拒绝方案 + 反馈 → refiner 合并 → 重新规划。
+
+    流程（详见 api_contract.md §7）：
+        1. 从内存 session 取原 intent；不存在 → 422
+        2. 推 refinement_start（含 feedback_text）
+        3. 调 refiner（A 实现的 backend.agent.refiner.refine_intent；
+           未实现时走 main.py 内置启发式 _stub_refine 兜底）
+        4. 推 refinement_done（含 RefinementOutput）
+        5. 复用 stub 主路径事件序列，但用 refined_intent 驱动（distance 等关键字段反映新值）
+        6. done
+    """
+    cached = _SESSION_STORE.get(req.session_id)
+    if cached is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"session not found: {req.session_id}",
+        )
+
+    mode = resolve_planner_mode(
+        header_value=request.headers.get("X-Planner-Mode"),
+        env_value=os.getenv("PLANNER_MODE"),
+    )
+
+    return EventSourceResponse(
+        _safe_stream(_refine_stream(req, cached)),
+        media_type="text/event-stream",
+        headers={"X-Planner-Mode": mode},
     )
 
 
@@ -237,10 +285,6 @@ async def _safe_stream(
         yield _to_sse(SseEvent(type=SseEventType.DONE, seq=last_seq + 2))
 
 
-# ============================================================
-# Stub fixture：家庭主场景完整 SSE 序列
-# ============================================================
-
 async def _delay(ms: int = 350) -> None:
     """让前端可见动画节奏——评委能看清每一步。"""
     await asyncio.sleep(ms / 1000.0)
@@ -250,12 +294,22 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
-async def _stub_stream(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
+async def _stub_stream(
+    req: ChatStreamRequest,
+    *,
+    intent_override: Optional[IntentExtraction] = None,
+    starting_seq: int = 0,
+) -> AsyncIterator[SseEvent]:
     """对应 api_contract.md §2 示例事件序列（含 E1 异常 → 重规划 → 成功）。
+
+    参数：
+        intent_override: 若提供，跳过 fixture intent 直接用它；search_pois / search_restaurants
+                         的 input 也会反映其 distance_max_km / 约束（用于 /chat/refine 复用）。
+        starting_seq:    seq 起始值；refine 流复用主路径时 seq 从已经 emit 过的位置继续。
 
     注意：当前固定家庭主场景输出。P2 接入真实 planner 后，按意图差异化。
     """
-    seq = 0
+    seq = starting_seq
 
     def emit(type_: SseEventType, payload: dict[str, Any]) -> SseEvent:
         nonlocal seq
@@ -264,24 +318,30 @@ async def _stub_stream(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
         return ev
 
     # ---- 0: intent_parsed ----
-    intent = IntentExtraction(
-        start_time="today_afternoon",
-        duration_hours=[4, 6],
-        distance_max_km=5,
-        companions=[
-            Companion(role="妻子", count=1),
-            Companion(role="孩子", age=5, count=1),
-        ],
-        physical_constraints=["亲子友好", "适合 5-10 岁"],
-        dietary_constraints=["低脂", "健康轻食"],
-        experience_tags=[],
-        social_context="家庭日常",
-        raw_input=req.message,
-        parse_confidence=0.88,
-        ambiguous_fields=[],
-    )
-    yield emit(SseEventType.INTENT_PARSED, intent.model_dump())
-    await _delay()
+    if intent_override is not None:
+        intent = intent_override
+    else:
+        intent = IntentExtraction(
+            start_time="today_afternoon",
+            duration_hours=[4, 6],
+            distance_max_km=5,
+            companions=[
+                Companion(role="妻子", count=1),
+                Companion(role="孩子", age=5, count=1),
+            ],
+            physical_constraints=["亲子友好", "适合 5-10 岁"],
+            dietary_constraints=["低脂", "健康轻食"],
+            experience_tags=[],
+            social_context="家庭日常",
+            raw_input=req.message,
+            parse_confidence=0.88,
+            ambiguous_fields=[],
+        )
+    # 仅当走主路径（/chat/stream）时推 intent_parsed；refine 已经推过 refinement_done，
+    # 不再重复推 intent_parsed 避免前端重置 IntentSummary
+    if intent_override is None:
+        yield emit(SseEventType.INTENT_PARSED, intent.model_dump())
+        await _delay()
 
     # ---- 1-2: get_user_profile ----
     yield emit(
@@ -313,26 +373,29 @@ async def _stub_stream(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
         {
             "tool": "search_pois",
             "input": {
-                "distance_max_km": 5,
-                "physical_constraints": ["亲子友好", "适合 5-10 岁"],
-                "experience_tags": [],
-                "social_context": "家庭日常",
-                "age_in_party": [5],
+                "distance_max_km": intent.distance_max_km,
+                "physical_constraints": list(intent.physical_constraints),
+                "experience_tags": list(intent.experience_tags),
+                "social_context": intent.social_context,
+                "age_in_party": [c.age for c in intent.companions if c.age is not None] or None,
             },
         },
     )
     await _delay(420)
+    # 候选按 distance ≤ intent.distance_max_km 过滤
+    _all_pois = [
+        {"id": "P001", "name": "森林儿童探索乐园", "distance_km": 4.2, "rating": 4.6},
+        {"id": "P004", "name": "西溪亲子动物园", "distance_km": 3.5, "rating": 4.5},
+        {"id": "P007", "name": "童趣沙池公园", "distance_km": 2.8, "rating": 4.3},
+    ]
+    _poi_candidates = [p for p in _all_pois if p["distance_km"] <= intent.distance_max_km] or _all_pois[-1:]
     yield emit(
         SseEventType.TOOL_CALL_END,
         {
             "tool": "search_pois",
             "output": {
                 "success": True,
-                "candidates": [
-                    {"id": "P001", "name": "森林儿童探索乐园", "distance_km": 4.2, "rating": 4.6},
-                    {"id": "P004", "name": "西溪亲子动物园", "distance_km": 3.5, "rating": 4.5},
-                    {"id": "P007", "name": "童趣沙池公园", "distance_km": 2.8, "rating": 4.3},
-                ],
+                "candidates": _poi_candidates,
             },
             "duration_ms": 120,
         },
@@ -352,23 +415,25 @@ async def _stub_stream(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
         {
             "tool": "search_restaurants",
             "input": {
-                "distance_max_km": 5,
-                "dietary_constraints": ["低脂", "健康轻食"],
-                "social_context": "家庭日常",
+                "distance_max_km": intent.distance_max_km,
+                "dietary_constraints": list(intent.dietary_constraints),
+                "social_context": intent.social_context,
             },
         },
     )
     await _delay(420)
+    _all_restaurants = [
+        {"id": "R001", "name": "轻语沙拉 · 西溪店", "distance_km": 2.1, "avg_price": 75},
+        {"id": "R005", "name": "绿野食光", "distance_km": 3.0, "avg_price": 88},
+    ]
+    _rest_candidates = [r for r in _all_restaurants if r["distance_km"] <= intent.distance_max_km] or _all_restaurants[:1]
     yield emit(
         SseEventType.TOOL_CALL_END,
         {
             "tool": "search_restaurants",
             "output": {
                 "success": True,
-                "candidates": [
-                    {"id": "R001", "name": "轻语沙拉 · 西溪店", "distance_km": 2.1, "avg_price": 75},
-                    {"id": "R005", "name": "绿野食光", "distance_km": 3.0, "avg_price": 88},
-                ],
+                "candidates": _rest_candidates,
             },
             "duration_ms": 110,
         },
@@ -491,6 +556,173 @@ async def _stub_stream(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
 
     # ---- 14: done ----
     yield emit(SseEventType.DONE, {})
+
+
+# ============================================================
+# Stub refiner：feedback_text → 修改 IntentExtraction
+# ============================================================
+
+# 距离关键词识别（中文 + 数字）→ km 数
+_DISTANCE_KEYWORDS = ("公里以内", "km以内", "公里内", "km内", "公里以下", "公里")
+
+
+def _extract_distance_km(text: str) -> Optional[float]:
+    """从反馈文本里提 distance 上限（km）。
+
+    支持「3 公里」「3公里以内」「3km 以内」「不超过 3 公里」。
+    返回 None 表示文本无距离指示。
+    """
+    import re
+
+    if not text:
+        return None
+    # 匹配 "数字 + 可选空白 + 单位"
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(公里|km|千米)", text, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:  # pragma: no cover
+            return None
+    return None
+
+
+def _stub_refine(
+    original: IntentExtraction, feedback_text: str
+) -> RefinementOutput:
+    """启发式 refiner（A 未实现 backend.agent.refiner 时的兜底）。
+
+    规则：
+    - "太远了" / "近一点" / "X 公里以内" → 缩小 distance_max_km
+        - 显式数字优先；否则 distance × 0.6（向下取整到 0.5）
+    - "不辣" / "清淡" → 加 dietary tag「不辣」
+    - "便宜一点" / "贵一点" → 改 raw_input 提示，不改 schema 字段（避免 D9 越界）
+    - 反馈空 → distance × 0.8 兜底（让用户感到 Agent 有响应）
+
+    输出 RefinementOutput.refined_intent 必须仍合法（§5.7 D-SoT）；
+    changed_fields 是中文摘要。
+    """
+    refined_data = original.model_dump()
+    changes: list[str] = []
+
+    txt = (feedback_text or "").strip()
+
+    # ===== 距离调整 =====
+    new_distance: Optional[float] = None
+    if txt:
+        explicit = _extract_distance_km(txt)
+        if explicit is not None:
+            new_distance = max(0.5, min(explicit, original.distance_max_km))
+            if new_distance != original.distance_max_km:
+                changes.append(
+                    f"距离上限：{original.distance_max_km:g}km → {new_distance:g}km"
+                )
+        elif any(kw in txt for kw in ("太远", "近一点", "近点", "别走太远", "别太远")):
+            scaled = round(original.distance_max_km * 0.6 * 2) / 2  # 取整到 0.5
+            new_distance = max(0.5, scaled)
+            if new_distance != original.distance_max_km:
+                changes.append(
+                    f"距离上限：{original.distance_max_km:g}km → {new_distance:g}km"
+                )
+    if new_distance is None and not txt:
+        # 空反馈兜底：缩 0.8
+        scaled = round(original.distance_max_km * 0.8 * 2) / 2
+        if scaled != original.distance_max_km and scaled >= 0.5:
+            new_distance = scaled
+            changes.append(
+                f"距离上限：{original.distance_max_km:g}km → {new_distance:g}km（兜底）"
+            )
+    if new_distance is not None:
+        refined_data["distance_max_km"] = new_distance
+
+    # ===== 饮食偏好叠加（仅命中词典内值）=====
+    existing_dietary = set(refined_data.get("dietary_constraints") or [])
+    if txt:
+        if ("不辣" in txt or "清淡" in txt) and "不辣" not in existing_dietary:
+            existing_dietary.add("不辣")
+            changes.append("加忌口：不辣")
+        if ("低脂" in txt or "减肥" in txt) and "低脂" not in existing_dietary:
+            existing_dietary.add("低脂")
+            changes.append("加忌口：低脂")
+    refined_data["dietary_constraints"] = sorted(existing_dietary)
+
+    # ===== 同行人语义增强（不改 schema 字段，仅写 raw_input 帮助下游 LLM）=====
+    if txt:
+        refined_data["raw_input"] = f"{original.raw_input}（用户反馈：{txt}）"
+
+    # 重新校验（保证仍合法）
+    refined = IntentExtraction.model_validate(refined_data)
+
+    note: Optional[str] = None
+    if changes:
+        note = "已根据您的反馈调整：" + "；".join(changes)
+    elif txt:
+        note = "已记录您的反馈，本次维持原约束并重排候选。"
+    else:
+        note = "未收到具体反馈，本次自动收紧距离重排。"
+
+    return RefinementOutput(
+        refined_intent=refined,
+        changed_fields=changes,
+        refiner_note=note,
+    )
+
+
+async def _refine_stream(
+    req: RefinementInput,
+    cached: dict[str, Any],
+) -> AsyncIterator[SseEvent]:
+    """/chat/refine 完整 SSE 序列：refinement_start → refinement_done → 主路径事件。
+
+    参考 api_contract.md §7。
+    """
+    seq = 0
+
+    def emit(type_: SseEventType, payload: dict[str, Any]) -> SseEvent:
+        nonlocal seq
+        ev = SseEvent(type=type_, seq=seq, payload=payload, timestamp_ms=_now_ms())
+        seq += 1
+        return ev
+
+    # ---- 0: refinement_start ----
+    yield emit(
+        SseEventType.REFINEMENT_START,
+        {"feedback_text": req.feedback_text or ""},
+    )
+    await _delay(180)
+
+    # ---- 调 refiner（优先 A 实现，否则 _stub_refine）----
+    original = IntentExtraction.model_validate(cached["intent"])
+    refinement: RefinementOutput
+    try:  # 预留：A 同学 commit refiner 后此分支生效
+        from agent.refiner import refine_intent  # type: ignore[import-not-found]
+
+        refinement = refine_intent(original, req.feedback_text or "")
+    except Exception:  # noqa: BLE001 — 兜底覆盖 ImportError + 实现异常
+        refinement = _stub_refine(original, req.feedback_text or "")
+
+    # ---- 1: refinement_done ----
+    yield emit(SseEventType.REFINEMENT_DONE, refinement.model_dump())
+    await _delay(220)
+
+    # ---- 2..N: 复用主路径事件序列（用 refined intent 驱动）----
+    placeholder_req = ChatStreamRequest(
+        message=refinement.refined_intent.raw_input,
+        session_id=req.session_id,
+    )
+    async for ev in _stub_stream(
+        placeholder_req,
+        intent_override=refinement.refined_intent,
+        starting_seq=seq,
+    ):
+        # 同步本地 seq 计数器到 stream 内部，保证后续 seq 单调（虽然 _stub_stream 自管，
+        # 这里只需透传事件即可——它的 emit 会基于 starting_seq 累加）
+        yield ev
+        seq = ev.seq + 1
+
+
+# ============================================================
+# Stub fixture：confirm 流
+# ============================================================
 
 
 async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:

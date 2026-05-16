@@ -776,38 +776,47 @@
     {
       "id": "f-refine-replan",
       "name": "反馈重规划",
-      "summary": "用户拒绝方案 + 反馈 → refiner 合并为新 intent → planner 重算（Phase 0.6 新增）",
+      "summary": "用户拒绝方案 + 反馈 → refiner 合并为新 intent → 复用主路径 SSE 重算（Phase 0.6）",
       "epicId": "execution",
       "triggers": [
         { "kind": "http", "detail": "POST /chat/refine" },
         { "kind": "ui", "detail": "用户在行程卡片点「我说说哪不对」并填反馈" }
       ],
       "steps": [
-        { "id": "receive", "name": "接收反馈", "role": "input" },
-        { "id": "load_session", "name": "取原意图", "role": "data-read" },
+        { "id": "receive", "name": "接收反馈与会话", "role": "input" },
+        { "id": "load_session", "name": "取原意图与方案", "role": "data-read" },
+        { "id": "session_check", "name": "校验会话存在", "role": "validation" },
+        { "id": "emit_start", "name": "推送开始事件", "role": "side-effect" },
         { "id": "merge_feedback", "name": "合并用户反馈", "role": "compute" },
-        { "id": "validate_refined", "name": "校验新意图", "role": "validation" },
-        { "id": "emit_refined", "name": "推送变更摘要", "role": "side-effect" },
-        { "id": "replan", "name": "重跑规划", "role": "compute" },
+        { "id": "validate_refined", "name": "校验新意图合法", "role": "validation" },
+        { "id": "emit_done", "name": "推送变更摘要", "role": "side-effect" },
+        { "id": "replan", "name": "用新意图复跑", "role": "compute" },
         { "id": "output", "name": "输出新方案", "role": "output" },
-        { "id": "fail", "name": "合并失败降级", "role": "error" }
+        { "id": "fail_session", "name": "返回会话不存在", "role": "error" },
+        { "id": "fail_validate", "name": "推送校验失败", "role": "error" }
       ],
       "flow": [
         { "from": "receive", "to": "load_session", "kind": "next" },
-        { "from": "load_session", "to": "merge_feedback", "kind": "conditional", "condition": "session 存在" },
-        { "from": "load_session", "to": "fail", "kind": "error", "condition": "session 不存在" },
+        { "from": "load_session", "to": "session_check", "kind": "next" },
+        { "from": "session_check", "to": "emit_start", "kind": "conditional", "condition": "session 存在" },
+        { "from": "session_check", "to": "fail_session", "kind": "error", "condition": "session 不存在" },
+        { "from": "emit_start", "to": "merge_feedback", "kind": "next" },
         { "from": "merge_feedback", "to": "validate_refined", "kind": "next" },
-        { "from": "validate_refined", "to": "emit_refined", "kind": "conditional", "condition": "校验通过" },
-        { "from": "validate_refined", "to": "fail", "kind": "error", "condition": "校验失败重试耗尽" },
-        { "from": "emit_refined", "to": "replan", "kind": "async" },
-        { "from": "emit_refined", "to": "output", "kind": "next" },
+        { "from": "validate_refined", "to": "emit_done", "kind": "conditional", "condition": "新意图合法" },
+        { "from": "validate_refined", "to": "fail_validate", "kind": "error", "condition": "校验失败" },
+        { "from": "emit_done", "to": "replan", "kind": "next" },
         { "from": "replan", "to": "output", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.3,
+      "refs": [
+        { "file": "backend/main.py", "lines": [180, 230] },
+        { "file": "backend/main.py", "lines": [560, 700] },
+        { "file": "backend/schemas/refine.py", "lines": [1, 70] },
+        { "file": "backend/scripts/verify_refine.py", "lines": [1, 220] }
+      ],
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T18:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T19:00:00Z"
     },
     {
       "id": "f-llm-planner",

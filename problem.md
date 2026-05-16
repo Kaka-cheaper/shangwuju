@@ -576,3 +576,99 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 - 评委网络抖动 / 后端短暂卡顿时，前端会显示「后端无响应（首字节超时）」而不是无限转圈
 - 移动端评委用手机看 demo 也不会布局错乱
 - pitfalls.md 教训严格执行：每条 commit 都先看 `git diff --cached --stat` 范围、untracked 文件不带进去、CodeSee sync 不越界
+
+
+---
+
+## 问题9：B 角色 Phase 0.6 落地——/chat/refine 端点 + PLANNER_MODE 切换 + verify_refine 端到端
+
+**用户原问**：B1-B5 五项任务清单（refine 端点 / refinement_start|done 序列化 / PLANNER_MODE env+header / verify_refine.py / CodeSee sync owner=B）。
+
+**前置确认**：
+
+- A 同学还没在 `backend/agent/` 实现 `refiner.refine_intent`、`plan_itinerary_with_mode`、`llm_planner`——按 B 边界规则不能跨包 import（也不能改 agent/）
+- 应对策略：在 `backend/main.py` 内置 `_stub_refine` 启发式 refiner 兜底；`from agent.refiner import refine_intent` 用 try/except 包裹，A 一旦 commit 真 refiner，无需 B 改动自动切到真路径
+- 类似地 PLANNER_MODE 切换走 schemas/planner_mode.resolve_planner_mode（已存在）解析 header > env > default("rule")，main.py 透传 mode 到响应 X-Planner-Mode header
+
+**解决方案**：
+
+**B1 POST /chat/refine 端点**：
+
+- 入参 RefinementInput；session_id 不存在直接 422（不进 SSE）
+- `_refine_stream(req, cached)` 异步生成器：
+  1. 推 refinement_start（payload={"feedback_text": ...}）
+  2. 调 refiner（agent.refiner 优先，落到 _stub_refine 兜底）
+  3. 推 refinement_done（payload=RefinementOutput.model_dump()）
+  4. 用 refined_intent 复用 _stub_stream 主路径事件序列；通过 `intent_override + starting_seq` 让原 stub fixture 透传新 intent，不重复推 intent_parsed
+  5. done
+
+**B2 SSE 序列化**：
+
+- `SseEventType.REFINEMENT_START / REFINEMENT_DONE` 已存在；沿用现有 `_to_sse(event) → {event, id, data}` 包装
+- _safe_stream 包装兜底中途异常，推 stream_error + done 不漏 done
+
+**B3 PLANNER_MODE 切换**：
+
+- /health 增加 `planner_mode` 字段（来自 `current_env_mode()`）
+- /chat/stream / /chat/confirm / /chat/refine 三个端点都解析 `resolve_planner_mode(header_value, env_value)`，把结果透传到响应头 `X-Planner-Mode`
+- 前端可通过该 header 验证当前请求生效的 mode
+- backend/.env.example 加 `PLANNER_MODE=rule` 段（带详细注释）
+
+**B4 verify_refine.py**（13 项断言全过）：
+
+- TestClient 模式 + 自写 SSE 块解析（兼容 \r\n\r\n / \n\n 分隔）
+- 流程：先 /chat/stream 建 session → /chat/refine 反馈「太远了，希望 3 公里以内」
+- 验证点：
+  - 前置 stream 跑通 + 原 distance=5
+  - refine 流首两条事件 == [refinement_start, refinement_done]
+  - refined_intent.distance_max_km == 3（**B 块的核心交付：feedback 真的让 distance 变小**）
+  - changed_fields 含中文「距离上限：5km → 3km」
+  - 后续 search_pois.input.distance_max_km == 3（证明 stub_stream 真接受 override，不是只在 refinement_done 里改）
+  - POI 候选全在 3km 内（P007 2.8km）
+  - refine 流仍输出 itinerary_ready + replan_triggered（保留 E1 异常韧性）
+  - 未知 session_id 返 422
+  - /health 暴露 planner_mode='rule'
+  - X-Planner-Mode: llm header 透传到响应头
+
+**B5 CodeSee sync（owner=B 严格范围）**：
+
+- `f-refine-replan` planned → implemented
+- step 8 → 11 个（拆 session 校验 / start 推送 / done 推送 / 校验失败错误分支）
+- refs 补 main.py 端点段 + main.py refine 流 + schemas/refine.py + verify_refine.py
+- confidence 0.3 → 0.85
+- **不动** `f-llm-planner`（A owner，agent/llm_planner.py 待 A 实现）
+- 校验：5 epic / 19 features / 1 全局 async 占比警告（项目级聚合，非本 feature 问题）
+
+**期间踩的坑**：
+
+1. **早期 str_replace 把 `_delay` 函数误改成 `async def _stub_confirm`**：oldStr 选了 `# Stub fixture` 段落标题做锚点，但 newStr 写的是函数签名——把帮助函数的 docstring + body 替换成了 `_stub_confirm` 重复定义。后续 pytest 会因重复函数名报错。修复：手动复读 286 行附近，把 _delay 还原。教训：**str_replace 的 oldStr 起点要选语义稳定的代码行（不是 banner 注释）**。
+2. **MyPy 看 `_extract_distance_km` 返 float 但 Optional 也合法**：用 `Optional[float] = None` + 局部赋值；Pydantic 重 validate 时距离若 < 0.5 会被 `Field(ge=0)` 拒绝——加 `max(0.5, ...)` 兜底。
+3. **stub_stream seq starting**：refine 流要复用 stub_stream 但 seq 不能从 0 重来（前面已经 emit refinement_start/done 占了 0/1）。原 stub_stream 硬编码 `seq = 0`，改成 `starting_seq` 参数传入。
+
+**修改的代码文件**：
+
+新建：
+- `backend/scripts/verify_refine.py`（13 项端到端断言）
+
+修改：
+- `backend/main.py`：
+  - import 加 HTTPException / Request / RefinementInput / RefinementOutput / current_env_mode / resolve_planner_mode
+  - /health 加 planner_mode
+  - /chat/stream 与 /chat/confirm 加 X-Planner-Mode header 透传
+  - 新增 /chat/refine 端点
+  - 新增 `_extract_distance_km` / `_stub_refine` / `_refine_stream` 三个内部函数
+  - `_stub_stream` 加 intent_override + starting_seq 两个参数；search_pois / search_restaurants 的 input 反映 intent.distance_max_km / dietary_constraints
+- `backend/.env.example`：加 PLANNER_MODE 段
+- `.codesee/features.json`：仅 f-refine-replan 一个 feature 升级（owner=B 严格范围）
+
+**未动**（owner 不是自己）：
+
+- `backend/agent/*` / `backend/schemas/*` / `frontend/*` / `mock_data/*` / `AGENTS.md` / `.codesee/prompts/sync.md` / `.codesee/prompts/scan.md` / 任何 untracked 文件
+
+**应当达成的效果**：
+
+- A 同学一旦在 `backend/agent/refiner.py` 实现真 LLM-based refiner，main.py 内 `from agent.refiner import refine_intent` try 路径自动生效；前端 + verify_refine.py 零改动
+- 评分项 1 加分：用户拒绝方案后 Agent 不是「重新来一遍」，而是基于反馈调整意图——这是「Agent」与「聊天机器人」的核心区分
+- 评分项 5 加分：refine 流仍触发 replan_triggered（E1 异常韧性双重叠加：refine + restaurant_full）
+- PLANNER_MODE 双范式接口已就绪：A 实现 llm_planner 后 main.py 仅需在 chat_stream / chat_refine 内根据 mode 分发到对应 planner，事件序列与前端零改动
+- 五关综合：verify_schemas 6/6 + verify_phase0_5 8/8 + verify_sse 全过 + verify_refine 13/13 + pytest 70/70 全绿
