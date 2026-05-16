@@ -678,7 +678,7 @@
     {
       "id": "f-itinerary-card",
       "name": "行程卡片渲染",
-      "summary": "把 Itinerary payload 渲染为六段时间轴 + 已为你预留清单 + 转发文案",
+      "summary": "把 Itinerary 渲染为六段时间轴 + 预留清单 + 转发文案 + 三按钮（确认/反馈/取消）",
       "epicId": "sharing",
       "triggers": [
         { "kind": "event", "detail": "Store 收到 itinerary_ready 事件" }
@@ -688,44 +688,67 @@
           "id": "receive",
           "name": "订阅行程数据",
           "role": "input",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [10, 20] }]
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [14, 30] }]
+        },
+        {
+          "id": "refinement_banner",
+          "name": "渲染反馈调整摘要",
+          "role": "output",
+          "note": "lastRefinement.changedFields 非空时在卡片顶部显示 🪄 banner",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [62, 80] }]
         },
         {
           "id": "render_timeline",
           "name": "渲染六段时间轴",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [38, 60] }]
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [82, 116] }]
         },
         {
           "id": "render_orders",
           "name": "渲染预留清单",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [62, 86] }]
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [118, 142] }]
         },
         {
-          "id": "confirm_btn",
-          "name": "提供确认按钮",
+          "id": "render_share",
+          "name": "渲染转发文案",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [96, 112] }]
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [144, 152] }]
+        },
+        {
+          "id": "action_buttons",
+          "name": "三按钮分发",
+          "role": "output",
+          "note": "确认 / 我说说哪不对（开 RefinementDialog） / 取消方案，按 cancelled / hasOrders 切态",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [154, 200] }]
+        },
+        {
+          "id": "cancel_state",
+          "name": "取消态提示",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [195, 205] }]
         },
         {
           "id": "empty_state",
           "name": "空态占位",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [13, 24] }]
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [22, 36] }]
         }
       ],
       "flow": [
+        { "from": "receive", "to": "refinement_banner", "kind": "conditional", "condition": "lastRefinement.changedFields 非空" },
         { "from": "receive", "to": "render_timeline", "kind": "conditional", "condition": "itinerary 非空" },
         { "from": "render_timeline", "to": "render_orders", "kind": "conditional", "condition": "orders 非空" },
-        { "from": "render_timeline", "to": "confirm_btn", "kind": "conditional", "condition": "尚未下单" },
+        { "from": "render_orders", "to": "render_share", "kind": "conditional", "condition": "share_message 非空" },
+        { "from": "render_timeline", "to": "action_buttons", "kind": "conditional", "condition": "尚未下单且未取消" },
+        { "from": "action_buttons", "to": "cancel_state", "kind": "conditional", "condition": "用户点击取消方案" },
         { "from": "receive", "to": "empty_state", "kind": "error", "condition": "尚未规划" }
       ],
       "refs": [{ "file": "frontend/components/ItineraryCard.tsx" }],
-      "confidence": 0.88,
+      "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T07:00:00Z"
+      "updated_at": "2026-05-17T00:00:00Z"
     },
     {
       "id": "f-share-copy",
@@ -864,6 +887,192 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-16T19:30:00Z"
+    },
+    {
+      "id": "f-refinement-dialog",
+      "name": "反馈弹窗",
+      "summary": "用户拒绝方案时填反馈文本（含 6 条预设建议），提交触发 POST /chat/refine",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "ui", "detail": "用户在 ItineraryCard 点「我说说哪不对」按钮" }
+      ],
+      "steps": [
+        {
+          "id": "open",
+          "name": "打开模态弹窗",
+          "role": "input",
+          "refs": [{ "file": "frontend/components/RefinementDialog.tsx", "lines": [40, 70] }]
+        },
+        {
+          "id": "input_text",
+          "name": "用户输入反馈",
+          "role": "input",
+          "note": "textarea 200 字限长，可空（refiner 会走默认调整）",
+          "refs": [{ "file": "frontend/components/RefinementDialog.tsx", "lines": [104, 130] }]
+        },
+        {
+          "id": "pick_suggestion",
+          "name": "选择预设建议",
+          "role": "input",
+          "note": "6 条常见反馈 chip：太远了 / 不那么贵 / 室内 / 时间短 / 想吃辣 / 安静",
+          "refs": [{ "file": "frontend/components/RefinementDialog.tsx", "lines": [136, 158] }]
+        },
+        {
+          "id": "submit",
+          "name": "提交反馈",
+          "role": "side-effect",
+          "note": "Ctrl/⌘+Enter 快捷键 / 点击按钮均可，触发 store.refine()",
+          "refs": [
+            { "file": "frontend/components/RefinementDialog.tsx", "lines": [78, 90] },
+            { "file": "frontend/lib/store.ts", "lines": [310, 380] }
+          ]
+        },
+        {
+          "id": "close",
+          "name": "关闭弹窗",
+          "role": "output",
+          "note": "ESC / 点遮罩 / 点关闭按钮 / 点取消 / 提交后均关闭",
+          "refs": [{ "file": "frontend/components/RefinementDialog.tsx", "lines": [55, 68] }]
+        }
+      ],
+      "flow": [
+        { "from": "open", "to": "input_text", "kind": "next" },
+        { "from": "input_text", "to": "pick_suggestion", "kind": "conditional", "condition": "用户点击建议 chip 填入" },
+        { "from": "input_text", "to": "submit", "kind": "next" },
+        { "from": "pick_suggestion", "to": "submit", "kind": "next" },
+        { "from": "submit", "to": "close", "kind": "async", "condition": "submit 是 fire-and-forget：弹窗立即关，store 自己处理 SSE 流" },
+        { "from": "input_text", "to": "close", "kind": "error", "condition": "用户取消（ESC / 遮罩 / 取消按钮）" }
+      ],
+      "refs": [
+        { "file": "frontend/components/RefinementDialog.tsx" },
+        { "file": "frontend/components/ItineraryCard.tsx", "lines": [156, 175] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
+      "id": "f-planner-mode-badge",
+      "name": "Planner 模式切换器",
+      "summary": "顶栏 chip 单击循环 rule ↔ llm；写 cookie + X-Planner-Mode header 透传后端",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "ui", "detail": "用户点击顶栏 mode chip" },
+        { "kind": "startup", "detail": "首屏 mount 时从 cookie / /health 读取初始值" }
+      ],
+      "steps": [
+        {
+          "id": "init_from_cookie",
+          "name": "读取持久化模式",
+          "role": "data-read",
+          "refs": [{ "file": "frontend/lib/utils.ts", "lines": [80, 100] }]
+        },
+        {
+          "id": "init_from_health",
+          "name": "兜底拉后端环境模式",
+          "role": "data-read",
+          "note": "cookie 缺省时调 GET /health.planner_mode；失败则保持默认 rule",
+          "refs": [{ "file": "frontend/components/PlannerModeBadge.tsx", "lines": [40, 70] }]
+        },
+        {
+          "id": "render_chip",
+          "name": "渲染状态点 + 标签",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/PlannerModeBadge.tsx", "lines": [78, 100] }]
+        },
+        {
+          "id": "click_toggle",
+          "name": "点击循环切换",
+          "role": "input",
+          "note": "rule → llm → rule；流式中 disabled",
+          "refs": [{ "file": "frontend/components/PlannerModeBadge.tsx", "lines": [73, 80] }]
+        },
+        {
+          "id": "persist",
+          "name": "写 cookie + 状态",
+          "role": "side-effect",
+          "refs": [
+            { "file": "frontend/lib/utils.ts", "lines": [100, 110] },
+            { "file": "frontend/lib/store.ts", "lines": [410, 430] }
+          ]
+        },
+        {
+          "id": "header",
+          "name": "请求时透传 header",
+          "role": "side-effect",
+          "note": "sendMessage / confirm / refine 全部带 X-Planner-Mode",
+          "refs": [{ "file": "frontend/lib/store.ts", "lines": [200, 250] }]
+        }
+      ],
+      "flow": [
+        { "from": "init_from_cookie", "to": "render_chip", "kind": "conditional", "condition": "cookie 命中" },
+        { "from": "init_from_cookie", "to": "init_from_health", "kind": "conditional", "condition": "cookie 缺省" },
+        { "from": "init_from_health", "to": "render_chip", "kind": "async", "condition": "fetch /health 异步返回" },
+        { "from": "render_chip", "to": "click_toggle", "kind": "next" },
+        { "from": "click_toggle", "to": "persist", "kind": "next" },
+        { "from": "persist", "to": "header", "kind": "async", "condition": "header 在下一次 SSE 请求时透传，非同步" }
+      ],
+      "refs": [
+        { "file": "frontend/components/PlannerModeBadge.tsx" },
+        { "file": "frontend/lib/utils.ts", "lines": [78, 110] },
+        { "file": "frontend/lib/store.ts", "lines": [200, 430] }
+      ],
+      "confidence": 0.88,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
+      "id": "f-toast-stack",
+      "name": "Toast 通知系统",
+      "summary": "右下角浮层显示 changed_fields / 取消反馈 / mode 切换提示，自动消失",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "event", "detail": "Store handleEvent 收到 refinement_done / cancel / setPlannerMode 时调 pushToast" }
+      ],
+      "steps": [
+        {
+          "id": "push",
+          "name": "推入队列",
+          "role": "side-effect",
+          "refs": [{ "file": "frontend/lib/store.ts", "lines": [420, 445] }]
+        },
+        {
+          "id": "render",
+          "name": "渲染浮层",
+          "role": "output",
+          "note": "info=sky / success=emerald / warn=amber，避紫粉",
+          "refs": [{ "file": "frontend/components/ToastStack.tsx" }]
+        },
+        {
+          "id": "auto_dismiss",
+          "name": "定时自动消失",
+          "role": "side-effect",
+          "note": "warn 4.5s / 其他 3.5s",
+          "refs": [{ "file": "frontend/lib/store.ts", "lines": [432, 440] }]
+        },
+        {
+          "id": "manual_dismiss",
+          "name": "点击手动关闭",
+          "role": "input",
+          "refs": [{ "file": "frontend/components/ToastStack.tsx", "lines": [12, 36] }]
+        }
+      ],
+      "flow": [
+        { "from": "push", "to": "render", "kind": "next" },
+        { "from": "render", "to": "auto_dismiss", "kind": "async" },
+        { "from": "render", "to": "manual_dismiss", "kind": "conditional", "condition": "用户点击" }
+      ],
+      "refs": [
+        { "file": "frontend/components/ToastStack.tsx" },
+        { "file": "frontend/lib/store.ts", "lines": [420, 460] },
+        { "file": "frontend/lib/store.test.ts" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T00:00:00Z"
     }
   ],
   "cross_feature": [
@@ -904,7 +1113,15 @@
     { "from": "f-llm-planner", "to": "f-check-availability", "kind": "triggers", "note": "LLM 自主决定调座位校验" },
     { "from": "f-llm-planner", "to": "f-estimate-route", "kind": "triggers", "note": "LLM 自主决定调路线估算" },
     { "from": "f-llm-planner", "to": "f-plan-assembly", "kind": "depends_on", "note": "LLM 收敛失败时降级到规则规划" },
-    { "from": "f-llm-planner", "to": "f-tool-trace", "kind": "publishes", "note": "LLM 自主调用事件推送给前端" }
+    { "from": "f-llm-planner", "to": "f-tool-trace", "kind": "publishes", "note": "LLM 自主调用事件推送给前端" },
+    { "from": "f-itinerary-card", "to": "f-refinement-dialog", "kind": "triggers", "note": "卡片「我说说哪不对」按钮打开反馈弹窗" },
+    { "from": "f-refinement-dialog", "to": "f-refine-replan", "kind": "triggers", "note": "提交反馈触发 POST /chat/refine" },
+    { "from": "f-refine-replan", "to": "f-toast-stack", "kind": "publishes", "note": "refinement_done.changed_fields 转 toast 提示" },
+    { "from": "f-itinerary-card", "to": "f-toast-stack", "kind": "publishes", "note": "取消方案推 warn toast" },
+    { "from": "f-planner-mode-badge", "to": "f-toast-stack", "kind": "publishes", "note": "mode 切换推 info toast" },
+    { "from": "f-planner-mode-badge", "to": "f-llm-planner", "kind": "triggers", "note": "切到 llm 模式后续请求由 llm planner 处理" },
+    { "from": "f-planner-mode-badge", "to": "f-plan-assembly", "kind": "triggers", "note": "切到 rule 模式后续请求由规则 planner 处理" },
+    { "from": "f-planner-mode-badge", "to": "f-tool-trace", "kind": "publishes", "note": "X-Planner-Mode header 透传到所有 SSE 请求" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
