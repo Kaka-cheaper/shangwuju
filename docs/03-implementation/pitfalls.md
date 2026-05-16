@@ -177,3 +177,16 @@
   - 把这条加进 schema 设计 checklist：但凡用 `Field(..., alias=...)` 就要同步设 `populate_by_name=True`
   - 可选改进：把字段名直接改成 `seats_2/seats_4/...` 避开 alias，但需要 mock_data JSON 也跟改（暂不改）
 - **优先级**：P2（不会让 demo 跑不起来，但会让多 Tool 链路联调时间炸 30 分钟以上）
+
+### [P2] 2026-05-16 multi-agent 并行下 CodeSee sync 漏升级别人 owner 的 feature
+
+- **现象**：A 角色（W2）完成 P2 后只 sync 了 3 个自己 owner 的 feature（f-intent-parse / f-plan-assembly / f-exception-replan）；剩余 12 个 feature 即使代码（W1 真 Tool / W3 前端）已写完测试已过，依然挂着 `tags: ['planned']`。用户问"为什么所有 feature 还是 planned"才发现。
+- **根因**：sync.md「场景 C：从规划阶段进入实现」措辞偏向「升级你刚写完的功能」。在三窗口并行场景下，多人同时修改但只有一个窗口在跑测试 + commit，潜规则变成「最后一个跑测试的人应当 sync 所有已实现项」，但这层意思 sync.md 没明说。
+- **解法**（一次性）：跑批量升级脚本核对每个 feature 的实际 refs 文件存在性，按真实状态批量 patch。
+- **解法**（长效）：
+  - 每次 commit 前跑 `git status` + `ls` 判断**仓库整体**实现度，而非只看自己改了什么
+  - sync 时哪怕不是自己 owner 的 feature，只要 refs 指向的文件已存在 → 应当升级
+  - 后续可在 `.codesee/scripts/` 加 `auto-detect-implemented.mjs`，扫描每个 feature.refs 所指文件是否存在，存在就移除 planned（自动化）
+- **相关文件**：`.codesee/features.json`、`.codesee/prompts/sync.md`
+- **防再犯**：在 sync.md 里加一条「multi-agent 并行场景：以仓库整体实现度为准，而非自己 owner 范围」（待 user 决定是否改 prompts）
+- **优先级**：P2（不影响 demo 跑通；但功能图失真会导致评委或队友误判进度）
