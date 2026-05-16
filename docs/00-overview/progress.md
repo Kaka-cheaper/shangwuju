@@ -61,6 +61,15 @@
   - 组件：HomeView / QuickScenarios（8 按钮）/ ChatPanel / IntentSummary / ToolTracePanel（含「已替换」灰显 + 异常重规划高亮）/ ItineraryCard（六段时间轴 + 已为你预留 + 复制按钮）
   - 验证：`scripts/verify_sse.py` 端到端 14+6 事件全过；浏览器 DevTools 验 SSE chunked 流；`pnpm build` 通过、零 console error
 
+- ✅ **W3 加固**（2026-05-16 完成，B 扛）：
+  - `frontend/scripts/pressure-test-scenarios.mjs`：8 场景 SSE 端到端压测脚本，stub 模式 8/8 全过 ~4.5s/场景
+  - `frontend/lib/sse.ts` 鲁棒性升级：firstEventTimeoutMs(8s) + idleTimeoutMs(30s) 看门狗；区分 5 类错误；修 \r\n\r\n vs \n\n 同位置切分 bug
+  - `frontend/lib/sse.test.ts`：vitest 23 项（findBlockSeparator 4 / parseBlock 9 / streamSse 鲁棒性 10：粘围栏 / 长 token / CRLF / 超时 / abort）全过
+  - UI 打磨：移动端适配（顶栏紧凑 + ChatPanel 自适应高度）；微动效（fade-in-up / 时间轴渐变线 / 按钮 hover 浮起）；色彩纪律（仅 brand-orange + ink，无紫粉）
+  - `frontend/scripts/verify-all.mjs`：一键跑 lint/typecheck/test/build；本轮 4 项全过（首页 16.3 kB / 加载 103 kB）
+  - `frontend/README.md`：录屏 3 版本脚本（3min 主路径 / 5min + 1 开放场景 / 完整版 8 场景）；recordings/ 加 gitignore
+  - CodeSee sync：仅升 f-tool-trace（0.9→0.95，加 arm_watchdog step）+ f-quick-input（0.92→0.94，补压测脚本 ref），不动他人 feature
+
 ### Week 2
 
 - ✅ **6 个核心 Tool 实现** + **buy_ticket** 共 8 个（参数按 §5.7 schema，无 `scene_type` / `relation`，由 P1 第二轮 376dedd 提前完成）

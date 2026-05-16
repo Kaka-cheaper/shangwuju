@@ -461,3 +461,118 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 - 三窗口产物全部端到端集成验证通过
 - progress.md 反映真实 W4 状态，方便下一次 session 衔接
 
+
+
+---
+
+## 问题8：W3 加固——8 场景压测 + SSE 鲁棒性 + UI 打磨 + 录屏脚本 + CodeSee sync
+
+**用户原问**（B 角色 W3 owner，7 项任务清单）：
+
+> 1. 8 场景前端按钮压测：依次点 8 个按钮记录事件序列；翻车的写到 pitfalls
+> 2. 切换到真后端联调（DeepSeek key）+ 验 SSE 解析鲁棒性
+> 3. UI 打磨：颜色 / 间距 / 微动效；按 agent steering 避紫粉；移动端适配
+> 4. 跑 npm run build 验生产构建
+> 5. 录屏 3 版本（3min / 5min / 完整）
+> 6. CodeSee sync：仅升 owner=B 的 feature
+> 7. git commit + push
+>
+> 边界：不改 schemas / agent / tools / main.py；不扩 mock；sync 只动自己的；录屏不入仓
+
+**前置确认**：
+
+- backend/main.py 当前还是 stub fixture（A 同学未接 planner，按边界规则我不能动）
+- 任务 2「真后端联调」前置不具备，改为「客户端 SSE 鲁棒性单测」覆盖等价目标——A 接好 planner 后此份测试就是 regression gate
+
+**解决方案**：
+
+按 7 项任务每项独立 commit，严格按 owner 边界、untracked 文件不入 commit。
+
+**1. 8 场景压测脚本**（`frontend/scripts/pressure-test-scenarios.mjs`）：
+
+- 纯 Node 18+ fetch，无外部 npm 依赖
+- 拉 GET /scenarios 拿 8 条；逐一发 POST /chat/stream
+- 断言每次都收齐：1 done / 1 intent_parsed / 1+ itinerary_ready / 3+ tool_call_start/end / 1+ replan_triggered / stages ≥ 5
+- stub 模式跑：8/8 全过、~4.5s/场景、零错误
+- 翻车 0 处，按用户指示无新 pitfalls
+
+**2. SSE 解析器鲁棒性**：
+
+- `lib/sse.ts` 重写：加 firstEventTimeoutMs (默认 8s) 防后端无响应转圈；加 idleTimeoutMs (默认 30s) 防中途断流
+- 用看门狗 AbortController + Promise.race 实现读取超时；任一事件到达后重置为空闲超时
+- 区分 5 类错误：`network / http / no_body / stream / timeout_first_event / idle_timeout / parse`
+- 修一处 bug：`\r\n\r\n` 与 `\n\n` 同位置时（sse-starlette 默认输出格式），原 findBlockSeparator 取较早的 `\n\n` 会切到 `\r[\n\r\n]` 半截位置——改成两者同位置时优先 4 字节版
+- finally 中 `reader.releaseLock()` 防连接挂起
+- `lib/utils.ts` 新增 `STREAM_ERROR_LABEL` 中文映射 + `formatStreamError` 拼接函数；store onError 接入
+
+- `lib/sse.test.ts` 23 项 vitest：
+  - findBlockSeparator 4 项（空 / LF / CRLF / 同位置取 4 字节）
+  - parseBlock 9 项（LF/CRLF / data 多行 join / 注释 keepalive / id 字段忽略 / 缺 event/data / 非法 JSON / 转义换行）
+  - streamSse 10 项（粘围栏 LF + CRLF / 长 token 跨 chunk / 分隔符跨 chunk / HTTP 500 + body / HTTP 422 非 JSON / network 抛错 / 首字节超时 / 空闲超时 / 主动 abort 静默）
+
+**3. UI 打磨**：
+
+- HomeView：顶栏在窄屏紧凑（副标题 md+ 才显示、session ID 缩到 180px ellipsis）
+- QuickScenarios：emoji 改 text-2xl；hover 加 `-translate-y-0.5 + shadow-md`，active 复位
+- ChatPanel：高度 mobile 520 / sm+ 640；MessageBubble 加 fade-in-up 动画 + agent 气泡改白底带边框
+- ItineraryCard：时间轴加纵向渐变线（brand-300 → 透明）；圆点加 ring-2 浮起感；每段 fade-in-up
+- IntentSummary / ToolTracePanel：加淡入动画
+- globals.css：card 圆角 lg → xl + transition-shadow；按钮 transition-all duration-200
+- tailwind.config：新增 fadeIn / fadeInUp keyframes
+- 色彩纪律：仅用 brand-orange + ink + 偶尔 emerald/amber，无紫粉
+
+**4. Production build**：
+
+- `pnpm verify:all` 一键跑 lint / typecheck / test / build
+- 4 项全过：ESLint 零错零警 / TS strict 静默 / Vitest 23/23 / Next build 首页 16.3 kB · 首次加载 103 kB
+
+**5. 录屏脚本**（`frontend/README.md` 增量段，不新建 .md）：
+
+- 3min 版：S1 家庭主路径 + E1 异常恢复 + 复制文案，时间分配表 + 旁白要点
+- 5min 版：3min + S7 独处放空（评委想看不同社交语境）
+- 完整版：S1→S8 顺序点完
+- 命名规范、recordings/ 加 .gitignore（已加 *.mp4/mov/webm/avi）
+- AI 不能实操录屏；脚本固化流程让录制者 5 分钟搞定
+
+**6. CodeSee sync**（仅升 owner=B 的）：
+
+- f-tool-trace 0.9 → 0.95：新增 arm_watchdog step（首字节 + 空闲超时）；fallback 加 5 类错误区分；refs 补 sse.test.ts + utils.ts；flow 加 dispatch → arm_watchdog 异步重置边
+- f-quick-input 0.92 → 0.94：refs 补压测脚本
+- f-itinerary-card / f-share-copy 本轮无功能改动，不动
+- A 的 intent-parse / plan-assembly、C 的 7 个 Tool 一字不改
+- 中途遇 1 个孤立 step warning（verify step 没 flow 连接）：把它从 step 列表移除，改放 feature 顶层 refs（test 文件本就是元层证据，不该出现在运行时流程图中）。校验最终零错零警。
+
+**7. git push**（待执行）
+
+**期间小坑**：
+
+- pnpm test 触发 `IGNORED_BUILDS: esbuild`：在 `package.json` 加 `pnpm.onlyBuiltDependencies: ["esbuild", "@next/swc-win32-x64-msvc"]` 白名单，pnpm install 后 build 就能跑
+- AI 浏览器 DevTools 用 `evaluate_script` 跑 SSE 解析时第一版漏掉了 `\r\n\r\n` 的检查（只查 `\n\n`），导致事件数 0；修脚本后正常——这种纯脚本 bug 不影响生产代码
+
+**修改的代码文件**：
+
+新建：
+- `frontend/scripts/pressure-test-scenarios.mjs`
+- `frontend/scripts/verify-all.mjs`
+- `frontend/lib/sse.test.ts`
+- `frontend/vitest.config.ts`
+
+修改：
+- `frontend/lib/sse.ts`（加超时看门狗 / 重写错误分类）
+- `frontend/lib/store.ts`（接入 formatStreamError）
+- `frontend/lib/utils.ts`（加 STREAM_ERROR_LABEL）
+- `frontend/components/{HomeView, QuickScenarios, ChatPanel, IntentSummary, ItineraryCard, ToolTracePanel}.tsx`（UI 打磨）
+- `frontend/app/globals.css`（card / 按钮过渡）
+- `frontend/tailwind.config.ts`（fade keyframes）
+- `frontend/package.json`（vitest + onlyBuiltDependencies + verify:all）
+- `frontend/pnpm-lock.yaml` / `frontend/pnpm-workspace.yaml`
+- `frontend/README.md`（录屏脚本）
+- `.gitignore`（recordings/ + 视频后缀）
+- `.codesee/features.json`（仅 f-tool-trace + f-quick-input）
+
+**应当达成的效果**：
+
+- A 接 planner 后，可立刻把 stub fixture 替换为真规划循环——前端零改动，3 个超时阈值会自动接管真 LLM 慢响应场景
+- 评委网络抖动 / 后端短暂卡顿时，前端会显示「后端无响应（首字节超时）」而不是无限转圈
+- 移动端评委用手机看 demo 也不会布局错乱
+- pitfalls.md 教训严格执行：每条 commit 都先看 `git diff --cached --stat` 范围、untracked 文件不带进去、CodeSee sync 不越界
