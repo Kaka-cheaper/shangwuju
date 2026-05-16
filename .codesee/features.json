@@ -1,0 +1,494 @@
+{
+  "version": "0",
+  "manifest": {
+    "repo": "shangwuju",
+    "generated_at": "2026-05-16T00:00:00Z",
+    "generator": "ai@claude-opus-4.7",
+    "lang": "zh-CN"
+  },
+  "epics": [
+    {
+      "id": "input",
+      "name": "输入与意图理解",
+      "summary": "接收一句自然语言并抽取为 §5.7 IntentExtraction schema",
+      "order": 0,
+      "importance": "core",
+      "tags": ["planned"]
+    },
+    {
+      "id": "discovery",
+      "name": "候选发现",
+      "summary": "查询 POI / 餐厅 / 路线，按约束过滤",
+      "order": 1,
+      "importance": "core",
+      "tags": ["planned"]
+    },
+    {
+      "id": "planning",
+      "name": "行程组装与异常重规划",
+      "summary": "组合出发-主活动-转场-用餐-附加-返回 六段结构，遇失败自动重规划",
+      "order": 2,
+      "importance": "core",
+      "tags": ["planned"]
+    },
+    {
+      "id": "execution",
+      "name": "确认与执行",
+      "summary": "用户确认后调执行类 Tool 完成预约/购票/加购",
+      "order": 3,
+      "importance": "core",
+      "tags": ["planned"]
+    },
+    {
+      "id": "sharing",
+      "name": "转发与展示",
+      "summary": "生成可转发文案 + Tool 调用链路可视化",
+      "order": 4,
+      "importance": "normal",
+      "tags": ["planned"]
+    }
+  ],
+  "features": [
+    {
+      "id": "f-quick-input",
+      "name": "快捷场景输入",
+      "summary": "Demo 现场点击 8 个预设场景按钮一键提交",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "ui", "detail": "点击 8 个演示场景快捷按钮之一" }
+      ],
+      "steps": [
+        { "id": "click", "name": "点击场景按钮", "role": "input" },
+        { "id": "fill", "name": "填入预设文案", "role": "transform" },
+        { "id": "submit", "name": "触发提交", "role": "side-effect" }
+      ],
+      "flow": [
+        { "from": "click", "to": "fill", "kind": "next" },
+        { "from": "fill", "to": "submit", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-intent-parse",
+      "name": "意图解析",
+      "summary": "把自然语言抽取为 §5.7 IntentExtraction JSON",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "http", "detail": "POST /chat/stream 内的首步" },
+        { "kind": "ui", "detail": "用户提交输入框文案" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收用户输入", "role": "input" },
+        { "id": "extract", "name": "抽取意图约束", "role": "compute" },
+        { "id": "strip_fence", "name": "剥离 markdown 围栏", "role": "transform" },
+        { "id": "validate", "name": "校验 schema", "role": "validation" },
+        { "id": "fill_default", "name": "补默认值", "role": "compute" },
+        { "id": "publish_trace", "name": "推送解析事件", "role": "side-effect" },
+        { "id": "output", "name": "输出意图 JSON", "role": "output" },
+        { "id": "ask_back", "name": "回问澄清字段", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "extract", "kind": "next" },
+        { "from": "extract", "to": "strip_fence", "kind": "next" },
+        { "from": "strip_fence", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "fill_default", "kind": "conditional", "condition": "校验通过" },
+        { "from": "validate", "to": "ask_back", "kind": "error", "condition": "置信度 < 0.6 或字段缺失" },
+        { "from": "fill_default", "to": "output", "kind": "next" },
+        { "from": "fill_default", "to": "publish_trace", "kind": "async" }
+      ],
+      "refs": [],
+      "confidence": 0.45,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-user-profile",
+      "name": "用户画像获取",
+      "summary": "返回硬编码的家位置 / 默认预算 / 交通偏好",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 编排调用 get_user_profile Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收调用", "role": "input" },
+        { "id": "read", "name": "读取硬编码画像", "role": "data-read" },
+        { "id": "return", "name": "返回画像", "role": "output" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "read", "kind": "next" },
+        { "from": "read", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.5,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-search-pois",
+      "name": "查询活动地点",
+      "summary": "按距离 / tags / suitable_for 过滤 mock_data 中的 POI 候选",
+      "epicId": "discovery",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 search_pois Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收查询参数", "role": "input" },
+        { "id": "validate", "name": "校验参数", "role": "validation" },
+        { "id": "filter", "name": "过滤候选", "role": "data-read" },
+        { "id": "rank", "name": "按匹配度排序", "role": "compute" },
+        { "id": "return", "name": "返回候选列表", "role": "output" },
+        { "id": "empty", "name": "返回空集降级", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "filter", "kind": "next" },
+        { "from": "filter", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
+        { "from": "filter", "to": "empty", "kind": "error", "condition": "命中 0 条（约束过严）" },
+        { "from": "rank", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.45,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-search-restaurants",
+      "name": "查询餐厅",
+      "summary": "按 dietary / 距离 / capacity / suitable_for 过滤餐厅",
+      "epicId": "discovery",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 search_restaurants Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收查询参数", "role": "input" },
+        { "id": "validate", "name": "校验参数", "role": "validation" },
+        { "id": "filter", "name": "过滤候选", "role": "data-read" },
+        { "id": "rank", "name": "按匹配度排序", "role": "compute" },
+        { "id": "return", "name": "返回候选列表", "role": "output" },
+        { "id": "empty", "name": "返回空集降级", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "filter", "kind": "next" },
+        { "from": "filter", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
+        { "from": "filter", "to": "empty", "kind": "error", "condition": "命中 0 条" },
+        { "from": "rank", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.45,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-check-availability",
+      "name": "查餐厅有无位",
+      "summary": "查指定餐厅指定时段是否可预订（含 Mock 失败案例 E1）",
+      "epicId": "discovery",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 check_restaurant_availability Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收餐厅与时段", "role": "input" },
+        { "id": "read_slots", "name": "读取座位状态", "role": "data-read" },
+        { "id": "determine", "name": "判断是否可订", "role": "compute" },
+        { "id": "return_ok", "name": "返回可订", "role": "output" },
+        { "id": "return_full", "name": "返回已满", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "read_slots", "kind": "next" },
+        { "from": "read_slots", "to": "determine", "kind": "next" },
+        { "from": "determine", "to": "return_ok", "kind": "conditional", "condition": "available=true" },
+        { "from": "determine", "to": "return_full", "kind": "error", "condition": "available=false（埋点 E1）" }
+      ],
+      "refs": [],
+      "confidence": 0.5,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-estimate-route",
+      "name": "路线时间估算",
+      "summary": "查 A→B 步行 / 打车 / 公交分时段预估",
+      "epicId": "discovery",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 estimate_route_time Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收起终点", "role": "input" },
+        { "id": "lookup", "name": "查 routes mock", "role": "data-read" },
+        { "id": "compare", "name": "对比距离阈值", "role": "compute" },
+        { "id": "return", "name": "返回三种交通耗时", "role": "output" },
+        { "id": "too_far", "name": "返回超距告警", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "lookup", "kind": "next" },
+        { "from": "lookup", "to": "compare", "kind": "next" },
+        { "from": "compare", "to": "return", "kind": "conditional", "condition": "在 distance_max_km 内" },
+        { "from": "compare", "to": "too_far", "kind": "error", "condition": "超出阈值（触发 E3）" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-plan-assembly",
+      "name": "行程组装",
+      "summary": "把候选组合为出发-主活动-转场-用餐-附加-返回六段结构",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "意图解析完成 + 候选齐全后由 Planner 触发" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收意图与候选", "role": "input" },
+        { "id": "allocate", "name": "分配六段时间", "role": "compute" },
+        { "id": "select", "name": "选最优组合", "role": "compute" },
+        { "id": "validate", "name": "校验距离与时长", "role": "validation" },
+        { "id": "output", "name": "输出方案", "role": "output" },
+        { "id": "constraint_fail", "name": "返回组合不可行", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "allocate", "kind": "next" },
+        { "from": "allocate", "to": "select", "kind": "next" },
+        { "from": "select", "to": "validate", "kind": "next" },
+        { "from": "validate", "to": "output", "kind": "conditional", "condition": "约束全部满足" },
+        { "from": "validate", "to": "constraint_fail", "kind": "error", "condition": "总时长超 6h 或距离超限" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-exception-replan",
+      "name": "异常重规划",
+      "summary": "Tool 失败时分类异常并选备选（E1 餐厅满 / E2 票售罄 / E3 距离超限 / E4 时长超）",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "查询 / 执行类 Tool 返回 available=false 或 success=false" }
+      ],
+      "steps": [
+        { "id": "detect", "name": "侦测失败信号", "role": "input" },
+        { "id": "classify", "name": "分类异常类型", "role": "compute" },
+        { "id": "select_backup", "name": "挑选备选方案", "role": "compute" },
+        { "id": "recheck", "name": "复查备选可用", "role": "data-read" },
+        { "id": "output", "name": "回灌新方案", "role": "output" },
+        { "id": "degrade", "name": "降级提示无候选", "role": "error" }
+      ],
+      "flow": [
+        { "from": "detect", "to": "classify", "kind": "next" },
+        { "from": "classify", "to": "select_backup", "kind": "next" },
+        { "from": "select_backup", "to": "recheck", "kind": "next" },
+        { "from": "recheck", "to": "output", "kind": "conditional", "condition": "备选可用" },
+        { "from": "recheck", "to": "degrade", "kind": "error", "condition": "备选也失败" }
+      ],
+      "refs": [],
+      "confidence": 0.35,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-user-confirm",
+      "name": "用户确认",
+      "summary": "MVP-2 加入：方案展示后等用户点确认才下发执行类 Tool",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "ui", "detail": "用户在行程卡片点击「确认」按钮" }
+      ],
+      "steps": [
+        { "id": "show", "name": "展示方案卡片", "role": "output" },
+        { "id": "wait", "name": "等待用户操作", "role": "input" },
+        { "id": "dispatch", "name": "派发执行类 Tool", "role": "side-effect" },
+        { "id": "cancel", "name": "用户取消方案", "role": "error" }
+      ],
+      "flow": [
+        { "from": "show", "to": "wait", "kind": "next" },
+        { "from": "wait", "to": "dispatch", "kind": "conditional", "condition": "用户点确认" },
+        { "from": "wait", "to": "cancel", "kind": "error", "condition": "用户点拒绝或关闭" }
+      ],
+      "refs": [],
+      "confidence": 0.3,
+      "provenance": "ai",
+      "tags": ["planned", "v2"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-reserve-restaurant",
+      "name": "餐厅预约执行",
+      "summary": "Mock 下单返回订单号；同时在 Tool 链路记一条 info 日志",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 reserve_restaurant Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收预约参数", "role": "input" },
+        { "id": "check", "name": "复查座位", "role": "data-read" },
+        { "id": "book", "name": "模拟下单", "role": "side-effect" },
+        { "id": "log", "name": "推送订单事件", "role": "side-effect" },
+        { "id": "return", "name": "返回订单号", "role": "output" },
+        { "id": "fail", "name": "返回预约失败", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "check", "kind": "next" },
+        { "from": "check", "to": "book", "kind": "conditional", "condition": "座位仍可订" },
+        { "from": "check", "to": "fail", "kind": "error", "condition": "座位已被抢占" },
+        { "from": "book", "to": "log", "kind": "async" },
+        { "from": "book", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-buy-ticket",
+      "name": "门票购买执行",
+      "summary": "Mock 购票，含售罄案例 E2",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 buy_ticket Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收购票参数", "role": "input" },
+        { "id": "check_inv", "name": "查库存", "role": "data-read" },
+        { "id": "pay", "name": "模拟支付", "role": "side-effect" },
+        { "id": "log", "name": "推送购票事件", "role": "side-effect" },
+        { "id": "return_ok", "name": "返回票号", "role": "output" },
+        { "id": "return_sold_out", "name": "返回售罄", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "check_inv", "kind": "next" },
+        { "from": "check_inv", "to": "pay", "kind": "conditional", "condition": "有库存" },
+        { "from": "check_inv", "to": "return_sold_out", "kind": "error", "condition": "sold_out=true（埋点 E2）" },
+        { "from": "pay", "to": "log", "kind": "async" },
+        { "from": "pay", "to": "return_ok", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-order-extra",
+      "name": "附加服务下单",
+      "summary": "Mock 下单蛋糕 / 鲜花 / 饮品（仪式场景用）",
+      "epicId": "execution",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 order_extra_service Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收下单参数", "role": "input" },
+        { "id": "order", "name": "模拟下单", "role": "side-effect" },
+        { "id": "log", "name": "推送加购事件", "role": "side-effect" },
+        { "id": "return", "name": "返回订单号", "role": "output" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "order", "kind": "next" },
+        { "from": "order", "to": "log", "kind": "async" },
+        { "from": "order", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.25,
+      "provenance": "ai",
+      "tags": ["planned", "v2"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-share-message",
+      "name": "转发文案生成",
+      "summary": "按 social_context 调性生成口语化文案（家长 / 闺蜜 / 商务等）",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "event", "detail": "Agent 调用 generate_share_message Tool" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收方案与上下文", "role": "input" },
+        { "id": "generate", "name": "生成口语文案", "role": "compute" },
+        { "id": "format", "name": "按调性润色", "role": "transform" },
+        { "id": "return", "name": "返回可复制文案", "role": "output" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "generate", "kind": "next" },
+        { "from": "generate", "to": "format", "kind": "next" },
+        { "from": "format", "to": "return", "kind": "next" }
+      ],
+      "refs": [],
+      "confidence": 0.4,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    },
+    {
+      "id": "f-tool-trace",
+      "name": "调用链路可视化",
+      "summary": "前端实时展示 Agent 每步 Tool 调用与中间状态（评委加分项）",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "http", "detail": "前端 EventSource 订阅 /chat/stream SSE" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收 SSE 事件", "role": "input" },
+        { "id": "parse", "name": "解析事件类型", "role": "transform" },
+        { "id": "update", "name": "更新链路视图", "role": "output" },
+        { "id": "fallback", "name": "断流降级提示", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "parse", "kind": "next" },
+        { "from": "parse", "to": "update", "kind": "next" },
+        { "from": "receive", "to": "fallback", "kind": "error", "condition": "SSE 断流或解析异常" }
+      ],
+      "refs": [],
+      "confidence": 0.35,
+      "provenance": "ai",
+      "tags": ["planned"],
+      "updated_at": "2026-05-16T00:00:00Z"
+    }
+  ],
+  "cross_feature": [
+    { "from": "f-quick-input", "to": "f-intent-parse", "kind": "triggers", "note": "快捷按钮触发意图解析" },
+    { "from": "f-intent-parse", "to": "f-user-profile", "kind": "depends_on", "note": "缺位置/预算时回查用户画像" },
+    { "from": "f-intent-parse", "to": "f-search-pois", "kind": "triggers", "note": "约束抽取后查 POI 候选" },
+    { "from": "f-intent-parse", "to": "f-search-restaurants", "kind": "triggers", "note": "约束抽取后查餐厅候选" },
+    { "from": "f-search-restaurants", "to": "f-check-availability", "kind": "triggers", "note": "选定餐厅后核对座位" },
+    { "from": "f-search-pois", "to": "f-plan-assembly", "kind": "depends_on", "note": "组装行程依赖 POI 候选" },
+    { "from": "f-search-restaurants", "to": "f-plan-assembly", "kind": "depends_on", "note": "组装行程依赖餐厅候选" },
+    { "from": "f-estimate-route", "to": "f-plan-assembly", "kind": "depends_on", "note": "校验距离时长依赖路线时间" },
+    { "from": "f-check-availability", "to": "f-exception-replan", "kind": "triggers", "note": "餐厅满触发 E1 重规划" },
+    { "from": "f-buy-ticket", "to": "f-exception-replan", "kind": "triggers", "note": "门票售罄触发 E2 重规划" },
+    { "from": "f-plan-assembly", "to": "f-user-confirm", "kind": "triggers", "note": "方案产出后等用户确认" },
+    { "from": "f-user-confirm", "to": "f-reserve-restaurant", "kind": "triggers", "note": "确认后预约餐厅" },
+    { "from": "f-user-confirm", "to": "f-buy-ticket", "kind": "triggers", "note": "确认后购票" },
+    { "from": "f-user-confirm", "to": "f-order-extra", "kind": "triggers", "note": "确认后加购仪式服务" },
+    { "from": "f-user-confirm", "to": "f-share-message", "kind": "triggers", "note": "确认后生成转发文案" },
+    { "from": "f-intent-parse", "to": "f-tool-trace", "kind": "publishes", "note": "意图解析事件推送给前端展示" },
+    { "from": "f-search-pois", "to": "f-tool-trace", "kind": "publishes", "note": "POI 查询事件推送给前端展示" },
+    { "from": "f-search-restaurants", "to": "f-tool-trace", "kind": "publishes", "note": "餐厅查询事件推送给前端展示" },
+    { "from": "f-check-availability", "to": "f-tool-trace", "kind": "publishes", "note": "座位查询事件推送给前端展示" },
+    { "from": "f-reserve-restaurant", "to": "f-tool-trace", "kind": "publishes", "note": "预约结果事件推送给前端展示" },
+    { "from": "f-buy-ticket", "to": "f-tool-trace", "kind": "publishes", "note": "购票结果事件推送给前端展示" },
+    { "from": "f-share-message", "to": "f-tool-trace", "kind": "publishes", "note": "文案生成事件推送给前端展示" },
+    { "from": "f-exception-replan", "to": "f-tool-trace", "kind": "publishes", "note": "异常重规划事件推送给前端展示" },
+    { "from": "f-tool-trace", "to": "f-intent-parse", "kind": "subscribes", "note": "前端订阅意图与 Tool 调用流式事件" }
+  ],
+  "epic_flow": [
+    { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
+    { "from": "discovery", "to": "planning", "kind": "next", "note": "候选齐全后组装行程" },
+    { "from": "planning", "to": "execution", "kind": "next", "note": "方案确认后下发执行" },
+    { "from": "execution", "to": "sharing", "kind": "next", "note": "下单完成后生成转发文案" },
+    { "from": "planning", "to": "discovery", "kind": "depends_on", "note": "异常重规划在规划阶段反向调用 discovery 取备选" }
+  ]
+}
