@@ -69,6 +69,13 @@
   - `frontend/scripts/verify-all.mjs`：一键跑 lint/typecheck/test/build；本轮 4 项全过（首页 16.3 kB / 加载 103 kB）
   - `frontend/README.md`：录屏 3 版本脚本（3min 主路径 / 5min + 1 开放场景 / 完整版 8 场景）；recordings/ 加 gitignore
   - CodeSee sync：仅升 f-tool-trace（0.9→0.95，加 arm_watchdog step）+ f-quick-input（0.92→0.94，补压测脚本 ref），不动他人 feature
+- ✅ **Phase 0.6 反馈重规划 + 双范式切换**（2026-05-16 完成，B 扛，commit 4d8d17b）：
+  - `backend/main.py` 加 POST `/chat/refine` 端点（按 api_contract.md §7）：refinement_start → 启发式 refiner（`_stub_refine`，A 实现 agent.refiner 后自动切真路径）→ refinement_done → 复用主路径事件序列；session 不存在 422
+  - `_stub_stream` 加 intent_override + starting_seq 参数，让 search_pois / search_restaurants 的 input.distance_max_km 真实反映 refined intent（不只在 refinement_done 改）
+  - PLANNER_MODE 切换：/health 暴露当前 env mode；`X-Planner-Mode` header > env > "rule"，三端点均透传到响应头
+  - `backend/.env.example` 加 PLANNER_MODE 段
+  - `backend/scripts/verify_refine.py` 13 项端到端断言全过：「太远了 3 公里以内」反馈下 distance_max_km 5→3，POI 候选从 3 条压到 1 条（仅 P007 2.8km）
+  - CodeSee sync：仅升 f-refine-replan（planned → implemented，step 8→11，confidence 0.3→0.85，refs 补 4 项），不动 f-llm-planner（A owner）
 
 ### Week 2
 
