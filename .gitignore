@@ -25,3 +25,10 @@ desktop.ini
 
 # Misc
 *.log
+
+# 录屏（>1MB 不入仓）
+recordings/
+*.mp4
+*.mov
+*.webm
+*.avi
