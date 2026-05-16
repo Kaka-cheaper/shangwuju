@@ -34,7 +34,7 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="card flex flex-col h-[640px]">
+    <div className="card flex flex-col h-[520px] sm:h-[640px]">
       <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
         <div className="text-sm font-medium text-ink-700">对话</div>
         <div
@@ -125,13 +125,18 @@ export default function ChatPanel() {
 function MessageBubble({ role, text }: { role: "user" | "agent"; text: string }) {
   const isUser = role === "user";
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      className={cn(
+        "flex animate-fade-in-up",
+        isUser ? "justify-end" : "justify-start",
+      )}
+    >
       <div
         className={cn(
-          "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+          "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm",
           isUser
             ? "bg-brand-600 text-white rounded-br-sm"
-            : "bg-ink-100 text-ink-800 rounded-bl-sm",
+            : "bg-white border border-ink-200 text-ink-800 rounded-bl-sm",
         )}
       >
         {text}

@@ -119,7 +119,12 @@ function ToolCallItem({
   );
 
   return (
-    <li className={cn("rounded-md border px-3 py-2 transition-colors", accent)}>
+    <li
+      className={cn(
+        "rounded-md border px-3 py-2 transition-all duration-200 animate-fade-in-up",
+        accent,
+      )}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-medium text-ink-800">
           <span className="text-ink-400 text-xs w-5 text-right">#{index}</span>

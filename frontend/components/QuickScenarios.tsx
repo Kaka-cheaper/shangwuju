@@ -19,11 +19,11 @@ export default function QuickScenarios() {
 
   return (
     <div className="card px-4 py-3">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2.5 flex items-center justify-between">
         <div className="text-sm font-medium text-ink-700">
           演示场景 · 一键提交
         </div>
-        <div className="text-xs text-ink-400">
+        <div className="hidden sm:block text-xs text-ink-400">
           点击任一场景即可压测；输入框自由输入也支持
         </div>
       </div>
@@ -34,17 +34,18 @@ export default function QuickScenarios() {
             disabled={streaming}
             onClick={() => sendMessage(s.input, s.id)}
             className={cn(
-              "group flex flex-col items-start gap-1 rounded-md border border-ink-200",
-              "bg-white px-3 py-2 text-left transition-all",
-              "hover:border-brand-500 hover:shadow-sm",
-              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-ink-200",
+              "group flex flex-col items-start gap-1.5 rounded-lg border border-ink-200",
+              "bg-white px-3 py-2.5 text-left transition-all duration-200",
+              "hover:border-brand-500 hover:shadow-md hover:-translate-y-0.5",
+              "active:translate-y-0 active:shadow-sm",
+              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-ink-200 disabled:hover:translate-y-0 disabled:hover:shadow-none",
             )}
             title={s.input}
           >
-            <span className="text-xl leading-none" aria-hidden>
+            <span className="text-2xl leading-none" aria-hidden>
               {s.icon}
             </span>
-            <span className="text-xs font-medium text-ink-700 group-hover:text-brand-700">
+            <span className="text-xs font-medium text-ink-700 group-hover:text-brand-700 line-clamp-1">
               {s.id} · {s.title}
             </span>
           </button>

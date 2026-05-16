@@ -26,23 +26,30 @@ export default function HomeView() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50">
       <header className="sticky top-0 z-10 border-b border-ink-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-6 py-3 flex items-center justify-between">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-xl font-bold text-ink-900">晌午局</h1>
-            <span className="text-sm text-ink-500">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2 sm:gap-3 min-w-0">
+            <h1 className="text-lg sm:text-xl font-bold text-ink-900 shrink-0">
+              晌午局
+            </h1>
+            <span className="hidden md:inline text-sm text-ink-500 truncate">
               一句话搞定下午行程 · 本地半日出行管家
             </span>
           </div>
-          <div className="flex items-center gap-3 text-xs text-ink-500">
-            <span title="当前会话 ID">session: {sessionId}</span>
+          <div className="flex items-center gap-2 sm:gap-3 text-xs text-ink-500 shrink-0">
+            <span
+              className="hidden sm:inline truncate max-w-[180px]"
+              title={`当前会话 ID：${sessionId}`}
+            >
+              {sessionId}
+            </span>
             <button className="btn-ghost" onClick={reset}>
-              重置会话
+              重置
             </button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-6 py-6">
+      <main className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6">
         <QuickScenarios />
 
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -57,7 +64,7 @@ export default function HomeView() {
         </div>
       </main>
 
-      <footer className="mx-auto max-w-7xl px-6 py-6 text-center text-xs text-ink-400">
+      <footer className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center text-[11px] sm:text-xs text-ink-400">
         美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
       </footer>
     </div>

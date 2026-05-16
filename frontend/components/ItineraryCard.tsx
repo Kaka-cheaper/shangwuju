@@ -32,7 +32,7 @@ export default function ItineraryCard() {
   const canConfirm = !streaming && !hasOrders;
 
   return (
-    <div className="card">
+    <div className="card animate-fade-in">
       <div className="px-4 py-3 border-b border-ink-200">
         <div className="flex items-center justify-between">
           <div className="text-sm font-medium text-ink-700">行程方案</div>
@@ -44,22 +44,32 @@ export default function ItineraryCard() {
       </div>
 
       <ol className="relative px-4 py-4 space-y-3">
+        {/* 时间轴竖线 */}
+        <div
+          aria-hidden
+          className="absolute left-[51px] top-6 bottom-6 w-px bg-gradient-to-b from-brand-300 via-brand-200 to-transparent"
+        />
         {itinerary.stages.map((stage, idx) => (
-          <li key={idx} className="flex items-start gap-3">
-            <div className="flex flex-col items-center min-w-[44px]">
+          <li
+            key={idx}
+            className="relative flex items-start gap-3 animate-fade-in-up"
+          >
+            <div className="flex flex-col items-center min-w-[44px] z-10">
               <div className="text-[11px] text-ink-500">{stage.start}</div>
-              <div className="my-1 w-2 h-2 rounded-full bg-brand-500"></div>
+              <div className="my-1 w-2.5 h-2.5 rounded-full bg-brand-500 ring-2 ring-white shadow-sm"></div>
               <div className="text-[11px] text-ink-400">{stage.end}</div>
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
+            <div className="flex-1 pt-0.5">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="chip">{stage.kind}</span>
                 <span className="text-sm font-medium text-ink-800">
                   {stage.title}
                 </span>
               </div>
               {stage.note && (
-                <div className="mt-1 text-xs text-ink-500">{stage.note}</div>
+                <div className="mt-1 text-xs text-ink-500 leading-relaxed">
+                  {stage.note}
+                </div>
               )}
             </div>
           </li>

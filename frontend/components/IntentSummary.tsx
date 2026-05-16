@@ -19,7 +19,7 @@ export default function IntentSummary({
     .join("、");
 
   return (
-    <div className="card px-3 py-2.5 border-brand-100 bg-brand-50/40">
+    <div className="card px-3 py-2.5 border-brand-100 bg-brand-50/40 animate-fade-in-up">
       <div className="flex items-center justify-between mb-1.5">
         <div className="text-xs font-medium text-brand-700">
           🎯 意图解析结果

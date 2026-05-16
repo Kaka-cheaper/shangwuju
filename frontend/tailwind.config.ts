@@ -33,11 +33,21 @@ const config: Config = {
       },
       animation: {
         "pulse-soft": "pulseSoft 1.6s ease-in-out infinite",
+        "fade-in": "fadeIn 240ms ease-out",
+        "fade-in-up": "fadeInUp 280ms ease-out",
       },
       keyframes: {
         pulseSoft: {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.55" },
+        },
+        fadeIn: {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        fadeInUp: {
+          from: { opacity: "0", transform: "translateY(6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
         },
       },
     },
