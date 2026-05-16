@@ -10,7 +10,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "verify:all": "node scripts/verify-all.mjs"
   },
   "dependencies": {
     "clsx": "2.1.1",
