@@ -368,17 +368,18 @@
       "refs": [
         { "file": "backend/agent/planner.py", "lines": [80, 200] },
         { "file": "backend/agent/trace.py", "lines": [1, 60] },
-        { "file": "backend/schemas/itinerary.py", "lines": [1, 70] }
+        { "file": "backend/schemas/itinerary.py", "lines": [1, 70] },
+        { "file": "backend/tests/test_8_scenarios.py", "lines": [1, 220] }
       ],
-      "confidence": 0.8,
+      "confidence": 0.88,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T12:00:00Z"
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-exception-replan",
       "name": "异常重规划",
-      "summary": "失败 reason 分发到放宽距离 / 切时段 / 切备选餐厅；E1 已端到端验证",
+      "summary": "失败 reason 分发到放宽距离 / 切时段 / 切备选餐厅；E1+E2 端到端验证",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "Tool 返回 success=false 时 planner 内部分发" }
@@ -408,12 +409,13 @@
       ],
       "refs": [
         { "file": "backend/agent/planner.py", "lines": [180, 320] },
-        { "file": "backend/schemas/errors.py", "lines": [1, 35] }
+        { "file": "backend/schemas/errors.py", "lines": [1, 35] },
+        { "file": "backend/tests/test_8_scenarios.py", "lines": [220, 280] }
       ],
-      "confidence": 0.7,
+      "confidence": 0.82,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T12:00:00Z"
+      "updated_at": "2026-05-16T15:00:00Z"
     },
     {
       "id": "f-user-confirm",
