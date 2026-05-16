@@ -335,7 +335,7 @@
     {
       "id": "f-plan-assembly",
       "name": "行程组装",
-      "summary": "规则化 ReAct 主循环：从意图到六段 Itinerary",
+      "summary": "规则化 ReAct 主循环：从意图到六段 Itinerary（rule mode 默认；llm mode 通过 plan_itinerary_with_mode 切换）",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "意图解析完成后 plan_itinerary(intent) 调用" }
@@ -811,17 +811,20 @@
         { "file": "backend/main.py", "lines": [180, 230] },
         { "file": "backend/main.py", "lines": [560, 700] },
         { "file": "backend/schemas/refine.py", "lines": [1, 70] },
-        { "file": "backend/scripts/verify_refine.py", "lines": [1, 220] }
+        { "file": "backend/scripts/verify_refine.py", "lines": [1, 220] },
+        { "file": "backend/agent/refiner.py", "lines": [1, 230] },
+        { "file": "backend/agent/prompts/refiner_prompt.py", "lines": [1, 162] },
+        { "file": "backend/tests/test_refiner.py", "lines": [1, 110] }
       ],
-      "confidence": 0.85,
+      "confidence": 0.88,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T19:00:00Z"
+      "updated_at": "2026-05-16T19:30:00Z"
     },
     {
       "id": "f-llm-planner",
       "name": "LLM 自主规划",
-      "summary": "LLM Function Calling 自主决策调哪个 Tool；与 rule 范式开关式并存（Phase 0.6 新增）",
+      "summary": "LLM Function Calling 自主决策调哪个 Tool；与 rule 范式开关式并存，失败自动 fallback",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "PLANNER_MODE=llm 或 X-Planner-Mode=llm 时由分发器选用" }
@@ -831,6 +834,7 @@
         { "id": "expose_tools", "name": "下发工具清单", "role": "compute" },
         { "id": "llm_decide", "name": "请求模型决策", "role": "compute" },
         { "id": "invoke", "name": "派发工具调用", "role": "side-effect" },
+        { "id": "accumulate", "name": "累积候选状态", "role": "compute" },
         { "id": "feedback_loop", "name": "回灌结果继续推理", "role": "compute" },
         { "id": "assemble", "name": "组装方案", "role": "compute" },
         { "id": "output", "name": "返回方案", "role": "output" },
@@ -841,17 +845,25 @@
         { "from": "expose_tools", "to": "llm_decide", "kind": "next" },
         { "from": "llm_decide", "to": "invoke", "kind": "conditional", "condition": "返回 tool_calls" },
         { "from": "llm_decide", "to": "assemble", "kind": "conditional", "condition": "返回 stop 且方案就绪" },
-        { "from": "invoke", "to": "feedback_loop", "kind": "next" },
+        { "from": "llm_decide", "to": "fallback", "kind": "error", "condition": "返回 stop 但方案不全" },
+        { "from": "invoke", "to": "accumulate", "kind": "next" },
+        { "from": "accumulate", "to": "feedback_loop", "kind": "next" },
         { "from": "feedback_loop", "to": "llm_decide", "kind": "loop", "condition": "总调用未超 12 次" },
         { "from": "feedback_loop", "to": "fallback", "kind": "error", "condition": "调用次数超限或方案不收敛" },
         { "from": "assemble", "to": "output", "kind": "next" },
         { "from": "fallback", "to": "output", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.3,
+      "refs": [
+        { "file": "backend/agent/llm_planner.py", "lines": [1, 360] },
+        { "file": "backend/agent/prompts/llm_planner_prompt.py", "lines": [1, 80] },
+        { "file": "backend/agent/planner.py", "lines": [430, 490] },
+        { "file": "backend/schemas/planner_mode.py", "lines": [1, 70] },
+        { "file": "backend/tests/test_llm_planner.py", "lines": [1, 180] }
+      ],
+      "confidence": 0.78,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T18:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T19:30:00Z"
     }
   ],
   "cross_feature": [
