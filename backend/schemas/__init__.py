@@ -38,6 +38,17 @@ from schemas.itinerary import (
     OrderRecord,
     Itinerary,
 )
+from schemas.refine import (
+    RefinementInput,
+    RefinementOutput,
+)
+from schemas.planner_mode import (
+    PlannerMode,
+    DEFAULT_MODE as DEFAULT_PLANNER_MODE,
+    normalize_mode as normalize_planner_mode,
+    resolve_planner_mode,
+    current_env_mode,
+)
 from schemas.tools import (
     SearchPoisInput,
     SearchPoisOutput,
@@ -89,6 +100,14 @@ __all__ = [
     "ItineraryStage",
     "OrderRecord",
     "Itinerary",
+    # refine + planner mode (Phase 0.6)
+    "RefinementInput",
+    "RefinementOutput",
+    "PlannerMode",
+    "DEFAULT_PLANNER_MODE",
+    "normalize_planner_mode",
+    "resolve_planner_mode",
+    "current_env_mode",
     # tools
     "SearchPoisInput",
     "SearchPoisOutput",

@@ -29,6 +29,11 @@ class SseEventType(str, Enum):
     AGENT_THOUGHT = "agent_thought"
     # 最终方案产出
     ITINERARY_READY = "itinerary_ready"
+    # ===== 用户反馈 → 重规划（/chat/refine 专用，Phase 0.6 新增） =====
+    # refiner 开始合并反馈
+    REFINEMENT_START = "refinement_start"
+    # refiner 合并完毕，下游进入完整 plan 流程；payload = RefinementOutput.model_dump()
+    REFINEMENT_DONE = "refinement_done"
     # 错误（区别于 Tool 内部失败：这是流终止）
     STREAM_ERROR = "stream_error"
     # 流结束
@@ -48,6 +53,8 @@ class SseEvent(BaseModel):
     - REPLAN_TRIGGERED payload = {"reason": FailureReason.value, "from_tool": str}
     - AGENT_THOUGHT   payload = {"text": str}
     - ITINERARY_READY payload = Itinerary.model_dump()
+    - REFINEMENT_START payload = {"feedback_text": str}
+    - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}
     """

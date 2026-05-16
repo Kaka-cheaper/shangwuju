@@ -194,3 +194,107 @@ seq 7 done
 ```bash
 SHANGWUJU_LLM_PROVIDER=stub uv run uvicorn main:app --reload
 ```
+
+---
+
+## 7. POST /chat/refine（Phase 0.6 新增 · 用户拒绝+反馈→重规划）
+
+> 设计意图：当用户面对 Itinerary 卡片不满时，可以提供反馈让 Agent **基于反馈调整原 intent** 后重新规划，
+> 而非完全推倒重来。这是「Agent」与「聊天机器人」的核心区分（评分项 1+5 加分点）。
+
+### 请求体
+
+```json
+{
+  "session_id": "sess_20260516_001",
+  "feedback_text": "太远了，希望 3 公里以内"
+}
+```
+
+字段：
+
+```text
+| 字段           | 必填 | 说明                                               |
+|----------------|------|----------------------------------------------------|
+| session_id     | 是   | 与 /chat/stream 同一会话；后端从内存取原 intent     |
+| feedback_text  | 否   | 用户反馈文本（可空）；空时 refiner 走默认调整      |
+```
+
+字段精确定义见 `backend/schemas/refine.py` `RefinementInput`。
+
+### 响应
+
+`Content-Type: text/event-stream`，事件序列：
+
+```text
+seq 0  refinement_start    payload={"feedback_text": "..."}
+seq 1  refinement_done     payload=RefinementOutput.model_dump()
+                            含 refined_intent / changed_fields / refiner_note
+seq 2-N  完整复用 /chat/stream 主路径事件序列
+         （tool_call_start/end × N + replan_triggered? + itinerary_ready）
+seq N+1 done
+```
+
+### 错误处理
+
+```text
+| 场景                        | 处理                                                |
+|-----------------------------|-----------------------------------------------------|
+| session_id 不存在           | HTTP 422 + {"detail":"session not found"}（不进 SSE）|
+| refiner LLM 调用失败        | SSE 推 stream_error → done；HTTP 200                |
+| refined intent 校验失败     | 重试 1 次；仍失败 → stream_error                    |
+| planner 失败                | 复用 /chat/stream 错误处理                          |
+```
+
+### 后端关键步骤（B 块实现，A 提供 refiner）
+
+```python
+1. 从内存 session 取 (original_intent, last_itinerary)
+2. refined = refiner.refine_intent(original_intent, feedback_text)
+3. emit RefinementOutput(refined_intent=refined, changed_fields=[...])
+4. plan_result = plan_itinerary_with_mode(refined, mode=resolve_planner_mode(...))
+5. emit 事件序列 + done
+```
+
+---
+
+## 8. PLANNER_MODE 双范式切换（Phase 0.6 新增）
+
+### 背景
+
+两种规划范式并存：
+
+- **rule**：规则化 ReAct（默认；MVP-1/2 主路径，Demo 安全网，Tool 调用顺序写死）
+- **llm**：LLM Function Calling 自主决策（评分项 2 加分点；LLM 看 8 个 Tool spec 自己挑）
+
+### 切换通道（优先级从高到低）
+
+```text
+1. HTTP 请求 header `X-Planner-Mode: rule|llm`
+   - 前端在所有 /chat/stream / /chat/refine 请求带上
+   - 通过前端 PlannerModeBadge 切换器写到 cookie，再透传到 header
+2. 环境变量 `PLANNER_MODE=rule|llm`
+   - 后端启动时从 .env 读
+3. 默认 `rule`（任意通道非法值都回 default）
+```
+
+解析函数：`schemas.planner_mode.resolve_planner_mode(header_value, env_value)`
+
+### /health 暴露当前模式
+
+```json
+{ "status": "ok", "version": "0.1.0", "llm_provider": "deepseek", "planner_mode": "rule" }
+```
+
+> 注：返回的是**环境变量级**的 mode；单次请求实际使用的 mode 受 header 覆盖。
+
+### LLM 失败 fallback 策略
+
+```text
+mode=llm 时，llm_planner 内部如果：
+- LLM 调用超时 / 抛错
+- 总 Tool 调用次数超 MAX_TOTAL_TOOL_CALLS=12
+- 输出 Itinerary 校验失败
+→ 自动 fallback 回 rule planner 跑一次（防 LLM 死循环让 Demo 翻车）
+→ trace 推一条 agent_thought {"text": "LLM ReAct 失败，fallback 到规则 planner"}
+```
