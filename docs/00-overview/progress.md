@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**MVP-1 全部完成 + MVP-2 部分**（W4 第 1 天，2026-05-16）
+**阶段**：**Phase 0.6 双范式 + 反馈重规划全部联调通过**（W4 round 2 收尾，2026-05-16）
 
 **MVP 状态**：
 
@@ -14,11 +14,28 @@
 | 阶段   | 完成度   | 说明                                                       |
 |--------|----------|------------------------------------------------------------|
 | MVP-1  | 100% ✅   | 6 Tool + 主场景闭环 + E1 显式触发 + Web UI + SSE          |
-| MVP-2  | 部分     | Tool 扩到 8 个 ✓ / 演示场景集 8 全跑通 ✓ / 用户确认 v2 占位 |
-| MVP-3  | 未开始   | 真 LLM 鲁棒压测 + 录屏 + 现场预演                          |
+| MVP-2  | 95% ✅    | 8 Tool / 8 场景全跑通 / 用户确认 / 双 planner mode / 反馈重规划 |
+| MVP-3  | 阻塞     | 真 LLM 鲁棒压测 + 录屏（依赖 user 提供 DEEPSEEK_API_KEY）    |
 ```
 
-**测试矩阵**：70 项 pytest 全过（schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17）
+**测试矩阵**：128 项 pytest 全过
+
+```
+| 套件                     | 通过项 |
+|--------------------------|--------|
+| schema 自检              |  6/6   |
+| Phase 0.5 并行基座       |  8/8   |
+| W1 真 Tool + Mock        | 39/39  |
+| W2 Agent 端到端          |  6/6   |
+| 8 场景集成测试（W4-r1）  | 17/17  |
+| refiner 单测（P0.6 A4）   |  5/5   |
+| llm_planner 单测（A4）    | 13/13  |
+| 联调矩阵（A6）           | 40/40  |
+| 后端合计                 |128/128 |
+| 前端 vitest（W3）        | 23/23  |
+| B 的 verify_refine       | 13/13  |
+| 总计                     |164/164 |
+```
 
 **时间盒**：**1 个月**（3 人团队，至 2026-06-08 左右）
 
@@ -100,11 +117,31 @@
 
 ### Week 4
 
-- ⬜ **MVP-3 开放鲁棒性压测**：10-20 句未预演输入场内验证
-- ✅ **设计文档 1-2 页**（A16，2026-05-16 A 完成）：`docs/05-design/设计文档.md`，覆盖四层架构 / Planning 策略 / Tool 调用链路 / 异常处理机制 / 关键取舍 / 验收证据
-- ✅ **8 场景端到端集成测试**（A 完成）：`backend/tests/test_8_scenarios.py` 17 项全过，含 D9 调性匹配 + E1 + E2 显式触发与恢复
-- ⬜ **真 LLM 链路验证**：等 user 提供 DEEPSEEK_API_KEY 后跑 8 场景对照 stub 模式，记录差异
-- ⬜ **现场演示预演 ≥3 次**，录屏兜底 3 个版本（3 分钟 / 5 分钟 / 完整）（B 扛，依赖前述真链路稳定）
+**Round 1（W4 r1，2026-05-16）：MVP-1 验收硬交付**
+
+- ✅ **设计文档 1-2 页**（A16）：`docs/05-design/设计文档.md`
+- ✅ **8 场景端到端集成测试**：`backend/tests/test_8_scenarios.py` 17 项全过
+- ⬜ **MVP-3 开放鲁棒性压测**：依赖 DEEPSEEK_API_KEY
+- ⬜ **现场演示录屏 3 版本**：B 录屏脚本已写好（commit 8831805），等真 LLM 链路稳定后启动
+
+**Round 2（W4 r2，2026-05-16，Phase 0.6）：双 planner mode + 反馈重规划**
+
+- ✅ **Phase 0.6 契约层**（commit 9bb3a64）：`schemas/refine.py` + `schemas/planner_mode.py` + `api_contract.md` §7+§8
+- ✅ **A1 refiner**（commit 4f09dac → bc37f51）：refine_intent + 关键词兜底；`client` 改默认可选给 B 零改动调用
+- ✅ **A2 llm_planner**（commit 5b0d2dd）：LLM Function Calling 自主规划 + 失败 fallback
+- ✅ **A3 双范式入口**（commit 4555c25）：`plan_itinerary_with_mode(intent, mode)`
+- ✅ **A4 单测**（commit 82871da）：refiner 5 项 + llm_planner 13 项
+- ✅ **A5 CodeSee sync**（commit 370df5e）：f-llm-planner / f-refine-replan 升 implemented
+- ✅ **B /chat/refine + PLANNER_MODE**（commit 4d8d17b）：13/13 verify_refine 全过
+- ✅ **C 前端 UI**（commit 8ce2c0a → 5b3609d）：三按钮 / Toast / RefinementDialog / PlannerModeBadge
+- ✅ **联调 main.py 接真 planner**（commit 4f8afb3）：`PLANNER_USE_REAL=1` 切换；B 验证 13/13 双模式仍过
+- ✅ **A6 联调矩阵 40 项**（commit dc34a2b）：8 场景 × 2 mode × 含/不含反馈
+- ✅ **A7 设计文档双范式段**（commit a5e014b）：≤ 半页
+
+**仍待开**：
+
+- ⬜ **真 LLM 链路验证（A18）**：依赖 user 提供 DEEPSEEK_API_KEY
+- ⬜ **现场演示录屏 3 版本**：依赖真 LLM 链路稳定
 - ⬜ **提交 + 修复最后翻车点**
 
 ## 三、待决策清单

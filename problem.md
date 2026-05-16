@@ -764,3 +764,55 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 - header 透传后端会自动按 X-Planner-Mode 选 planner（A 的 plan_itinerary_with_mode）—— 现场切换只需点一次 chip
 - 30 项前端单测 + 端到端联调脚本作为 regression gate，A/B 后续改 schema 时立刻知道
 - pitfalls P2 严格执行：sync 前问 owner / commit 前 git diff --cached --stat / untracked 不带进 commit / 不动他人 feature
+
+---
+
+## 问题8：联调真链路接通
+
+**用户原问**：（贴出 main.py 内 import + 三段示例代码）「这一段已经存在了吗？还是说还要写进去？如果还要写进去那么你直接写进去就行了，其他两个窗口都已经完成工作，不会存在冲突」
+
+**诊断**：
+
+- B 当时 commit 时 A 的 plan_itinerary_with_mode 还没写，所以 main.py 内 chat_stream / chat_refine 走 _stub_stream（固定 fixture）。
+- refiner 的 try/except 兜底已经接好（`from agent.refiner import refine_intent`），plan_itinerary_with_mode 没接。
+- 用户明确授权 A 兜底接上（其他窗口完工，文件级无冲突）。
+
+**解决方案**：
+
+1. 在 main.py 加 `_use_real_planner()` 函数：`PLANNER_USE_REAL=1` 显式启用 / `LLM_PROVIDER` 非 stub 自动启用
+2. 新增 `_planner_stream`（真链路）+ `_refine_stream_real`（真 refine 链路）
+3. `chat_stream` / `chat_refine` 按条件分发到 stub fixture 或真链路
+4. **关键兼容性**：默认 LLM_PROVIDER=stub 时仍走 _stub_stream，B 的 verify_refine 13/13 不破坏
+5. 真链路下用 `Tracer` → `SseEvent` 映射器把内部事件转成 SSE
+6. 意图解析失败时兜底家庭主场景 fixture（Demo 安全网）
+
+**端到端验证**：
+
+```
+✓ refined.distance_max_km = 3.0           （refiner 真合并反馈）
+✓ search_pois.input.distance_max_km = 3.0  （refined 真传给了 planner）
+✓ session 写入 + confirm 流可拿到行程
+✓ 真 planner 跑出 23 事件（含 E1 replan_triggered）
+✓ B 的 verify_refine 13/13 双模式（stub fixture + 真 planner）全过
+✓ pytest 88 → 128 全过（A6 新增 40 项联调矩阵）
+```
+
+**修改的代码文件**：
+
+- 修改：`backend/main.py`（+206 行：分发逻辑 + _planner_stream + _refine_stream_real）
+- 修改：`backend/agent/refiner.py`（client 默认可选，B 零改动调用）
+- 新建：`backend/tests/test_e2e_refinement.py`（A6，40 项 8 场景 × 2 mode × 反馈矩阵）
+- 修改：`docs/05-design/设计文档.md`（A7，双范式段 + 反馈重规划段 + 验收证据）
+- 修改：`docs/00-overview/progress.md`（A8，W4 round 2 收尾）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- 真 LLM 链路（DeepSeek/通义）只需 user 给 API key 就能直接跑
+- 评分项 1（场景理解 +5-10 分）：拒绝+反馈→重规划 闭环
+- 评分项 2（规划链路 +5-8 分）：双 planner mode 可现场切换演示
+- 评分项 5（异常韧性）：refiner LLM 失败规则化兜底；llm_planner 失败 rule fallback
+- 评分项 6（Demo 闭环）：默认 stub 模式仍可演示，不依赖真 LLM key
+
+**用户反馈**：（待填）
+
