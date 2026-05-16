@@ -1,19 +1,35 @@
-"""agent.llm_client —— LLM 客户端 wrapper（DeepSeek 主 / 通义备 / Stub）。
+"""agent.llm_client —— OpenAI 兼容 LLM 客户端 wrapper（任意 base_url 通用）。
 
-接口契约（Protocol）+ 三个实现（DeepSeek / Qwen / Stub）+ 工厂函数。
-统一用 OpenAI 兼容 SDK，`base_url` 切 provider；上层不感知。
+设计原则（解耦）：
+- 任何 OpenAI Chat Completions 兼容服务都能直接接入：DeepSeek / 通义 / OpenAI / 智谱 GLM / 月之暗面 / 本地 Ollama / vLLM / LM Studio …
+- 上层（intent_parser / planner / refiner）调 `get_llm_client()`，**不感知**具体模型供应商
+- 客户端实现只有一个 `OpenAICompatibleClient`；不再为每个模型写空壳子类
 
 环境变量约定（详见 backend/.env.example）：
-- LLM_PROVIDER=deepseek            # deepseek | qwen | stub
-- DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
-- QWEN_API_KEY     / QWEN_BASE_URL     / QWEN_MODEL
-- LLM_TIMEOUT_S=30
-- LLM_MAX_RETRIES=2
+- 主接口（推荐）：
+    LLM_API_KEY    任意 OpenAI 兼容服务的 API key
+    LLM_BASE_URL   任意 OpenAI 兼容 endpoint，如：
+                     https://api.deepseek.com/v1
+                     https://dashscope.aliyuncs.com/compatible-mode/v1
+                     https://api.openai.com/v1
+                     http://localhost:11434/v1               （Ollama）
+                     http://localhost:1234/v1                （LM Studio）
+    LLM_MODEL      模型名，如 deepseek-chat / qwen-plus / gpt-4o-mini / glm-4-plus / llama3.2
+- 全局：
+    LLM_PROVIDER       provider 显式名（仅作展示用；缺省按 base_url 推断）
+    LLM_TIMEOUT_S      默认 30
+    LLM_MAX_RETRIES    默认 2
+- 特殊值：
+    LLM_PROVIDER=stub  → 加载 StubLLMClient（开发/单测，无 API 调用）
+- 向后兼容（旧 .env）：
+    DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
+    QWEN_API_KEY     / QWEN_BASE_URL     / QWEN_MODEL
+    若 LLM_API_KEY 缺失，按 LLM_PROVIDER 回退到上面这些旧名（不强制 user 改 .env）
 
 不负责：
 - Prompt 设计（在 backend/agent/prompts/）
 - Tool 注册（在 backend/tools/registry.py）
-- 业务逻辑（在 backend/agent/{intent_parser,planner,executor}.py）
+- 业务逻辑（在 backend/agent/{intent_parser,planner,refiner}.py）
 
 防御策略（参考 pitfalls.md）：
 - P2-预埋：JSON 围栏剥离
@@ -22,12 +38,12 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Literal, Protocol, runtime_checkable
+from typing import Any, Iterator, Literal, Optional, Protocol, runtime_checkable
+from urllib.parse import urlparse
 
 from openai import APIError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
@@ -156,14 +172,17 @@ def _retry(
 
 
 # ============================================================
-# OpenAI 兼容客户端基类（DeepSeek / Qwen 共用）
+# 通用 OpenAI 兼容客户端（任意 base_url 直接用）
 # ============================================================
 
-class _OpenAICompatibleClient:
-    """OpenAI 兼容 SDK 的统一封装。DeepSeek / 通义都走这套。"""
+class OpenAICompatibleClient:
+    """OpenAI Chat Completions 兼容服务的统一封装。
 
-    provider: str = "openai-compatible"
-    model: str = ""
+    任何遵循 OpenAI Chat Completions API（/v1/chat/completions）的服务都能直接接入：
+    传入 api_key + base_url + model 三件套即可。
+
+    `provider` 字段仅作展示用（LLM_PROVIDER env 或从 base_url 推断），不参与协议判断。
+    """
 
     def __init__(
         self,
@@ -171,14 +190,25 @@ class _OpenAICompatibleClient:
         api_key: str,
         base_url: str,
         model: str,
+        provider: str = "openai-compatible",
         timeout_s: float = 30.0,
         max_retries: int = 2,
     ) -> None:
         if not api_key:
             raise ValueError(
-                f"{self.provider} 缺少 API Key；请检查 .env（详见 backend/.env.example）"
+                f"LLM 客户端缺少 API Key（provider={provider}, base_url={base_url}）；"
+                "请在 .env 设 LLM_API_KEY（详见 backend/.env.example）"
             )
+        if not base_url:
+            raise ValueError(
+                "LLM 客户端缺少 base_url；请在 .env 设 LLM_BASE_URL"
+            )
+        if not model:
+            raise ValueError("LLM 客户端缺少 model；请在 .env 设 LLM_MODEL")
+
+        self.provider = provider
         self.model = model
+        self.base_url = base_url
         self._timeout_s = timeout_s
         self._max_retries = max_retries
         # openai SDK 自带的 max_retries 走它的，外层 _retry 是兜底
@@ -291,22 +321,25 @@ class _OpenAICompatibleClient:
 
 
 # ============================================================
-# 具体 provider
+# 向后兼容别名（DeepSeek/Qwen 名字保留，行为完全一致）
 # ============================================================
 
-class DeepSeekClient(_OpenAICompatibleClient):
-    provider = "deepseek"
+class DeepSeekClient(OpenAICompatibleClient):
+    """向后兼容别名：与 OpenAICompatibleClient 行为一致。
+
+    保留是为了：
+    1. 老代码 `from agent.llm_client import DeepSeekClient` 不破
+    2. 测试或日志想标识 provider="deepseek"
+    """
 
 
-class QwenClient(_OpenAICompatibleClient):
-    provider = "qwen"
+class QwenClient(OpenAICompatibleClient):
+    """向后兼容别名。"""
 
 
 # ============================================================
-# 工厂
+# 工厂：解析 .env → 构造客户端
 # ============================================================
-
-ProviderName = Literal["deepseek", "qwen", "stub"]
 
 
 def _env_float(name: str, default: float) -> float:
@@ -329,44 +362,100 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _infer_provider_from_url(base_url: str) -> str:
+    """从 base_url 自动推断 provider 展示名（仅展示用，不参与协议判断）。"""
+    if not base_url:
+        return "openai-compatible"
+    try:
+        host = urlparse(base_url).hostname or ""
+    except Exception:  # noqa: BLE001
+        return "openai-compatible"
+    host = host.lower()
+    table = {
+        "api.deepseek.com": "deepseek",
+        "dashscope.aliyuncs.com": "qwen",
+        "api.openai.com": "openai",
+        "open.bigmodel.cn": "zhipu",
+        "api.moonshot.cn": "moonshot",
+        "api.minimax.chat": "minimax",
+        "api.anthropic.com": "anthropic-compat",
+    }
+    for needle, name in table.items():
+        if needle in host:
+            return name
+    if host in ("localhost", "127.0.0.1", "0.0.0.0"):
+        return "local"
+    return "openai-compatible"
+
+
+def _resolve_creds(provider_hint: Optional[str]) -> tuple[str, str, str, str]:
+    """按优先级解析 (api_key, base_url, model, provider 展示名)。
+
+    优先级：
+    1. 主接口：LLM_API_KEY + LLM_BASE_URL + LLM_MODEL（推荐）
+    2. 兼容旧名（按 provider_hint）：
+        deepseek → DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
+        qwen     → QWEN_API_KEY     / QWEN_BASE_URL     / QWEN_MODEL
+    3. 主接口缺 base_url 时按 provider_hint 兜底默认值（deepseek/qwen 各有默认 endpoint）
+    """
+    api_key = os.getenv("LLM_API_KEY", "").strip()
+    base_url = os.getenv("LLM_BASE_URL", "").strip()
+    model = os.getenv("LLM_MODEL", "").strip()
+    provider = (provider_hint or os.getenv("LLM_PROVIDER", "")).strip().lower()
+
+    # 旧兼容：deepseek
+    if provider == "deepseek":
+        api_key = api_key or os.getenv("DEEPSEEK_API_KEY", "").strip()
+        base_url = base_url or os.getenv("DEEPSEEK_BASE_URL", "").strip() or "https://api.deepseek.com/v1"
+        model = model or os.getenv("DEEPSEEK_MODEL", "").strip() or "deepseek-chat"
+    # 旧兼容：qwen
+    elif provider == "qwen":
+        api_key = api_key or os.getenv("QWEN_API_KEY", "").strip()
+        base_url = (
+            base_url
+            or os.getenv("QWEN_BASE_URL", "").strip()
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+        model = model or os.getenv("QWEN_MODEL", "").strip() or "qwen-plus"
+    # 通用：base_url 缺省时给一个 OpenAI 默认值，避免不友好的报错
+    else:
+        if not base_url:
+            base_url = "https://api.openai.com/v1"
+        if not model:
+            model = "gpt-4o-mini"
+
+    # 推断展示名（如果 user 没显式给 LLM_PROVIDER）
+    display_provider = provider or _infer_provider_from_url(base_url)
+    return api_key, base_url, model, display_provider
+
+
 def get_llm_client(
-    provider: ProviderName | str | None = None,
+    provider: str | None = None,
 ) -> FunctionCallingClient:
     """全局获取 LLM 客户端。
 
-    优先级：参数 > LLM_PROVIDER 环境变量 > 默认 "deepseek"
+    解析逻辑：
+    - provider="stub"（参数或 LLM_PROVIDER）→ 返回 StubLLMClient（开发/单测）
+    - 其他情况 → 用 _resolve_creds() 拿到 (api_key, base_url, model, display_provider)
+                  → 构造 OpenAICompatibleClient
+    任何 OpenAI 兼容 endpoint 都行，不限于 deepseek/qwen。
     """
-    provider = (provider or os.getenv("LLM_PROVIDER") or "deepseek").lower()
-    timeout_s = _env_float("LLM_TIMEOUT_S", 30.0)
-    max_retries = _env_int("LLM_MAX_RETRIES", 2)
+    explicit = (provider or os.getenv("LLM_PROVIDER") or "").strip().lower()
 
-    if provider == "stub":
-        # 延迟 import 防循环
+    if explicit == "stub":
         from .llm_client_stub import StubLLMClient
 
         return StubLLMClient()  # type: ignore[return-value]
 
-    if provider == "deepseek":
-        return DeepSeekClient(
-            api_key=os.getenv("DEEPSEEK_API_KEY", ""),
-            base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-            timeout_s=timeout_s,
-            max_retries=max_retries,
-        )
+    api_key, base_url, model, display_provider = _resolve_creds(explicit or None)
+    timeout_s = _env_float("LLM_TIMEOUT_S", 30.0)
+    max_retries = _env_int("LLM_MAX_RETRIES", 2)
 
-    if provider == "qwen":
-        return QwenClient(
-            api_key=os.getenv("QWEN_API_KEY", ""),
-            base_url=os.getenv(
-                "QWEN_BASE_URL",
-                "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            ),
-            model=os.getenv("QWEN_MODEL", "qwen-plus"),
-            timeout_s=timeout_s,
-            max_retries=max_retries,
-        )
-
-    raise ValueError(
-        f"未知 LLM_PROVIDER: {provider}（合法值：deepseek / qwen / stub）"
+    return OpenAICompatibleClient(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        provider=display_provider,
+        timeout_s=timeout_s,
+        max_retries=max_retries,
     )

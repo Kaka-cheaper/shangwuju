@@ -55,6 +55,8 @@ def _load_fake_tools_module():
 @pytest.fixture(autouse=True)
 def _isolate_tools_and_loader_cache(request):
     os.environ["SHANGWUJU_MOCK_DIR"] = str(_REPO_ROOT / "mock_data")
+    # 测试默认走 stub LLM 客户端，避免误调真 endpoint 或因缺 API key 失败
+    os.environ.setdefault("LLM_PROVIDER", "stub")
     from data.loader import reset_cache
 
     reset_cache()

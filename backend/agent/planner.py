@@ -511,7 +511,18 @@ def plan_itinerary_with_mode(
         from .llm_planner import plan_itinerary_llm
         from .llm_client import get_llm_client
 
-        client = llm_client or get_llm_client()
+        client = llm_client
+        if client is None:
+            try:
+                client = get_llm_client()
+            except (ValueError, RuntimeError):
+                # 缺 API key / base_url → 降级到 rule，而非抛异常让 demo 翻车
+                if tracer is not None:
+                    tracer.emit(
+                        "agent_thought",
+                        {"text": "LLM 客户端不可用（缺 API Key 或 base_url），已切回规则规划"},
+                    )
+                return plan_itinerary(intent, tracer=tracer)
         return plan_itinerary_llm(intent, client=client, tracer=tracer)
 
     # 默认 rule

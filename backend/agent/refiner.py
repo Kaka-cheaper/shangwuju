@@ -82,7 +82,11 @@ def refine_intent(
     if client is None:
         from .llm_client import get_llm_client
 
-        client = get_llm_client()
+        try:
+            client = get_llm_client()
+        except (ValueError, RuntimeError):
+            # 缺 API key / base_url 等配置问题 → 直接走 _rule_fallback
+            return _rule_fallback(original, feedback_text)
     original_json = original.model_dump_json()
 
     error_feedback: str | None = None
