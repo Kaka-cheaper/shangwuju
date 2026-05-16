@@ -55,22 +55,59 @@
       "summary": "Demo 现场点击 8 个预设场景按钮一键提交",
       "epicId": "input",
       "triggers": [
-        { "kind": "ui", "detail": "点击 8 个演示场景快捷按钮之一" }
+        { "kind": "ui", "detail": "点击 8 个演示场景快捷按钮之一" },
+        { "kind": "http", "detail": "首屏挂载时拉 GET /scenarios" }
       ],
       "steps": [
-        { "id": "click", "name": "点击场景按钮", "role": "input" },
-        { "id": "fill", "name": "填入预设文案", "role": "transform" },
-        { "id": "submit", "name": "触发提交", "role": "side-effect" }
+        {
+          "id": "fetch_scenarios",
+          "name": "拉取场景配置",
+          "role": "data-read",
+          "refs": [
+            { "file": "frontend/lib/store.ts", "lines": [105, 120] },
+            { "file": "backend/main.py", "lines": [127, 134] }
+          ]
+        },
+        {
+          "id": "render",
+          "name": "渲染按钮网格",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/QuickScenarios.tsx", "lines": [10, 60] }]
+        },
+        {
+          "id": "click",
+          "name": "点击场景按钮",
+          "role": "input",
+          "refs": [{ "file": "frontend/components/QuickScenarios.tsx", "lines": [29, 40] }]
+        },
+        {
+          "id": "submit",
+          "name": "触发流式发送",
+          "role": "side-effect",
+          "refs": [{ "file": "frontend/lib/store.ts", "lines": [122, 168] }]
+        },
+        {
+          "id": "fetch_fail",
+          "name": "拉取失败降级提示",
+          "role": "error",
+          "refs": [{ "file": "frontend/components/QuickScenarios.tsx", "lines": [12, 18] }]
+        }
       ],
       "flow": [
-        { "from": "click", "to": "fill", "kind": "next" },
-        { "from": "fill", "to": "submit", "kind": "next" }
+        { "from": "fetch_scenarios", "to": "render", "kind": "conditional", "condition": "拉取成功" },
+        { "from": "fetch_scenarios", "to": "fetch_fail", "kind": "error", "condition": "网络失败或后端未启动" },
+        { "from": "render", "to": "click", "kind": "next" },
+        { "from": "click", "to": "submit", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.4,
+      "refs": [
+        { "file": "frontend/components/QuickScenarios.tsx" },
+        { "file": "frontend/lib/store.ts", "lines": [105, 168] },
+        { "file": "backend/main.py", "lines": [50, 134] }
+      ],
+      "confidence": 0.92,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T07:00:00Z"
     },
     {
       "id": "f-intent-parse",
@@ -528,24 +565,179 @@
       "summary": "前端实时展示 Agent 每步 Tool 调用与中间状态（评委加分项）",
       "epicId": "sharing",
       "triggers": [
-        { "kind": "http", "detail": "前端 EventSource 订阅 /chat/stream SSE" }
+        { "kind": "http", "detail": "前端 fetch+ReadableStream 消费 POST /chat/stream 与 /chat/confirm 的 SSE 响应" }
       ],
       "steps": [
-        { "id": "receive", "name": "接收 SSE 事件", "role": "input" },
-        { "id": "parse", "name": "解析事件类型", "role": "transform" },
-        { "id": "update", "name": "更新链路视图", "role": "output" },
-        { "id": "fallback", "name": "断流降级提示", "role": "error" }
+        {
+          "id": "open_stream",
+          "name": "发起 SSE 请求",
+          "role": "side-effect",
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [21, 50] }]
+        },
+        {
+          "id": "decode",
+          "name": "增量解码字节",
+          "role": "transform",
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [60, 98] }]
+        },
+        {
+          "id": "parse",
+          "name": "解析事件块",
+          "role": "transform",
+          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [105, 130] }]
+        },
+        {
+          "id": "dispatch",
+          "name": "分发到 Store",
+          "role": "compute",
+          "refs": [{ "file": "frontend/lib/store.ts", "lines": [221, 311] }]
+        },
+        {
+          "id": "render_intent",
+          "name": "渲染意图摘要",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/IntentSummary.tsx" }]
+        },
+        {
+          "id": "render_trace",
+          "name": "渲染 Tool 时间线",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ToolTracePanel.tsx" }]
+        },
+        {
+          "id": "render_replan",
+          "name": "高亮异常重规划",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ToolTracePanel.tsx", "lines": [60, 78] }]
+        },
+        {
+          "id": "fallback",
+          "name": "断流降级提示",
+          "role": "error",
+          "refs": [
+            { "file": "frontend/lib/sse.ts", "lines": [38, 46] },
+            { "file": "frontend/components/ChatPanel.tsx", "lines": [75, 80] }
+          ]
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "parse", "kind": "next" },
-        { "from": "parse", "to": "update", "kind": "next" },
-        { "from": "receive", "to": "fallback", "kind": "error", "condition": "SSE 断流或解析异常" }
+        { "from": "open_stream", "to": "decode", "kind": "next" },
+        { "from": "decode", "to": "parse", "kind": "loop", "condition": "每收到一个 SSE 块" },
+        { "from": "parse", "to": "dispatch", "kind": "next" },
+        { "from": "dispatch", "to": "render_intent", "kind": "conditional", "condition": "事件 type=intent_parsed" },
+        { "from": "dispatch", "to": "render_trace", "kind": "conditional", "condition": "事件 type=tool_call_*" },
+        { "from": "dispatch", "to": "render_replan", "kind": "conditional", "condition": "事件 type=replan_triggered" },
+        { "from": "open_stream", "to": "fallback", "kind": "error", "condition": "SSE 断流或 HTTP 错误" }
       ],
-      "refs": [],
-      "confidence": 0.35,
+      "refs": [
+        { "file": "frontend/lib/sse.ts" },
+        { "file": "frontend/lib/store.ts" },
+        { "file": "frontend/components/ToolTracePanel.tsx" },
+        { "file": "frontend/components/IntentSummary.tsx" },
+        { "file": "frontend/components/ChatPanel.tsx" }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-16T07:00:00Z"
+    },
+    {
+      "id": "f-itinerary-card",
+      "name": "行程卡片渲染",
+      "summary": "把 Itinerary payload 渲染为六段时间轴 + 已为你预留清单 + 转发文案",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "event", "detail": "Store 收到 itinerary_ready 事件" }
+      ],
+      "steps": [
+        {
+          "id": "receive",
+          "name": "订阅行程数据",
+          "role": "input",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [10, 20] }]
+        },
+        {
+          "id": "render_timeline",
+          "name": "渲染六段时间轴",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [38, 60] }]
+        },
+        {
+          "id": "render_orders",
+          "name": "渲染预留清单",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [62, 86] }]
+        },
+        {
+          "id": "confirm_btn",
+          "name": "提供确认按钮",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [96, 112] }]
+        },
+        {
+          "id": "empty_state",
+          "name": "空态占位",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [13, 24] }]
+        }
+      ],
+      "flow": [
+        { "from": "receive", "to": "render_timeline", "kind": "conditional", "condition": "itinerary 非空" },
+        { "from": "render_timeline", "to": "render_orders", "kind": "conditional", "condition": "orders 非空" },
+        { "from": "render_timeline", "to": "confirm_btn", "kind": "conditional", "condition": "尚未下单" },
+        { "from": "receive", "to": "empty_state", "kind": "error", "condition": "尚未规划" }
+      ],
+      "refs": [{ "file": "frontend/components/ItineraryCard.tsx" }],
+      "confidence": 0.88,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-16T07:00:00Z"
+    },
+    {
+      "id": "f-share-copy",
+      "name": "转发文案复制",
+      "summary": "一键复制后端生成的 share_message 到剪贴板，含降级",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "ui", "detail": "用户点击「复制到剪贴板」按钮" }
+      ],
+      "steps": [
+        {
+          "id": "click",
+          "name": "点击复制按钮",
+          "role": "input",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [144, 165] }]
+        },
+        {
+          "id": "clipboard",
+          "name": "调用剪贴板 API",
+          "role": "side-effect",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [148, 153] }]
+        },
+        {
+          "id": "fallback_exec",
+          "name": "兜底降级复制",
+          "role": "side-effect",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [156, 167] }]
+        },
+        {
+          "id": "ack",
+          "name": "短暂提示已复制",
+          "role": "output",
+          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [180, 195] }]
+        }
+      ],
+      "flow": [
+        { "from": "click", "to": "clipboard", "kind": "next" },
+        { "from": "clipboard", "to": "ack", "kind": "conditional", "condition": "navigator.clipboard 可用" },
+        { "from": "clipboard", "to": "fallback_exec", "kind": "error", "condition": "navigator.clipboard 不可用" },
+        { "from": "fallback_exec", "to": "ack", "kind": "next" }
+      ],
+      "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [142, 200] }],
+      "confidence": 0.85,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-16T07:00:00Z"
     }
   ],
   "cross_feature": [
@@ -572,7 +764,11 @@
     { "from": "f-buy-ticket", "to": "f-tool-trace", "kind": "publishes", "note": "购票结果事件推送给前端展示" },
     { "from": "f-share-message", "to": "f-tool-trace", "kind": "publishes", "note": "文案生成事件推送给前端展示" },
     { "from": "f-exception-replan", "to": "f-tool-trace", "kind": "publishes", "note": "异常重规划事件推送给前端展示" },
-    { "from": "f-tool-trace", "to": "f-intent-parse", "kind": "subscribes", "note": "前端订阅意图与 Tool 调用流式事件" }
+    { "from": "f-tool-trace", "to": "f-intent-parse", "kind": "subscribes", "note": "前端订阅意图与 Tool 调用流式事件" },
+    { "from": "f-tool-trace", "to": "f-itinerary-card", "kind": "publishes", "note": "itinerary_ready 事件传给行程卡片渲染" },
+    { "from": "f-itinerary-card", "to": "f-user-confirm", "kind": "triggers", "note": "卡片中的确认按钮触发执行流" },
+    { "from": "f-itinerary-card", "to": "f-share-copy", "kind": "publishes", "note": "确认后展示文案与复制按钮" },
+    { "from": "f-share-message", "to": "f-share-copy", "kind": "publishes", "note": "后端生成的文案最终落到复制按钮" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },

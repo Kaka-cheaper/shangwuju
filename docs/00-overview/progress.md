@@ -38,7 +38,14 @@
 - ✅ **P0 契约基座**（2026-05-16 完成）：`backend/schemas/` 7 份 Pydantic v2 模型 + `mock_data/_samples/` 4 份典范样本 + `verify_schemas.py` 自检 6 项全过；含 D9 禁止字段拦截 + 词典外 tag 拦截两条反向测试
 - ⬜ **P1 数据+Tool**（C 扛）：扩 Mock 数据到 ≥20 POI + ≥30 餐厅（含 ≥2 个失败埋点）；实现 6 个 MVP-1 Tool
 - ⬜ **P2 Agent**（A 扛，可与 P1 末并行）：`llm_client.py` + `intent_parser.py` + `planner.py + executor.py`；DeepSeek-V3 Function Calling
-- ⬜ **P3 前端**（B 扛，可与 P2 并行）：`backend/main.py` SSE 端点 + Next.js 聊天框 + 行程卡片 + Tool 链路可视化
+- ✅ **P3 前端 + SSE 网关**（2026-05-16 完成，B 扛）：
+  - `backend/main.py`：FastAPI + sse-starlette，4 端点（/health /chat/stream /chat/confirm /scenarios），stub 模式按 api_contract.md §2 完整事件序列推送（含 E1 异常 → 重规划 → 成功）
+  - `frontend/`：Next.js 14 App Router + TS strict + Tailwind + shadcn 风格自实现；pnpm + 淘宝镜像（绕开 npm fsevents 元数据 bug）
+  - `frontend/lib/types.ts`：手抄 schemas/{sse,itinerary,intent,errors}.py 关键类型
+  - `frontend/lib/sse.ts`：手写 fetch+ReadableStream 解析器（替代 EventSource，支持 POST）
+  - `frontend/lib/store.ts`：Zustand 状态机；arrival 计数保证 stream/confirm 跨流时序
+  - 组件：HomeView / QuickScenarios（8 按钮）/ ChatPanel / IntentSummary / ToolTracePanel（含「已替换」灰显 + 异常重规划高亮）/ ItineraryCard（六段时间轴 + 已为你预留 + 复制按钮）
+  - 验证：`scripts/verify_sse.py` 端到端 14+6 事件全过；浏览器 DevTools 验 SSE chunked 流；`pnpm build` 通过、零 console error
 
 ### Week 2
 

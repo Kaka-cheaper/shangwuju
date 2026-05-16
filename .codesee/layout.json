@@ -1,0 +1,632 @@
+{
+  "version": "0",
+  "views": {
+    "overview": {
+      "epic:input": {
+        "x": -1086.8768078348892,
+        "y": 147.16822169192784
+      },
+      "epic:discovery": {
+        "x": -557.8678861549512,
+        "y": 146.666705955821
+      },
+      "epic:planning": {
+        "x": -919.6091668347972,
+        "y": 476.6323696107737
+      },
+      "epic:execution": {
+        "x": -335.4445360760824,
+        "y": 470.11754572134544
+      },
+      "epic:sharing": {
+        "x": 120.49912170844328,
+        "y": 485.12372555491015
+      }
+    },
+    "steps:f-register": {
+      "step:f-register:input": {
+        "x": 16,
+        "y": 97.83333333333333
+      },
+      "step:f-register:validate": {
+        "x": 276,
+        "y": 97.83333333333333
+      },
+      "step:f-register:check-dup": {
+        "x": 536,
+        "y": 97.83333333333333
+      },
+      "step:f-register:hash": {
+        "x": 799.016304347826,
+        "y": 174.3641304347826
+      },
+      "step:f-register:save": {
+        "x": 1056,
+        "y": 107
+      },
+      "step:f-register:send-email": {
+        "x": 1316,
+        "y": 116.16666666666667
+      },
+      "step:f-register:ok": {
+        "x": 1316,
+        "y": 25.16666666666667
+      },
+      "step:f-register:fail-dup": {
+        "x": 796,
+        "y": 16
+      }
+    },
+    "steps:f-login": {
+      "step:f-login:input": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-login:find": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-login:verify": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-login:issue": {
+        "x": 796,
+        "y": 171.64673913043478
+      },
+      "step:f-login:ok": {
+        "x": 1056,
+        "y": 107
+      },
+      "step:f-login:fail": {
+        "x": 796.8288043478261,
+        "y": -61.07880434782608
+      }
+    },
+    "features-base": {
+      "feature:f-quick-input": {
+        "x": -3257.192019587223,
+        "y": 271.9205542298196
+      },
+      "feature:f-intent-parse": {
+        "x": -2897.192019587223,
+        "y": 271.9205542298196
+      },
+      "feature:f-user-profile": {
+        "x": -2537.192019587223,
+        "y": 271.9205542298196
+      },
+      "feature:f-search-pois": {
+        "x": -1934.669715387378,
+        "y": 174.6667648895525
+      },
+      "feature:f-search-restaurants": {
+        "x": -1574.669715387378,
+        "y": 174.6667648895525
+      },
+      "feature:f-check-availability": {
+        "x": -1214.669715387378,
+        "y": 174.6667648895525
+      },
+      "feature:f-estimate-route": {
+        "x": -1934.669715387378,
+        "y": 366.6667648895525
+      },
+      "feature:f-plan-assembly": {
+        "x": -2659.022917086993,
+        "y": 1095.5809240269343
+      },
+      "feature:f-exception-replan": {
+        "x": -2299.022917086993,
+        "y": 1095.5809240269343
+      },
+      "feature:f-user-confirm": {
+        "x": -1340.5413012242584,
+        "y": 1018.8259006715816
+      },
+      "feature:f-reserve-restaurant": {
+        "x": -980.5413012242584,
+        "y": 1018.8259006715816
+      },
+      "feature:f-buy-ticket": {
+        "x": -620.5413012242584,
+        "y": 1018.8259006715816
+      },
+      "feature:f-order-extra": {
+        "x": -1340.5413012242584,
+        "y": 1210.8259006715816
+      },
+      "feature:f-share-message": {
+        "x": -58.75219572889182,
+        "y": 1116.8093138872755
+      },
+      "feature:f-tool-trace": {
+        "x": 301.2478042711082,
+        "y": 1116.8093138872755
+      }
+    },
+    "features": {
+      "feature:f-quick-input": {
+        "x": -3602.438779085162,
+        "y": 217.53236608973316
+      },
+      "feature:f-intent-parse": {
+        "x": -3172.6800160359207,
+        "y": 210.43825459320024
+      },
+      "feature:f-user-profile": {
+        "x": -2761.7281630860334,
+        "y": 401.454995919476
+      },
+      "feature:f-search-pois": {
+        "x": -1995.022090750271,
+        "y": 303.1589188879699
+      },
+      "feature:f-search-restaurants": {
+        "x": -2028.2859560181546,
+        "y": 11.131296164293964
+      },
+      "feature:f-check-availability": {
+        "x": -1241.9256268415875,
+        "y": 125.02206902652762
+      },
+      "feature:f-estimate-route": {
+        "x": -1986.2612620685607,
+        "y": 451.35477547941855
+      },
+      "feature:f-plan-assembly": {
+        "x": -3130.186234326423,
+        "y": 1219.3036656041947
+      },
+      "feature:f-exception-replan": {
+        "x": -2851.3175670233513,
+        "y": 963.9354187317492
+      },
+      "feature:f-user-confirm": {
+        "x": -1986.2723223329735,
+        "y": 1698.453563308313
+      },
+      "feature:f-reserve-restaurant": {
+        "x": -1626.2723223329735,
+        "y": 1698.453563308313
+      },
+      "feature:f-buy-ticket": {
+        "x": -1266.2723223329735,
+        "y": 1698.453563308313
+      },
+      "feature:f-order-extra": {
+        "x": -1986.2723223329735,
+        "y": 1890.4535633083135
+      },
+      "feature:f-share-message": {
+        "x": -431.61525253707396,
+        "y": 1196.4664214781144
+      },
+      "feature:f-tool-trace": {
+        "x": -71.61525253707384,
+        "y": 1196.4664214781144
+      }
+    },
+    "features-group-offset": {
+      "catalog": {
+        "x": -153.56430446134618,
+        "y": 904.5191304799437
+      },
+      "cart": {
+        "x": -2381.2814920741675,
+        "y": 36.123212709363486
+      },
+      "order": {
+        "x": -2927.2588942861294,
+        "y": 32.37095143760325
+      },
+      "admin": {
+        "x": -9475.43992794989,
+        "y": 1216.2228897270975
+      },
+      "auth": {
+        "x": -661.2922936538962,
+        "y": 18.497686535773255
+      },
+      "input": {
+        "x": -550.9759928973954,
+        "y": -122.9645992732386
+      },
+      "discovery": {
+        "x": -112.91734745315489,
+        "y": -13.627955727104904
+      },
+      "execution": {
+        "x": -1291.4620422174303,
+        "y": 1359.2553252734633
+      },
+      "planning": {
+        "x": -942.3266344788599,
+        "y": 247.44548315452084
+      },
+      "sharing": {
+        "x": -745.726113616364,
+        "y": 159.3142151816778
+      }
+    },
+    "features-offset": {
+      "feature:f-register": {
+        "x": 330.6461468269481,
+        "y": -9.248843267886627
+      },
+      "feature:f-login": {
+        "x": 330.6461468269481,
+        "y": -9.248843267886627
+      },
+      "feature:f-product-list": {
+        "x": -221.49304315867175,
+        "y": -304.2780729537843
+      },
+      "feature:f-product-search": {
+        "x": -244.6151513283894,
+        "y": -461.5084085078578
+      },
+      "feature:f-product-detail": {
+        "x": -945.2150288708044,
+        "y": -463.82061932482964
+      },
+      "feature:f-add-to-cart": {
+        "x": 1049.5958862018115,
+        "y": -20.373817171653798
+      },
+      "feature:f-view-cart": {
+        "x": 982.5417725096331,
+        "y": -24.99823880559711
+      },
+      "feature:f-checkout": {
+        "x": 1463.6294471430647,
+        "y": -16.185475718801626
+      },
+      "feature:f-pay-callback": {
+        "x": 1463.6294471430647,
+        "y": -16.185475718801626
+      },
+      "feature:f-order-list": {
+        "x": 1463.6294471430647,
+        "y": -16.185475718801626
+      },
+      "feature:f-admin-products": {
+        "x": 4737.719963974943,
+        "y": -608.1114448635494
+      },
+      "feature:f-admin-dashboard": {
+        "x": 4737.719963974943,
+        "y": -608.1114448635494
+      },
+      "feature:f-quick-input": {
+        "x": 205.72923339945646,
+        "y": 68.57641113315219
+      },
+      "feature:f-intent-parse": {
+        "x": 275.4879964486977,
+        "y": 61.482299636619274
+      },
+      "feature:f-user-profile": {
+        "x": 326.439849398585,
+        "y": 252.49904096289504
+      },
+      "feature:f-search-pois": {
+        "x": 52.56497209026179,
+        "y": 142.1201097255223
+      },
+      "feature:f-search-restaurants": {
+        "x": -340.6988931776218,
+        "y": -149.90751299815363
+      },
+      "feature:f-check-availability": {
+        "x": 85.66143599894531,
+        "y": -36.016740135919974
+      },
+      "feature:f-estimate-route": {
+        "x": 61.325800771972126,
+        "y": 98.31596631697096
+      },
+      "feature:f-plan-assembly": {
+        "x": 471.16331723942994,
+        "y": -123.72274157726042
+      },
+      "feature:f-exception-replan": {
+        "x": 390.0319845425015,
+        "y": -379.09098844970595
+      },
+      "feature:f-user-confirm": {
+        "x": 645.7310211087151,
+        "y": -679.6276626367319
+      },
+      "feature:f-reserve-restaurant": {
+        "x": 645.7310211087151,
+        "y": -679.6276626367319
+      },
+      "feature:f-buy-ticket": {
+        "x": 645.7310211087151,
+        "y": -679.6276626367319
+      },
+      "feature:f-order-extra": {
+        "x": 645.7310211087151,
+        "y": -679.6276626367314
+      },
+      "feature:f-share-message": {
+        "x": 372.8630568081819,
+        "y": -79.6571075908389
+      },
+      "feature:f-tool-trace": {
+        "x": 372.863056808182,
+        "y": -79.6571075908389
+      }
+    },
+    "steps:f-product-detail": {
+      "step:f-product-detail:input": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-product-detail:fetch": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-product-detail:stock": {
+        "x": 536,
+        "y": 107
+      },
+      "step:f-product-detail:ok": {
+        "x": 796,
+        "y": 107
+      },
+      "step:f-product-detail:not-found": {
+        "x": 536,
+        "y": 16
+      }
+    },
+    "steps:f-add-to-cart": {
+      "step:f-add-to-cart:input": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-add-to-cart:auth": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-add-to-cart:check-stock": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-add-to-cart:upsert": {
+        "x": 858.1603260869565,
+        "y": 105.34239130434781
+      },
+      "step:f-add-to-cart:ok": {
+        "x": 1145.5108695652175,
+        "y": 105.34239130434784
+      },
+      "step:f-add-to-cart:fail-stock": {
+        "x": 852.3586956521739,
+        "y": 24.288043478260875
+      }
+    },
+    "steps:f-quick-input": {
+      "step:f-quick-input:click": {
+        "x": 16,
+        "y": 16
+      },
+      "step:f-quick-input:fill": {
+        "x": 276,
+        "y": 16
+      },
+      "step:f-quick-input:submit": {
+        "x": 536,
+        "y": 16
+      }
+    },
+    "steps:f-intent-parse": {
+      "step:f-intent-parse:receive": {
+        "x": 16,
+        "y": 34.33333333333333
+      },
+      "step:f-intent-parse:extract": {
+        "x": 276,
+        "y": 34.33333333333333
+      },
+      "step:f-intent-parse:strip_fence": {
+        "x": 536,
+        "y": 34.33333333333333
+      },
+      "step:f-intent-parse:validate": {
+        "x": 805,
+        "y": 34.33333333333333
+      },
+      "step:f-intent-parse:fill_default": {
+        "x": 1065,
+        "y": 25.166666666666664
+      },
+      "step:f-intent-parse:publish_trace": {
+        "x": 1325,
+        "y": 107
+      },
+      "step:f-intent-parse:output": {
+        "x": 1325,
+        "y": 16
+      },
+      "step:f-intent-parse:ask_back": {
+        "x": 1065,
+        "y": 116.16666666666666
+      }
+    },
+    "steps:f-user-profile": {
+      "step:f-user-profile:receive": {
+        "x": 16,
+        "y": 16
+      },
+      "step:f-user-profile:read": {
+        "x": 276,
+        "y": 16
+      },
+      "step:f-user-profile:return": {
+        "x": 536,
+        "y": 16
+      }
+    },
+    "steps:f-plan-assembly": {
+      "step:f-plan-assembly:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-plan-assembly:allocate": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-plan-assembly:select": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-plan-assembly:validate": {
+        "x": 796,
+        "y": 25.166666666666664
+      },
+      "step:f-plan-assembly:output": {
+        "x": 1056,
+        "y": 16
+      },
+      "step:f-plan-assembly:constraint_fail": {
+        "x": 1056,
+        "y": 107
+      }
+    },
+    "steps:f-search-restaurants": {
+      "step:f-search-restaurants:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-search-restaurants:validate": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-search-restaurants:filter": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-search-restaurants:rank": {
+        "x": 796,
+        "y": 107
+      },
+      "step:f-search-restaurants:return": {
+        "x": 1056,
+        "y": 107
+      },
+      "step:f-search-restaurants:empty": {
+        "x": 796,
+        "y": 16
+      }
+    },
+    "steps:f-search-pois": {
+      "step:f-search-pois:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-search-pois:validate": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-search-pois:filter": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-search-pois:rank": {
+        "x": 796,
+        "y": 107
+      },
+      "step:f-search-pois:return": {
+        "x": 1056,
+        "y": 107
+      },
+      "step:f-search-pois:empty": {
+        "x": 796,
+        "y": 16
+      }
+    },
+    "steps:f-estimate-route": {
+      "step:f-estimate-route:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-estimate-route:lookup": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-estimate-route:compare": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-estimate-route:return": {
+        "x": 796,
+        "y": 16
+      },
+      "step:f-estimate-route:too_far": {
+        "x": 796,
+        "y": 107
+      }
+    },
+    "steps:f-check-availability": {
+      "step:f-check-availability:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-check-availability:read_slots": {
+        "x": 276,
+        "y": 25.166666666666664
+      },
+      "step:f-check-availability:determine": {
+        "x": 536,
+        "y": 25.166666666666664
+      },
+      "step:f-check-availability:return_ok": {
+        "x": 796,
+        "y": 16
+      },
+      "step:f-check-availability:return_full": {
+        "x": 796,
+        "y": 107
+      }
+    },
+    "steps:f-share-message": {
+      "step:f-share-message:receive": {
+        "x": 16,
+        "y": 16
+      },
+      "step:f-share-message:generate": {
+        "x": 276,
+        "y": 16
+      },
+      "step:f-share-message:format": {
+        "x": 536,
+        "y": 16
+      },
+      "step:f-share-message:return": {
+        "x": 796,
+        "y": 16
+      }
+    },
+    "steps:f-tool-trace": {
+      "step:f-tool-trace:receive": {
+        "x": 16,
+        "y": 25.166666666666664
+      },
+      "step:f-tool-trace:parse": {
+        "x": 276,
+        "y": 107
+      },
+      "step:f-tool-trace:update": {
+        "x": 536,
+        "y": 107
+      },
+      "step:f-tool-trace:fallback": {
+        "x": 276,
+        "y": 16
+      }
+    }
+  },
+  "generated_at": "2026-05-16T06:20:49.102Z"
+}
