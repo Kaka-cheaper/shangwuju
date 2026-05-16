@@ -13,7 +13,12 @@
   → 重规划（最多 3 次）→ 组装 → 输出
 - 规则化的好处：可调试、可重放、Demo 不翻车
 - LLM 仅用于：意图解析（intent_parser）、行程文案润色（generate_share_message Tool）
-- 后续 MVP-2 可选切换成 chat_with_tools 让 LLM 自己 ReAct（保留接口位）
+
+双范式入口（Phase 0.6 新增）：
+- plan_itinerary_with_mode(intent, mode) 是统一入口，按 mode 分发：
+    - mode="rule" → 本文件的 plan_itinerary（默认，Demo 安全网）
+    - mode="llm"  → llm_planner.plan_itinerary_llm（LLM 自主决策，评分项 2 加分）
+- mode 解析见 schemas/planner_mode.py
 
 不负责：
 - LLM 调用（仅 intent_parser 用）
@@ -476,3 +481,38 @@ def _diff_minutes(start: str, end: str) -> int:
     h1, m1 = start.split(":")
     h2, m2 = end.split(":")
     return (int(h2) - int(h1)) * 60 + (int(m2) - int(m1))
+
+
+# ============================================================
+# 双范式入口（Phase 0.6 新增）
+# ============================================================
+
+def plan_itinerary_with_mode(
+    intent: IntentExtraction,
+    mode: str | None = None,
+    *,
+    tracer: Tracer | None = None,
+    llm_client: Any | None = None,
+) -> PlannerResult:
+    """按 mode 分发到 rule / llm 两套规划。
+
+    mode 解析优先级（详见 schemas/planner_mode.py）：
+        显式参数 > PLANNER_MODE 环境变量 > "rule" 默认值
+
+    LLM 模式失败时由 llm_planner 内部 fallback 回 rule，外层无须感知。
+    若 mode="llm" 但 llm_client 为 None，自动用 get_llm_client() 取（B 块端点会显式注入）。
+    """
+    from schemas.planner_mode import normalize_mode, current_env_mode
+
+    resolved = normalize_mode(mode) if mode else current_env_mode()
+
+    if resolved == "llm":
+        # 延迟 import 避免循环依赖
+        from .llm_planner import plan_itinerary_llm
+        from .llm_client import get_llm_client
+
+        client = llm_client or get_llm_client()
+        return plan_itinerary_llm(intent, client=client, tracer=tracer)
+
+    # 默认 rule
+    return plan_itinerary(intent, tracer=tracer)
