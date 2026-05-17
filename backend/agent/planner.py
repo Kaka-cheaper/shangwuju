@@ -964,6 +964,16 @@ def _plan_with_hybrid(
             return res
 
         depart_time, _, main_minutes, dining_minutes = _resolve_time_window(intent_)
+        # 诊断 thought：把时间窗实际值推到前端，方便排查"refine 后时间没变"类问题
+        local_tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"时间窗推导：duration_hours={list(intent_.duration_hours)} → "
+                    f"出发 {depart_time}，主活动 {main_minutes} 分钟，用餐 {dining_minutes} 分钟"
+                ),
+            },
+        )
         home_to_poi = _estimate(_call_route, "home", candidate.main_poi.id)
         poi_to_rest = _estimate(
             _call_route, candidate.main_poi.id, candidate.restaurant.id
