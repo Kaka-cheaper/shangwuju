@@ -19,9 +19,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Icons, personaIconFromEmoji, scenarioIcon } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import type { LucideIcon } from "lucide-react";
-import { Compass, RefreshCw, ToggleRight, Users2, X } from "lucide-react";
+import { Compass, MessageSquarePlus, RefreshCw, ToggleRight, Users2, X } from "lucide-react";
 
-import { cn } from "@/lib/utils";
+import { cn, loadSessions, sessionLabelFromId, type SessionRecord } from "@/lib/utils";
 
 interface Command {
   id: string;
@@ -45,12 +45,21 @@ export default function CommandPalette() {
   const setCurrentUserId = useChatStore((s) => s.setCurrentUserId);
   const cancel = useChatStore((s) => s.cancel);
   const reset = useChatStore((s) => s.reset);
+  const startNewSession = useChatStore((s) => s.startNewSession);
+  const switchSession = useChatStore((s) => s.switchSession);
+  const currentSessionId = useChatStore((s) => s.sessionId);
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [recentSessions, setRecentSessions] = useState<SessionRecord[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // 打开命令面板时刷一次 session 列表（localStorage）
+  useEffect(() => {
+    if (open) setRecentSessions(loadSessions());
+  }, [open]);
 
   const allCommands: Command[] = useMemo(() => {
     const cmds: Command[] = [];
@@ -144,6 +153,35 @@ export default function CommandPalette() {
       },
     });
 
+    // 会话切换 + 新建
+    cmds.push({
+      id: "session-new",
+      label: "+ 开新会话",
+      hint: "保留之前会话历史，新开一个独立上下文",
+      group: "会话切换",
+      icon: MessageSquarePlus,
+      keywords: "new session 新会话 开新 chat thread",
+      perform: () => {
+        startNewSession();
+        close();
+      },
+    });
+    for (const s of recentSessions) {
+      if (s.id === currentSessionId) continue; // 当前会话不放在切换列表
+      cmds.push({
+        id: `session-${s.id}`,
+        label: s.label || sessionLabelFromId(s.id),
+        hint: s.lastSummary || `创建于 ${new Date(s.createdAt).toLocaleString()}`,
+        group: "会话切换",
+        icon: Compass,
+        keywords: `session 会话 切换 ${s.label} ${s.id} ${s.lastSummary ?? ""}`,
+        perform: () => {
+          switchSession(s.id);
+          close();
+        },
+      });
+    }
+
     return cmds;
   }, [
     scenarios,
@@ -157,6 +195,10 @@ export default function CommandPalette() {
     cancel,
     reset,
     close,
+    recentSessions,
+    currentSessionId,
+    startNewSession,
+    switchSession,
   ]);
 
   const filtered = useMemo(() => {

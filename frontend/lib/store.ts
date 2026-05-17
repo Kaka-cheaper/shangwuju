@@ -36,6 +36,8 @@ import {
   setPlannerModeCookie,
   getUserIdFromCookie,
   setUserIdCookie,
+  upsertSession,
+  sessionLabelFromText,
 } from "./utils";
 
 export type ChatRole = "user" | "agent";
@@ -144,6 +146,8 @@ export interface ChatState {
   refine: (feedbackText: string) => Promise<void>;
   cancel: () => void;
   reset: () => void;
+  startNewSession: () => void;
+  switchSession: (sessionId: string) => void;
   setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean }) => void;
   setCurrentUserId: (userId: string, options?: { silent?: boolean }) => void;
   loadPersonas: () => Promise<void>;
@@ -163,6 +167,8 @@ const initialState: Omit<
   | "refine"
   | "cancel"
   | "reset"
+  | "startNewSession"
+  | "switchSession"
   | "setPlannerMode"
   | "setCurrentUserId"
   | "loadPersonas"
@@ -268,6 +274,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }));
     arrivalCounter = 0;
 
+    // 持久化 session（首条消息时设 label = 用户输入摘要）
+    upsertSession({
+      id: get().sessionId,
+      label: sessionLabelFromText(trimmed),
+      lastMessageAt: Date.now(),
+    });
+
     await streamSse(
       `${API_BASE}/chat/turn`,
       {
@@ -300,6 +313,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   },
                 ],
               }));
+              upsertSession({
+                id: get().sessionId,
+                lastMessageAt: Date.now(),
+                lastSummary: text.slice(0, 80),
+              });
             }
           }
           set({ streaming: false });
@@ -463,6 +481,49 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
     // reset 后立刻刷一次场景缓存（loadScenarios 会复用 scenariosLoaded 跳过）
     void get().loadScenarios();
+  },
+
+  startNewSession: () => {
+    abortController?.abort();
+    const cur = get();
+    const newId = generateSessionId();
+    set({
+      ...initialState,
+      sessionId: newId,
+      plannerMode: cur.plannerMode,
+      currentUserId: cur.currentUserId,
+      personas: cur.personas,
+      personasLoaded: cur.personasLoaded,
+      preferences: cur.preferences,
+    });
+    upsertSession({
+      id: newId,
+      label: "新对话",
+      createdAt: Date.now(),
+      lastMessageAt: Date.now(),
+    });
+    get().pushToast({ kind: "info", text: "已开新会话" });
+    void get().loadScenarios();
+  },
+
+  switchSession: (sessionId) => {
+    if (!sessionId || sessionId === get().sessionId) return;
+    abortController?.abort();
+    const cur = get();
+    // 切换到目标 session：清前端中间过程，但保留 user 身份与场景缓存
+    // 后端 ConversationStore 按 session_id 隔离；当前实现里前端不从后端拉历史
+    // （v3 可加 GET /sessions/:id/messages 拉取，本次先实现切 id）
+    set({
+      ...initialState,
+      sessionId,
+      plannerMode: cur.plannerMode,
+      currentUserId: cur.currentUserId,
+      personas: cur.personas,
+      personasLoaded: cur.personasLoaded,
+      preferences: cur.preferences,
+    });
+    upsertSession({ id: sessionId, lastMessageAt: Date.now() });
+    get().pushToast({ kind: "info", text: "已切换会话" });
   },
 
   setPlannerMode: (mode, options) => {

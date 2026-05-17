@@ -45,6 +45,69 @@ export default function ChatDock() {
   const [mode, setMode] = useState<DockMode>("collapsed");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // ============================================================
+  // 拖动调整高度（A1）
+  //   - manualHeight=null：跟随 mode 自动高度（112 / 340）
+  //   - manualHeight=数字：用户拖过，覆盖自动逻辑
+  //   - 拖到 < 130 触发 snap → manualHeight=null + mode=collapsed
+  //   - 拖到 > viewport*0.7 截断
+  // ============================================================
+  const [manualHeight, setManualHeight] = useState<number | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+
+  const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startH =
+      manualHeight ?? (mode === "peek" ? 340 : 112);
+    dragRef.current = { startY: e.clientY, startH };
+    setIsDragging(true);
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const onMove = (e: PointerEvent) => {
+      const start = dragRef.current;
+      if (!start) return;
+      const delta = start.startY - e.clientY; // 向上拖 → 增高
+      const maxH = Math.max(260, Math.floor(window.innerHeight * 0.7));
+      const next = Math.min(maxH, Math.max(96, start.startH + delta));
+      setManualHeight(next);
+    };
+    const onUp = () => {
+      const cur = manualHeight;
+      // snap：拖到接近 collapsed → 释放回自动模式
+      if (cur != null && cur < 130) {
+        setManualHeight(null);
+        setMode("collapsed");
+      }
+      setIsDragging(false);
+      dragRef.current = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+  }, [isDragging, manualHeight]);
+
+  // 双击 handle 重置高度（manualHeight=null）
+  const onHandleDoubleClick = () => {
+    setManualHeight(null);
+  };
+
+  // 实际渲染高度
+  const renderHeight =
+    manualHeight != null
+      ? manualHeight
+      : mode === "peek"
+        ? 340
+        : 112;
+
   // streaming 时自动 peek（让评委看到 agent_thought / chitchat 流）
   // streaming 结束后回到用户最近选的状态（drawer 不动 / 否则 collapsed）
   useEffect(() => {
@@ -94,13 +157,38 @@ export default function ChatDock() {
       <div
         className={cn(
           "dock-glass fixed left-0 right-0 bottom-0 z-30",
-          "transition-[height,opacity] duration-300 ease-out",
+          isDragging
+            ? "transition-none"
+            : "transition-[height,opacity] duration-300 ease-out",
           mode === "drawer" && "opacity-0 pointer-events-none",
         )}
         style={{
-          height: mode === "peek" ? "340px" : "112px",
+          height: `${renderHeight}px`,
         }}
       >
+        {/* Drag handle：顶部 8px 横条，向上 / 向下拖改高度 */}
+        <div
+          className={cn(
+            "dock-handle absolute top-0 left-0 right-0 h-2 cursor-ns-resize",
+            "flex items-center justify-center group",
+            "select-none touch-none z-10",
+          )}
+          onPointerDown={onDragStart}
+          onDoubleClick={onHandleDoubleClick}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="拖动调整对话窗口高度（双击重置）"
+          title="拖动调整高度 · 双击重置"
+        >
+          <span
+            className={cn(
+              "block w-12 h-1 rounded-full",
+              "bg-white/[0.08] group-hover:bg-white/[0.18] transition-colors",
+              isDragging && "bg-brand-400/60",
+            )}
+          />
+        </div>
+
         {/* 顶部暖色发光线（streaming 时常显，否则只在 hover 时显） */}
         <div
           aria-hidden
@@ -111,9 +199,61 @@ export default function ChatDock() {
         />
 
         <div className="mx-auto max-w-7xl h-full px-4 sm:px-6 flex flex-col">
-          {/* peek 区：streaming 时显 chitchat + agent_thought 打字流 */}
-          {mode === "peek" && (
+          {/* peek 区：streaming 时显 chitchat + agent_thought 打字流；
+              手动拖大时（renderHeight > 180）也显示 */}
+          {(mode === "peek" || (manualHeight != null && manualHeight > 180)) && (
             <div className="flex-1 min-h-0 overflow-y-auto pt-3 pb-2 space-y-3 animate-fade-in">
+              {/* 手动拖大且无 streaming 内容时：展示最近对话预览 */}
+              {!streaming &&
+                !latestChitchat &&
+                thoughts.length === 0 &&
+                manualHeight != null &&
+                manualHeight > 180 && (
+                  <div className="space-y-2.5">
+                    {messages.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center text-center gap-2 py-6 text-ink-500">
+                        <Icons.spark
+                          className="w-5 h-5 text-brand-400/60"
+                          strokeWidth={1.5}
+                        />
+                        <span className="text-sm">还没有对话</span>
+                        <span className="text-xs">
+                          说一句你下午想做什么，或点上方的演示场景
+                        </span>
+                      </div>
+                    ) : (
+                      messages.slice(-6).map((m) => (
+                        <div
+                          key={m.id}
+                          className={cn(
+                            "flex animate-fade-in-up",
+                            m.role === "user" ? "justify-end" : "justify-start",
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "max-w-[80%] rounded-xl px-3 py-2 text-[13px] leading-relaxed tracking-tight",
+                              m.role === "user"
+                                ? "rounded-br-sm text-white"
+                                : "bg-white/[0.04] border border-white/[0.08] text-ink-800 rounded-bl-sm",
+                            )}
+                            style={
+                              m.role === "user"
+                                ? {
+                                    background:
+                                      "linear-gradient(135deg, #f97316 0%, #ec4899 100%)",
+                                  }
+                                : undefined
+                            }
+                          >
+                            {m.text}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
               {/* 暖心回话气泡（最新一条优先，超过 1 条点展开看全部） */}
               {latestChitchat && (
                 <ChitchatBubble payload={latestChitchat.payload} />
@@ -152,8 +292,10 @@ export default function ChatDock() {
             </div>
           )}
 
-          {/* collapsed 态：最新 agent 消息单行预览 */}
-          {mode === "collapsed" && (latestChitchat || latestAgent) && (
+          {/* collapsed 态：最新 agent 消息单行预览（仅在小高度时显示） */}
+          {mode === "collapsed" &&
+            (manualHeight == null || manualHeight <= 180) &&
+            (latestChitchat || latestAgent) && (
             <button
               type="button"
               onClick={() => setMode("drawer")}

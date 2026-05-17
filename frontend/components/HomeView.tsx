@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
-import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
+import {
+  generateSessionId,
+  getUserIdFromCookie,
+  upsertSession,
+} from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
 import ChatDock from "./ChatDock";
@@ -22,6 +26,7 @@ export default function HomeView() {
   const loadPersonas = useChatStore((s) => s.loadPersonas);
   const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const reset = useChatStore((s) => s.reset);
+  const startNewSession = useChatStore((s) => s.startNewSession);
   const sessionId = useChatStore((s) => s.sessionId);
   const openCommandPalette = useChatStore((s) => s.openCommandPalette);
 
@@ -30,7 +35,13 @@ export default function HomeView() {
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
-      useChatStore.setState({ sessionId: generateSessionId() });
+      const newId = generateSessionId();
+      useChatStore.setState({ sessionId: newId });
+      // 首次进站把当前 session 也注册进 localStorage 列表
+      upsertSession({ id: newId, label: "新对话", lastMessageAt: Date.now() });
+    } else {
+      // 后续刷新：保持当前 session 在 localStorage 里
+      upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
     const persisted = getUserIdFromCookie();
     if (persisted) {
@@ -125,7 +136,14 @@ export default function HomeView() {
             >
               {sessionId}
             </span>
-            <button className="btn-ghost" onClick={reset}>
+            <button
+              className="btn-ghost"
+              onClick={startNewSession}
+              title="开新会话（保留之前会话历史，可在命令面板切换）"
+            >
+              + 新会话
+            </button>
+            <button className="btn-ghost" onClick={reset} title="清空当前会话历史">
               重置
             </button>
           </div>

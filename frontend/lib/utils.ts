@@ -111,3 +111,86 @@ export function setUserIdCookie(userId: string): void {
   const oneYear = 60 * 60 * 24 * 365;
   document.cookie = `${USER_ID_COOKIE}=${encodeURIComponent(userId)}; Max-Age=${oneYear}; Path=/; SameSite=Lax`;
 }
+
+// ============================================================
+// Session 历史管理（多 session UI）
+//   - 用 localStorage 存最多 8 个 session 记录
+//   - 切 session 后端 ConversationStore 按 session_id 自动隔离上下文
+// ============================================================
+
+const SESSIONS_KEY = "shangwuju_sessions";
+const SESSIONS_MAX = 8;
+
+export interface SessionRecord {
+  id: string;
+  label: string;
+  createdAt: number;
+  lastMessageAt: number;
+  lastSummary?: string;
+}
+
+export function loadSessions(): SessionRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(SESSIONS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as SessionRecord[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((s) => s && typeof s.id === "string" && s.id.length > 0)
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+  } catch {
+    return [];
+  }
+}
+
+export function saveSessions(sessions: SessionRecord[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const trimmed = sessions
+      .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
+      .slice(0, SESSIONS_MAX);
+    window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(trimmed));
+  } catch {
+    // localStorage 满 / 私密模式 → 静默失败
+  }
+}
+
+export function upsertSession(record: Partial<SessionRecord> & { id: string }): SessionRecord {
+  const all = loadSessions();
+  const existing = all.find((s) => s.id === record.id);
+  const merged: SessionRecord = existing
+    ? {
+        ...existing,
+        ...record,
+        lastMessageAt: record.lastMessageAt ?? Date.now(),
+      }
+    : {
+        id: record.id,
+        label: record.label ?? sessionLabelFromId(record.id),
+        createdAt: record.createdAt ?? Date.now(),
+        lastMessageAt: record.lastMessageAt ?? Date.now(),
+        lastSummary: record.lastSummary,
+      };
+  const next = [merged, ...all.filter((s) => s.id !== record.id)];
+  saveSessions(next);
+  return merged;
+}
+
+export function removeSession(id: string): void {
+  saveSessions(loadSessions().filter((s) => s.id !== id));
+}
+
+/** session id 形如 sess_20260517_abc123 → 显示「05/17 abc123」 */
+export function sessionLabelFromId(id: string): string {
+  const m = id.match(/^sess_(\d{4})(\d{2})(\d{2})_(.+)$/);
+  if (m) return `${m[2]}/${m[3]} · ${m[4]}`;
+  return id.slice(0, 16);
+}
+
+/** 从一句用户输入生成 session label（≤14 字截断） */
+export function sessionLabelFromText(text: string): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  if (t.length <= 14) return t;
+  return t.slice(0, 14) + "…";
+}
