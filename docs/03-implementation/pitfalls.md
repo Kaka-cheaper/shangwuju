@@ -302,3 +302,32 @@
   4. **MIN_* 下限常量是潜在硬约束**：写代码时问"用户给的 duration 比这小怎么办？"
   5. **dining_slots 起点逻辑写死 main_minutes + 30 是另一种"5 段假设"残余**——任何"假设主活动一定存在"的代码都要按段数检查
 - **优先级**：P1（直接影响 demo 现场反馈环 + 第二次复发已暴露第一次修不彻底；前后两次问题都进 pitfalls 是为了记住"分多层防御"原则）
+
+
+### [P1] 2026-05-17 行程"段决策耦合 LLM 主观与算法客观"反模式（架构级根因）
+
+> 与 P1-2026-05-17 「5 段写死反模式」是同一根问题不同侧面：那条主要谈段集合，本条主要谈段决策的责任归属。
+
+- **现象**：用户说"只想吃饭"/"今晚夜宵"/"24h 营业餐厅"/"先吃饭再看展" → 现有 hybrid + rule planner 不论怎么调启发式都强加主活动 / 强行下午 14:00 起 / 段顺序写死 POI→餐厅。每出一个反例就在 `decide_segments` / `_resolve_time_window` 里加 if 分支，越改越 spaghetti。
+- **根因（架构级）**：
+  - 段决策（哪些段 / 段顺序 / 段时长 / 选哪个 target_id）是**主观的需求理解**，应由 LLM 决定
+  - 段验证（时序无重叠 / 营业时间覆盖 / 总时长不超）是**客观的物理约束**，应由算法决定
+  - 旧实现把段决策也放算法层（`decide_segments` 用 if/elif 枚举场景），违反 LLM-Modulo (Kambhampati NeurIPS 2024) 的「LLM 决主观、算法决客观」分工
+  - LLM 仅出意图 + 出权重，根本没机会决定段维度 → 启发式必然遗漏边界场景
+- **解法**：引入 PlanBlueprint 中间数据结构（`agent/blueprint.py`），让 LLM 出蓝图（段集合/顺序/时长/target_id 全开放），算法只跑 critic 验证客观约束。具体实现见 `agent/planner_llm_first.py` + `agent/prompts/blueprint_prompt.py`，详见 problem.md 问题 15。
+- **相关文件**：
+  - `backend/agent/blueprint.py`（PlanBlueprint + 3 critic）
+  - `backend/agent/blueprint_llm.py`（LLM 蓝图生成器）
+  - `backend/agent/planner_llm_first.py`（主流程 + critic backprompt 重试 + fallback 链）
+  - `backend/agent/assemble_blueprint.py`（蓝图→Itinerary 拼装）
+  - `backend/agent/prompts/blueprint_prompt.py`（蓝图生成 prompt）
+  - `backend/agent/planner.py` `_plan_with_llm_first` 适配器
+- **防再犯**（每条都是产品级要求）：
+  1. **新增任何"行程结构相关"维度前，先问"这是主观还是客观？"**：主观（哪些段 / 选哪个 target / 用什么文案）→ LLM；客观（时序重叠 / 营业时间 / 距离上限）→ algo
+  2. **绝不在算法层加 `if scene == "夜宵": ...` 类启发式**：所有场景区分由 LLM 看 raw_input + 候选预览自主决定
+  3. **Critic 反馈消息必须是自然语言**：让 LLM 能针对性修改（"段 X 与 Y 时序重叠：前者结束于 A，后者开始于 B"），不是 `OVERLAP_CODE_42`
+  4. **Fallback 链必须四级（LLM 重试 → hybrid → rule → 错误推流）**：每层都推 `agent_thought` 让评委可见
+  5. **PlanBlueprint 是 LLM 决策的所有维度**：段集合 / 段顺序 / 每段时长 / target_id 必须全在蓝图里。如果有维度没进蓝图（如餐厅时段、POI 物理 tag）就说明该维度被算法越权决定了
+  6. **测试覆盖必须含"反 5 段"场景**：单段 / 反序 / 24h 营业 / 极短时长 / 极长时长，每条至少 1 个 e2e 用例（参考 `backend/scripts/verify_llm_first.py` 4 场景）
+  7. **`PLANNER_LLM_STRATEGY` 切换默认值时要保证 fallback 链向后兼容**：本次 hybrid → llm_first 时，hybrid 仍可显式指定且通过 verify_planning 4 场景
+- **优先级**：P1（架构级；任何"段决策耦合主客观"的反模式都归到本条防再犯清单；hackathon 评分项 2 规划链路 25% 的核心）

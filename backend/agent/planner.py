@@ -1095,7 +1095,8 @@ def plan_itinerary_with_mode(
         显式参数 > PLANNER_MODE 环境变量 > "rule" 默认值
 
     LLM 模式内部由 PLANNER_LLM_STRATEGY 决定具体实现：
-        - "hybrid"           ：A+C 混合（ILS + Critic + LLM 决策；评分项 2 主推；默认）
+        - "llm_first"        ：LLM-First Planner（默认；产品级架构，参考 problem.md 问题 14）
+        - "hybrid"           ：A+C 混合（ILS + Critic + LLM 决策）
         - "function_calling" ：纯 LLM Function Calling 自主调 Tool（旧实现）
     任一 LLM 路径失败时自动 fallback 到 rule。
 
@@ -1132,14 +1133,17 @@ def plan_itinerary_with_mode(
             )
             return plan_itinerary(intent, tracer=tracer)
 
-        strategy = (os.getenv("PLANNER_LLM_STRATEGY", "hybrid") or "hybrid").strip().lower()
+        strategy = (os.getenv("PLANNER_LLM_STRATEGY", "llm_first") or "llm_first").strip().lower()
 
         if strategy == "function_calling":
             from .llm_planner import plan_itinerary_llm
             return plan_itinerary_llm(intent, client=client, tracer=tracer)
 
-        # 默认 hybrid：A+C 混合
-        return _plan_with_hybrid(intent, client=client, tracer=tracer)
+        if strategy == "hybrid":
+            return _plan_with_hybrid(intent, client=client, tracer=tracer)
+
+        # 默认 llm_first：LLM-First Planner（产品级架构）
+        return _plan_with_llm_first(intent, client=client, tracer=tracer)
 
     # 默认 rule
     return plan_itinerary(intent, tracer=tracer)
@@ -1258,3 +1262,46 @@ def _plan_with_hybrid(
         },
     )
     return plan_itinerary(intent, tracer=tracer)
+
+
+# ============================================================
+# LLM-First 适配器（problem.md 问题 14 / pitfalls.md P1-2026-05-17）
+# ============================================================
+
+def _plan_with_llm_first(
+    intent: IntentExtraction,
+    *,
+    client: Any,
+    tracer: Tracer,
+) -> PlannerResult:
+    """LLM-First Planner 主路径：候选搜索 → LLM 蓝图 → Critic → 拼装。
+
+    失败 fallback 链：
+    1. LLM 蓝图重试 N 次仍失败 → fallback hybrid
+    2. hybrid 失败 → fallback rule（保 demo 兜底）
+    """
+    from .planner_llm_first import plan_llm_first
+
+    # 入口防线（与 plan_itinerary 一致，确保 raw_input 兜底也对 llm_first 生效）
+    intent = _enforce_intent_duration_from_raw(intent, tracer)
+    tracer.emit("intent_parsed", payload=intent.model_dump())
+
+    result = plan_llm_first(intent, client=client, tracer=tracer)
+
+    if result.success and result.itinerary is not None:
+        tracer.emit("itinerary_ready", payload=result.itinerary.model_dump())
+        return PlannerResult(success=True, itinerary=result.itinerary, tracer=tracer)
+
+    # LLM-First 失败 → fallback hybrid
+    tracer.emit(
+        "agent_thought",
+        {
+            "text": (
+                f"LLM-First 规划失败：{result.failure_detail or '未知原因'}；"
+                "尝试切到 A+C 混合范式"
+            ),
+        },
+    )
+    hybrid_result = _plan_with_hybrid(intent, client=client, tracer=tracer)
+    return hybrid_result
+

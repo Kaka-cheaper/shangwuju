@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.8 输入域路由（LLM 前置分类器 + 暖心回话气泡）完成**（2026-05-17）
+**阶段**：**Phase 0.10.3 LLM-First Planner（产品级架构重构）完成**（2026-05-17）
 
 **MVP 状态**：
 
@@ -18,10 +18,11 @@
 | MVP-2.5  | 100% ✅    | LLM 客户端解耦（任意 OpenAI 兼容 base_url）                |
 | MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
 | MVP-3 输入域路由 | 100% ✅ | LLM 前置 6 类分类 + 暖心气泡 + 引导按钮（Phase 0.8）  |
+| MVP-3 LLM-First Planner | 100% ✅ | LLM 自主决段 + critic backprompt + 4 级 fallback（Phase 0.10.3）|
 | MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
-**测试矩阵**：155 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router = 205 全过
+**测试矩阵**：256 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router + 4 verify_llm_first = 310 全过
 
 ```
 | 套件                          | 通过项 |
@@ -36,15 +37,23 @@
 | 联调矩阵（A6）                 | 40/40  |
 | persona+memory（P0.7）         | 13/13  |
 | 输入域路由 router（P0.8）      | 14/14  |
-| 后端合计                       |155/155 |
+| segment_decider（P0.10.1）     | 22/22  |
+| 1h 反馈防御（P0.10.2）         | 21/21  |
+| Blueprint 数据结构（P0.10.3）  | 20/20  |
+| Blueprint LLM 生成（P0.10.3）  |  9/9   |
+| Blueprint 拼装（P0.10.3）      |  9/9   |
+| 后端合计                       |256/256 |
 | 前端 vitest（W3）              | 23/23  |
 | 前端 store 测试                |  7/7   |
 | B 的 verify_refine（双模式）    | 13/13  |
 | 路由端到端 verify_router        |  7/7   |
-| 总计                           |205/205 |
+| LLM-First 真 LLM e2e（P0.10.3）|  4/4   |
+| 总计                           |310/310 |
 ```
 
-**真 LLM 链路实测**：MimMo (mimo-v2.5-pro) 端到端浏览器实测全过——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 全部跑通
+**真 LLM 链路实测**：
+- MimMo (mimo-v2.5-pro) 端到端浏览器实测全过——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 全部跑通
+- LLM-First Planner 4 场景真 LLM 跑通：1h 反馈 73min/3 段 / 只想吃饭 19:00 用餐 / 独处沉浸 220min/3 段 / 家庭半日 250min/4 段
 
 **时间盒**：**1 个月**（3 人团队，至 2026-06-08 左右）
 
@@ -174,6 +183,22 @@
 - ✅ **13 项 persona+memory 测试** + 浏览器实测 persona 切换+确认下单+偏好累积全跑通
 - ✅ **CodeSee sync**（pending）：features.json 加 f-persona-prior + f-memory-learning
 
+**Round 5（W4 r5，2026-05-17）：LLM-First Planner（Phase 0.10.3，产品级架构重构）**
+
+- ✅ **诊断**：用户反馈"耦合还是有点严重"——hybrid 仍然是算法层用 `decide_segments` 启发式决定段集合，违反 LLM-Modulo「LLM 决主观、算法决客观」分工；用户场景"只想吃饭/夜宵/24h营业/反序"用 if 启发式枚举不完
+- ✅ **Commit 1 蓝图数据结构**：`agent/blueprint.py`（PlanBlueprint / BlueprintStage / BlueprintTargetKind / 3 critic：时序 / 时长 / 营业时间）；`tests/test_blueprint.py` 20 项✓
+- ✅ **Commit 2 LLM 蓝图生成器**：`agent/blueprint_llm.py`（generate_blueprint + build_candidate_preview + BlueprintGenError 围栏剥离 + 校验）；`agent/prompts/blueprint_prompt.py`（system prompt 强调段集合自由 + raw_input 精确数字必须遵守）；`tests/test_blueprint_llm.py` 9 项✓
+- ✅ **Commit 3 蓝图→Itinerary 拼装**：`agent/assemble_blueprint.py`（按 segments 自适应 summary）；`tests/test_assemble_blueprint.py` 9 项✓
+- ✅ **Commit 4 主流程**：`agent/planner_llm_first.py`（候选搜索 → LLM 蓝图 → critic backprompt 重试 ≤2 次 → 拼装）
+- ✅ **Commit 5 planner 集成**：`_plan_with_llm_first` 适配器；`PLANNER_LLM_STRATEGY` 默认 hybrid → llm_first；4 级 fallback 链 llm_first → hybrid → rule
+- ✅ **Commit 6 真 LLM e2e**：`scripts/verify_llm_first.py` 4 场景全过
+  - S1 1h 反馈 → 73min/3 段（出发→用餐→返回，不再硬加主活动）
+  - S2 只想吃饭 → 19:00 出发用餐方案，LLM 自主选晚餐时间，无主活动
+  - S3 独处沉浸 → 220min/3 段（出发→主活动→返回），LLM 自主决定不加用餐
+  - S4 家庭半日 → 250min/4 段（自动省略转场段路程缓冲）
+- ✅ **Commit 7 文档**：problem 问题 15 / pitfalls P1-2026-05-17-llm-first / progress D-llm-first / .env.example llm_first 选项
+- ✅ **测试矩阵**：256/256 pytest（含新增 38 项）+ verify_schemas 6/6 + verify_llm_first 4/4 真 LLM e2e
+
 **仍待开**：
 
 - ⬜ **现场演示录屏 3 版本**（B 录屏脚本 commit 8831805 已备好）
@@ -247,6 +272,26 @@
     - hybrid 路径检测到削段直接 fallback rule（ILS 假设 POI×餐厅 笛卡尔积）
     - 4 处测试断言从「硬要 5 段」改为「按 intent 期望」
     - 引申：未来加 segment 类型（如「下午茶」「city walk」「附加加购」）只需扩 `segment_decider`，无需改 planner / critics
+  - **后续被 D-llm-first 取代**：D-segments 仍然解决了 rule + hybrid 路径的"5 段写死"，但段决策仍是算法层用 if 启发式做。D-llm-first 把段决策完全交给 LLM；segment_decider 仅在 fallback 到 rule/hybrid 时使用。
+
+- **D-llm-first** [2026-05-17]：LLM-First Planner 取代 hybrid 作为 mode=llm 的默认实现
+  - 候选：A 维持 hybrid（LLM 出权重 + ILS 启发式 + critic）/ B LLM-First Planner（LLM 出蓝图 + critic backprompt + 拼装）/ C 让 LLM 直接 Function Calling 自由调 Tool
+  - 选择：B
+  - 理由：用户反馈"耦合还是有点严重"——hybrid 仍然是算法层用 `decide_segments` 启发式决定段集合，LLM 只出权重。这违反 LLM-Modulo (Kambhampati NeurIPS 2024) 「LLM 决主观、算法决客观」分工原则。用户场景里有大量反 5 段的需求（"只想吃饭" / "夜宵" / "24h 营业" / "先吃饭再看展" / "独处沉浸"），用 if 启发式枚举不完。引入 PlanBlueprint 中间数据结构作为 LLM 主观决策的契约，让 LLM 自主决定段集合 / 段顺序 / 每段时长 / target_id。详见 `pitfalls.md` P1-2026-05-17-llm-first 与 `problem.md` 问题 15。
+  - 影响：
+    - 新增 `backend/agent/blueprint.py`（PlanBlueprint 数据结构 + 3 个 critic：时序 / 时长 / 营业时间）
+    - 新增 `backend/agent/blueprint_llm.py`（LLM 蓝图生成器 + 围栏剥离 + Pydantic-style 校验 + critic backprompt 重试机制）
+    - 新增 `backend/agent/assemble_blueprint.py`（蓝图→Itinerary 拼装；纯函数）
+    - 新增 `backend/agent/planner_llm_first.py`（主流程：候选搜索 → LLM 蓝图 → critic backprompt（重试 ≤2 次）→ 拼装）
+    - 新增 `backend/agent/prompts/blueprint_prompt.py`（蓝图生成 system prompt + user message builder）
+    - 新增 `backend/scripts/verify_llm_first.py`（4 场景真 LLM e2e 验证脚本）
+    - `backend/agent/planner.py` 加 `_plan_with_llm_first` 适配器；`PLANNER_LLM_STRATEGY` 默认 hybrid → llm_first；fallback 链改为 llm_first → hybrid → rule
+    - `backend/.env.example` PLANNER_LLM_STRATEGY 注释加 `llm_first` 选项
+    - 测试矩阵：256/256 pytest 全过（含新增 38 项蓝图相关测试）+ verify_schemas 6/6 + verify_llm_first 4/4 真 LLM e2e
+    - 评分项 2（规划链路 25%）：是 LLM-Modulo 教科书级实现——LLM 出 candidate plan，外部 critic 验证，硬违规 backprompt 重生成
+    - 评分项 5（异常韧性 15%）：四级 fallback 链（LLM 蓝图重试 → hybrid → rule）让任何失败都有兜底
+    - 加新 segment 类型（夜跑 / 晨练 / city walk）→ 只改 prompt 不改代码
+  - 学术依据：LLM-Modulo (Kambhampati NeurIPS 2024) + ItiNera (EMNLP 2024) + LLM as Planning Backbone
 
 ## 五、更新规则
 
