@@ -331,3 +331,101 @@
   6. **测试覆盖必须含"反 5 段"场景**：单段 / 反序 / 24h 营业 / 极短时长 / 极长时长，每条至少 1 个 e2e 用例（参考 `backend/scripts/verify_llm_first.py` 4 场景）
   7. **`PLANNER_LLM_STRATEGY` 切换默认值时要保证 fallback 链向后兼容**：本次 hybrid → llm_first 时，hybrid 仍可显式指定且通过 verify_planning 4 场景
 - **优先级**：P1（架构级；任何"段决策耦合主客观"的反模式都归到本条防再犯清单；hackathon 评分项 2 规划链路 25% 的核心）
+
+
+### [P1] 2026-05-17 dock 直接反馈无上下文持久化（Phase 0.11 主修）
+
+- **现象**：用户在 dock 输入框打字"太远了 3 公里以内"，前端走 /chat/stream 触发**完整新规划**——LLM 看不到上一次给用户的方案，把反馈当成新需求重新意图解析。结果意图字段 distance_max_km 仍是默认 5km，POI 候选不变，重规划失败。
+- **根因（架构级）**：缺 conversation_id / message_history 概念；session 在内存只持单次方案，跨 turn 无 messages 累积。
+- **解法**：
+  - `agent/v2/conversation.py` 引入 ConversationState + ConversationStore（commit 81141cb）；后续重构成 ConversationRepository Protocol（commit e3767ca）+ InMemoryRepository（默认）+ RedisRepositoryStub（Milestone 2 接入点）
+  - `agent/v2/orchestrator.py` 加 looks_like_feedback / decide_turn_kind（旧路径用，启发式判断反馈 vs 新需求）
+  - `backend/main.py` 新增 POST `/chat/turn` 单一入口
+  - **彻底解**：D-react-unified 用 ReAct 单一 Agent，把 message_history 喂给 LLM，由 LLM 自主判断（无需启发式）
+- **相关文件**：
+  - `backend/agent/v2/conversation.py`（ConversationRepository Protocol + 向后兼容 ConversationStore 别名）
+  - `backend/agent/v2/orchestrator.py`（looks_like_feedback / decide_turn_kind / run_react_turn）
+  - `backend/main.py:461-540`（/chat/turn 端点 + USE_REACT_AGENT flag）
+  - `backend/agent/v2/react_agent.py`（unified_agent: Agent + message_history 跨 turn 持久化）
+- **防再犯**：
+  1. **任何"对话型"产品上线前先想 message_history 持久化**——session 不只持业务快照，还要持 ModelMessage list
+  2. **判断"反馈 vs 新需求"不应是启发式 if 关键词**——LLM 看到 raw_input + tool 结果就能自主分类
+  3. **持久化抽象一开始就上 Protocol**——demo 用 InMemory，MVP 切 Redis 时业务代码 0 改动
+  4. **跨 turn 字段不要静默丢失**：refiner 漂走 raw_input 已经是 P1 老坑（pitfalls 2026-05-17 P1）；ConversationState.messages 同等重要
+  5. **/chat/turn 必须有 fallback**：探活失败（import 错 / 配置错）自动回旧 router→planner / refiner 双路径，让 demo 不翻车
+- **优先级**：P1（直接影响 demo 现场反馈环；用户场景里"对话框输反馈"是最自然的交互路径）
+
+### [P2] 2026-05-17 MiMo Function Calling 嵌套 array of objects 边界（Phase 0.12 调试期）
+
+- **现象**：Pydantic AI 框架自动把 Tool Input 模型转成 OpenAI Function Schema，含嵌套 array of objects（如 `companions: [{age: 5, dietary: [...]}]`）。MiMo v2.5 Pro 在 ReAct 循环里偶尔把数组参数序列化成 JSON 字符串而不是真数组，导致 Pydantic AI 校验失败 → ModelRetry → 浪费 1-2 次重试预算。
+- **根因**：
+  - 不同 LLM 厂商对 nested array 的支持稳定性不一致；MiMo 文档声称支持但实际边界 case 会漂
+  - Pydantic AI 默认 strict 校验，看到 `"[1,2,3]"` 字符串而不是 `[1,2,3]` 数组直接抛
+- **解法**：
+  - `react_agent.py` 在 8 个 `@unified_agent.tool` 装饰函数顶部加 `_coerce_*` helper：检测到字符串入参先 `json.loads()` 再喂给 Pydantic 模型
+  - prompt 里加显式警示「数组参数必须用 JSON 数组形式 [...] 不是字符串 "[...]"」
+  - `_FlexibleItineraryResponse` 子类放宽 dietary / experience tag 词典外值的校验（log warning 而非 raise）
+- **相关文件**：
+  - `backend/agent/v2/react_agent.py` 8 个工具入参 `_coerce_*` helper
+  - `backend/agent/v2/output_types.py` `_FlexibleItineraryResponse` 子类
+  - `backend/agent/v2/react_agent.py` system prompt 嵌套数组警示段
+- **防再犯**：
+  1. **任何 LLM Function Calling 实现前先看 nested array of objects 是否稳**——单层数组通常稳，嵌套数组要测
+  2. **Pydantic AI / OpenAI SDK 默认 strict 校验**：写工具入参前看入参类型，给可能漂的字段加 `_coerce_*` 入口
+  3. **三层 MiMo 容错原则**：prompt 警示 + 入参 coerce + 输出 Flexible 子类，缺一不可
+  4. **ModelRetry 预算有限（默认 retries=3）**：每次解析失败就消耗一次，意味着 critic 真违规时可能只剩 1 次修复机会——尽量在前置层挡住不该走 retry 的失败
+- **优先级**：P2（不直接挂 demo，但会让 LLM 看似"傻"——本来一次能完成的规划要重试 2 次）
+
+### [P2] 2026-05-17 Pydantic AI ToolOutput vs PromptedOutput 区分（Phase 0.12 重构期）
+
+- **现象**：Agent E 第一版用 `output_type=ItineraryResponse` 单类型，发现 LLM 在闲聊场景被强行套用 ItineraryResponse schema 导致输出空 stages 列表（structurally valid 但语义失败）。
+- **根因**：Pydantic AI 的 `output_type` 是「最终回复的形态」契约，单类型时 LLM 必须填满所有必填字段；闲聊场景没有 stages / orders 等业务数据，但 schema 强制要求它们。
+- **解法**：
+  - `agent/v2/output_types.py` 用 `AgentOutput = Union[ChatResponse, ItineraryResponse]`
+  - LLM 在生成最终回复时自主选分支：闲聊/Q&A/拒答 → ChatResponse；完整规划 → ItineraryResponse
+  - 不需要外部分类器（router）来决定走哪个分支
+- **相关文件**：
+  - `backend/agent/v2/output_types.py`（ChatResponse / ItineraryResponse Union 定义）
+  - `backend/agent/v2/react_agent.py` `unified_agent: Agent[AgentDeps, AgentOutput]`
+- **防再犯**：
+  1. **Pydantic AI output_type 用 Union 避免单类型 over-constraint**——多形态对话产品天然就该是 Union
+  2. **LLM 自己选分支 > 外部分类器路由**：让 LLM 看 raw_input + tool 结果自主决策；router 只在「LLM 真不可用时走启发式 fallback」
+  3. **dc2fdae commit 教训**：第一版漏建 output_types.py 导致 react_agent.py import 失败——多文件 PR 时先建 stub 再填实现
+- **优先级**：P2（不影响 demo，但会让闲聊场景看上去很别扭）
+
+### [P2] 2026-05-17 verify_v2_turn 与 USE_REACT_AGENT flag 冲突（Phase 0.12 联调期）
+
+- **现象**：Agent C 提交 ConversationRepository（commit e3767ca）时 verify_v2_turn 通过，但 Agent G /chat/turn 接 ReAct 后（commit 330cc80）verify_v2_turn 在默认 USE_REACT_AGENT=1 路径下偶尔超时——因为旧 verify 期待的 stub 路径事件序列与 ReAct 路径不一致。
+- **根因**：multi-agent 并行重构时，C/G 各自基于自己的 owner 跑 verify，但端到端 verify 跨 owner 边界。C 的 verify_v2_turn 是基于旧 router→planner 双路径写的；G 的 USE_REACT_AGENT=1 改了底层路径，verify 没同步更新。
+- **解法**：
+  - 用户实测发现后，临时把 verify_v2_turn 设 `USE_REACT_AGENT=0` 显式跑旧路径再过
+  - 长期：写新 verify_v2_react.py（4 场景，跑 ReAct 路径），旧 verify_v2_turn 保留作为 fallback 路径回归测
+- **相关文件**：
+  - `backend/scripts/verify_v2_turn.py`（旧路径回归测，用 USE_REACT_AGENT=0）
+  - `backend/scripts/verify_v2_react.py`（新增，ReAct 路径 4 场景）
+- **防再犯**：
+  1. **端到端 verify 脚本必须显式声明依赖的 feature flag**：环境变量值变了 verify 行为可能完全不同
+  2. **multi-agent 并行重构时，跨 owner 的端到端 verify 应由协调者（用户/PM）维护**——不是某个 owner 私有
+  3. **新增 feature flag 默认 ON 时**：必须同步更新所有依赖该路径的 verify 脚本，否则 CI 会偶发挂
+- **优先级**：P2（multi-agent 并行重构特有问题；不影响 demo 跑通）
+
+### [P3] 2026-05-17 multi-agent 并行 ReAct 重构的协作纪律
+
+- **现象**：Phase 0.11/0.12 一次性开 7 个 Agent（A 改 schema/B 改抽象/C 改持久化/D 写文档/E 写 ReAct/F 写 critic/G 接 main.py）。Agent 边界严格独占（git diff --cached --stat 校验）但仍有冲突点：
+  - Agent E 漏建 output_types.py（commit dc2fdae 补漏）
+  - Agent D 写商业文档时引用 ToolProvider/observability 措辞超前于 B 实际实现
+  - Agent F critics_v2.py 与 Agent E react_agent.py 互相 try/import 兜底（防对方未合流时挂）
+- **根因**：multi-agent 时序耦合——A 完成顺序 vs commit 顺序 vs 用户合流顺序可能不同；下游 Agent 读上游产出时若上游还没 commit 就只能 stub。
+- **解法**：
+  - **接口先行**：每个 Agent 提示词内显式声明「我导出什么 / 我消费什么」；下游 Agent 用 try/import 兜底处理上游未合流
+  - **commit 范围闸**：每个 Agent commit 前 `git diff --cached --stat` 自查只动 owner 范围
+  - **写文档的 Agent 措辞「已就绪」需谨慎**：Agent D 第一版写 ToolProvider「已就绪」，发现实际由 Agent B 同步实现——若 B 失败会留空头支票。改为「Phase 0.11 落地」+ 文件路径，便于评委 grep 验证
+- **相关文件**：
+  - `docs/06-business/01-数据源切换路径.md`（措辞修正过）
+  - `backend/agent/v2/react_agent.py` critics_v2 try/import 兜底
+- **防再犯**：
+  1. **multi-agent 并行重构 ≥ 5 个 Agent 时**：必须先画出依赖图，按 topological 顺序合流
+  2. **「commit 顺序 ≠ 实现顺序」**：先 commit 的 Agent 不一定先实现完；下游用 try/import 兜底
+  3. **跨 owner 引用文档**：写「已实现」时附文件路径让评委可验证；写「Phase X 落地」时同步说明在哪个 commit
+  4. **Agent E/F 互相依赖的特殊处理**：双方 try/import 兜底；commit 时哪个先合都不破
+- **优先级**：P3（流程优化；不影响代码功能）

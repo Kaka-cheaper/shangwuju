@@ -2,7 +2,7 @@
   "version": "0",
   "manifest": {
     "repo": "shangwuju",
-    "generated_at": "2026-05-17T18:00:00Z",
+    "generated_at": "2026-05-17T22:30:00Z",
     "generator": "ai@claude-opus-4.7",
     "lang": "zh-CN"
   },
@@ -145,9 +145,9 @@
         { "from": "fill_default", "to": "output", "kind": "next" }
       ],
       "refs": [
-        { "file": "backend/agent/intent_parser.py", "lines": [1, 130] },
-        { "file": "backend/agent/prompts/system_prompt.py", "lines": [50, 130] },
-        { "file": "backend/schemas/intent.py", "lines": [1, 110] }
+        { "file": "backend/agent/intent_parser.py", "lines": [1, 135] },
+        { "file": "backend/agent/prompts/system_prompt.py", "lines": [50, 247] },
+        { "file": "backend/schemas/intent.py", "lines": [1, 132] }
       ],
       "confidence": 0.85,
       "provenance": "ai",
@@ -367,10 +367,10 @@
         { "from": "assemble_stages", "to": "output", "kind": "next" }
       ],
       "refs": [
-        { "file": "backend/agent/planner.py", "lines": [80, 200] },
-        { "file": "backend/agent/trace.py", "lines": [1, 60] },
-        { "file": "backend/schemas/itinerary.py", "lines": [1, 70] },
-        { "file": "backend/tests/test_8_scenarios.py", "lines": [1, 220] }
+        { "file": "backend/agent/planner.py", "lines": [80, 400] },
+        { "file": "backend/agent/trace.py" },
+        { "file": "backend/schemas/itinerary.py" },
+        { "file": "backend/tests/test_8_scenarios.py" }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -421,27 +421,38 @@
     {
       "id": "f-user-confirm",
       "name": "用户确认",
-      "summary": "MVP-2 加入：方案展示后等用户点确认才下发执行类 Tool",
+      "summary": "方案展示后等用户点确认才下发执行类 Tool（reserve_restaurant + buy_ticket + generate_share_message）；三按钮（确认/反馈/取消）+ SSE 流式推送执行结果",
       "epicId": "execution",
       "triggers": [
-        { "kind": "ui", "detail": "用户在行程卡片点击「确认」按钮" }
+        { "kind": "ui", "detail": "用户在行程卡片点击「确认并预约」按钮" },
+        { "kind": "http", "detail": "POST /chat/confirm" }
       ],
       "steps": [
         { "id": "show", "name": "展示方案卡片", "role": "output" },
         { "id": "wait", "name": "等待用户操作", "role": "input" },
         { "id": "dispatch", "name": "派发执行类 Tool", "role": "side-effect" },
-        { "id": "cancel", "name": "用户取消方案", "role": "error" }
+        { "id": "emit_orders", "name": "推送订单结果", "role": "output" },
+        { "id": "emit_share", "name": "推送转发文案", "role": "output" },
+        { "id": "cancel", "name": "用户取消方案", "role": "error" },
+        { "id": "feedback", "name": "用户点反馈按钮", "role": "input" }
       ],
       "flow": [
         { "from": "show", "to": "wait", "kind": "next" },
         { "from": "wait", "to": "dispatch", "kind": "conditional", "condition": "用户点确认" },
-        { "from": "wait", "to": "cancel", "kind": "error", "condition": "用户点拒绝或关闭" }
+        { "from": "wait", "to": "cancel", "kind": "error", "condition": "用户点取消方案" },
+        { "from": "wait", "to": "feedback", "kind": "conditional", "condition": "用户点我说说哪不对" },
+        { "from": "dispatch", "to": "emit_orders", "kind": "next" },
+        { "from": "emit_orders", "to": "emit_share", "kind": "next" }
       ],
-      "refs": [],
-      "confidence": 0.3,
+      "refs": [
+        { "file": "backend/main.py", "lines": [230, 460] },
+        { "file": "frontend/components/ItineraryCard.tsx", "lines": [300, 473] },
+        { "file": "frontend/lib/store.ts", "lines": [200, 310] }
+      ],
+      "confidence": 0.9,
       "provenance": "ai",
-      "tags": ["planned", "v2"],
-      "updated_at": "2026-05-16T00:00:00Z"
+      "tags": [],
+      "updated_at": "2026-05-18T00:00:00Z"
     },
     {
       "id": "f-reserve-restaurant",
@@ -645,7 +656,7 @@
           "refs": [
             { "file": "frontend/lib/sse.ts", "lines": [180, 215] },
             { "file": "frontend/lib/utils.ts", "lines": [44, 70] },
-            { "file": "frontend/components/ChatPanel.tsx", "lines": [70, 82] }
+            { "file": "frontend/components/ChatDock.tsx", "lines": [200, 280] }
           ]
         }
       ],
@@ -668,7 +679,7 @@
         { "file": "frontend/lib/utils.ts" },
         { "file": "frontend/components/ToolTracePanel.tsx" },
         { "file": "frontend/components/IntentSummary.tsx" },
-        { "file": "frontend/components/ChatPanel.tsx" }
+        { "file": "frontend/components/ChatDock.tsx" }
       ],
       "confidence": 0.95,
       "provenance": "ai",
@@ -833,11 +844,11 @@
       "refs": [
         { "file": "backend/main.py", "lines": [180, 230] },
         { "file": "backend/main.py", "lines": [560, 700] },
-        { "file": "backend/schemas/refine.py", "lines": [1, 70] },
-        { "file": "backend/scripts/verify_refine.py", "lines": [1, 220] },
-        { "file": "backend/agent/refiner.py", "lines": [1, 230] },
-        { "file": "backend/agent/prompts/refiner_prompt.py", "lines": [1, 162] },
-        { "file": "backend/tests/test_refiner.py", "lines": [1, 110] }
+        { "file": "backend/schemas/refine.py" },
+        { "file": "backend/scripts/verify_refine.py" },
+        { "file": "backend/agent/refiner.py", "lines": [1, 293] },
+        { "file": "backend/agent/prompts/refiner_prompt.py", "lines": [1, 148] },
+        { "file": "backend/tests/test_refiner.py" }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -1392,7 +1403,7 @@
           "note": "tone-amber/sky/rose/emerald 4 套配色；引导按钮点击重入 sendMessage",
           "refs": [
             { "file": "frontend/components/ChitchatBubble.tsx" },
-            { "file": "frontend/components/ChatPanel.tsx", "lines": [55, 80] }
+            { "file": "frontend/components/ChatDock.tsx", "lines": [300, 380] }
           ]
         },
         {
@@ -1413,9 +1424,9 @@
       ],
       "refs": [
         { "file": "backend/schemas/router.py" },
-        { "file": "backend/agent/router.py" },
-        { "file": "backend/agent/prompts/router_prompt.py" },
-        { "file": "backend/main.py", "lines": [1370, 1545] },
+        { "file": "backend/agent/router.py", "lines": [1, 142] },
+        { "file": "backend/agent/prompts/router_prompt.py", "lines": [1, 153] },
+        { "file": "backend/main.py", "lines": [1370, 1575] },
         { "file": "backend/tests/test_router.py" },
         { "file": "backend/scripts/verify_router.py" },
         { "file": "frontend/components/ChitchatBubble.tsx" },
@@ -1502,6 +1513,247 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-17T18:00:00Z"
+    },
+    {
+      "id": "f-react-unified-agent",
+      "name": "ReAct 单一 Agent",
+      "summary": "Pydantic AI Agent 实例 unified_agent: Agent[AgentDeps, AgentOutput]，让 LLM 看到全部 8 工具自主决策何时调用；output_type=Union[ChatResponse, ItineraryResponse] 让 LLM 自选输出形态；critics_v2 通过 output_validator 兜底，critical 违规 ModelRetry 让 LLM 自纠错（LLM-Modulo 范式）。三层 MiMo 容错：prompt 警示 + 入参 _coerce_* + _FlexibleItineraryResponse 子类（Phase 0.12 主菜）",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "/chat/turn 在 USE_REACT_AGENT=1（默认）时调 run_react_turn 拦截 unified_agent.iter()" }
+      ],
+      "steps": [
+        { "id": "load_history", "name": "取消息历史", "role": "data-read" },
+        { "id": "bind_context", "name": "绑定用户与会话", "role": "compute" },
+        { "id": "react_loop", "name": "ReAct 循环", "role": "compute" },
+        { "id": "tool_call", "name": "调用工具", "role": "side-effect" },
+        { "id": "output_validate", "name": "兜底校验", "role": "validation" },
+        { "id": "model_retry", "name": "违规重试", "role": "compute" },
+        { "id": "select_branch", "name": "自选输出分支", "role": "compute" },
+        { "id": "emit_chat", "name": "推送闲聊回应", "role": "output" },
+        { "id": "emit_itinerary", "name": "推送行程方案", "role": "output" },
+        { "id": "fail_retries", "name": "重试用尽报错", "role": "error" }
+      ],
+      "flow": [
+        { "from": "load_history", "to": "bind_context", "kind": "next" },
+        { "from": "bind_context", "to": "react_loop", "kind": "next" },
+        { "from": "react_loop", "to": "tool_call", "kind": "loop", "condition": "LLM 自主决定调工具" },
+        { "from": "tool_call", "to": "react_loop", "kind": "next", "condition": "Tool 结果回写 messages" },
+        { "from": "react_loop", "to": "output_validate", "kind": "conditional", "condition": "LLM 给出最终回复" },
+        { "from": "output_validate", "to": "model_retry", "kind": "error", "condition": "存在 critical 违规且 retries < 3" },
+        { "from": "model_retry", "to": "react_loop", "kind": "loop" },
+        { "from": "output_validate", "to": "select_branch", "kind": "conditional", "condition": "无 critical 违规或仅 warning" },
+        { "from": "select_branch", "to": "emit_chat", "kind": "conditional", "condition": "ChatResponse 分支" },
+        { "from": "select_branch", "to": "emit_itinerary", "kind": "conditional", "condition": "ItineraryResponse 分支" },
+        { "from": "output_validate", "to": "fail_retries", "kind": "error", "condition": "retries 用尽" }
+      ],
+      "refs": [
+        { "file": "backend/agent/v2/react_agent.py", "lines": [1, 779] },
+        { "file": "backend/agent/v2/output_types.py", "lines": [1, 130] },
+        { "file": "backend/agent/v2/deps.py", "lines": [1, 50] },
+        { "file": "backend/agent/v2/model_factory.py", "lines": [1, 80] },
+        { "file": "backend/scripts/verify_react_agent.py" },
+        { "file": "backend/scripts/verify_v2_react.py" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-critics-v2",
+      "name": "ReAct Critic 兜底层",
+      "summary": "validate_itinerary 7 类 ViolationCode + 2 级 Severity；critical 违规通过 output_validator 触发 ModelRetry；warning 仅 log 不重做。LLM-Modulo (Kambhampati NeurIPS 2024) 闭环。与 agent/critics.py（旧规则 critic 给 hybrid 用）解耦。",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "f-react-unified-agent output_validator 自动调用" }
+      ],
+      "steps": [
+        { "id": "receive_output", "name": "接收 LLM 输出", "role": "input" },
+        { "id": "branch_chat", "name": "闲聊分支跳过", "role": "compute" },
+        { "id": "check_duration", "name": "查时长区间", "role": "validation" },
+        { "id": "check_distance", "name": "查距离上限", "role": "validation" },
+        { "id": "check_stages", "name": "查段集合完整", "role": "validation" },
+        { "id": "check_restaurant_full", "name": "查餐厅满座是否解决", "role": "validation" },
+        { "id": "check_timeline", "name": "查时序无重叠", "role": "validation" },
+        { "id": "check_social", "name": "查同行调性", "role": "validation" },
+        { "id": "check_dietary", "name": "查饮食词典", "role": "validation" },
+        { "id": "format_for_llm", "name": "格式化反馈给模型", "role": "transform" },
+        { "id": "raise_retry", "name": "抛出重试信号", "role": "error" },
+        { "id": "pass_through", "name": "通过返回", "role": "output" }
+      ],
+      "flow": [
+        { "from": "receive_output", "to": "branch_chat", "kind": "conditional", "condition": "ChatResponse 分支" },
+        { "from": "branch_chat", "to": "pass_through", "kind": "next" },
+        { "from": "receive_output", "to": "check_duration", "kind": "conditional", "condition": "ItineraryResponse 分支" },
+        { "from": "check_duration", "to": "check_distance", "kind": "next" },
+        { "from": "check_distance", "to": "check_stages", "kind": "next" },
+        { "from": "check_stages", "to": "check_restaurant_full", "kind": "next" },
+        { "from": "check_restaurant_full", "to": "check_timeline", "kind": "next" },
+        { "from": "check_timeline", "to": "check_social", "kind": "next" },
+        { "from": "check_social", "to": "check_dietary", "kind": "next" },
+        { "from": "check_dietary", "to": "format_for_llm", "kind": "conditional", "condition": "存在 critical 违规" },
+        { "from": "format_for_llm", "to": "raise_retry", "kind": "next" },
+        { "from": "check_dietary", "to": "pass_through", "kind": "conditional", "condition": "无 critical 违规" }
+      ],
+      "refs": [
+        { "file": "backend/agent/v2/critics_v2.py", "lines": [1, 406] },
+        { "file": "backend/tests/test_critics_v2.py" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-conversation-repo",
+      "name": "对话历史持久化",
+      "summary": "ConversationRepository Protocol（@runtime_checkable）+ InMemoryRepository（demo 默认）+ RedisRepositoryStub（Milestone 2 接入点，5 写方法抛 NotImplementedError）；SESSION_STORE=memory|redis 工厂解析；旧名 ConversationStore = InMemoryRepository 别名向后兼容。Phase 0.11 主菜：解决「dock 直接反馈无上下文」根因——跨 turn 持久化 Pydantic AI ModelMessage list 喂回 unified_agent 让 LLM 自主判断反馈 vs 新需求。",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "event", "detail": "main.py / orchestrator.py / react_agent.py 通过 get_default_repo() 获取单例" }
+      ],
+      "steps": [
+        { "id": "resolve_backend", "name": "解析存储后端", "role": "compute" },
+        { "id": "instantiate", "name": "实例化对应仓库", "role": "data-read" },
+        { "id": "load_state", "name": "读对话状态", "role": "data-read" },
+        { "id": "append_message", "name": "追加消息", "role": "data-write" },
+        { "id": "save_intent", "name": "持久化意图快照", "role": "data-write" },
+        { "id": "save_itinerary", "name": "持久化行程快照", "role": "data-write" },
+        { "id": "fail_invalid_backend", "name": "非法后端报错", "role": "error" },
+        { "id": "fail_redis_not_impl", "name": "Redis 桩友好抛错", "role": "error" }
+      ],
+      "flow": [
+        { "from": "resolve_backend", "to": "instantiate", "kind": "conditional", "condition": "backend ∈ {memory, redis}" },
+        { "from": "resolve_backend", "to": "fail_invalid_backend", "kind": "error", "condition": "非法值" },
+        { "from": "instantiate", "to": "load_state", "kind": "next" },
+        { "from": "load_state", "to": "append_message", "kind": "next" },
+        { "from": "append_message", "to": "save_intent", "kind": "async", "condition": "意图变化" },
+        { "from": "append_message", "to": "save_itinerary", "kind": "async", "condition": "行程变化" },
+        { "from": "instantiate", "to": "fail_redis_not_impl", "kind": "error", "condition": "SESSION_STORE=redis 当前 stub 未实现" }
+      ],
+      "refs": [
+        { "file": "backend/agent/v2/conversation.py", "lines": [1, 207] },
+        { "file": "backend/scripts/verify_repository.py" },
+        { "file": "backend/.env.example", "lines": [70, 90] },
+        { "file": "docs/06-business/02-持久化演进.md" }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-tool-provider",
+      "name": "工具数据源抽象",
+      "summary": "ToolProvider Protocol 锁死 8 工具签名；MockToolProvider 走 backend/tools/ + mock_data/（asyncio.to_thread 包同步 Tool）；GaodeToolProviderStub / DianpingToolProviderStub 抛友好 NotImplementedError 含接入指引。DATA_PROVIDER=mock|gaode|dianping 工厂切换，业务代码 0 改动。Phase 0.11 商业演进抽象层。",
+      "epicId": "discovery",
+      "triggers": [
+        { "kind": "event", "detail": "f-react-unified-agent 8 工具调用通过 get_tool_provider() 获取实例" }
+      ],
+      "steps": [
+        { "id": "resolve_provider", "name": "解析数据源", "role": "compute" },
+        { "id": "instantiate", "name": "实例化对应实现", "role": "data-read" },
+        { "id": "delegate", "name": "委托工具调用", "role": "side-effect" },
+        { "id": "wrap_async", "name": "异步包装同步调用", "role": "compute" },
+        { "id": "fail_stub", "name": "桩实现抛未实现", "role": "error" }
+      ],
+      "flow": [
+        { "from": "resolve_provider", "to": "instantiate", "kind": "next" },
+        { "from": "instantiate", "to": "delegate", "kind": "conditional", "condition": "DATA_PROVIDER=mock" },
+        { "from": "delegate", "to": "wrap_async", "kind": "next" },
+        { "from": "instantiate", "to": "fail_stub", "kind": "error", "condition": "DATA_PROVIDER=gaode|dianping 当前 stub 未实现" }
+      ],
+      "refs": [
+        { "file": "backend/agent/v2/tool_provider.py", "lines": [1, 240] },
+        { "file": "backend/scripts/verify_tool_provider.py" },
+        { "file": "backend/.env.example", "lines": [40, 60] },
+        { "file": "docs/06-business/01-数据源切换路径.md" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-observability",
+      "name": "结构化日志与追踪",
+      "summary": "structlog 幂等配置 + LOG_FORMAT=text|json 切换；get_logger / bind_session_context / clear_session_context / trace_span 上下文管理器。每个 v2 模块拿独立 logger，trace_span 记 start/end + 耗时 + 异常 error_type。商业演进路径：Demo 文本 → MVP JSON 喂 Sentry/Logfire/Loki → 真产品对接 OpenTelemetry。Phase 0.11 抽象层。",
+      "epicId": "sharing",
+      "triggers": [
+        { "kind": "event", "detail": "v2 模块 get_logger(__name__) 时按需配置；每个工具调用 trace_span(name) 包裹" }
+      ],
+      "steps": [
+        { "id": "configure_once", "name": "幂等配置日志", "role": "compute" },
+        { "id": "get_logger", "name": "拿模块级日志器", "role": "data-read" },
+        { "id": "bind_context", "name": "绑定会话上下文", "role": "compute" },
+        { "id": "trace_open", "name": "开启追踪计时", "role": "side-effect" },
+        { "id": "trace_close", "name": "关闭追踪记耗时", "role": "side-effect" },
+        { "id": "log_event", "name": "记录业务事件", "role": "output" },
+        { "id": "log_error", "name": "异常重抛并记录", "role": "error" }
+      ],
+      "flow": [
+        { "from": "configure_once", "to": "get_logger", "kind": "next" },
+        { "from": "get_logger", "to": "bind_context", "kind": "conditional", "condition": "请求开始时绑定" },
+        { "from": "bind_context", "to": "trace_open", "kind": "next" },
+        { "from": "trace_open", "to": "log_event", "kind": "next" },
+        { "from": "log_event", "to": "trace_close", "kind": "conditional", "condition": "正常完成" },
+        { "from": "trace_open", "to": "log_error", "kind": "error", "condition": "trace_span 内异常" }
+      ],
+      "refs": [
+        { "file": "backend/agent/v2/observability.py", "lines": [1, 132] },
+        { "file": "backend/.env.example", "lines": [60, 70] },
+        { "file": "docs/06-business/03-观测性骨架.md" }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-chat-turn-endpoint",
+      "name": "/chat/turn 单一对话入口",
+      "summary": "POST /chat/turn 单一入口：USE_REACT_AGENT=1（默认）走 ReAct 单一 Agent，探活失败自动 fallback 旧 router→planner / refiner 双路径（demo 安全兜底）。前端 dock 直接输入反馈走这里——LLM 看 message_history 自主判断反馈 vs 新需求，无需启发式 looks_like_feedback。Phase 0.11/0.12 整合接入点。",
+      "epicId": "input",
+      "triggers": [
+        { "kind": "http", "detail": "POST /chat/turn" },
+        { "kind": "ui", "detail": "前端 dock 玻璃浮窗输入框提交任意消息" }
+      ],
+      "steps": [
+        { "id": "receive_request", "name": "接收请求体", "role": "input" },
+        { "id": "resolve_user", "name": "解析用户身份", "role": "compute" },
+        { "id": "check_flag", "name": "判模式开关", "role": "validation" },
+        { "id": "import_probe", "name": "探活模型代理", "role": "validation" },
+        { "id": "react_path", "name": "走单一代理路径", "role": "side-effect" },
+        { "id": "decide_old", "name": "判反馈或新需求", "role": "compute" },
+        { "id": "old_planner", "name": "走旧规划路径", "role": "side-effect" },
+        { "id": "old_refiner", "name": "走旧反馈路径", "role": "side-effect" },
+        { "id": "stream_sse", "name": "推送事件序列", "role": "output" },
+        { "id": "fail_validate", "name": "请求体校验失败", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive_request", "to": "resolve_user", "kind": "conditional", "condition": "请求体合法" },
+        { "from": "receive_request", "to": "fail_validate", "kind": "error", "condition": "message 空 / 超长" },
+        { "from": "resolve_user", "to": "check_flag", "kind": "next" },
+        { "from": "check_flag", "to": "import_probe", "kind": "conditional", "condition": "USE_REACT_AGENT=1（默认）" },
+        { "from": "import_probe", "to": "react_path", "kind": "conditional", "condition": "import 成功" },
+        { "from": "import_probe", "to": "decide_old", "kind": "error", "condition": "import 失败 → fallback 旧路径" },
+        { "from": "check_flag", "to": "decide_old", "kind": "conditional", "condition": "USE_REACT_AGENT=0" },
+        { "from": "decide_old", "to": "old_planner", "kind": "conditional", "condition": "decide_turn_kind=new_request" },
+        { "from": "decide_old", "to": "old_refiner", "kind": "conditional", "condition": "decide_turn_kind=feedback" },
+        { "from": "react_path", "to": "stream_sse", "kind": "next" },
+        { "from": "old_planner", "to": "stream_sse", "kind": "next" },
+        { "from": "old_refiner", "to": "stream_sse", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/main.py", "lines": [461, 540] },
+        { "file": "backend/agent/v2/orchestrator.py", "lines": [1, 554] },
+        { "file": "backend/api_contract.md", "lines": [225, 345] }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T22:00:00Z"
     }
   ],
   "cross_feature": [
@@ -1575,7 +1827,26 @@
     { "from": "f-llm-planner", "to": "f-llm-first-planner", "kind": "depends_on", "note": "PLANNER_LLM_STRATEGY=llm_first 时分发" },
     { "from": "f-llm-first-planner", "to": "f-blueprint-critics", "kind": "depends_on", "note": "蓝图生成后强制走 critic 验证" },
     { "from": "f-blueprint-critics", "to": "f-llm-first-planner", "kind": "publishes", "note": "硬违规 → backprompt 反馈给 LLM 重生成" },
-    { "from": "f-llm-first-planner", "to": "f-hybrid-planner", "kind": "triggers", "note": "LLM-First 重试用尽时 fallback 到 hybrid" }
+    { "from": "f-llm-first-planner", "to": "f-hybrid-planner", "kind": "triggers", "note": "LLM-First 重试用尽时 fallback 到 hybrid" },
+    { "from": "f-chat-turn-endpoint", "to": "f-react-unified-agent", "kind": "triggers", "note": "USE_REACT_AGENT=1 走 ReAct 单一 Agent 路径" },
+    { "from": "f-chat-turn-endpoint", "to": "f-input-router", "kind": "triggers", "note": "USE_REACT_AGENT=0 / 探活失败时 fallback 旧 router 路径" },
+    { "from": "f-chat-turn-endpoint", "to": "f-refine-replan", "kind": "triggers", "note": "旧路径 decide_turn_kind=feedback 时走 refiner 反馈" },
+    { "from": "f-react-unified-agent", "to": "f-conversation-repo", "kind": "depends_on", "note": "通过 message_history 跨 turn 持久化" },
+    { "from": "f-react-unified-agent", "to": "f-tool-provider", "kind": "depends_on", "note": "8 工具调用全部委托 ToolProvider 实例" },
+    { "from": "f-react-unified-agent", "to": "f-observability", "kind": "depends_on", "note": "trace_span 包每个工具调用 + bind_session_context" },
+    { "from": "f-react-unified-agent", "to": "f-critics-v2", "kind": "depends_on", "note": "output_validator 接 critics_v2.validate_itinerary" },
+    { "from": "f-critics-v2", "to": "f-react-unified-agent", "kind": "publishes", "note": "critical 违规 ModelRetry 让 LLM 自纠错" },
+    { "from": "f-tool-provider", "to": "f-search-pois", "kind": "depends_on", "note": "MockToolProvider 委托 backend/tools/ 真 Tool 实现" },
+    { "from": "f-tool-provider", "to": "f-search-restaurants", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-check-availability", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-estimate-route", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-reserve-restaurant", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-buy-ticket", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-share-message", "kind": "depends_on", "note": "同上" },
+    { "from": "f-tool-provider", "to": "f-user-profile", "kind": "depends_on", "note": "同上" },
+    { "from": "f-conversation-repo", "to": "f-persona-prior", "kind": "depends_on", "note": "user_id 透传到 persona prior 注入" },
+    { "from": "f-react-unified-agent", "to": "f-tool-trace", "kind": "publishes", "note": "ReAct 循环工具调用事件推前端" },
+    { "from": "f-react-unified-agent", "to": "f-itinerary-card", "kind": "publishes", "note": "ItineraryResponse 分支推方案卡片" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },

@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.10.3 LLM-First Planner（产品级架构重构）完成**（2026-05-17）
+**阶段**：**Phase 0.11/0.12 ReAct 单一 Agent + 商业演进抽象层（multi-agent 并行重构）完成**（2026-05-17）
 
 **MVP 状态**：
 
@@ -19,10 +19,12 @@
 | MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
 | MVP-3 输入域路由 | 100% ✅ | LLM 前置 6 类分类 + 暖心气泡 + 引导按钮（Phase 0.8）  |
 | MVP-3 LLM-First Planner | 100% ✅ | LLM 自主决段 + critic backprompt + 4 级 fallback（Phase 0.10.3）|
+| MVP-3 ReAct 单一 Agent | 100% ✅ | LLM 看全部 8 工具自主决策 + critic 兜底（Phase 0.12）|
+| MVP-3 商业抽象层 | 100% ✅ | ToolProvider / ConversationRepository / observability 三层骨架（Phase 0.11）|
 | MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
-**测试矩阵**：256 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router + 4 verify_llm_first = 310 全过
+**测试矩阵**：267 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router + 4 verify_llm_first + 5 verify_react_agent + 5 verify_v2_react = 331 全过
 
 ```
 | 套件                          | 通过项 |
@@ -42,18 +44,22 @@
 | Blueprint 数据结构（P0.10.3）  | 20/20  |
 | Blueprint LLM 生成（P0.10.3）  |  9/9   |
 | Blueprint 拼装（P0.10.3）      |  9/9   |
-| 后端合计                       |256/256 |
+| critics_v2 单测（P0.12）        | 11/11  |
+| 后端合计                       |267/267 |
 | 前端 vitest（W3）              | 23/23  |
 | 前端 store 测试                |  7/7   |
 | B 的 verify_refine（双模式）    | 13/13  |
 | 路由端到端 verify_router        |  7/7   |
 | LLM-First 真 LLM e2e（P0.10.3）|  4/4   |
-| 总计                           |310/310 |
+| ReAct Agent 真 LLM e2e（P0.12）|  5/5   |
+| /chat/turn ReAct e2e（P0.12） |  4/4   |
+| 总计                           |331/331 |
 ```
 
 **真 LLM 链路实测**：
 - MimMo (mimo-v2.5-pro) 端到端浏览器实测全过——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 全部跑通
 - LLM-First Planner 4 场景真 LLM 跑通：1h 反馈 73min/3 段 / 只想吃饭 19:00 用餐 / 独处沉浸 220min/3 段 / 家庭半日 250min/4 段
+- **ReAct 单一 Agent 4 场景真 LLM 跑通（Phase 0.12）**：闲聊不调工具 / POI Q&A 调 search_pois / 完整规划 11 工具调用 / dock 反馈"太远了 3km"自动识别（不再需要前端区分对话框 vs 反馈按钮）；烟花 64 粒子完整 1.78s 生命周期
 
 **时间盒**：**1 个月**（3 人团队，至 2026-06-08 左右）
 
@@ -204,6 +210,61 @@
 - ⬜ **现场演示录屏 3 版本**（B 录屏脚本 commit 8831805 已备好）
 - ⬜ **提交 + 修复最后翻车点**
 
+**Round 6（W4 r6，2026-05-17）：跨 turn 上下文管理 + Pydantic AI 重构（Phase 0.11 前置）**
+
+- ✅ **Commit 1 ConversationStore + Pydantic AI 单一入口**（commit 81141cb）：`agent/v2/conversation.py` ConversationStore 单进程 dict + ConversationState 持有 messages/intent_snapshot/itinerary_snapshot；新增 `agent/v2/orchestrator.py`（旧路径决策 looks_like_feedback / decide_turn_kind）；`backend/main.py` POST `/chat/turn` 端点
+- ✅ **Commit 2 narrator 暖语气导游开场白 + IntentChips**（commits d37f959 / 6691320）
+- ✅ **Commit 3 Dock 可拖动调整高度 + 多 session 切换 UI**（commit 08589a6）：解决"对话框和右侧不对称"——dock 玻璃浮窗范式，支持上下拖动调整高度
+
+**Round 7（W4 r7，2026-05-17）：Phase 0.11/0.12 multi-agent 并行 ReAct 重构 + 商业抽象层（commit 8c06326 推送 12 commits）**
+
+> 用户决策：「方案 2，范围全做，边界不需要了」——一次性完成所有 7 个 Agent 的工作。
+> 学术依据：LLM-Modulo (Kambhampati NeurIPS 2024) ReAct + Critic 闭环 / Pydantic AI 框架 (Pydantic team 官方支持)
+
+- ✅ **Agent A schema 加固 + 中文词典强约束**（commit 1f94235）：`schemas/intent.py` companions/physical/dietary/experience 4 字段从 default_factory 改为必传（值可空）；`schemas/router.py` cta_chips 必传（max_length=4）；6 个 prompt 加「字段抽取义务」+「中文词典强约束」段（system / router / refiner / narrator / llm_planner / blueprint）；新增 `verify_schema_hardening.py` 5/5 真 LLM e2e
+- ✅ **Agent B ToolProvider 数据源抽象 + observability 结构化日志**（commit 0b470db）：
+  - `agent/v2/tool_provider.py` ToolProvider Protocol（@runtime_checkable，8 工具）+ MockToolProvider（asyncio.to_thread 包同步 Tool）+ GaodeToolProviderStub + DianpingToolProviderStub
+  - `agent/v2/observability.py` get_logger / bind_session_context / clear_session_context / trace_span，幂等配置；LOG_FORMAT=text|json 切换
+  - `backend/.env.example` 加 DATA_PROVIDER=mock|gaode|dianping + LOG_FORMAT=text|json
+  - `backend/scripts/verify_tool_provider.py` 5/5 验证脚本
+- ✅ **Agent C ConversationRepository 重构（Phase 0.11 主菜）**（commit e3767ca）：
+  - `agent/v2/conversation.py` 引入 ConversationRepository Protocol + InMemoryRepository（demo 默认）+ RedisRepositoryStub（Milestone 2 接入点，5 个写方法抛友好 NotImplementedError）
+  - `get_default_repo()` 单例工厂；`SESSION_STORE=memory|redis` 解析；非法值 fail fast
+  - 旧名 `ConversationStore = InMemoryRepository` + `get_default_store()` 委托保持向后兼容（main.py / orchestrator.py 0 改动）
+  - `_reset_default_repo_for_tests()` 让 verify 脚本能切 backend
+  - `verify_repository.py` 5/5 + pytest 256/256 + verify_v2_turn 通过
+- ✅ **Agent D 商业演进文档 6 篇 + 路演大纲**（commit ec03a16，8 docs 创建 + README +11 行）：
+  - `docs/05-design/设计文档.md` 加附录 A/B/C（ReAct 范式说明 + 跨 turn 上下文 + 商业演进概览）
+  - `docs/06-business/01-数据源切换路径.md`（10.9 KB，三阶段 + 切换工作量）
+  - `docs/06-business/02-持久化演进.md`（7.5 KB，dict→Redis→PG）
+  - `docs/06-business/03-观测性骨架.md`（7.8 KB，structlog→OTel）
+  - `docs/06-business/04-商业模式.md`（8.5 KB，3 候选 + 单位经济）
+  - `docs/06-business/05-差异化定位.md`（7.9 KB，四象限对比）
+  - `docs/06-business/06-增长路径.md`（7.8 KB，0→10K+ 三阶段）
+  - `docs/07-pitch/路演大纲.md`（16.6 KB，10 页 PPT 大纲）
+- ✅ **Agent E ReAct 单一 Agent 主体（Phase 0.12 主菜）**（commit f48ab65 / dc2fdae）：
+  - `agent/v2/react_agent.py`（约 720 行）unified_agent: Agent[AgentDeps, AgentOutput] 模块级实例
+  - 8 工具用 `@unified_agent.tool` 装饰参数化展开 + `trace_span` 包裹（不传整个 Input 模型给 LLM）
+  - `@instructions` 动态绑定 user_id / session_id 上下文
+  - `@output_validator` 接 critics_v2（try/import 兜底 F 未合流）
+  - 三层 MiMo 容错：prompt 警示 + 入参 _coerce_* 函数 + `_FlexibleItineraryResponse` 子类
+  - `agent/v2/output_types.py` ChatResponse / ItineraryResponse / AgentOutput Union（commit dc2fdae 补漏 stage）
+  - `run_react_turn_inner` 公共入口
+  - `backend/scripts/verify_react_agent.py` 5 场景：闲聊 / POI Q&A / 完整规划 / 拒答 / 上下文反馈；LLM_PROVIDER=stub 时 SKIPPED
+- ✅ **Agent F critic 兜底层（LLM-Modulo 范式）**（commit bd9eb83）：
+  - `agent/v2/critics_v2.py` 7 类 ViolationCode（DURATION / DISTANCE / STAGES / RESTAURANT_FULL / TIMELINE / SOCIAL / DIETARY）+ 2 级 Severity + Violation 模型 + validate_itinerary 主入口 + format_violations_for_llm helper
+  - 与旧 `agent/critics.py` 解耦：旧的是 hybrid 内部组件，新的是给 ReAct Agent 的 output_validator
+  - `tests/test_critics_v2.py` 11 项端到端断言（合法零 critical / 段数缺失 / 时长高低两端 / 时序反序 / format 仅 critical / dietary 命中与未命中 / demo-aware 17:00 开关）
+- ✅ **Agent G /chat/turn 接 ReAct + USE_REACT_AGENT flag**（commit 330cc80）：
+  - `agent/v2/orchestrator.py` 加 `run_react_turn` 流式包装器（拦截 unified_agent.iter() 的 tool_call 推 SSE 事件）
+  - `backend/main.py` /chat/turn 端点优先走 ReAct 路径；探活失败自动 fallback 旧 router→planner / refiner 双路径
+  - `USE_REACT_AGENT=1` 默认 ON，`=0` 走旧路径（demo 安全兜底）
+  - `verify_v2_react.py` 4 场景（闲聊 / POI Q&A / 完整规划 / 反馈）真 LLM 跑通
+- ✅ **浏览器真 LLM 实测**：4 测试全过——闲聊不调工具 / POI Q&A 调 search_pois / 完整规划 11 工具调用 / dock 直接反馈"太远了 3km"自动识别为反馈而非新需求；烟花 64 粒子完整 1.78s 生命周期；夜色玻璃 dock 拖动 + 多 session 切换均跑通
+
+**遗留小 bug**（用户决议不修先 push）：
+- 第二次 confirm 后 orders / share_message 偶发不渲染（abortController 时序问题）
+
 ## 三、待决策清单
 
 > 任何 session 中冒出的"先记下来、不当下决定"的问题进这里。决策后挪到下面"决策记录"。
@@ -273,6 +334,32 @@
     - 4 处测试断言从「硬要 5 段」改为「按 intent 期望」
     - 引申：未来加 segment 类型（如「下午茶」「city walk」「附加加购」）只需扩 `segment_decider`，无需改 planner / critics
   - **后续被 D-llm-first 取代**：D-segments 仍然解决了 rule + hybrid 路径的"5 段写死"，但段决策仍是算法层用 if 启发式做。D-llm-first 把段决策完全交给 LLM；segment_decider 仅在 fallback 到 rule/hybrid 时使用。
+
+- **D-react-unified** [2026-05-17]：ReAct 单一 Agent 取代「router → planner / refiner 双路径」作为 /chat/turn 的默认实现
+  - 候选：A 维持双路径（router 6 类分类 + 旧 planner / refiner）/ B ReAct 单一 Agent（LLM 看全 8 工具自主决策）/ C 多 Agent 协作（KidAgent + ElderlyAgent 等专家 Agent）
+  - 选择：B
+  - 理由：用户在 dock 直接输入"太远了 3 公里以内"暴露双路径耦合——LLM 看不到「上次方案」上下文，把反馈当成新需求重解析（详见 `pitfalls.md` P1-2026-05-17-react 与 `problem.md` 问题 18-19）。多 Agent 现阶段不必要：8 个 Tool + 双 mode + 关键词 fallback 三层防御已经覆盖鲁棒性需求。让 LLM 在 ReAct 循环里 Reason+Act+Observe，跨 turn message_history 用 ConversationRepository 持久化。
+  - 影响：
+    - 新增 `backend/agent/v2/react_agent.py`（unified_agent: Agent[AgentDeps, AgentOutput] 模块级实例 + 8 工具参数化展开 + critics_v2 output_validator + 三层 MiMo 容错）
+    - 新增 `backend/agent/v2/output_types.py`（ChatResponse / ItineraryResponse Union 让 LLM 自己选输出形态）
+    - 新增 `backend/agent/v2/critics_v2.py`（与旧 `agent/critics.py` 解耦：旧给 hybrid，新给 ReAct）
+    - 新增 `backend/scripts/verify_react_agent.py`（5 场景）+ `verify_v2_react.py`（4 场景）
+    - `backend/main.py` /chat/turn 端点优先走 ReAct 路径；`USE_REACT_AGENT=1` 默认 ON
+    - 评分项 1（场景理解 20%）：LLM 看 raw_input + tool 结果可自主分类反馈 vs 新需求，无需启发式 looks_like_feedback
+    - 评分项 2（规划链路 25%）：LLM-Modulo 教科书级实现——LLM 决主观、critic 验客观
+    - 评分项 5（异常韧性 15%）：探活失败自动 fallback 旧路径；critic critical 违规 ModelRetry 让 LLM 自纠错
+
+- **D-business-abstraction** [2026-05-17]：引入 ToolProvider / ConversationRepository / observability 三层抽象
+  - 候选：A 维持具体实现（demo 简洁但商业演进时全部重写）/ B 引入 Protocol 抽象 + 默认实现 + Stub 实现（本决策）/ C 直接接真高德 / 真 Redis（赛题禁止真 API）
+  - 选择：B
+  - 理由：用户决议「这是参赛作品+希望真做成产品」——商业大奖维度需要让评委看到「demo 不止于 demo」的扩展性。Protocol 抽象 + Stub 实现是「数据源切换 / 持久化切换 / 观测性接入」的最低成本演示路径——评委只需 grep 一处签名就能验证「换数据源真不需要改业务代码」。
+  - 影响：
+    - `backend/agent/v2/tool_provider.py` ToolProvider Protocol + MockToolProvider + Gaode/Dianping Stub
+    - `backend/agent/v2/conversation.py` ConversationRepository Protocol + InMemory + Redis Stub（向后兼容旧 ConversationStore）
+    - `backend/agent/v2/observability.py` get_logger + bind_session_context + trace_span
+    - `backend/.env.example` DATA_PROVIDER + LOG_FORMAT + SESSION_STORE 三段
+    - `docs/06-business/01-数据源切换路径.md` / `02-持久化演进.md` / `03-观测性骨架.md` 三篇商业演进文档
+    - 评委「商业价值」维度直接得分：每个抽象都有「Demo→MVP→真产品」三阶段演进路径
 
 - **D-llm-first** [2026-05-17]：LLM-First Planner 取代 hybrid 作为 mode=llm 的默认实现
   - 候选：A 维持 hybrid（LLM 出权重 + ILS 启发式 + critic）/ B LLM-First Planner（LLM 出蓝图 + critic backprompt + 拼装）/ C 让 LLM 直接 Function Calling 自由调 Tool

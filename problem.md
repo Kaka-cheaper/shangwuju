@@ -3460,3 +3460,92 @@ e3767ca feat(conversation): introduce ConversationRepository abstraction + Redis
 - ConversationState 跨 turn 持久（dock 直接反馈"太远了 3 公里"自动识别为 feedback）
 
 **用户反馈**：
+
+
+---
+
+## 问题20：Phase 0.11/0.12 后文档对齐审计 + progress/pitfalls/features 全量更新
+
+**用户原问**：
+
+> 检查一下目前的所有文档是否和实际实现代码对齐，是否流程一致。另外我发现你没有更新 progress、pitfalls 和 features
+
+**问题诊断**：
+
+Phase 0.11/0.12 multi-agent 并行重构（12 commit 推 origin/main 8c06326）落地后，本应按 AGENTS.md §3.7 + 全局 superpowers-discipline 同步更新三个核心活文档：
+
+- `docs/00-overview/progress.md`：项目元状态 / session 衔接 / 路线图
+- `docs/03-implementation/pitfalls.md`：技术警示集（每条必有「防再犯」）
+- `.codesee/features.json`：功能图（CodeSee sync）
+
+但本会话只追加了 problem.md 流水账（19 条），三个核心文档没动，且 backend/api_contract.md 还停留在 Phase 0.6 仅描述 /chat/stream / /chat/refine / /chat/confirm，没补 /chat/turn + USE_REACT_AGENT flag。
+
+**解决方案**：
+
+### 1. progress.md 全量更新
+
+- 阶段标识：Phase 0.10.3 → **Phase 0.11/0.12 ReAct 单一 Agent + 商业演进抽象层完成**
+- MVP 状态表加 2 行：MVP-3 ReAct 单一 Agent + MVP-3 商业抽象层
+- 测试矩阵：256 → 267 pytest，新增 critics_v2 单测 11 + verify_react_agent 5 + verify_v2_react 4，总计 310 → 331
+- 新增 Round 6（Phase 0.11 前置 · 跨 turn 上下文管理）+ Round 7（Phase 0.11/0.12 multi-agent 并行重构 12 commit 全清单）两段
+- 决策记录追加 D-react-unified（ReAct 单一 Agent 取代双路径）+ D-business-abstraction（三层抽象引入）
+
+### 2. pitfalls.md 追加 5 条新坑
+
+- **P1-2026-05-17 dock 直接反馈无上下文持久化**（Phase 0.11 主修，问题 18-19 沉淀；缺 conversation_id / message_history 概念 → ConversationRepository Protocol + ReAct 单一 Agent message_history 跨 turn 双层解决）
+- **P2-2026-05-17 MiMo Function Calling 嵌套 array of objects 边界**（_coerce_* helper + prompt 警示 + _FlexibleItineraryResponse 子类三层容错）
+- **P2-2026-05-17 Pydantic AI ToolOutput vs PromptedOutput 区分**（Union[ChatResponse, ItineraryResponse] 让 LLM 自选输出形态）
+- **P2-2026-05-17 verify_v2_turn 与 USE_REACT_AGENT flag 冲突**（旧 verify 期待 stub 路径事件序列与 ReAct 路径不一致，需 USE_REACT_AGENT=0 显式跑旧路径）
+- **P3-2026-05-17 multi-agent 并行 ReAct 重构的协作纪律**（接口先行 / commit 范围闸 / 写文档「已就绪」措辞需谨慎 / E/F 互相 try/import 兜底）
+
+每条都按 pitfalls 模板含「现象/根因/解法/相关文件/防再犯/优先级」六字段。
+
+### 3. features.json 追加 7 个新 feature + 24 条新 cross_feature
+
+新 feature：
+- `f-react-unified-agent`（ReAct 单一 Agent · planning epic · 0.9）
+- `f-critics-v2`（ReAct Critic 兜底层 · planning epic · 0.9）
+- `f-conversation-repo`（对话历史持久化 · input epic · 0.92）
+- `f-tool-provider`（工具数据源抽象 · discovery epic · 0.9）
+- `f-observability`（结构化日志与追踪 · sharing epic · 0.9）
+- `f-chat-turn-endpoint`（/chat/turn 单一对话入口 · input epic · 0.92）
+
+新 cross_feature 关系：
+- `f-chat-turn-endpoint` triggers `f-react-unified-agent` / `f-input-router` / `f-refine-replan`
+- `f-react-unified-agent` depends_on `f-conversation-repo` / `f-tool-provider` / `f-observability` / `f-critics-v2`
+- `f-tool-provider` depends_on 8 个旧工具 feature（search_pois / search_restaurants / 等）
+- `f-critics-v2` publishes `f-react-unified-agent`（critical 违规 ModelRetry）
+- `f-react-unified-agent` publishes `f-tool-trace` / `f-itinerary-card`
+
+### 4. backend/api_contract.md 补 §9 + §10
+
+- §9 POST /chat/turn 完整契约：请求体 / 三类响应序列（闲聊/规划/反馈）/ Critic 兜底 7 类 ViolationCode / Fallback 链 / 错误处理
+- §10 环境变量速查表：USE_REACT_AGENT / DATA_PROVIDER / LOG_FORMAT / SESSION_STORE / LLM_PROVIDER / PLANNER_MODE 6 项
+
+### 5. CodeSee 校验
+
+- 功能图 step.name 全部改为中文动词短语，把 ASCII 标识符（USE_REACT_AGENT / decide_turn_kind / asyncio.to_thread / SESSION_STORE / DATA_PROVIDER / RESTAURANT_FULL / social_context / dietary / ChatResponse / Pydantic Model 等）剥离
+- `node .codesee/scripts/validate-features.mjs` 退出码 0（仅 v0.1 旧枚举软警告）
+
+**修改的代码文件**：
+
+修改：
+- `docs/00-overview/progress.md`（阶段升级 + MVP 状态表 + 测试矩阵 + Round 6/7 路线图 + D-react-unified / D-business-abstraction 决策记录）
+- `docs/03-implementation/pitfalls.md`（追加 P1-dock-feedback / P2-mimo-nested-array / P2-pydantic-ai-output-type / P2-verify-flag-conflict / P3-multi-agent-collab 5 条）
+- `.codesee/features.json`（37 features / 90 cross_feature；manifest.generated_at 更新到 2026-05-17T22:30:00Z）
+- `backend/api_contract.md`（追加 §9 /chat/turn 契约 + §10 环境变量速查）
+- `problem.md`（追加本条 problem 20）
+
+未动：
+- `backend/` / `frontend/` 全部代码（仅文档对齐审计，不改代码）
+- AGENTS.md / 比赛详情.md / chatgpt分析.md / 项目说明.md / 技术架构.md（活文档边界纪律）
+- `.codesee/prompts/*` / `.codesee/scripts/*`（CodeSee 集成核心约束）
+
+**应当达成的效果**：
+
+- 任意新 session 的 AI 读 progress.md 「当前位置」段，30 秒内知道当前是 Phase 0.11/0.12 完成态、331 测试全过、剩录屏 + dry run
+- pitfalls.md 5 条新坑各有「防再犯」清单，避免下次 multi-agent 并行重构时重蹈覆辙（特别是「跨 owner 的端到端 verify 必须由协调者维护」「写文档『已实现』时附文件路径让评委可验证」两条流程级教训）
+- CodeSee features.json 完整覆盖 Phase 0.11/0.12 主要架构变化（ReAct / Critics_v2 / ConversationRepo / ToolProvider / Observability / chat/turn 6 个新核心 feature 全部 implemented），评委切到 codesee viewer 看到的功能图与代码现状对齐
+- api_contract.md 把 /chat/turn 接口契约写成 ground truth，前端 / 评委 / 后续 session AI 读这一份就够，不需要 grep 代码反推
+
+**用户反馈**：（待填）

@@ -298,3 +298,128 @@ mode=llm 时，llm_planner 内部如果：
 → 自动 fallback 回 rule planner 跑一次（防 LLM 死循环让 Demo 翻车）
 → trace 推一条 agent_thought {"text": "LLM ReAct 失败，fallback 到规则 planner"}
 ```
+
+
+---
+
+## 9. POST /chat/turn（Phase 0.11/0.12 新增 · 单一对话入口 + ReAct 单一 Agent）
+
+> 设计意图：解决「dock 直接输入反馈无上下文」根因（详见 `pitfalls.md` P1-2026-05-17 / `problem.md` 问题 18-19）。
+> 让 LLM 看到 message_history 后自主判断「这是新需求还是对上次方案的反馈」，无需前端区分对话框 vs 反馈按钮。
+> 默认 ON：`USE_REACT_AGENT=1`（见 §10）。
+
+### 请求体
+
+```json
+{
+  "message": "太远了，3 公里以内",
+  "session_id": "sess_20260517_001",
+  "user_id": "u_dad",
+  "scenario_id": null
+}
+```
+
+字段：
+
+```text
+| 字段        | 必填 | 说明                                                  |
+|-------------|------|-------------------------------------------------------|
+| message     | 是   | 用户一句话，长度 1-500（可以是新需求或反馈）          |
+| session_id  | 是   | 跨 turn 共享 message_history 的会话 id                |
+| user_id     | 否   | persona prior 注入（见 §6 Phase 0.7 文档）；缺省=demo_user |
+| scenario_id | 否   | 演示快捷按钮 id（S1-S8）；自由输入时不填              |
+```
+
+### 响应
+
+`Content-Type: text/event-stream`，事件序列**取决于 LLM 的自主决策**：
+
+#### 闲聊 / Q&A 类输入（LLM 选 ChatResponse 分支）
+
+```text
+seq 0  agent_thought  (text="正在理解你的需求……")     # 心跳
+seq 1  chitchat_reply (payload={"text":"...", "tone":"warm"})
+seq 2  done
+```
+
+#### 完整规划类输入（LLM 选 ItineraryResponse 分支）
+
+```text
+seq 0   agent_thought   (text="正在理解你的需求……")
+seq 1   intent_parsed   (payload=IntentExtraction)
+seq 2   tool_call_start (tool=search_pois)
+seq 3   tool_call_end   (tool=search_pois)
+seq 4-N tool_call_*     (LLM 自主决定调几个工具，含 search_restaurants / check_availability / estimate_route_time 等)
+seq M   itinerary_ready (payload=Itinerary)
+seq M+1 done
+```
+
+#### 反馈类输入（LLM 看 message_history 自主识别）
+
+```text
+seq 0   agent_thought   (text="收到反馈，正在调整……")
+seq 1-N tool_call_*     (LLM 基于上次方案 + 新反馈自主决定调哪些工具)
+seq M   itinerary_ready (payload=Itinerary，含 refined_intent 字段)
+seq M+1 done
+```
+
+### Critic 兜底（LLM-Modulo）
+
+LLM 输出 ItineraryResponse 后由 `agent/v2/critics_v2.py` 跑 7 类 ViolationCode 校验：
+
+```text
+| 类型                          | Severity     | 处理                            |
+|-------------------------------|--------------|----------------------------------|
+| DURATION_OUT_OF_RANGE         | CRITICAL     | ModelRetry → LLM 自纠错         |
+| DISTANCE_EXCEEDED             | CRITICAL     | ModelRetry → LLM 自纠错         |
+| STAGES_INCOMPLETE             | CRITICAL     | ModelRetry → LLM 自纠错         |
+| RESTAURANT_FULL_UNRESOLVED    | CRITICAL     | ModelRetry → LLM 自纠错         |
+| TIMELINE_INCONSISTENT         | CRITICAL     | ModelRetry → LLM 自纠错         |
+| SOCIAL_CONTEXT_MISMATCH       | WARNING      | log + 上呈                       |
+| DIETARY_VIOLATION             | WARNING      | log + 上呈                       |
+```
+
+`retries=3` 给 critic backprompt 留循环空间；超出抛 UnexpectedModelBehavior。
+
+### Fallback 链（探活失败自动回旧路径）
+
+```text
+USE_REACT_AGENT=1（默认）
+  ↓
+探活：unified_agent / orchestrator.run_react_turn import 成功？
+  成功 → ReAct 单一 Agent 路径
+  失败 → 自动回旧 router → planner / refiner 双路径
+       （/chat/turn 仍工作；不影响 demo）
+
+USE_REACT_AGENT=0
+  → 强制走旧路径（demo 安全兜底）
+```
+
+### 错误处理
+
+```text
+| 场景                        | 处理                                                |
+|-----------------------------|-----------------------------------------------------|
+| session_id 不存在           | 自动创建新 ConversationState（不是 422）            |
+| message 空 / 超长           | HTTP 422 + {"detail":"..."}（不进 SSE）            |
+| LLM 调用超时                | SSE 推 stream_error → done；HTTP 200               |
+| critic critical 违规重试用尽 | SSE 推 stream_error → done；HTTP 200               |
+| ReAct 探活失败              | 透明回 fallback 旧路径（见上）                      |
+```
+
+---
+
+## 10. 环境变量速查（Phase 0.11/0.12 新增）
+
+```text
+| 变量名           | 默认值        | 说明                                          |
+|------------------|---------------|-----------------------------------------------|
+| USE_REACT_AGENT  | 1             | /chat/turn 走 ReAct 单一 Agent 路径（=0 走旧路径）|
+| DATA_PROVIDER    | mock          | ToolProvider 实现：mock | gaode | dianping     |
+| LOG_FORMAT       | text          | observability 日志格式：text | json            |
+| SESSION_STORE    | memory        | ConversationRepository 后端：memory | redis    |
+| LLM_PROVIDER     | mimo          | LLM 客户端类型，与 base_url / api_key 配套     |
+| PLANNER_MODE     | rule          | 旧 /chat/stream 双范式：rule | llm             |
+```
+
+详见 `backend/.env.example` 注释段。
