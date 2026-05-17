@@ -1248,3 +1248,43 @@ LLM 一次性输出**结构化结果**（不需要二次调用生成回话），
 
 **用户反馈**：（待填）
 
+
+
+---
+
+## 问题15：连续输入两次后，前一个暖心气泡消失
+
+**用户原问**：「我输入你是谁后会弹出来一个气泡，但是我输入「好累啊」的时候之前的气泡就消失了。是不是应该不要消失？还是说这是你特意的设计？」
+
+**根因**：bug，不是有意设计。两个原因叠加：
+
+1. `sendMessage` 在重置中间过程（intent / toolCalls / replans / thoughts / itinerary）时**也清掉了 chitchatReplies**——我从主路径「每次重新规划要清空 trace」的模式照搬过来，但暖心气泡是聊天历史的一部分，应该和 messages 一样累积，只有用户主动 reset 才清。
+2. 即使保留两个气泡，原渲染顺序是「先全部 messages，再全部 chitchatReplies」——会变成「user1 / user2 → 气泡 1 / 气泡 2」上下分层，不是对话流形态。
+
+**解决方案**：
+
+- `frontend/lib/store.ts`：`sendMessage` 移除 `chitchatReplies: []` 清零行；保留注释说明纪律
+- `frontend/components/ChatPanel.tsx`：把 messages 与 chitchatReplies 按 `ts` 合并成统一 `timeline`，按时间穿插渲染
+
+```text
+修复后效果：
+  你 (user)         「你是谁」
+  agent (chitchat)  介绍气泡 + 引导按钮
+  你 (user)         「好累啊」
+  agent (chitchat)  共情气泡 + 推荐独处
+```
+
+**修改的代码文件**：
+
+- `frontend/lib/store.ts`（sendMessage 不再清 chitchatReplies）
+- `frontend/components/ChatPanel.tsx`（timeline 时间穿插渲染）
+
+**应当达成的效果**：
+
+- 评委连续问几句无关问题不会丢失上下文气泡
+- 与 messages 按时序混合排，符合聊天 app 直觉
+- 只有用户主动点「重置」才清空（reset 走 `...initialState`）
+- 30/30 vitest 全过
+
+**用户反馈**：（待填）
+
