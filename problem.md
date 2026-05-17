@@ -3065,3 +3065,45 @@ PowerShell 控制台用 GBK 编码，print `✓` 字符触发 UnicodeEncodeError
 - tag 字段 LLM 不会再输出 "family" / "healthy" / "low-fat" 等英文，全部命中中文词典
 - verify 脚本真 LLM 5/5 全过，pytest 256/256 不破
 - git diff 仅在 Agent A 独占文件名单内
+
+
+---
+
+## 问题3：作为 Agent D 写 8 个商业价值材料 + 路演 PPT 大纲
+
+**解决方案**：
+
+按任务规范在独占文件名单内完成 8 个文档：
+
+1. `docs/05-design/设计文档.md` 在原十三节末尾追加附录 A（ReAct 单一 Agent 范式）/ 附录 B（跨 turn 上下文管理）/ 附录 C（商业演进路径概览）
+2. `docs/06-business/01-数据源切换路径.md` 新建：mock JSON → 高德 Web Service（30 万次/月）→ 商家直签 + 大众点评开放 API 三阶段，含申请流程 / schema 映射 / 频率限制策略 / 切换工作量
+3. `docs/06-business/02-持久化演进.md` 新建：InMemoryRepository → Redis → PostgreSQL，含数据布局 / 数据合规 / 用户行为 analytics
+4. `docs/06-business/03-观测性骨架.md` 新建：structlog text → json + Sentry → OpenTelemetry，含关键指标 / span 设计 / 后端 sink 选项
+5. `docs/06-business/04-商业模式.md` 新建：3 候选（流量分发 / 订阅 / 抽佣）+ 推荐路径 + 单位经济推演 + 与美团生态衔接
+6. `docs/06-business/05-差异化定位.md` 新建：四象限对比 + 与大众点评 / 美团团购 / 小红书 / ChatGPT 逐一对比 + 「对话即下单」唯一标签
+7. `docs/06-business/06-增长路径.md` 新建：0→100 朋友圈+小红书 / 100→1000 异业合作 / 1000+ 投流+SEO 三阶段
+8. `docs/07-pitch/路演大纲.md` 新建：10 页 PPT markdown 大纲，每页关键文案 + 现场 demo 流程 + 评委问答储备
+9. `README.md` 末尾追加「## 产品化路线图」段，3 段话总结 Demo / MVP / 真产品三阶段
+
+发现并修正：原任务说明里假设 `tool_provider.py` 和 `observability.py` 由 Phase 0.11 实施，实际 Agent B/C 已在 Demo 阶段落地。文档中所有引用措辞改为"已就绪"并标注子类骨架（MockToolProvider / GaodeToolProviderStub / DianpingToolProviderStub / get_logger / trace_span / LOG_FORMAT 切换）。
+
+**修改的代码文件**：
+
+- `README.md`（+11 行末尾追加）
+- `docs/05-design/设计文档.md`（+135 行末尾追加 3 个附录）
+- `docs/06-business/01-数据源切换路径.md`（新建，10.9 KB）
+- `docs/06-business/02-持久化演进.md`（新建，7.5 KB）
+- `docs/06-business/03-观测性骨架.md`（新建，7.8 KB）
+- `docs/06-business/04-商业模式.md`（新建，8.5 KB）
+- `docs/06-business/05-差异化定位.md`（新建，7.9 KB）
+- `docs/06-business/06-增长路径.md`（新建，7.8 KB）
+- `docs/07-pitch/路演大纲.md`（新建，16.6 KB）
+
+**应当达成的效果**：
+
+- 商业评委可独立审阅附录材料，且不超出题目「Demo + Tool 代码 + ≤2 页设计文档」交付边界
+- 路演现场有 10 页 PPT 大纲（含每页文案 + 现场 demo 流程 + 评委问答储备）
+- 所有引用的代码抽象层与实际仓库状态一致（不承诺没落地的能力）
+- git diff 严格在 Agent D 独占文件名单内，未碰 .py / .ts / .tsx / .json / .env.example / AGENTS.md / problem.md（之外）/ 比赛详情.md / 技术架构.md / chatgpt分析.md / 项目说明.md / pitfalls.md / progress.md
+- markdown 渲染 0 诊断告警（getDiagnostics 验证全 9 个文件 No diagnostics found）
+
