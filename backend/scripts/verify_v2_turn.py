@@ -7,6 +7,9 @@
   3. 验证 ConversationState.messages 含完整 4 条对话（用户 1 + Agent 1 + 反馈 1 + Agent 2）
   4. 验证 X-Turn-Kind 响应头（fresh / feedback）
 
+注意：Phase 0.12 起 /chat/turn 默认走 ReAct 路径（USE_REACT_AGENT=1）。
+本脚本强制设 USE_REACT_AGENT=0 来测试旧路径回归；ReAct 路径有独立 verify_v2_react.py。
+
 跑法：
   $env:LLM_PROVIDER='stub'
   .venv\Scripts\python.exe -m scripts.verify_v2_turn
@@ -16,8 +19,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
+
+# 必须在 import main 之前设环境变量（main.py 端点读 USE_REACT_AGENT）
+os.environ["USE_REACT_AGENT"] = "0"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

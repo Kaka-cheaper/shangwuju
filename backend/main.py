@@ -466,31 +466,67 @@ async def chat_refine(req: RefinementInput, request: Request) -> EventSourceResp
 async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
     """v2 单一对话入口（解决"dock 直接反馈无上下文"根因）。
 
-    决策逻辑（agent.v2.orchestrator）：
+    Phase 0.12 起增加 ReAct 路径（USE_REACT_AGENT=1，默认 ON）：
+        1. ReAct 单一 Agent：让 LLM 看到全部 8 工具，自主决策何时调用
+        2. critic 兜底：output_validator 验证违规 → ModelRetry 让 LLM 自纠错
+        3. 上下文跨 turn 持久：用 ConversationRepository.messages 喂 message_history
+
+    USE_REACT_AGENT=0 → 走旧的 router → planner / refiner 双路径（demo 安全兜底）。
+    任何 ReAct 路径异常（import 错 / 配置错）→ 自动 fallback 到旧路径，确保 demo 稳定。
+
+    决策逻辑（旧路径，仅 USE_REACT_AGENT=0 走）：
         1. 从 ConversationStore 取当前 session 的 ConversationState
         2. 如果已有 itinerary_snapshot 且 message 看着像反馈 → 走 refine 路径
         3. 否则走 stream 路径（router → planner / chitchat）
 
-    与 /chat/stream 的差别：
-        - /chat/stream：每次都触发新规划，不知道用户上下文
-        - /chat/turn：根据 ConversationState 自动决策，"近一点 3 公里"会被识别为反馈
-                      而不是新需求重解析
-
-    向后兼容：
-        旧端点 /chat/stream / /chat/refine 仍工作；前端可以渐进升级到 /chat/turn。
-
     SSE 序列：
-        - feedback 路径：与 /chat/refine 一致（refinement_start → refinement_done → 主路径 → done）
-        - fresh 路径：   与 /chat/stream 一致（intent_parsed → tools → itinerary_ready → narration → done）
+        - ReAct 路径：agent_thought → tool_call_* (多次) → [replan_triggered] → 
+                      itinerary_ready + agent_narration | chitchat_reply → done
+        - feedback 路径：与 /chat/refine 一致
+        - fresh 路径：   与 /chat/stream 一致
     """
-    from agent.v2.conversation import get_default_store
-    from agent.v2.orchestrator import decide_turn_kind
-
     mode = resolve_planner_mode(
         header_value=request.headers.get("X-Planner-Mode"),
         env_value=os.getenv("PLANNER_MODE"),
     )
     user_id = _resolve_user_id(req.user_id, request.headers.get("X-User-Id"))
+
+    use_react = (os.getenv("USE_REACT_AGENT") or "1").strip() != "0"
+
+    if use_react:
+        try:
+            # 探活：先验证 unified_agent 能 import（捕 import / 配置错防 sys 异常）
+            from agent.v2.orchestrator import run_react_turn
+            from agent.v2.react_agent import unified_agent  # noqa: F401  探活
+        except Exception as e:  # noqa: BLE001
+            # ReAct 路径不可用 → fallback 旧路径
+            import logging as _logging
+            _logging.getLogger("main").warning(
+                "react_unavailable_fallback_to_legacy: %s: %s",
+                type(e).__name__,
+                e,
+            )
+        else:
+            # 构造 ReAct 流式生成器
+            inner = run_react_turn(
+                session_id=req.session_id,
+                user_id=user_id,
+                message=req.message,
+                mode=mode,
+            )
+            return EventSourceResponse(
+                _safe_stream(inner),
+                media_type="text/event-stream",
+                headers={
+                    "X-Planner-Mode": mode,
+                    "X-User-Id": user_id,
+                    "X-Turn-Kind": "react",
+                },
+            )
+
+    # ---- 旧路径（USE_REACT_AGENT=0 或 ReAct 不可用时走这里）----
+    from agent.v2.conversation import get_default_store
+    from agent.v2.orchestrator import decide_turn_kind
 
     # 取 v2 ConversationState 决定路径
     store = get_default_store()
