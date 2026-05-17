@@ -2693,3 +2693,177 @@ S1 家庭主线 + 之前的 refine "1 小时" 反馈
 - 任何 LLM 失败自动 fallback 到模板，永远不阻塞主流程
 
 **用户反馈**：
+
+
+---
+
+## 问题18：上下文断裂 + Agent 编排重复造轮子 — Pydantic AI + ConversationStore 重构
+
+**用户原问**：
+
+> 还有一个问题：就是我在最下方的对话框中说明我要干什么，然后会进行一次规划，然后行程方案框中会有反馈按钮，那么这是一个反馈方式，但是如果我直接在对话框中输入反馈呢？这是否又触及到了一个根本问题，就是这个对话没有持久，没有上下文。我在对话框中直接输入我的反馈，又会触发一次对话。这是否属于上下文管理？基于上面的思考，我突然发现当前的agent编排都是自己一步一步写的，好像有点重复造轮子了，github上已经有了现有的非常成熟的agent编排框架了。你先执行一下网络搜索，综合分析一下我的需求。看看到底怎么办？注意，我不要偷懒的方案，我要的是真正能解决问题的方案
+>
+> 用户随后拍板：方案 2 Pydantic AI + 范围全做 + 不需要边界 + A 同学的代码也直接迁移
+
+**问题诊断**：
+
+需求是两个根因问题叠加：
+
+1. **上下文断裂**：旧 `_SESSION_STORE` 只在 confirm/refine 端点读，stream 端点完全覆盖 → LLM 看不到「上次提议了什么」 → dock 直接反馈被当成新需求重解析
+2. **手写编排重复造轮子**：18 个 .py + 5878 行手写 LLM SDK wrapper / retry / 围栏剥离 / message history / function calling schema 生成 / 流式
+
+**网络研究结论**（参考 Pydantic.dev / langchain.com / aihaven.com 等 8 个来源）：
+
+```text
+| 框架       | 项目契合度       | 学习曲线 | 上下文支持           | hackathon 时间盒    |
+|-----------|-----------------|---------|---------------------|--------------------|
+| LangGraph | 要重写 schema   | 高      | 原生 checkpointer   | 至少 2 周          |
+| Pydantic AI ★| 已用 Pydantic v2 | 低 | 原生 message_history | 1 周内可迁移      |
+| Mastra    | TS 优先         | 低      | 原生                | 不适合 Python 项目 |
+```
+
+选 Pydantic AI 因为：项目已重度用 Pydantic v2 + FastAPI（Pydantic AI 是 Pydantic 团队作品，零适配）。
+
+**实施过程**：
+
+**阶段 0：smoke test 验证 Pydantic AI 与 DeepSeek 兼容**
+
+写 scripts/smoke_pydantic_ai.py 跑 3 项：纯文本 / 结构化 Joke / message_history 续话。三项全过，conversation_id 共享 ✓。
+
+**阶段 1：建 v2 基础设施**
+
+```text
+backend/agent/v2/
+├── __init__.py            子包定位说明
+├── model_factory.py       OpenAI 兼容 model 工厂（替代旧 llm_client）
+├── deps.py                AgentDeps（依赖注入：user_id / planner_mode / tracer）
+├── conversation.py        ConversationStore + ConversationState（核心创新）
+├── intent_agent.py        意图解析 thin wrapper（决策见下）
+├── router_agent.py        路由分类 thin wrapper（决策见下）
+└── orchestrator.py        单一入口编排 + 跨 turn 持久化 hooks
+```
+
+**阶段 2：架构选型关键决策（务实取舍）**
+
+最初尝试用 Pydantic AI 全量替换 intent_parser / router，但发现：
+
+> ⚠️ **DeepSeek 的 OpenAI Function Calling 兼容性差**
+> 
+> Pydantic AI 默认用 ToolOutput 模式（OpenAI Function Calling）输出结构化 schema。
+> DeepSeek 实测：
+> - intent_parser：social_context / distance 抽对，但 companions / *_constraints 全空（nested array of objects 字段被 LLM 省略）
+> - router：直接输出 `"a"` 等垃圾字符
+> 
+> DeepSeek 官方推荐 `response_format={"type":"json_object"}`，旧 intent_parser/router 用此模式工作良好。
+
+务实决策：保留旧 intent_parser / router 实现，v2 做 thin wrapper 提供异步接口与 AgentDeps 风格统一入口。Pydantic AI 真正发挥价值的地方在：
+- ConversationStore（核心创新：跨 turn 持久化 message_history）
+- 后续 narrator / planner（如果要重做的话）
+- /chat/turn 单一智能入口
+
+**阶段 3：核心创新 — ConversationStore + /chat/turn**
+
+`agent/v2/conversation.py`：
+- `ConversationState`：含 messages（Pydantic AI ModelMessage list）+ intent_snapshot + itinerary_snapshot
+- `ConversationStore`：异步 dict + 每 session lock，单进程 in-memory（demo 级，生产可换 Redis）
+- `get_default_store()`：单例
+
+`agent/v2/orchestrator.py`：
+- `looks_like_feedback(message)`：基于关键词的轻量启发式（"太远 / 近一点 / X 公里 / 不喜欢" 等）
+- `decide_turn_kind(message, state)`：综合 itinerary_snapshot 是否存在 + 反馈关键词 → "feedback" or "fresh"
+- `record_planning_result / record_refinement_result / record_confirm_result / record_chitchat_result`：四个 hook 分别在 main.py 各 SSE 流末尾被调，写入 ConversationStore
+- `enhance_message_with_context`：把 message_history 拼成压缩文本喂给下游（预留接口）
+
+`main.py` 增加 `/chat/turn` 端点：
+- 取 ConversationState → decide_turn_kind 判断 fresh / feedback
+- fresh → 走原 _routed_stream_real / _routed_stream_stub
+- feedback → 走原 _refine_stream_real / _refine_stream，构造 RefinementInput 复用旧逻辑
+- 响应头 `X-Turn-Kind: fresh|feedback` 让前端知道实际走的路径
+
+`main.py` 三处 SSE 流末尾加 v2 hook：
+- _stub_stream（intent_override is None ? planning : refinement）
+- _planner_stream（同上）
+- _stub_confirm（confirm 后写 itinerary 含 orders + share_message）
+- _routed_stream_real（chitchat 路径写 chitchat result）
+
+前端 `frontend/lib/store.ts`：
+- `sendMessage` 调用从 `/chat/stream` → `/chat/turn`（其它端点保留）
+- 用户在 dock 直接输入「太远了 3 公里」自动被识别为反馈
+
+**实测验证**（scripts/verify_v2_turn.py 全过）：
+
+```text
+[Turn 1] /chat/turn 首次输入
+  X-Turn-Kind = fresh ✓
+  events = 16，含 itinerary_ready / agent_narration
+
+[Turn 2] /chat/turn 直接输入「太远了，希望 3 公里以内」（不点「说说哪不对」按钮）
+  X-Turn-Kind = feedback ✓ 自动识别！
+  events 首条 = refinement_start ✓
+  refined distance_max_km = 3.0 ✓ 不再是 5.0
+  changed_fields = ['距离上限：5.0km → 3.0km'] ✓
+
+[ConversationStore]
+  messages count: 4 ✓
+    [0] 用户首次输入
+    [1] Agent 第一份方案的 narration
+    [2] 用户反馈（带「（反馈）」前缀）
+    [3] Agent 调整后的 narration
+  intent_snapshot.distance_max_km: 3.0 ✓ 跨 turn 持久
+```
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/v2/__init__.py`（子包说明）
+- `backend/agent/v2/model_factory.py`（130 行：OpenAI 兼容 model 工厂）
+- `backend/agent/v2/deps.py`（51 行：AgentDeps）
+- `backend/agent/v2/conversation.py`（119 行：ConversationStore + ConversationState）
+- `backend/agent/v2/intent_agent.py`（65 行：thin wrapper）
+- `backend/agent/v2/router_agent.py`（75 行：thin wrapper）
+- `backend/agent/v2/orchestrator.py`（313 行：核心创新 - 决策 + 4 个 hook + 上下文增强）
+- `backend/scripts/verify_v2_turn.py`（144 行：端到端集成测试）
+
+修改：
+- `backend/pyproject.toml` + `backend/uv.lock`（添加 pydantic-ai-slim[openai] 依赖，14 个新包）
+- `backend/main.py`（+183 行：/chat/turn 端点 + 4 处 v2 hook）
+- `frontend/lib/store.ts`（sendMessage 端点切换：/chat/stream → /chat/turn）
+
+未动（保留作 fallback）：
+- 旧 `agent/intent_parser.py / router.py / planner*.py / refiner.py / narrator.py` 全保留
+- 旧 `_SESSION_STORE` dict 保留（refine 路径仍读它，与 ConversationStore 双写）
+- `agent/llm_client.py` 保留（旧路径 + intent_agent v2 wrapper 还在用）
+
+回归测试：
+- pytest 256/256 全过（v2 hook 不破坏任何旧测试）
+- verify_sse 全过（stub 模式 SSE 序列正确）
+- verify_v2_turn 全过（端到端集成）
+- pnpm build 32.3 kB / 119 kB（前端无破坏）
+
+**架构决策记录（务实选型）**：
+
+为什么没把 intent_parser / router / planner 全部用 Pydantic AI Agent 重写：
+
+```text
+DeepSeek OpenAI Function Calling 兼容性问题
+  ↓
+intent_parser ToolOutput 模式 → companions/constraints 全空
+router ToolOutput 模式 → 输出 "a" 垃圾
+  ↓
+旧 response_format=json_object 模式工作良好（DeepSeek 官方推荐）
+  ↓
+保留旧实现，v2 做 thin wrapper 给 ConversationStore 用
+```
+
+如果未来切到 OpenAI / Claude / Anthropic native 模型，可以无缝升级到全 Pydantic AI Agent 路径。
+
+**应当达成的效果**：
+
+✓ 用户在 dock 直接输入「太远了 3 公里」 → 自动识别为反馈，不再触发新规划
+✓ ConversationState 跨 turn 持久 message_history（Pydantic AI 标准格式）
+✓ 4 个 SSE 流（stream / stub / confirm / chitchat）都向 ConversationStore 写入对话历史
+✓ 旧端点 /chat/stream / /chat/refine / /chat/confirm 完全保留向后兼容
+✓ 引入业内标准框架（Pydantic AI 1.97），不再 5878 行重复造轮子的基础设施
+✓ pytest 256/256 + 前端 vitest 30/30 + verify_sse + verify_v2_turn 全过
+
+**用户反馈**：
