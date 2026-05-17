@@ -1545,3 +1545,90 @@ DEFAULT_DINING_TIMES = ["17:00", "17:30", "18:00"]  # 写死晚餐时段
 - 学术辨识度：评委可见的 4 篇论文级支撑（Vansteenwegen 2009、Gunawan 2019、Kambhampati 2024 NeurIPS、ItiNera EMNLP 2024）
 - 默认安全：stub client + LLM API 不可用 + ILS 失败 + Critic 重排失败——四级 fallback 都回到 rule planner，demo 现场零翻车
 - PLANNER_LLM_STRATEGY 双策略并存：function_calling 旧路径保留，user 想 A/B 测试只需改 .env 一行
+
+
+---
+
+## 问题11：B+D 混搭 + C 局部动效落地（去 emoji + 灰阶 + Cmd+K + 折叠 trace + 流光骨架）
+
+**用户原问**：
+
+> B+D混搭，C做局部
+
+承问题 10 的方案推荐执行：B 是 assistant-ui Chain-of-Thought / D 是 Linear-Vercel IDE 派系 / C 是 Magic UI 骨架屏 + 流光。
+
+**解决方案**（4 阶段独立 commit）：
+
+**阶段 1（commit a470402）A 灰阶 + D 配色打底 + 命令面板**：
+
+- 全部 18+ 处装饰性 emoji 替换为 Lucide monoline SVG（☀️🌤🪄⚡📋💭🎯📚 等）
+- 后端 `/scenarios.icon` / `/personas.icon` (emoji) 通过 `lib/icon-map.tsx` 本地映射为 Lucide，不动后端契约
+- 色板：暖橙 brand-orange 降级为「次要状态色」；ink 改 zinc 11 阶；新增 accent 单色蓝 #2f6feb
+- 字体：next/font 引入 Inter + JetBrains Mono；mono class 给 Tool 输入 / session_id / 订单号 / 时间点
+- 按钮系统重写：btn-primary 改黑底 ink-900；btn-secondary 白底描边；btn-danger-ghost 低对比度灰
+- chip 系统四档语义色（success/warn/danger/accent）；新增 kbd class 键盘按键样式
+- D 范式 Cmd+K 命令面板（CommandPalette.tsx 346 行）：17 项集中（8 场景 + 6 personas + 2 mode + cancel/reset）+ 搜索 + ↑↓ 导航 + Enter 执行 + ESC 关闭
+- 顶栏改 breadcrumb：晌午局 / 半日出行管家 + 命令 ⌘K kbd hint
+
+**阶段 2（commit 6d9067d）B Chain-of-Thought 范式**：
+
+- ToolTracePanel 由扁平列表改 hierarchical 折叠 trace
+- 按 Tool → Epic 映射自动归类（profile/discovery/routing/execution/share/other）
+- 每个 epic 头展示聚合统计：调用次数 / 总耗时 / 是否含 in-progress / fail / replan
+- Replan 跟随其 fromTool 的 epic 桶，用 ↳ CornerDownRight 绕行箭头 + amber 警示
+- 子项序号 mono 等宽 + 状态图标（成功 emerald / 失败 rose / 进行中 accent spin / 已替换 ink-Wand2 灰显）+ compactInput() 截短 JSON 摘要
+- streaming 时自动展开所有 epic（评委可看），用户可手动折叠
+- 修一个 hook 顺序 bug：把 if-early-return 移到 hook 后面，避免 React Rules of Hooks「Rendered more hooks」错误
+
+**阶段 4（commit c897514）C 局部动效**：
+
+- ChatPanel 顶部 streaming 时 1px 蓝色 shimmer 进度光带（2s 扫过）
+- ToolTracePanel 顶部同款光带 + Sparkles 图标 streaming 时变蓝
+- ItineraryCard「正在拼装」改 ShimmerStripe 骨架屏（4 行流光横条，Linear/Vercel 派系标志性）
+- NumberTicker（阶段 1 已建）：行程总时长 spring 动画 cubic-bezier overshoot
+- shimmer 类抽到 globals.css 的 .shimmer-bar / .shimmer-skeleton，避开 Tailwind dev server JIT 任意值类编译边缘 bug
+
+**期间踩坑**：
+
+- 第一次端到端在 3001 端口起 dev 时 CORS 报错（后端只允 3000）；用户那份在 3000 跑，借用即可。停掉自己的 dev 不抢端口
+- Tailwind 任意值类 `bg-[linear-gradient(...)]` 在 dev server 热重载时偶发 stylesheet 404；抽到 globals.css 的常规 class 解决
+- ToolTracePanel 第一版把 `if (!toolCalls.length...) return null` 写在 useMemo 之前，触发 hook 计数不一致；按 Rules of Hooks 把 early-return 挪到所有 hook 之后
+
+**修改的代码文件**：
+
+新建：
+- `frontend/lib/icon-map.tsx`（127 行 emoji → Lucide 映射）
+- `frontend/components/CommandPalette.tsx`（346 行）
+- `frontend/components/NumberTicker.tsx`
+- `frontend/components/ShimmerStripe.tsx`
+
+修改：
+- `frontend/app/globals.css`（去阴影 / 加 mono / kbd / shimmer / 4 档按钮 / 5 档 chip）
+- `frontend/app/layout.tsx`（next/font Inter + JetBrains Mono）
+- `frontend/tailwind.config.ts`（ink zinc 11 阶 + accent 单色 + shimmer/tickUp/collapseIn keyframes）
+- `frontend/lib/store.ts`（commandPaletteOpen state + open/close action）
+- `frontend/components/HomeView.tsx`（breadcrumb + Cmd+K + Lucide）
+- `frontend/components/QuickScenarios.tsx`（scenarioIcon 映射）
+- `frontend/components/ChatPanel.tsx`（去 ☀️/💭/⚠ + shimmer 光带）
+- `frontend/components/IntentSummary.tsx`（去 🎯 + 进度条 + 横排 row）
+- `frontend/components/ItineraryCard.tsx`（去 🌤/🪄/📋 + NumberTicker + ShimmerStripe + 单色按钮）
+- `frontend/components/ToolTracePanel.tsx`（hierarchical 折叠 trace 重写，409+/112-）
+- `frontend/components/PreferencesPanel.tsx`（去 📚 + Lucide 头像）
+- `frontend/components/UserSwitcher.tsx`（去 👤 + Lucide）
+- `frontend/components/PlannerModeBadge.tsx`（brand → accent）
+- `frontend/components/RefinementDialog.tsx`（去 ✕ + Lucide + kbd 提示）
+- `frontend/components/ToastStack.tsx`（去 emoji + Lucide kind 图标）
+- `frontend/components/ChitchatBubble.tsx`（去 ☀️🤖🫶🌿 + Lucide tone 图标）
+
+不动（按边界）：
+- 所有 `backend/`（C 角色边界）
+- 他人 untracked：`AGENTS.md` / `.codesee/prompts/scan.md / sync.md / scan-sdd.md` / `.agents/` / `backend/tests/fake_tools.py` / `mock_data/*.json`（用户或他人改动）
+
+**应当达成的效果**：
+
+- 整体视觉从「美团暖橙 To-C」转为「Linear / Vercel / Anthropic 派系工程师审美」
+- 评委一眼能看出「这是 Agent 工具，不是聊天机器人」
+- ToolTracePanel 折叠 trace 直接对接评分项 2（规划链路）+ 5（异常韧性）的「Agent 行为可见性」加分
+- 4 项静态校验全过：lint ✓ / typecheck ✓ / vitest 30/30 / next build 116 kB
+- 浏览器实测 S1 真后端 LLM 端到端跑通：8 场景 / Cmd+K / 折叠 trace / shimmer / NumberTicker，console 仅 favicon 404 无运行时错误
+- pitfalls P2 教训严格执行：commit 前 git diff --cached --stat / 不动他人 untracked / 不越界 sync 别人的 feature
