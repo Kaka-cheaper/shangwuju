@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
+import type { IntentExtraction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import NumberTicker from "./NumberTicker";
@@ -13,6 +14,8 @@ import ShimmerStripe from "./ShimmerStripe";
 /** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（黄昏深色主题）。 */
 export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
+  const intent = useChatStore((s) => s.intent);
+  const narration = useChatStore((s) => s.narration);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
@@ -95,6 +98,16 @@ export default function ItineraryCard() {
           />
         </div>
       )}
+
+      {/* Agent 暖心开场白（导游口播） */}
+      {narration?.text && (
+        <div className="px-4 pt-3">
+          <NarrationBlock text={narration.text} stage={narration.stage} />
+        </div>
+      )}
+
+      {/* 方案 C：「为你考虑了什么」小标签行（intent 命中可视化） */}
+      {intent && <IntentChips intent={intent} />}
 
       {/* Timeline */}
       <ol className="relative px-4 py-4 space-y-3.5">
@@ -339,6 +352,157 @@ function ShareMessage({ text }: { text: string }) {
       </div>
       <div className="text-[13px] leading-relaxed text-ink-800 whitespace-pre-wrap tracking-tight">
         {text}
+      </div>
+    </div>
+  );
+}
+
+
+// ============================================================
+// NarrationBlock —— Agent 暖心开场白（导游口播）
+// ============================================================
+
+function NarrationBlock({
+  text,
+  stage,
+}: {
+  text: string;
+  stage: "stream" | "confirm";
+}) {
+  const isConfirm = stage === "confirm";
+  return (
+    <div
+      className="relative rounded-md px-3.5 py-3 text-[13px] leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
+      style={{
+        background: isConfirm
+          ? "linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(251,146,60,0.06) 100%)"
+          : "linear-gradient(135deg, rgba(251,146,60,0.10) 0%, rgba(236,72,153,0.06) 100%)",
+        borderColor: isConfirm
+          ? "rgba(16,185,129,0.24)"
+          : "rgba(251,146,60,0.22)",
+        color: "rgb(231 229 228 / 0.92)",
+      }}
+    >
+      <div className="flex items-start gap-2">
+        <Icons.spark
+          className={cn(
+            "w-3.5 h-3.5 mt-0.5 shrink-0",
+            isConfirm ? "text-emerald-400" : "text-brand-400",
+          )}
+          strokeWidth={2}
+        />
+        <p className="whitespace-pre-wrap">{text}</p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// IntentChips —— 「为你考虑了什么」可视化（方案 C）
+//   把 intent 命中的 4-6 个关键约束做成小标签，让评委一眼看到 Agent 真在为你考虑
+// ============================================================
+
+interface ChipItem {
+  icon: keyof typeof Icons;
+  label: string;
+}
+
+function buildIntentChips(intent: IntentExtraction): ChipItem[] {
+  const chips: ChipItem[] = [];
+
+  // 距离
+  if (intent.distance_max_km != null) {
+    chips.push({
+      icon: "pin",
+      label: `${intent.distance_max_km % 1 === 0 ? intent.distance_max_km : intent.distance_max_km.toFixed(1)} km 内`,
+    });
+  }
+
+  // 同行人（家庭/朋友/独处推断）
+  if (intent.companions && intent.companions.length > 0) {
+    const totalCount = intent.companions.reduce(
+      (sum, c) => sum + (c.count ?? 1),
+      0,
+    );
+    const hasChild = intent.companions.some(
+      (c) => c.age != null && c.age <= 12,
+    );
+    const hasElder = intent.companions.some(
+      (c) => c.age != null && c.age >= 60,
+    );
+    let label: string;
+    if (hasChild) {
+      const child = intent.companions.find((c) => c.age != null && c.age <= 12);
+      label = `带 ${child?.age ?? ""} 岁孩子`;
+    } else if (hasElder) {
+      label = "陪长辈";
+    } else if (totalCount > 1) {
+      label = `${totalCount} 人同行`;
+    } else {
+      label = intent.companions[0].role || "同行";
+    }
+    chips.push({ icon: "user", label });
+  } else if (intent.social_context && intent.social_context.includes("独处")) {
+    chips.push({ icon: "user", label: "独处时间" });
+  }
+
+  // 饮食偏好（合并展示，最多 2 个）
+  const dietary = (intent.dietary_constraints || []).slice(0, 2);
+  for (const d of dietary) {
+    chips.push({ icon: "spark", label: d });
+  }
+
+  // 物理约束（无台阶/亲子友好等，最多 1 个，避免太多 chip）
+  const physical = (intent.physical_constraints || []).slice(0, 1);
+  for (const p of physical) {
+    chips.push({ icon: "spark", label: p });
+  }
+
+  // 时长（如果用户给了具体范围）
+  if (
+    intent.duration_hours &&
+    Array.isArray(intent.duration_hours) &&
+    intent.duration_hours.length === 2
+  ) {
+    const [lo, hi] = intent.duration_hours;
+    if (lo === hi) {
+      chips.push({ icon: "thinking", label: `${lo} 小时` });
+    } else {
+      chips.push({ icon: "thinking", label: `${lo}-${hi} 小时` });
+    }
+  }
+
+  return chips.slice(0, 6); // 上限 6 个，避免一行挤
+}
+
+function IntentChips({ intent }: { intent: IntentExtraction }) {
+  const chips = buildIntentChips(intent);
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="px-4 pt-3">
+      <div className="text-[10px] tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
+        <Icons.spark className="w-3 h-3 text-brand-400" strokeWidth={2.5} />
+        <span>为你考虑了</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((c, i) => {
+          const Ico = Icons[c.icon];
+          return (
+            <span
+              key={`${c.label}-${i}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium tracking-tight border animate-fade-in"
+              style={{
+                background: "rgba(251, 146, 60, 0.08)",
+                borderColor: "rgba(251, 146, 60, 0.22)",
+                color: "rgb(253 186 116)",
+              }}
+            >
+              <Ico className="w-3 h-3" strokeWidth={2} />
+              {c.label}
+            </span>
+          );
+        })}
       </div>
     </div>
   );

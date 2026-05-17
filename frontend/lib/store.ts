@@ -11,6 +11,7 @@ import { create } from "zustand";
 import { streamSse } from "./sse";
 import type {
   AgentThoughtPayload,
+  AgentNarrationPayload,
   ChitchatReplyPayload,
   Itinerary,
   IntentExtraction,
@@ -121,6 +122,8 @@ export interface ChatState {
 
   // 输出
   itinerary: Itinerary | null;
+  /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
+  narration: { text: string; stage: "stream" | "confirm" } | null;
   /** 用户已主动取消（和 reset 不同：不清空 trace，仅冻结按钮）。 */
   cancelled: boolean;
   /** 上一次 refinement_done 摘要，用于「我已为你调整」面板。 */
@@ -193,6 +196,7 @@ const initialState: Omit<
   chitchatReplies: [],
   toasts: [],
   commandPaletteOpen: false,
+  narration: null,
 };
 
 let abortController: AbortController | null = null;
@@ -249,6 +253,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replans: [],
       thoughts: [],
       itinerary: null,
+      narration: null,
       cancelled: false,
       lastRefinement: null,
       messages: [
@@ -278,20 +283,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
-          // 加一条 agent 总结消息（基于 itinerary）
+          // 加一条 agent 总结消息——优先用后端 narration（暖语气），fallback 到 summary
           const itin = get().itinerary;
-          if (itin) {
-            set((s) => ({
-              messages: [
-                ...s.messages,
-                {
-                  id: `a-${Date.now()}`,
-                  role: "agent",
-                  text: `已为你规划：${itin.summary}`,
-                  createdAt: Date.now(),
-                },
-              ],
-            }));
+          const narr = get().narration;
+          if (narr?.text || itin) {
+            const text = narr?.text || (itin ? `已为你规划：${itin.summary}` : "");
+            if (text) {
+              set((s) => ({
+                messages: [
+                  ...s.messages,
+                  {
+                    id: `a-${Date.now()}`,
+                    role: "agent",
+                    text,
+                    createdAt: Date.now(),
+                  },
+                ],
+              }));
+            }
           }
           set({ streaming: false });
         },
@@ -320,6 +329,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
+          // confirm 后的暖心收尾文案（"都搞定了"语气，由后端 narrator confirm 阶段生成）
+          const narr = get().narration;
+          if (narr?.text && narr.stage === "confirm") {
+            set((s) => ({
+              messages: [
+                ...s.messages,
+                {
+                  id: `a-${Date.now()}`,
+                  role: "agent",
+                  text: narr.text,
+                  createdAt: Date.now(),
+                },
+              ],
+            }));
+          }
           set({ streaming: false });
           // Phase 0.7：confirm 后异步刷偏好（让评委看到 accepted_tags 累加）
           get().refreshPreferences().catch(() => {});
@@ -345,6 +369,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replans: [],
       thoughts: [],
       itinerary: null,
+      narration: null,
       cancelled: false,
       lastRefinement: null,
       messages: feedbackText.trim()
@@ -372,19 +397,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
+          // refine 后的导游开场白（暖语气，强调"已根据反馈"）
           const itin = get().itinerary;
-          if (itin) {
-            set((s) => ({
-              messages: [
-                ...s.messages,
-                {
-                  id: `a-${Date.now()}`,
-                  role: "agent",
-                  text: `已根据你的反馈重新规划：${itin.summary}`,
-                  createdAt: Date.now(),
-                },
-              ],
-            }));
+          const narr = get().narration;
+          if (narr?.text || itin) {
+            const text = narr?.text
+              ? `已根据你的反馈重新规划——${narr.text}`
+              : itin
+                ? `已根据你的反馈重新规划：${itin.summary}`
+                : "";
+            if (text) {
+              set((s) => ({
+                messages: [
+                  ...s.messages,
+                  {
+                    id: `a-${Date.now()}`,
+                    role: "agent",
+                    text,
+                    createdAt: Date.now(),
+                  },
+                ],
+              }));
+            }
           }
           set({ streaming: false });
           // Phase 0.7：refine 后刷偏好（rejected_tags 可能 +1）
@@ -622,6 +656,12 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     case "itinerary_ready":
       set({ itinerary: ev.payload as unknown as Itinerary });
       break;
+
+    case "agent_narration": {
+      const p = ev.payload as unknown as AgentNarrationPayload;
+      set({ narration: { text: p.text, stage: p.stage } });
+      break;
+    }
 
     case "refinement_start": {
       const p = ev.payload as unknown as RefinementStartPayload;

@@ -766,6 +766,25 @@ async def _stub_stream(
     yield emit(SseEventType.ITINERARY_READY, itinerary.model_dump())
     await _delay(150)
 
+    # ---- 13.5: agent_narration（暖心开场白；stub 模式走模板）----
+    try:
+        from agent.narrator import generate_narration
+
+        narration_text = generate_narration(
+            intent=intent,
+            itinerary=itinerary,
+            stage="stream",
+            use_llm=False,  # stub 模式：纯模板，不调 LLM
+        )
+        yield emit(
+            SseEventType.AGENT_NARRATION,
+            {"text": narration_text, "stage": "stream"},
+        )
+        await _delay(120)
+    except Exception:  # noqa: BLE001
+        # narration 失败不阻塞主流程
+        pass
+
     # ---- 14: done ----
     yield emit(SseEventType.DONE, {})
 
@@ -1148,6 +1167,29 @@ async def _planner_stream(
             "user_id": user_id or "demo_user",
         }
 
+    # ---- 暖心开场白（行程出炉时；真 LLM 模式调 LLM 生成有"人味"文案）----
+    if intent is not None and result is not None and result.itinerary is not None:
+        try:
+            from agent.narrator import generate_narration
+
+            narration_text = await asyncio.to_thread(
+                generate_narration,
+                intent=intent,
+                itinerary=result.itinerary,
+                stage="stream",
+                use_llm=True,  # 真 planner 路径默认走 LLM；失败自动 fallback 到模板
+            )
+            yield SseEvent(
+                type=SseEventType.AGENT_NARRATION,
+                seq=seq,
+                payload={"text": narration_text, "stage": "stream"},
+                timestamp_ms=_now_ms(),
+            )
+            seq += 1
+        except Exception:  # noqa: BLE001
+            # narration 失败不阻塞主流程（已经有 itinerary_ready 兜底）
+            pass
+
     # ---- 推 done ----
     yield SseEvent(type=SseEventType.DONE, seq=seq, payload={})
 
@@ -1332,6 +1374,28 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         _accumulate_memory_after_confirm(cached, itin_dict)
         yield emit(SseEventType.ITINERARY_READY, itin_dict)
         await _delay(140)
+
+        # confirm 后的暖心收尾文案（"都给你搞定了"语气）
+        try:
+            from agent.narrator import generate_narration
+
+            cached_intent_dict = cached.get("intent") or {}
+            if cached_intent_dict:
+                intent_obj = IntentExtraction.model_validate(cached_intent_dict)
+                itin_obj = Itinerary.model_validate(itin_dict)
+                narration_text = generate_narration(
+                    intent=intent_obj,
+                    itinerary=itin_obj,
+                    stage="confirm",
+                    use_llm=_use_real_planner(),
+                )
+                yield emit(
+                    SseEventType.AGENT_NARRATION,
+                    {"text": narration_text, "stage": "confirm"},
+                )
+                await _delay(120)
+        except Exception:  # noqa: BLE001
+            pass
 
     yield emit(SseEventType.DONE, {})
 

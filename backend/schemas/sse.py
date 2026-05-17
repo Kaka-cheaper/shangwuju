@@ -38,6 +38,9 @@ class SseEventType(str, Enum):
     # 非 planning 输入（chitchat / meta / emotional / off_topic / ambiguous）
     # 的 Agent 暖心回话气泡；payload = RouterDecision.model_dump()
     CHITCHAT_REPLY = "chitchat_reply"
+    # ===== Agent 暖心开场白（行程出炉时 / confirm 后） =====
+    # payload = {"text": str, "stage": "stream" | "confirm"}
+    AGENT_NARRATION = "agent_narration"
     # 错误（区别于 Tool 内部失败：这是流终止）
     STREAM_ERROR = "stream_error"
     # 流结束
@@ -60,6 +63,7 @@ class SseEvent(BaseModel):
     - REFINEMENT_START payload = {"feedback_text": str}
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
     - CHITCHAT_REPLY   payload = RouterDecision.model_dump()
+    - AGENT_NARRATION  payload = {"text": str, "stage": "stream" | "confirm"}
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}
     """

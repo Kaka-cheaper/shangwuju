@@ -22,6 +22,8 @@ export const SseEventType = {
   RefinementDone: "refinement_done",
   // Phase 0.8 输入域路由（非 planning 输入的暖心回话气泡）
   ChitchatReply: "chitchat_reply",
+  // 行程出炉时的 Agent 暖心开场白（替代套话 summary）
+  AgentNarration: "agent_narration",
   StreamError: "stream_error",
   Done: "done",
 } as const;
@@ -97,6 +99,13 @@ export interface RouterDecision {
 }
 
 export type ChitchatReplyPayload = RouterDecision;
+
+export interface AgentNarrationPayload {
+  /** 暖心开场白文案（80-200 字，2-3 句），替代套话 summary。 */
+  text: string;
+  /** "stream"=行程刚出炉时；"confirm"=用户确认下单后。 */
+  stage: "stream" | "confirm";
+}
 
 export interface StreamErrorPayload {
   reason: string;
