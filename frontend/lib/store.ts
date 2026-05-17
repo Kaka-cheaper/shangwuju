@@ -269,7 +269,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     arrivalCounter = 0;
 
     await streamSse(
-      `${API_BASE}/chat/stream`,
+      `${API_BASE}/chat/turn`,
       {
         message: trimmed,
         session_id: get().sessionId,

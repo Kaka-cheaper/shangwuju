@@ -458,6 +458,93 @@ async def chat_refine(req: RefinementInput, request: Request) -> EventSourceResp
 
 
 # ============================================================
+# v2 单一入口：/chat/turn（智能识别新需求 vs 反馈，跨 turn 上下文持久化）
+# ============================================================
+
+
+@app.post("/chat/turn")
+async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
+    """v2 单一对话入口（解决"dock 直接反馈无上下文"根因）。
+
+    决策逻辑（agent.v2.orchestrator）：
+        1. 从 ConversationStore 取当前 session 的 ConversationState
+        2. 如果已有 itinerary_snapshot 且 message 看着像反馈 → 走 refine 路径
+        3. 否则走 stream 路径（router → planner / chitchat）
+
+    与 /chat/stream 的差别：
+        - /chat/stream：每次都触发新规划，不知道用户上下文
+        - /chat/turn：根据 ConversationState 自动决策，"近一点 3 公里"会被识别为反馈
+                      而不是新需求重解析
+
+    向后兼容：
+        旧端点 /chat/stream / /chat/refine 仍工作；前端可以渐进升级到 /chat/turn。
+
+    SSE 序列：
+        - feedback 路径：与 /chat/refine 一致（refinement_start → refinement_done → 主路径 → done）
+        - fresh 路径：   与 /chat/stream 一致（intent_parsed → tools → itinerary_ready → narration → done）
+    """
+    from agent.v2.conversation import get_default_store
+    from agent.v2.orchestrator import decide_turn_kind
+
+    mode = resolve_planner_mode(
+        header_value=request.headers.get("X-Planner-Mode"),
+        env_value=os.getenv("PLANNER_MODE"),
+    )
+    user_id = _resolve_user_id(req.user_id, request.headers.get("X-User-Id"))
+
+    # 取 v2 ConversationState 决定路径
+    store = get_default_store()
+    state = await store.get_or_create(req.session_id, user_id=user_id)
+    turn_kind = decide_turn_kind(req.message, state)
+
+    if turn_kind == "feedback" and state.itinerary_snapshot is not None:
+        # 反馈路径：构造 RefinementInput 走原 refine 流
+        refine_req = RefinementInput(
+            session_id=req.session_id,
+            feedback_text=req.message,
+        )
+        # 兼容旧 _SESSION_STORE：refine 端点从那里取 intent，所以同步一份
+        if state.intent_snapshot is not None:
+            _SESSION_STORE.setdefault(
+                req.session_id,
+                {
+                    "intent": state.intent_snapshot,
+                    "itinerary": state.itinerary_snapshot,
+                    "user_id": user_id,
+                },
+            )
+        cached = _SESSION_STORE[req.session_id]
+        if _use_real_planner():
+            inner = _refine_stream_real(refine_req, cached, mode=mode)
+        else:
+            inner = _refine_stream(refine_req, cached)
+        return EventSourceResponse(
+            _safe_stream(inner),
+            media_type="text/event-stream",
+            headers={
+                "X-Planner-Mode": mode,
+                "X-User-Id": user_id,
+                "X-Turn-Kind": "feedback",
+            },
+        )
+
+    # fresh 路径：走原 stream 流
+    if _use_real_planner():
+        inner = _routed_stream_real(req, mode=mode, user_id=user_id)
+    else:
+        inner = _routed_stream_stub(req)
+    return EventSourceResponse(
+        _safe_stream(inner),
+        media_type="text/event-stream",
+        headers={
+            "X-Planner-Mode": mode,
+            "X-User-Id": user_id,
+            "X-Turn-Kind": "fresh",
+        },
+    )
+
+
+# ============================================================
 # SSE 包装与异常兜底
 # ============================================================
 
@@ -783,6 +870,36 @@ async def _stub_stream(
         await _delay(120)
     except Exception:  # noqa: BLE001
         # narration 失败不阻塞主流程
+        narration_text = None
+
+    # ---- v2 ConversationStore 同步 hook（stub 路径也持久化让 /chat/turn 能用）----
+    try:
+        from agent.v2.orchestrator import (
+            record_planning_result,
+            record_refinement_result,
+        )
+
+        agent_msg = (narration_text if narration_text else None) or f"已为你规划：{itinerary.summary}"
+
+        if intent_override is not None:
+            await record_refinement_result(
+                session_id=req.session_id,
+                user_id=getattr(req, "user_id", None) or "demo_user",
+                refined_intent=intent,
+                new_itinerary=itinerary,
+                feedback_text=req.message,
+                agent_message=agent_msg,
+            )
+        else:
+            await record_planning_result(
+                session_id=req.session_id,
+                user_id=getattr(req, "user_id", None) or "demo_user",
+                intent=intent,
+                itinerary=itinerary,
+                user_message=req.message,
+                agent_message=agent_msg,
+            )
+    except Exception:  # noqa: BLE001
         pass
 
     # ---- 14: done ----
@@ -1168,6 +1285,7 @@ async def _planner_stream(
         }
 
     # ---- 暖心开场白（行程出炉时；真 LLM 模式调 LLM 生成有"人味"文案）----
+    narration_text: str | None = None
     if intent is not None and result is not None and result.itinerary is not None:
         try:
             from agent.narrator import generate_narration
@@ -1188,6 +1306,40 @@ async def _planner_stream(
             seq += 1
         except Exception:  # noqa: BLE001
             # narration 失败不阻塞主流程（已经有 itinerary_ready 兜底）
+            pass
+
+    # ---- v2 ConversationStore 同步 hook（跨 turn 上下文持久）----
+    if intent is not None and result is not None and result.itinerary is not None:
+        try:
+            from agent.v2.orchestrator import (
+                record_planning_result,
+                record_refinement_result,
+            )
+
+            agent_msg = narration_text or f"已为你规划：{result.itinerary.summary}"
+
+            if intent_override is not None:
+                # refine 路径：req.message 是用户的反馈文本
+                await record_refinement_result(
+                    session_id=req.session_id,
+                    user_id=user_id or "demo_user",
+                    refined_intent=intent,
+                    new_itinerary=result.itinerary,
+                    feedback_text=req.message,
+                    agent_message=agent_msg,
+                )
+            else:
+                # fresh 路径：req.message 是用户原始需求
+                await record_planning_result(
+                    session_id=req.session_id,
+                    user_id=user_id or "demo_user",
+                    intent=intent,
+                    itinerary=result.itinerary,
+                    user_message=req.message,
+                    agent_message=agent_msg,
+                )
+        except Exception:  # noqa: BLE001
+            # v2 持久化失败不阻塞旧链路
             pass
 
     # ---- 推 done ----
@@ -1376,6 +1528,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         await _delay(140)
 
         # confirm 后的暖心收尾文案（"都给你搞定了"语气）
+        confirm_narration: str | None = None
         try:
             from agent.narrator import generate_narration
 
@@ -1383,7 +1536,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
             if cached_intent_dict:
                 intent_obj = IntentExtraction.model_validate(cached_intent_dict)
                 itin_obj = Itinerary.model_validate(itin_dict)
-                narration_text = generate_narration(
+                confirm_narration = generate_narration(
                     intent=intent_obj,
                     itinerary=itin_obj,
                     stage="confirm",
@@ -1391,9 +1544,23 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
                 )
                 yield emit(
                     SseEventType.AGENT_NARRATION,
-                    {"text": narration_text, "stage": "confirm"},
+                    {"text": confirm_narration, "stage": "confirm"},
                 )
                 await _delay(120)
+        except Exception:  # noqa: BLE001
+            pass
+
+        # v2 ConversationStore 同步 hook（confirm 后状态升级 itinerary 含 orders）
+        try:
+            from agent.v2.orchestrator import record_confirm_result
+
+            final_itin = Itinerary.model_validate(itin_dict)
+            await record_confirm_result(
+                session_id=req.session_id,
+                user_id=cached.get("user_id") or "demo_user",
+                final_itinerary=final_itin,
+                agent_message=confirm_narration or "已完成下单。",
+            )
         except Exception:  # noqa: BLE001
             pass
 
@@ -1587,6 +1754,18 @@ async def _routed_stream_real(
     if decision is not None and decision.input_kind != InputKind.PLANNING:
         # 非主路径：推 chitchat_reply + done
         yield _make_chitchat_event(decision, 1)
+        # v2 ConversationStore 同步：chitchat / meta 等也要写入 messages
+        try:
+            from agent.v2.orchestrator import record_chitchat_result
+
+            await record_chitchat_result(
+                session_id=req.session_id,
+                user_id=user_id,
+                user_message=req.message,
+                decision=decision,
+            )
+        except Exception:  # noqa: BLE001
+            pass
         await _delay(120)
         yield SseEvent(type=SseEventType.DONE, seq=2)
         return
