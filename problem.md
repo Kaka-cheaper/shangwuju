@@ -1730,3 +1730,152 @@ test_tools.py:       49 passed (原 44 + 5 新)
 
 **用户反馈**：（待填）
 
+
+
+---
+
+## 问题12：UI 太黑白压抑像丧礼，给重构方案
+
+**用户原问**：
+
+> 感觉不太对劲，现在整体都变成了黑白的主题，感觉跟丧礼一样...很压抑，而且没有视觉震撼。给我几个优化方案，不要偷懒，如果需要完全重构那就给出方案
+
+**解决方案**（咨询，未改代码）：
+
+诊断现状根因：上一轮 B+D 范式落地时把「去 emoji + 灰阶 + 单色 accent」三件事一起推到产品调性里，但忽略了产品本身是「半日行程管家」（卖温度感的场景），不是 Linear/Vercel 那种纯工具型产品。
+
+给 3 个修复方向，每个带真实可访问 demo 链接：
+
+- **方向 A 日落色卡（推荐）**：保留 D 工程感底盘，仅在 8 个情绪锚点（时间轴圆点 / 主按钮 / refinement_banner / ShareMessage / 已为你预留 / streaming 光带 / 顶栏渐变 / ItineraryCard 顶部色带）回暖橙/晚霞/米黄/茶绿。1.5 小时见效。
+- **方向 B 黄昏渐变 + 大色块**：A 基础上加 mesh 渐变背景 + BorderBeam + 行程卡 hero 色带。3-4 小时。
+- **方向 C 卡片杂志重构**：主布局重排为「行程占 8/12 + 对话占 4/12」，行程卡顶部 168px hero 图 + 大字 + 引文 + 时间轴小头图。Tool 链路降级为抽屉。1-2 天，风险中。
+
+参考 demo：Stripe / Notion / Apple Fitness（A 派系）/ Linear hero / Vercel mesh / Magic UI BorderBeam（B 派系）/ Airbnb Experiences / Komoot / Apple Maps Guides（C 派系）。
+
+我的推荐：首选 A，时间宽裕再加 B，C 留作可选。
+
+**修改的代码文件**：无（咨询任务）
+
+**应当达成的效果**：
+
+- 用户能从 demo 链接直接看到效果差异，再拍板
+- 避免再次「一刀切去暖色」的判断错误——分清「工具型区块」（Tool 链路应保灰阶）与「情绪型区块」（行程卡应有温度）
+- 拍板后下一轮按映射表一次到位，不来回调
+
+
+---
+
+## 问题12：B+D 改造之后变成黑白丧礼感，搜索方案重新注入温度
+
+**用户原问**：
+
+> 感觉不太对劲，现在整体都变成了黑白的主题，感觉跟丧礼一样...很压抑，而且没有视觉震撼。给我几个优化方案，不要偷懒，如果需要完全重构那就给出方案
+
+**自我诊断（先认错）**：
+
+问题 11 的 B+D 范式只走对了一半——去 emoji + Lucide + mono 字体是对的；但**主色一刀切到 zinc 灰阶 + 单色冷蓝**走过头了。「晌午局」这个名字本身有暖橙色调（下午 / 夕阳 / 饭局），全部冷化等于把产品身份抹掉。
+
+**解决方案**（咨询性质，未改代码）：
+
+跨 Vercel/Tailwind/Stripe/Anthropic/Notion/Spotify/Airbnb/Magic UI/shadcn 搜索后给出 4 个方向 + 直达 demo 链接：
+
+- **方向 1（首选）**：顶栏品牌区 mesh 渐变 mark + 背景顶部 1/3 aurora 暖光斑 + 主按钮/时间轴/进度条改暖橙→莓红渐变；保留 B+D 骨架。tailwindcss.com / stripe.com / v0.app 可看
+- **方向 2（次选）**：换 Notion 暖灰底 + 橙紫双 accent（橙管人 / 紫管 Agent）；4-6 小时全局色板替换。notion.so / anthropic.com 可看
+- **方向 3（激进）**：深色主题 + Spotify Wrapped 风暖光斑 + 玻璃拟态 + noise 颗粒；视觉冲击最强但环境光风险高。linear.app/agents / magicui.design / shadcn.io noise hero 可看
+- **方向 4（最不偷懒）**：杂志版式 + 大图 hero + 真插画 + 视差动效；工程量 2-3 天，5 分钟 demo 评委来不及看。airbnb.com/experiences / 21st.dev/canvas 可看
+
+**最终推荐**：方向 1 + 方向 2 局部（4 小时）。具体配方 7 条：顶栏 mark / 背景光斑 / 时间轴圆点渐变 / 主按钮渐变 / accent 蓝→暖紫 / 顶部光带渐变 / 空态图标加温度。仅改 5 个文件，不重构组件。
+
+**修改的代码文件**：无（咨询任务）
+
+**应当达成的效果**：
+
+- 用户从 4 个方向中拍板方向（或混搭），下一轮一次性落地
+- 不再一刀切：保留 B+D 折叠 trace + Cmd+K + Lucide 工程感骨架，仅在 3-7 个关键点恢复温度
+- 给每个方向都标注工作量 / 风险 / 收益，方便评估时间盒
+
+
+---
+
+## 问题11：refine 反馈"我只有一个小时"后行程时长仍是 4 小时（前端截图复现）
+
+**用户原问**：截图显示 IntentSummary 已显示「时长：[4,6] → [1,1]」，但下方时间轴主活动仍 14:12-16:24（132 分钟），返回 18:42。问根因在哪。
+
+**Phase 1 根因调查**（superpowers 4 阶段协议）：
+
+1. 完整读 trace：rule planner 路径 → `_resolve_time_window(intent)` → `_assemble_itinerary`
+2. 手动跑 `_resolve_time_window([1,1])` → 输出 `main=34 dining=30 slots=['15:30',...,'17:30']`，**算法没问题**
+3. 手动跑 `plan_itinerary([1,1])` → 输出主活动 14:08-14:42，**链路也没问题**
+4. 反向追溯：截图主活动 132 分钟 ≠ 算法输出的 34 分钟 → planner 收到的 intent.duration_hours **不是** [1,1]
+5. 唯一可能：refiner 的 `refined_intent.duration_hours` 与 `changed_fields` 文本不一致
+
+**根因**（双重）：
+
+- LLM 路径：LLM 在 `changed_fields` 里复读用户的「1 小时」，但 `refined_intent.duration_hours` 字段保留原 [4, 6]——**LLM 文本与 JSON 字段一致性问题**（典型 LLM 漂移）
+- 兜底路径 `_rule_fallback` 时间关键词只识别「时间紧/快一点」→ [2,3] / 「时间多」→ [5,7]，**不识别带具体数字的时长**（"1 小时" / "两小时" / "2 到 3 小时"）
+
+**Phase 2 模式分析**：
+
+- 代码库内类似的"LLM 文本与字段不一致"防御：`agent/refiner.py` 已有 raw_input 强制兜底（`refined_intent_data["raw_input"] = original.raw_input`）→ 沿用同样模式做 duration_hours 强制对齐
+- intent_parser 用 prompt few-shot 教 LLM 解析「X 小时」：本次不动 prompt（治标），加后校验（治本）
+
+**Phase 3 假设与测试**：
+
+> 假设：feedback 含具体小时数 → refined.duration_hours 必须等于提取值；否则强制覆盖。
+
+最小复现测试（`tests/test_refiner_duration_consistency.py`，18 项）：
+
+- 11 项 `_extract_duration_from_feedback` 参数化（覆盖 1 小时 / 一小时 / 两小时 / 1-2 小时 / 半小时返 None / "时间紧" 不抢关键词分支等）
+- 5 项 `_rule_fallback` 行为（精确数字优先、关键词路径不破、空反馈不动）
+- 2 项 LLM 路径行为（不一致响应被强制对齐 + 一致响应不被破坏）
+- 1 项无 client fallback
+
+**Phase 4 实施单一 fix**：
+
+`backend/agent/refiner.py`（owner=A 范围）：
+
+1. 新增 `_extract_duration_from_feedback(text) -> tuple[int,int] | None`：
+   - 中文数字归一（一/两/二/三/.../九）
+   - 范围正则 `(\d+)\s*[到至-~]\s*(\d+)\s*个?小时`（先匹配避免被单数字截断）
+   - 单数字正则 `(\d+)\s*个?\s*小时`
+   - 0 < n ≤ 12 边界保护
+2. 新增 `_enforce_duration_consistency(refined, changed_fields, feedback)`：
+   - 如果 feedback 含具体数字且 refined.duration_hours 不等于该值 → `model_copy(update={"duration_hours": [N,N]})`
+   - 同时修正 changed_fields（已有时长条目则替换文本，没有则补一条）
+3. `_rule_fallback` 时间分支：精确数字优先于关键词
+4. `_llm_refine` 出口：解 LLM JSON 后跑 `_enforce_duration_consistency`
+
+**测试矩阵**（193/193 全过 + 4 个 verify 全过）：
+
+```
+| 自检 / 测试               | 数量    | 状态 |
+| ------------------------- | ------- | ---- |
+| 新增回归测试              | 18      | ✓    |
+| pytest 全套               | 193     | ✓    |
+|   含原回归                | 175     | ✓    |
+| verify_schemas            | 6       | ✓    |
+| verify_phase0_5           | 8       | ✓    |
+| verify_refine             | 13      | ✓    |
+| verify_planning           | 4 场景  | ✓    |
+| verify_sse                | -       | ✗ 与本 fix 无关：B owner 脚本对 planner_real=1 时心跳 agent_thought 断言过严 |
+```
+
+**修改的代码文件**：
+
+新建：
+- `backend/tests/test_refiner_duration_consistency.py`（209 行 / 18 项）
+
+修改：
+- `backend/agent/refiner.py`：新增 2 个工具函数 + 改 `_rule_fallback` 时间分支 + `_llm_refine` 出口接入对齐
+
+**未动**（owner 不是自己）：
+- `backend/agent/prompts/refiner_prompt.py`（也是 owner=A 范围但 prompt 改动属 LLM 调优，本 fix 是后校验治本，不依赖 prompt 调优）
+- `backend/main.py`（B owner）/ `frontend/*`（B owner）/ schemas（用户拍板锁）/ `tools/*`、`mock_data/*`（C owner）/ `pitfalls.md`（用户范围）
+
+**应当达成的效果**：
+
+- 用户说「我只有 1 小时」/「就两小时吧」/「再给我 2-3 小时」等任何带具体数字的时长反馈，refined_intent.duration_hours 必然准确反映
+- LLM 出现「文本与字段不一致」时被自动捕获 + 修正 + 改写 changed_fields 文本（评委看到的 IntentSummary 与下方时间轴永远一致）
+- _rule_fallback 路径同样支持精确数字（无 LLM 时也工作）
+- 旧关键词路径（"时间紧"/"时间多"）保持兼容，回归测试 175 项零破坏
+- 防再犯：18 项参数化测试固化为回归 gate；以后任何对 refiner 的改动都跑得过这 18 条
