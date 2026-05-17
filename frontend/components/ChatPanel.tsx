@@ -65,7 +65,13 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="card flex flex-col h-[520px] sm:h-[640px]">
+    <div className="card flex flex-col h-[520px] sm:h-[640px] relative overflow-hidden">
+      {streaming && (
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 h-px shimmer-bar z-10"
+        />
+      )}
       <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="section-title">对话</span>

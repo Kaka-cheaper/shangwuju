@@ -146,11 +146,20 @@ export default function ToolTracePanel() {
   const totalReplans = replans.length;
 
   return (
-    <div className="card">
+    <div className="card relative overflow-hidden">
+      {streaming && (
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 h-px shimmer-bar"
+        />
+      )}
       <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Sparkles
-            className="w-3.5 h-3.5 text-ink-700"
+            className={cn(
+              "w-3.5 h-3.5 transition-colors",
+              streaming ? "text-accent-500" : "text-ink-700",
+            )}
             strokeWidth={2}
           />
           <span className="text-[12px] font-medium text-ink-800 tracking-tight">

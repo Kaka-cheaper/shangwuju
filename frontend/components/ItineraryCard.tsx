@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
+import ShimmerStripe from "./ShimmerStripe";
 
 /** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（B+D+C 范式）。 */
 export default function ItineraryCard() {
@@ -31,12 +32,15 @@ export default function ItineraryCard() {
 
   if (!itinerary) {
     return (
-      <div className="card px-4 py-8 flex flex-col items-center gap-2 text-ink-500">
-        <Icons.thinking
-          className="w-5 h-5 text-accent-500 animate-spin"
-          strokeWidth={2}
-        />
-        <span className="text-sm animate-pulse-soft">正在为你拼装行程...</span>
+      <div className="card px-4 py-5 space-y-3">
+        <div className="flex items-center gap-1.5 text-[12px] text-accent-700">
+          <Icons.thinking
+            className="w-3.5 h-3.5 animate-spin"
+            strokeWidth={2}
+          />
+          <span className="tracking-tight">正在为你拼装行程...</span>
+        </div>
+        <ShimmerStripe rows={4} />
       </div>
     );
   }

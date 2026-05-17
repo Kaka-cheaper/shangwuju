@@ -162,4 +162,28 @@
     mask-composite: exclude;
     pointer-events: none;
   }
+
+  /* ============================================================
+     C 局部动效：流光横条（streaming 顶部光带 + 骨架屏）
+     ============================================================ */
+  .shimmer-bar {
+    background: linear-gradient(
+      110deg,
+      transparent 30%,
+      rgb(47 111 235) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+  .shimmer-skeleton {
+    background: linear-gradient(
+      110deg,
+      rgb(244 244 245) 30%,
+      rgb(228 228 231) 50%,
+      rgb(244 244 245) 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
 }
