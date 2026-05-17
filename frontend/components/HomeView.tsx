@@ -6,7 +6,7 @@ import { useChatStore } from "@/lib/store";
 import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 
-import ChatPanel from "./ChatPanel";
+import ChatDock from "./ChatDock";
 import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ItineraryCard from "./ItineraryCard";
@@ -132,23 +132,29 @@ export default function HomeView() {
         </div>
       </header>
 
-      <main className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6">
+      <main
+        className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6"
+        style={{ paddingBottom: "calc(112px + env(safe-area-inset-bottom, 0px) + 16px)" }}
+      >
         <QuickScenarios />
 
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <section className="lg:col-span-7">
-            <ChatPanel />
+        {/* 主区三栏：行程 5 / 链路 4 / 偏好 3（lg+）；md 行程 7 + (链路+偏好) 5；sm 单列堆叠 */}
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4">
+          <section className="md:col-span-12 lg:col-span-5">
+            <ItineraryCard />
           </section>
 
-          <aside className="lg:col-span-5 space-y-4">
-            <ItineraryCard />
-            <PreferencesPanel />
+          <section className="md:col-span-7 lg:col-span-4">
             <ToolTracePanel />
+          </section>
+
+          <aside className="md:col-span-5 lg:col-span-3">
+            <PreferencesPanel />
           </aside>
         </div>
       </main>
 
-      <footer className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center">
+      <footer className="relative-content mx-auto max-w-7xl px-4 sm:px-6 pb-2 text-center">
         <span className="text-[11px] text-ink-400/70 tracking-tight">
           美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
         </span>
@@ -157,6 +163,7 @@ export default function HomeView() {
       <ToastStack />
       <CommandPalette />
       <Confetti />
+      <ChatDock />
     </div>
   );
 }
