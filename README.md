@@ -251,3 +251,14 @@ confirm 后命中 tag 累计 `accepted_tags`；refine 拒绝的 tag 累计 `reje
 | 包管理   | 后端 uv / 前端 pnpm                                          |
 | 状态可视 | CodeSee（.codesee/features.json，25 features）               |
 ```
+
+
+## 产品化路线图
+
+晌午局不是「能跑就行」的 Demo——三层抽象已经在 Demo 阶段就位，上线工作量已经被工程化预估。
+
+**Demo 阶段（现在）**：8 场景端到端跑通 + 9+ 处异常显式触发 + persona × memory 双驱动个性化 + LLM 解耦（任意 OpenAI 兼容 base_url 三件套切换）。数据走 `mock_data/` 静态 JSON、持久化走单进程 dict、观测性走 structlog text format。
+
+**MVP 阶段（1-2 月）**：切高德 Web Service POI（个人开发者免费 30 万次/月）+ Redis 跨实例共享 + Sentry 错误监控 + structlog json format。三层抽象（`backend/agent/v2/conversation.py` `tool_provider.py` `observability.py`）已在 Demo 阶段就位（含 `MockToolProvider` + `Gaode/Dianping` 接入位 + `trace_span` + `LOG_FORMAT` 切换）。8 场景端到端测试走的是抽象接口，切换工作量预估 ~14h（数据源）+ ~13h（持久化）。
+
+**真产品阶段（3-6 月）**：高德 + 大众点评开放 API + 直签商家 webhook 三源混合 + PostgreSQL 用户行为分析 + OpenTelemetry 完整 trace。商业模式分阶段叠加：先免费验证 PMF → 流量分发（餐厅广告位）→ 抽佣（5%）+ 订阅（¥30/月）+ 美团生态合作。详见 [`docs/06-business/`](docs/06-business/) 的六篇商业演进文档与 [`docs/07-pitch/路演大纲.md`](docs/07-pitch/路演大纲.md)。
