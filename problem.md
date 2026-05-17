@@ -2867,3 +2867,201 @@ router ToolOutput 模式 → 输出 "a" 垃圾
 ✓ pytest 256/256 + 前端 vitest 30/30 + verify_sse + verify_v2_turn 全过
 
 **用户反馈**：
+
+
+---
+
+## 问题19：Agent B 协作落地——ToolProvider 抽象层 + Observability 骨架（Phase 0.11）
+
+**用户原问**：
+
+> 你是「晌午局」Multi-agent 协作的 Agent B，负责 ToolProvider 抽象 + Observability 骨架。新建两个文件：1) backend/agent/v2/tool_provider.py（8 工具的 Protocol + Mock + 高德/大众点评 stub）；2) backend/agent/v2/observability.py（structlog 包装 + tracing context）。文件边界：独占可改 tool_provider / observability / .env.example 自己段；绝对不动 backend/tools/ / main.py / v2 其他文件 / schemas/ / frontend/。
+
+**解决方案**：
+
+按 Multi-agent 协作纪律严格落地。商业演进路径让评委看到「数据源可切换」的扩展性，但 demo 阶段不真接外部 API。
+
+### 1. backend/agent/v2/tool_provider.py（新建，349 行）
+
+- `ToolProvider` Protocol：8 个工具的稳定签名（search_pois / search_restaurants / check_restaurant_availability / estimate_route_time / get_user_profile / reserve_restaurant / buy_ticket / generate_share_message），用 `@runtime_checkable` 装饰
+- `MockToolProvider`：复用 `backend/tools/` 现有同步实现，每个方法用 `asyncio.to_thread` 包成 async（避免事件循环阻塞文件 I/O）
+- `GaodeToolProviderStub` / `DianpingToolProviderStub`：8 个方法均抛 `NotImplementedError` 含「文档锚点指引」，评委切到 `DATA_PROVIDER=gaode/dianping` 会看到友好错误（不是静默失败）
+- `get_tool_provider()`：从 `os.getenv("DATA_PROVIDER")` 解析，默认 mock，非法值抛 ValueError 带友好提示
+- 严格复用 `schemas/tools.py` 的 8 对 Input/Output 模型（不发明新 Pydantic 模型，不动 Agent A 领域）
+
+### 2. backend/agent/v2/observability.py（新建，167 行）
+
+- `_configure_once()`：幂等配置 structlog；通过 `LOG_FORMAT=text|json` 切换 ConsoleRenderer / JSONRenderer
+- `get_logger(name)`：每个模块独立 BoundLogger
+- `bind_session_context(session_id, turn_id, user_id)` / `clear_session_context()`：用 `structlog.contextvars` 实现协程隔离的 session 绑定，所有 logger 自动带这三个字段
+- `trace_span(name, **kwargs)` 上下文管理器：自动记录 start / end + elapsed_ms；异常时记录 error / error_type / elapsed_ms 并 **重新抛出**（不吞错）
+
+### 3. backend/.env.example（仅追加 2 段，不动其它）
+
+末尾追加 `DATA_PROVIDER=mock` 段（含 mock/gaode/dianping 注释）+ `LOG_FORMAT=text` 段（含 text/json 注释）。其它段（含别 Agent 已加的 SESSION_STORE）一字未动。
+
+### 4. backend/scripts/verify_tool_provider.py（新建，5 项端到端）
+
+- [1] DATA_PROVIDER=mock → MockToolProvider + search_pois 拿到 5 个真 POI ✓
+- [2] DATA_PROVIDER=gaode → 抛 NotImplementedError 含 "Gaode integration" + "数据源切换路径" ✓
+- [3] DATA_PROVIDER=dianping → 同上含 "Dianping integration" ✓
+- [4] LOG_FORMAT=json + bind_session_context → 输出合法 JSON 行含 session_id/turn_id/user_id ✓
+- [5] trace_span 正常路径 → start+end+elapsed_ms；异常路径 → start+error+error_type+elapsed_ms 并 raise ✓
+
+工具细节：
+- `_reset_observability_config()`：清 structlog 单例缓存让多次切换 LOG_FORMAT 都生效
+- `redirect_stdout` + `io.StringIO` 抓 logger 输出做断言
+
+**期间踩的小坑**：
+
+1. **structlog 缓存**：第一次 verify 时切 LOG_FORMAT=json 后 logger 仍是 text 格式 —— `_configure_once._done` 标记 + `cache_logger_on_first_use=True` 双重缓存，需要 `structlog.reset_defaults()` 才能彻底重读。verify 脚本里加了 `_reset_observability_config()` helper。
+2. **Windows cmd 中文显示**：ConsoleRenderer 默认开 ANSI 颜色，cmd 不识别会显示 `\x1b[1m` 之类残影。设 `colors=False` 规避。
+
+**测试矩阵**：
+
+```text
+| 套件                          | 通过项     |
+|-------------------------------|-----------|
+| verify_tool_provider（新增）  | 5/5       |
+| pytest（回归）                | 256/256   |
+```
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/v2/tool_provider.py`（ToolProvider Protocol + 3 实现 + 工厂）
+- `backend/agent/v2/observability.py`（structlog 包装 + tracing context）
+- `backend/scripts/verify_tool_provider.py`（5 项自检）
+
+修改：
+- `backend/.env.example`（仅末尾追加 DATA_PROVIDER + LOG_FORMAT 两段）
+
+未动（Multi-agent 协作硬边界）：
+- `backend/tools/` 全部（C owner W1 领域）
+- `backend/main.py`（不在自己范围）
+- `backend/agent/v2/` 下其它现有文件：conversation.py / orchestrator.py / deps.py / intent_agent.py / router_agent.py / model_factory.py / __init__.py
+- `backend/schemas/` 全部（Agent A 领域）
+- `frontend/` 全部
+- 其它 untracked 文件：`.agents/` / `backend/scripts/verify_repository.py` / `backend/tests/fake_tools.py` / `docs/06-business/` 等
+
+**应当达成的效果**：
+
+- 评委切 `DATA_PROVIDER=gaode` 时看到「高德数据源尚未接入。Gaode integration: 接入步骤见 docs/06-business/01-数据源切换路径.md §高德接入」—— 证明抽象层真做了 + 真接入有明确文档锚点
+- 任意 v2 模块用 `get_logger(__name__)` 拿 logger，绑定 session 后所有日志自动带 session_id/turn_id/user_id
+- `LOG_FORMAT=json` 一键切到 Sentry / Logfire / Loki 友好的 JSON 行
+- `with trace_span("call_tool", tool="search_pois"):` 自动记 start / end + elapsed_ms，未来可无缝接 OpenTelemetry
+- pytest 256/256 不破 + 旧 backend/tools/ 行为不变（一字未动）
+- 模块导出与契约 100% 一致：`ToolProvider / MockToolProvider / GaodeToolProviderStub / DianpingToolProviderStub / get_tool_provider` 全部在 `__all__`
+
+**用户反馈**：（待填）
+
+
+---
+
+## 问题19：Agent C —— ConversationStore → ConversationRepository 抽象层重构（Phase 0.11）
+
+**用户原问**：
+
+> Agent C · ConversationRepository 重构。把 backend/agent/v2/conversation.py 重构成 Repository 抽象（Protocol + InMemory + RedisStub），SESSION_STORE=memory|redis 切换；旧名 ConversationStore / get_default_store 100% 向后兼容；不动 orchestrator.py / main.py / 其它任何文件。
+
+**解决方案**：
+
+按 Multi-agent C 角色边界（独占 conversation.py + .env.example 的 SESSION_STORE 段）实施重构，用「商业演进路径」立 demo 之外的可信度——评委切到 SESSION_STORE=redis 看到 stub 抛友好 NotImplementedError 就明白产品化路径已经预留接入点。
+
+**1. backend/agent/v2/conversation.py 重构**：
+
+- 引入 `ConversationRepository` Protocol（@runtime_checkable）
+- 实现 1：`InMemoryRepository` — 当前 demo 默认（单进程 dict + asyncio.Lock，行为与原 ConversationStore 完全一致）
+- 实现 2：`RedisRepositoryStub` — Milestone 2 接入点；所有写方法抛 `NotImplementedError("Redis 持久化是 Milestone 2 计划。详见 docs/06-business/02-持久化演进.md。切回 SESSION_STORE=memory 即可恢复 Demo 模式。")`，stats() 不抛（让 /health 不会 500）
+- `get_default_repo()` 单例：从 .env SESSION_STORE 解析 backend，缺省 / `memory` → InMemory，`redis` → Stub，其它值 → ValueError 不静默降级
+- `_reset_default_repo_for_tests()`：测试专用入口，让 verify 脚本能在不重启进程的前提下切 backend
+- ConversationState 字段 100% 不动（main.py 在直接读 .messages / .itinerary_snapshot）
+
+**2. 向后兼容 100% 保持**：
+
+```python
+# 旧名继续可用，main.py / orchestrator.py 都不需要改 import
+ConversationStore = InMemoryRepository  # type alias
+def get_default_store() -> ConversationRepository:
+    return get_default_repo()
+```
+
+**3. backend/.env.example**：
+
+仅追加 SESSION_STORE 段（不动 DATA_PROVIDER / LOG_FORMAT 段——那是 B 的活）：
+```dotenv
+# 会话持久化（Phase 0.11 抽象层）
+# memory ：单进程 dict（demo 默认；进程重启即清，不跨实例）
+# redis  ：多实例共享 + 跨设备同步（Milestone 2 stub，切到此值会抛友好提示）
+# 演进路径：memory（Demo） → redis（MVP） → postgres（真产品 + analytics）
+SESSION_STORE=memory
+```
+
+**4. backend/scripts/verify_repository.py** 端到端 5 项验证：
+
+- case 1：SESSION_STORE=memory 完整 round-trip（get_or_create / save / get / delete / stats）
+- case 2：SESSION_STORE=redis 五个写方法全部抛 NotImplementedError 且提示语含「Milestone 2」字样；stats 不抛返 `{backend: redis-stub}`
+- case 3：旧名 ConversationStore() 实例化 + get_default_store() 调用 + round-trip 全过
+- case 4：跨 user_id 切换时 messages 清空但 session_id 保留（Phase 0.7 用户切换语义）
+- case 5：SESSION_STORE=postgres 抛 ValueError fail fast（不静默降级）
+
+**测试结果**：
+
+```text
+verify_repository    : 5/5 通过（含 4 项核心 + 1 项反向 fail-fast）
+pytest               : 256/256 通过（重构对所有现有测试零破坏）
+verify_v2_turn       : 通过（/chat/turn fresh + feedback 双路径 + ConversationStore 持久化）
+```
+
+**期间踩的 1 个小坑**：
+
+PowerShell 控制台用 GBK 编码，print `✓` 字符触发 UnicodeEncodeError 让 exit=1，但所有断言其实都过了。设 `$env:PYTHONIOENCODING='utf-8'` 后正常。本身不是代码 bug，是 Windows 终端兼容性。verify_repository.py 与 verify_v2_turn.py 已能在 utf-8 环境下 exit=0。
+
+**修改的代码文件**：
+
+修改：
+- `backend/agent/v2/conversation.py`（120 行 → 282 行：Protocol + InMemory + Stub + 单例 + 兼容别名）
+- `backend/.env.example`（追加 6 行 SESSION_STORE 段）
+
+新建：
+- `backend/scripts/verify_repository.py`（5 项端到端验证）
+
+**未动**（按 C 角色硬性边界）：
+- `backend/agent/v2/orchestrator.py` ← 仍 `from .conversation import ConversationStore, get_default_store` 工作
+- `backend/main.py` ← 仍 `from agent.v2.conversation import get_default_store` 工作
+- `backend/agent/v2/` 其它任何文件
+- `backend/schemas/` / `backend/tools/` / `frontend/`
+- `backend/.env.example` 的 DATA_PROVIDER / LOG_FORMAT 段（属于 Agent B 范围，未触碰）
+
+**应当达成的效果**：
+
+- 评委切到 SESSION_STORE=redis 看到 Milestone 2 友好提示 → 商业演进路径可信
+- main.py + orchestrator.py 一字不改还能跑 → 重构对外完全透明
+- 后续接 Redis 时只要替换 `RedisRepositoryStub` 实现（pickle/json 序列化 ModelMessage + redis-py），不动任何调用方
+- Phase 0.11 解锁后续 ConversationCheckpointer / Postgres 等长期持久化方案的接入点
+
+---
+
+问题：Agent A — Schema 加固 + Prompt 强化（MiMo 切换后字段遗漏 + 英文 tag 拦截）
+解决方案：
+1. `backend/schemas/intent.py` 把 IntentExtraction 的 companions / physical_constraints / dietary_constraints / experience_tags 改成必传字段（`...` 替换 `default_factory=list`），允许值是空数组但禁止省略字段；description 加英文括号补充关键词典词。
+2. `backend/schemas/router.py` 把 RouterDecision.cta_chips 改成必传字段（`...` + `max_length=4`），允许空数组。
+3. `backend/agent/prompts/system_prompt.py` 在 INTENT_PARSER_SYSTEM_PROMPT 末尾追加「字段抽取义务（强约束）」+「中文词典强约束」段，明确禁止英文/拼音/自创词。
+4. `backend/agent/prompts/router_prompt.py` 末尾追加「输出义务（强约束）」段，明确 cta_chips 必须显式输出（含空数组）+ send 必须从白名单原样复制。
+5. `backend/agent/prompts/refiner_prompt.py` / `narrator_prompt.py` / `llm_planner_prompt.py` / `blueprint_prompt.py` 统一从 `schemas.tags` 引词典常量打印，末尾追加同款「中文词典强约束」段。
+6. 新增 `backend/scripts/verify_schema_hardening.py`：5 个真 LLM 样本（4 个 IntentExtraction + 1 个 RouterDecision），LLM_PROVIDER=stub 时输出 SKIPPED；其他情况全跑断言全字段非省略 + tag 词典出口 + 语义断言。
+修改的代码文件：
+- `backend/schemas/intent.py`
+- `backend/schemas/router.py`
+- `backend/agent/prompts/system_prompt.py`
+- `backend/agent/prompts/router_prompt.py`
+- `backend/agent/prompts/refiner_prompt.py`
+- `backend/agent/prompts/narrator_prompt.py`
+- `backend/agent/prompts/llm_planner_prompt.py`
+- `backend/agent/prompts/blueprint_prompt.py`
+- `backend/scripts/verify_schema_hardening.py`（新增）
+应当达成的效果：
+- MiMo v2.5 Pro 通过 Function Calling / response_format=json_object 输出 IntentExtraction 时，4 个数组字段强制显式输出（即使空也是 `[]`）
+- tag 字段 LLM 不会再输出 "family" / "healthy" / "low-fat" 等英文，全部命中中文词典
+- verify 脚本真 LLM 5/5 全过，pytest 256/256 不破
+- git diff 仅在 Agent A 独占文件名单内

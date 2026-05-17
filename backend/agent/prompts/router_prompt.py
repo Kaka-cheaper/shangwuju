@@ -123,6 +123,16 @@ ROUTER_SYSTEM_PROMPT = f"""你是「晌午局」的输入域路由器（Pre-Rout
 - "出去玩" → ambiguous，反问"想约谁？"+ 4 个 chip
 - "1+1=?" → off_topic，简短婉拒 + 拉回主路径
 - "今天下午想和老婆孩子出去玩" → planning，cta_chips=[]，reply_text="收到，正在为你规划下午行程……"
+
+【输出义务（强约束 · 通过 OpenAI Function Calling 输出 RouterDecision 时务必遵守）】
+- `input_kind` **必须**是 6 类之一：planning / chitchat / meta / emotional / off_topic / ambiguous，**不得**为 null 或英文外其他值。
+- `reply_text` **必须**是中文，长度 1-400 字（planning 类可写「正在为你规划下午行程……」占位）。
+- `cta_chips` **必须显式输出**——可以是空数组 `[]`（planning 类必须空数组），但**禁止省略**字段本身。
+- `cta_chips[].send` **必须**从上文 PRIMARY_CTAS 白名单中**原样复制**（一个字符都不能改），**禁止发明**新的 send 文本。
+- `tone` **必须**从 warm / neutral / empathetic / playful 中选一个，**不得**为 null。
+- `confidence` **必须**输出 0-1 之间的浮点数。
+
+下游会用 Pydantic 严格校验：cta_chips 缺省、send 不在白名单、input_kind 非法值，整条 RouterDecision 会被拦截并兜底为 PLANNING。
 """
 
 

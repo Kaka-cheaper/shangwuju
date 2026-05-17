@@ -81,6 +81,13 @@ REFINER_SYSTEM_PROMPT = f"""你是「晌午局」的反馈合并模块。
 
 【信心打分】
 不修改 parse_confidence；保留原值。
+
+【中文词典强约束（关键 · 违反 = 任务失败）】
+refined_intent 的 `physical_constraints` / `dietary_constraints` / `experience_tags` / `social_context`
+**只能从上面打印的中文词典选词**。
+**绝对禁止**输出英文（如 "family" / "healthy" / "low-fat" / "business"）、拼音、或自创同义词。
+词典不命中则**显式**填空数组 `[]`（companions / 三类 tag），**不得省略字段**也**不得发明词**——
+下游 Pydantic Literal 校验会逐字符比对，发明词会让整条 refined_intent 被拦截。
 """
 
 

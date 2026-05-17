@@ -82,21 +82,55 @@ class IntentExtraction(BaseModel):
         default=5.0, ge=0, le=100, description="距离上限（km），默认 5"
     )
 
-    # ===== 同行人结构 =====
+    # ===== 同行人结构（必传：用户提到任何同行人就填；独自/一个人场景填空数组）=====
     companions: list[Companion] = Field(
-        default_factory=list,
-        description="同行人列表；独处场景为空数组",
+        ...,
+        description=(
+            "同行人列表（companions）；用户提到「老婆/孩子/朋友/外公外婆/客户/闺蜜/女朋友/同事」"
+            "等任意同行人就必须填；明确说「一个人/自己/独自」时填空数组 []。"
+            "**禁止省略本字段**——LLM 必须显式输出 [] 而非缺省。"
+        ),
     )
 
-    # ===== 三类 tag 约束（仅接受词典内值）=====
-    physical_constraints: list[PhysicalTag] = Field(default_factory=list)
-    dietary_constraints: list[DietaryTag] = Field(default_factory=list)
-    experience_tags: list[ExperienceTag] = Field(default_factory=list)
+    # ===== 三类 tag 约束（仅接受词典内值；必传字段，机械触发不命中则空数组）=====
+    physical_constraints: list[PhysicalTag] = Field(
+        ...,
+        description=(
+            "物理约束（physical constraints）：从中文词典机械触发，例如「亲子友好(kid-friendly)/"
+            "适合老人(senior-friendly)/无台阶(step-free)/可休息(rest-area)/低强度(low-intensity)」。"
+            "**只能从中文词典选词，不得输出英文/拼音/自创词**。词典不命中则填空数组 []。"
+            "**禁止省略本字段**——必须显式输出 [] 而非缺省。"
+        ),
+    )
+    dietary_constraints: list[DietaryTag] = Field(
+        ...,
+        description=(
+            "饮食约束（dietary constraints）：从中文词典机械触发，例如「低脂(low-fat)/健康轻食(healthy)/"
+            "粤菜(cantonese)/日料(japanese)/不辣(non-spicy)/有儿童餐(kids-meal)/高人均(premium)/"
+            "有包间(private-room)/软烂(soft-food)/下午茶(afternoon-tea)」。"
+            "**只能从中文词典选词，不得输出英文/拼音/自创词**。词典不命中则填空数组 []。"
+            "**禁止省略本字段**——必须显式输出 [] 而非缺省。"
+        ),
+    )
+    experience_tags: list[ExperienceTag] = Field(
+        ...,
+        description=(
+            "体验偏好（experience tags）：从中文词典机械触发，例如「拍照友好(photogenic)/"
+            "网红打卡(trendy-spot)/安静聊天(quiet)/热闹(lively)/独处舒缓(solo-calm)/"
+            "商务体面(business)/礼仪感(formal)/亲密情侣(romantic)/学习成长(learning)/看展(exhibition)」。"
+            "**只能从中文词典选词，不得输出英文/拼音/自创词**。词典不命中则填空数组 []。"
+            "**禁止省略本字段**——必须显式输出 [] 而非缺省。"
+        ),
+    )
 
     # ===== 社交上下文（单值 enum）=====
     social_context: SocialContext = Field(
         default="家庭日常",
-        description="9 选 1，从约束反推的氛围标签",
+        description=(
+            "9 选 1（social context）：从「家庭日常/老人伴助/闺蜜聊天/朋友热闹/情侣亲密/"
+            "商务接待/同学重聚/独处放空/纪念日仪式感」中**选最贴切的一个**；"
+            "**不得发明新值，不得输出英文（如 family / friends / business 都禁止）**。"
+        ),
     )
 
     # ===== 容量与额外服务（可选）=====

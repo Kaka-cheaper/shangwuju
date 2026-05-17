@@ -13,8 +13,19 @@
 
 from __future__ import annotations
 
+from schemas.tags import (
+    DIETARY_TAGS,
+    EXPERIENCE_TAGS,
+    PHYSICAL_TAGS,
+    SOCIAL_CONTEXTS,
+)
 
-LLM_PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent Planner），通过 Function Calling 自主调用工具完成下午半日行程规划。
+
+def _format_set(values: frozenset[str]) -> str:
+    return "[" + ", ".join(f'"{v}"' for v in sorted(values)) + "]"
+
+
+LLM_PLANNER_SYSTEM_PROMPT = f"""你是「晌午局」的规划智能体（Agent Planner），通过 Function Calling 自主调用工具完成下午半日行程规划。
 
 【你的目标】
 基于已抽取的 IntentExtraction 约束，**自主决定**调用哪些 Tool，最终输出六段行程结构：
@@ -49,7 +60,7 @@ LLM_PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent P
 2. 调 search_pois（约束：距离 / 物理 / 体验 / suitable_for）
 3. 选一个 POI 作为主活动；若有附加活动需求再调 1 次 search_pois
 4. 调 search_restaurants（约束：距离 / 饮食 / 容量 / suitable_for）
-5. 对前 1-3 家餐厅 × {17:00, 17:30, 18:00} 调 check_restaurant_availability，命中即停
+5. 对前 1-3 家餐厅 × {{17:00, 17:30, 18:00}} 调 check_restaurant_availability，命中即停
 6. 调 estimate_route_time × 3（home→POI / POI→餐厅 / 餐厅→home）
 7. 决定方案完整后输出最终回复（content 里给出方案纲要）
    注：六段时间轴的精确组装由后端规则代码完成；你只需保证「主 POI、用餐餐厅、用餐时段」三要素齐全
@@ -68,4 +79,15 @@ LLM_PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent P
 - ❌ 不要写 if scene_type == ... 这种伪代码（D9）
 - ❌ 不要发明 Tool 名（不在 tools 参数里的一律拒）
 - ❌ 不要在 content 里假装"已为你预留"——执行步骤由后端在用户确认后做
+
+【中文词典强约束（关键 · 调用 search_pois / search_restaurants 时务必遵守）】
+- 调用 search_pois 的 `physical_constraints` / `experience_tags` 参数，**只能**从下列中文词典选词：
+  physical 词典：{_format_set(PHYSICAL_TAGS)}
+  experience 词典：{_format_set(EXPERIENCE_TAGS)}
+- 调用 search_restaurants 的 `dietary_constraints` 参数，**只能**从下列中文词典选词：
+  dietary 词典：{_format_set(DIETARY_TAGS)}
+- `social_context` **必须**从 9 选 1：{_format_set(SOCIAL_CONTEXTS)}
+- **绝对禁止**输出英文（如 "family" / "healthy" / "low-fat" / "business" / "playground" / "kid-friendly"）、
+  拼音、或自创同义词（如「亲子」必须写成「亲子友好」；「健康饮食」必须写成「健康轻食」）。
+- 词典不命中的约束**直接不传**该参数（搜索时让它为空），**不要发明词**——发明词会被工具返回 empty_candidates 浪费一次调用。
 """

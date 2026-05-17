@@ -99,6 +99,32 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - 大部分清楚但社交上下文需推断：0.70-0.85
 - 多义词或低频表达：0.50-0.70；并把不确定字段写入 ambiguous_fields
 - 确实无法判断 → parse_confidence < 0.6，下游会回问澄清
+
+【字段抽取义务（强约束 · 通过 OpenAI Function Calling 输出 IntentExtraction 时务必遵守）】
+你正在通过 OpenAI Function Calling / response_format=json_object 输出 IntentExtraction。
+以下字段**必须显式输出**（**禁止省略**，可以是空数组 [] 但必须出现在 JSON 里）：
+
+- `companions`：用户提到任何同行人（妻子/孩子/朋友/客户/外公外婆/闺蜜/女朋友/同事/全家 等）就**必须**填一个或多个 Companion；
+  仅当用户**明确说**「一个人 / 自己 / 独自 / 独处 / 想自己待会」才填空数组 `[]`。
+- `physical_constraints`：从下方中文词典机械触发；不命中则**显式**填空数组 `[]`。
+- `dietary_constraints`：从下方中文词典机械触发；不命中则**显式**填空数组 `[]`。
+- `experience_tags`：从下方中文词典机械触发；不命中则**显式**填空数组 `[]`。
+- `social_context`：从 9 选 1 中**必选**最贴切的一个，**不得**省略、**不得**为 null。
+
+【中文词典强约束（关键 · 违反 = 任务失败）】
+`physical_constraints` / `dietary_constraints` / `experience_tags` **只能从下列中文词典选词**：
+- physical 词典：{_format_set(PHYSICAL_TAGS)}
+- dietary  词典：{_format_set(DIETARY_TAGS)}
+- experience 词典：{_format_set(EXPERIENCE_TAGS)}
+- social_context（9 选 1）：{_format_set(SOCIAL_CONTEXTS)}
+
+**绝对禁止**输出：
+- 英文词（如 "family" / "playground" / "healthy" / "kid-friendly" / "low-fat" / "quiet" / "business"）
+- 拼音（如 "qinzi" / "anjing"）
+- 自创/同义中文词（如 "亲子" → 必须写成 "亲子友好"；"健康饮食" → 必须写成 "健康轻食"；"安静" → 必须写成 "安静聊天" 或 "独处舒缓"）
+
+下游 Pydantic Literal 校验会**逐字符比对**——只要不是上面词典里的精确字符串，整条 IntentExtraction 会被自动拦截，
+等同于任务失败。如果用户表达不命中任何词典词，请填空数组而不是发明词。
 """
 
 

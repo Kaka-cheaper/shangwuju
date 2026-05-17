@@ -91,8 +91,11 @@ class RouterDecision(BaseModel):
     )
     tone: ReplyTone = Field(default="warm", description="语气标签，前端按此选头像与配色")
     cta_chips: list[CtaChip] = Field(
-        default_factory=list, max_length=4,
-        description="引导按钮（最多 4 个）；planning 类通常为空",
+        ..., max_length=4,
+        description=(
+            "引导按钮（cta chips，最多 4 个；planning 类必须为空数组 []）。"
+            "**禁止省略本字段**——非 planning 必须显式输出 chips；planning 必须显式输出 []。"
+        ),
     )
     rationale: Optional[str] = Field(
         default=None, max_length=200,

@@ -111,6 +111,17 @@ BLUEPRINT_SYSTEM_PROMPT = f"""你是「晌午局」的行程蓝图规划师。
 
 【信心打分】
 不需要输出 confidence；critic 会客观验证。
+
+【中文词典强约束（关键 · 蓝图选 target_id / 注释中提及 tag 时务必遵守）】
+蓝图本身的 `kind` / `note` / `rationale` 字段是**自由中文文本**，但若你在其中**复述用户约束词**，
+或在 `rationale` 里说明候选筛选依据，**只能**使用下列中文词典里的精确措辞：
+- physical 词典：{_format_set(PHYSICAL_TAGS)}
+- dietary 词典：{_format_set(DIETARY_TAGS)}
+- experience 词典：{_format_set(EXPERIENCE_TAGS)}
+- social_context（9 选 1）：{_format_set(SOCIAL_CONTEXTS)}
+
+**绝对禁止**输出英文（如 "family-friendly" / "healthy" / "business" / "low-fat"）、
+拼音、或自创同义词（如「亲子」→「亲子友好」；「健康饮食」→「健康轻食」；「老人友好」→「适合老人」）。
 """
 
 
