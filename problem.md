@@ -2079,3 +2079,109 @@ refined.duration_hours = [1, 1]
 - 独处放空场景从 5 段瘦身到 3 段（更贴 social=独处放空 的本意）
 - 引申潜伏场景将来都可通过扩 `_DINING_FOCUSED_CONTEXTS` / `_SOLO_IMMERSIVE_CONTEXTS` / 新阈值常量解决，无需改 planner
 - pitfalls P1-2026-05-17 起到"架构反模式" guard——下次再写 `for required in (硬段名)` 这种代码或测试，会被审查时按 P3 防再犯条款拦截
+
+
+---
+
+## 问题13：1 小时反馈 bug 第二次复发——多层防御彻底修
+
+**用户原问**：
+
+> 还是不行啊，反馈一个小时后，规则模式下，还是 4.7 小时总时长。不要偷懒改，你要确保 bug 修好了。
+
+**为什么第一次修没修好**（问题 11+12 不彻底）：
+
+```
+| 修复轮 | 修了什么                            | 漏了什么                              |
+| ----- | ---------------------------------- | ------------------------------------ |
+| 11    | _enforce_duration_consistency 出口  | LLM 漂移仍可能旁路；raw_input 不带反馈 |
+| 12    | segment_decider 段=intent 函数     | _resolve_time_window 30min 硬下限；二次裁段缺 |
+| 13    | 完整 5 层防御                       | （彻底）                              |
+```
+
+**完整诊断（superpowers 4 阶段）**：
+
+Phase 1 调查：本地真 LLM 跑 5 次 refine，第 4 次出现 `'时长：[1, 2] → [1, 1] 小时'`——证明 LLM 不稳定，单点防御不够。截图复现的 [1,2] 正是这种漂移。
+
+Phase 2 模式：所有反馈相关 bug 共同根因——**反馈未作为最高优先级约束传到下游**。`raw_input` 强制保留 original 让反馈丢失，多层下游各自做自己的解析。
+
+Phase 3 假设：「raw_input 是唯一可靠的反馈载体；多层独立从这里读，互不依赖」。
+
+Phase 4 实施 5 层防御：
+
+```
+│ 层级                                | 修了什么                                                    |
+│ ----------------------------------- | ----------------------------------------------------------- |
+│ 1. refiner 入口                      | _enforce_duration_consistency（已有，问题 11 修）            |
+│ 2. raw_input 携带反馈                | 把 "（反馈：...）" 拼到 raw_input（_llm_refine 与 _rule_fallback 都改）│
+│ 3. planner 入口防线                  | _enforce_intent_duration_from_raw 兜底从 raw_input 提取覆盖  |
+│ 4. _resolve_time_window 段感知       | 接受 segments；MIN_* 改 15min；dining_slots 起点跟段集合     |
+│ 5. 二次裁段                          | duration ≤ 2h 时若估算超期，主动剔用餐段                    |
+```
+
+**端到端验证**（截图原句 + 反馈，真 LLM）：
+
+```
+原 plan: 313min, 5 段（主活动 14:14-16:14 + 用餐 17:30-19:00）
+refine '只有一个小时' → refined.duration = [1, 1]
+refined.raw_input = "周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。（反馈：只有一个小时）"
+
+新 plan（rule + llm 一致）：73min（1.2h），3 段
+  出发: 14:00 - 14:14
+  主活动: 14:14 - 14:59
+  返回: 14:59 - 15:13
+  （二次裁段已剔用餐：餐厅最早 15:00 起预约+45min 用餐+15min 回家=16:00 超 1h+15min 容忍）
+```
+
+**截图 bug 修复对比**：
+
+```
+| 维度           | 截图（旧）       | 现在（新）        | 改进 |
+| ------------- | --------------- | ---------------- | ---- |
+| 总时长         | 4.7 小时         | 1.2 小时          | ✓ 严格 1h+ε |
+| 段数           | 5 段             | 3 段              | ✓ 反馈削段   |
+| 主活动         | 14:14-16:14（120min）| 14:14-14:59（45min）| ✓     |
+| 用餐           | 17:30-19:00（90min）| （已裁掉）        | ✓ 物理约束触发兜底 |
+| 满足"1 小时"   | ✗                | ✓                 | 完全修复 |
+```
+
+**测试矩阵（218/218 全过 + 4 个 verify 全过）**：
+
+```
+| 测试                        | 数量 | 状态 |
+| --------------------------- | ---- | ---- |
+| test_refiner_duration       | 21   | ✓ 含 3 项截图 bug e2e |
+| test_segment_decider        | 22   | ✓     |
+| pytest 全套                  | 218  | ✓     |
+| verify_schemas              | 6    | ✓     |
+| verify_phase0_5             | 8    | ✓     |
+| verify_refine               | 13   | ✓     |
+| verify_planning             | 4    | ✓     |
+| 真 LLM e2e（截图原句）       | -    | ✓ 73min/3 段 |
+```
+
+**修改的代码文件**：
+
+修改：
+- `backend/agent/refiner.py`：raw_input 拼接反馈（`_llm_refine` 与 `_rule_fallback` 双路径都改）
+- `backend/agent/planner.py`：
+  - 新增 `_enforce_intent_duration_from_raw` 入口防线
+  - `_resolve_time_window` 接受 `segments` 参数；`MIN_*` 改 15min；dining_slots 起点段感知
+  - `plan_itinerary` 加入二次裁段（duration ≤ 2h 启用）
+- `backend/tests/test_refiner_duration_consistency.py`：追加 3 项 e2e 防再犯断言
+- `backend/tests/test_refiner.py` / `test_e2e_refinement.py`：raw_input 断言改"原句作为前缀"
+- `docs/03-implementation/pitfalls.md`：P1-2026-05-17 第二条（反馈精度多层防御）
+- `problem.md`：本条
+
+**未动**（owner 不是自己）：
+- `backend/main.py` / `frontend/*`（B owner）
+- `schemas/*`（用户拍板锁）
+- `tools/*`、`mock_data/*`（C owner）
+
+**应当达成的效果**：
+
+- 反馈"只有一个小时" → 总时长严格 ≤ 1.5h（包含路程容忍）
+- 反馈"两小时" → 总时长 ≤ 2.5h
+- 反馈"3 个小时" / "1 到 2 小时" 等任何精确小时数都被入口防线兜底覆盖
+- 长场景（4h+）不被二次裁段误触发，仍保持 5 段
+- LLM 漂移（[1,1] vs [1,2] vs [4,6]）任意一个出口出错，都会被 5 层防御中至少一层兜住

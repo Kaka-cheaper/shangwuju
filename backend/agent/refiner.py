@@ -147,10 +147,16 @@ def _llm_refine(
     if not isinstance(payload, dict):
         raise RefinementError(reason="not_a_json_object")
 
-    # raw_input 强制兜底（无视 LLM 是否改了）
+    # raw_input 兜底：保留原句 + 拼接本次反馈，让下游能从 raw_input 提取精确约束
+    # （pitfalls P1-2026-05-17 引申：反馈作为最高优先级约束，必须落到下游可读的字段）
     refined_intent_data = payload.get("refined_intent", {})
     if isinstance(refined_intent_data, dict):
-        refined_intent_data["raw_input"] = original.raw_input
+        if feedback_text and feedback_text.strip():
+            refined_intent_data["raw_input"] = (
+                f"{original.raw_input}（反馈：{feedback_text.strip()}）"
+            )
+        else:
+            refined_intent_data["raw_input"] = original.raw_input
 
     refined_intent = IntentExtraction.model_validate(refined_intent_data)
 
@@ -333,6 +339,10 @@ def _rule_fallback(
             new = max(2.0, round(old - 1, 1))
             updates["distance_max_km"] = new
             changed.append(f"距离上限：{old}km → {new}km（轻量调整）")
+
+    # raw_input 兜底：保留原句 + 拼接本次反馈
+    if feedback and feedback.strip():
+        updates["raw_input"] = f"{original.raw_input}（反馈：{feedback.strip()}）"
 
     refined = original.model_copy(update=updates)
     note = (

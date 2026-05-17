@@ -42,7 +42,8 @@ def test_rule_fallback_too_far_shrinks_distance():
     assert out.refined_intent.distance_max_km >= 2.0
     assert any("距离" in cf for cf in out.changed_fields)
     # raw_input 必须保留
-    assert out.refined_intent.raw_input == intent.raw_input
+    # raw_input 保留原句作为前缀（pitfalls P1-2026-05-17 引申：反馈作为最高约束追加到 raw_input）
+    assert out.refined_intent.raw_input.startswith(intent.raw_input)
 
 
 # ============================================================
@@ -74,7 +75,8 @@ def test_rule_fallback_empty_feedback_does_minor_tweak():
     # 至少做了一处调整
     assert out.changed_fields
     # raw_input 不漂移
-    assert out.refined_intent.raw_input == intent.raw_input
+    # raw_input 保留原句作为前缀（pitfalls P1-2026-05-17 引申：反馈作为最高约束追加到 raw_input）
+    assert out.refined_intent.raw_input.startswith(intent.raw_input)
     # 仍合法 IntentExtraction（D9 禁止字段不出现）
     forbidden = {"scene_type", "relation_type", "is_family", "is_friends"}
     leak = forbidden & set(out.refined_intent.model_dump().keys())
@@ -91,7 +93,8 @@ def test_refine_intent_with_stub_falls_back_to_rule():
     intent = _base_intent()
     out = refine_intent(intent, "太远了", client=StubLLMClient())
     # 兜底必须返合法 RefinementOutput
-    assert out.refined_intent.raw_input == intent.raw_input
+    # raw_input 保留原句作为前缀（pitfalls P1-2026-05-17 引申：反馈作为最高约束追加到 raw_input）
+    assert out.refined_intent.raw_input.startswith(intent.raw_input)
     assert out.refined_intent.distance_max_km < intent.distance_max_km
 
 

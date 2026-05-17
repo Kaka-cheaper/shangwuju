@@ -269,3 +269,36 @@
 - **解法**：现已统一从 `agent.segment_decider` 导入；新测试不要再硬列段名。
 - **防再犯**：未来测试段数相关行为时，**强制**用 `decide_segments(intent)` 算 expected，而非字面量。
 - **优先级**：P3（不影响功能；规范开发习惯）
+
+
+### [P1] 2026-05-17 反馈精度约束未传到下游（截图 4.7h bug 第二次复发）
+
+- **现象**：用户在前端反馈"只有一个小时"，IntentSummary 已显示 [3,5] → [1,2] 小时（注意是 [1,2] 不是 [1,1]），但下方时间轴仍 4.7 小时（5 段）。第一次修（问题 11）只接了 `_enforce_duration_consistency` 在 refiner 出口，但没解决三层下游问题。
+- **根因（多层）**：
+  1. **reFiner LLM 漂移**：5 次跑同一反馈，第 4 次 changed_fields 出现 `[1,2] → [1,1]`（LLM 把"一个小时"先理解成 [1,2] 再调到 [1,1]）。这暴露**纯 LLM 路径不稳定**——必须有结构化兜底
+  2. **raw_input 反馈丢失**：refiner 强制保留 `original.raw_input`，反馈只进 `changed_fields`，下游所有路径都不知道原始反馈数字
+  3. **`MIN_MAIN_ACTIVITY_MINUTES = 30` / `MIN_DINING_MINUTES = 30` 硬下限**：1h 总池下，main+dining=60 已用满，加 30min 路程 buffer = 总跨度 1.5h+，违反用户 1h 约束
+  4. **dining_slots 起点写死 `main_minutes + 30`**：1h + 无主活动场景下，dining 应从 14:15 起算，但代码始终从 14:00+main+30 起算
+  5. **餐厅 mock 数据物理约束**：下午茶餐厅最早 14:30 起预约，14:00→ 等到 15:00 用餐造成的等待时间无法压缩，需要"二次裁段"主动放弃用餐段
+- **解法**（5 层防御，缺一不可）：
+  1. **入口防线**：`planner._enforce_intent_duration_from_raw(intent)` 在 plan 跑前从 `intent.raw_input` 提取精确小时数，不一致就强制覆盖。这是「反馈作为最高优先级约束」的硬实现
+  2. **raw_input 携带反馈**：refiner 把 feedback 拼到 raw_input 末尾（`原句（反馈：...）`），让下游所有路径都能从单一来源消费反馈
+  3. **`_resolve_time_window` 接受 segments**：仅含主活动 / 仅含用餐时，对应时长 0；含两者时按 4:3 分配；下限改 15min（而非 30min）
+  4. **dining_slots 起点跟着 segments**：仅用餐场景从 depart+15 起；含主活动从 depart+main+30 起
+  5. **二次裁段**：duration ≤ 2h 的短场景，若估算总跨度 > duration_hours[1] + 15min，主动剔掉用餐段，改为只去 POI
+- **测试矩阵**（218 项全过）：
+  - `test_screenshot_bug_one_hour_feedback_caps_total_minutes`：1h 反馈 → ≤ 90min / ≤ 3 段
+  - `test_two_hour_feedback_caps_total_within_2_5_hours`：2h 反馈 → ≤ 150min
+  - `test_long_duration_unaffected_by_dining_cut`：4h 场景仍 5 段不被误裁
+  - `test_extract_duration_from_feedback`：11 项参数化
+- **相关文件**：
+  - `backend/agent/refiner.py`（`_enforce_duration_consistency` + `_extract_duration_from_feedback` + raw_input 拼接）
+  - `backend/agent/planner.py`（`_enforce_intent_duration_from_raw` 入口防线 + `_resolve_time_window` 接受 segments + 二次裁段）
+  - `backend/tests/test_refiner_duration_consistency.py`（21 项 + 3 项 e2e）
+- **防再犯**：
+  1. **「反馈优先级」必须在数据流最上游**：raw_input 是唯一可靠的反馈载体，下游各层都从这里读
+  2. **测试断言"硬段数"是 P3 已记的反模式**：用 `decide_segments(intent)` 算期望
+  3. **修 LLM 漂移不能只接出口校验**：要在多层（refiner 出口 + planner 入口）独立兜底，因为各层都可能被旁路
+  4. **MIN_* 下限常量是潜在硬约束**：写代码时问"用户给的 duration 比这小怎么办？"
+  5. **dining_slots 起点逻辑写死 main_minutes + 30 是另一种"5 段假设"残余**——任何"假设主活动一定存在"的代码都要按段数检查
+- **优先级**：P1（直接影响 demo 现场反馈环 + 第二次复发已暴露第一次修不彻底；前后两次问题都进 pitfalls 是为了记住"分多层防御"原则）

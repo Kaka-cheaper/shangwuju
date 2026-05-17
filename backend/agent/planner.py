@@ -130,6 +130,9 @@ def plan_itinerary(
     9. emit itinerary_ready
     """
     tracer = tracer or Tracer()
+    # 入口防线（pitfalls P1-2026-05-17 引申）：raw_input 含具体小时数 → 强制覆盖
+    # duration_hours，作为反馈作为最高优先级约束的兜底
+    intent = _enforce_intent_duration_from_raw(intent, tracer)
     tracer.emit("intent_parsed", payload=intent.model_dump())
 
     counters: dict[str, int] = {}
@@ -221,7 +224,7 @@ def plan_itinerary(
     chosen_restaurant: Restaurant | None = None
     chosen_time: str | None = None
     depart_time, dining_slots, main_minutes, dining_minutes = _resolve_time_window(
-        intent
+        intent, segments=segments
     )
 
     if needs_dining:
@@ -241,6 +244,48 @@ def plan_itinerary(
                 FailureReason.RESTAURANT_FULL,
                 "所有候选餐厅与时段组合均无空位",
             )
+
+        # ---- 4.5 二次裁段（pitfalls P2-2026-05-17 修复）----
+        # 仅在「短场景」（duration_hours 上限 ≤ 2h）启用：用户说"只有 1-2 小时"时严格守约
+        # 长场景（家庭半日 3-5h 等）容忍合理等待 + 路程，不触发裁段
+        if max(intent.duration_hours) <= 2:
+            max_minutes = max(intent.duration_hours) * 60 + 15  # 15min 容忍
+            depart_h, depart_m = depart_time.split(":")
+            depart_total = int(depart_h) * 60 + int(depart_m)
+            chosen_h, chosen_m = chosen_time.split(":")
+            chosen_total = int(chosen_h) * 60 + int(chosen_m)
+            finish_total = chosen_total + dining_minutes + 15  # 15min 回家估算
+            actual_span = finish_total - depart_total
+
+            if actual_span > max_minutes:
+                tracer.emit(
+                    "agent_thought",
+                    {
+                        "text": (
+                            f"时间约束兜底：最早可订 {chosen_time}，到 "
+                            f"{finish_total // 60:02d}:{finish_total % 60:02d} 才结束，"
+                            f"超过 {max(intent.duration_hours)}h 上限。"
+                            f"裁掉用餐段以满足时间约束，建议改约更晚时段或下次预约餐厅。"
+                        ),
+                    },
+                )
+                chosen_restaurant = None
+                chosen_time = None
+                segments = frozenset(s for s in segments if s != "用餐") | (
+                    {"主活动"} if not needs_main else set()
+                )
+                needs_dining = False
+                # 若原本只剩用餐 → 现在裁掉变只剩出发/返回；补回主活动让用户至少有去处
+                if not needs_main and "主活动" in segments:
+                    needs_main = True
+                    pois = _query_pois(intent, _call, tracer)
+                    if not isinstance(pois, FailureReason) and pois:
+                        main_poi = pois[0]
+                        backup_pois = pois[1:4]
+                # 重新算 time_window
+                depart_time, dining_slots, main_minutes, dining_minutes = (
+                    _resolve_time_window(intent, segments=segments)
+                )
 
     # ---- 5. 路线时间（按 segments 决定查哪些）----
     home_to_poi = _estimate(_call, "home", main_poi.id) if main_poi else 0
@@ -279,6 +324,55 @@ def plan_itinerary(
 # ============================================================
 # 内部步骤
 # ============================================================
+
+# ============================================================
+# 入口防线：raw_input 兜底（pitfalls P1-2026-05-17 引申）
+# ============================================================
+
+def _enforce_intent_duration_from_raw(
+    intent: IntentExtraction, tracer: Tracer
+) -> IntentExtraction:
+    """从 raw_input 提取精确小时数，强制覆盖 intent.duration_hours。
+
+    动机：
+    - 用户原话「反馈应该是最前面的一个约束」
+    - refiner 把反馈拼到 raw_input 末尾（"...（用户反馈：只有一个小时）"）
+      但 LLM 可能漂移导致 duration_hours 字段不完全反映 raw_input 的精确数字
+    - 即使 _enforce_duration_consistency 在 refiner 出口已对齐，依然给最稳的入口防线
+
+    策略：
+    - intent.raw_input 含「N 小时」/「N 个小时」/「N 到 M 小时」 → 抽出 (lo, hi)
+    - 与 intent.duration_hours 不一致 → 强制覆盖
+    - 推一条 agent_thought 到 trace，让评委可见这个"高优先级反馈"的执行
+
+    对正常 plan（无反馈句的 raw_input）→ 提取返回 None → 不动 intent。
+    """
+    if not intent.raw_input:
+        return intent
+
+    from .refiner import _extract_duration_from_feedback
+
+    extracted = _extract_duration_from_feedback(intent.raw_input)
+    if extracted is None:
+        return intent
+
+    current = tuple(intent.duration_hours)
+    if current == extracted:
+        return intent
+
+    # 强制覆盖
+    fixed = intent.model_copy(update={"duration_hours": list(extracted)})
+    tracer.emit(
+        "agent_thought",
+        {
+            "text": (
+                f"反馈最高优先级约束：raw_input 含 {list(extracted)} 小时，"
+                f"覆盖原 duration_hours {list(current)} → {list(extracted)}"
+            ),
+        },
+    )
+    return fixed
+
 
 def _abort(tracer: Tracer, reason: FailureReason | None, detail: str) -> PlannerResult:
     tracer.emit(
@@ -705,21 +799,28 @@ def _parse_start_time_hour(start_time: str | None) -> int | None:
     return None
 
 
-def _resolve_time_window(intent: IntentExtraction) -> tuple[str, list[str], int, int]:
+def _resolve_time_window(
+    intent: IntentExtraction,
+    segments: frozenset[str] | None = None,
+) -> tuple[str, list[str], int, int]:
     """从 intent 推导：出发时间、可选用餐时段、主活动时长、用餐时长。
+
+    Phase 0.10.2（pitfalls P2-2026-05-17 修复）：
+    新增 segments 参数。当段集合不含「主活动」或「用餐」时，对应时长设为 0，
+    避免用 30min 下限把 1 小时反馈拉成 1.5h+ 总行程。
 
     返回：
         (depart_time, dining_slots, main_minutes, dining_minutes)
 
     规则：
     - depart_time：从 intent.start_time 抽出小时；解析不出按 14:00 兜底
-    - dining_slots：基于 depart + 主活动时长 + 转场，给 3 个候选时段（每隔 30 分钟）
+    - dining_slots：基于 depart + 路程 + 主活动时长，给 5 个候选时段
         例：14:00 出发 / 主活动 2h → 用餐尝试 16:30 / 17:00 / 17:30
-            18:00 出发 / 主活动 1h → 用餐尝试 19:30 / 20:00 / 20:30
-    - main_minutes / dining_minutes：按 duration_hours 的中点 × 比例（主活动:用餐 ≈ 4:3）
-        总时长 1h → 主 30 + 餐 30
-        总时长 5h → 主 150 + 餐 90
-        总时长 ≥ 5h → 维持上限 main 150 / dining 90（防过长）
+            14:00 出发 / 无主活动（直接吃）→ 用餐尝试 14:30 / 15:00 / 15:30
+    - main_minutes / dining_minutes：按段集合 + 总时长 + 比例分配
+        含主活动 + 含用餐 → 4:3 比例
+        仅主活动 / 仅用餐 → 全部时长给该段
+        不含 → 0
     """
     # ---- 出发时间 ----
     depart_hour = _parse_start_time_hour(intent.start_time)
@@ -729,36 +830,51 @@ def _resolve_time_window(intent: IntentExtraction) -> tuple[str, list[str], int,
         depart_time = f"{depart_hour:02d}:00"
 
     # ---- 总时长 ----
-    # duration_hours 是 [min, max]，取中点
     lo, hi = intent.duration_hours
     total_hours = max(0.5, (lo + hi) / 2.0)
     total_minutes = int(total_hours * 60)
 
-    # 总时长里要扣两段路程 buffer（约 30 分钟）剩余分给主活动 + 用餐
-    activity_pool = max(60, total_minutes - 30)
+    # 段集合（兼容旧调用：不传 segments 等同于完整 5 段）
+    has_main = segments is None or "主活动" in segments
+    has_dining = segments is None or "用餐" in segments
 
-    # 主活动:用餐 = 4:3
-    main_minutes = max(MIN_MAIN_ACTIVITY_MINUTES, int(activity_pool * 4 / 7))
-    dining_minutes = max(MIN_DINING_MINUTES, int(activity_pool * 3 / 7))
+    # ---- 时长分配（pitfalls P2 修复：1h 场景不再被 30min 下限拉爆）----
+    # 路程 buffer：含转场段时扣 30，否则扣 15（仅出发 + 单段 + 返回）
+    transit_buffer = 30 if (has_main and has_dining) else 15
+    activity_pool = max(15, total_minutes - transit_buffer)
 
-    # 上限：单段不超过默认值（防 duration 给 [10, 12] 把 demo 拉太长）
+    if has_main and has_dining:
+        # 4:3 分配，但下限随段池线性下降（1h 场景 main=24/dining=18，不再硬卡 30）
+        main_minutes = max(15, int(activity_pool * 4 / 7))
+        dining_minutes = max(15, int(activity_pool * 3 / 7))
+    elif has_main:
+        main_minutes = max(15, activity_pool)
+        dining_minutes = 0
+    elif has_dining:
+        main_minutes = 0
+        dining_minutes = max(15, activity_pool)
+    else:
+        main_minutes = 0
+        dining_minutes = 0
+
+    # 上限：单段不超过默认值
     main_minutes = min(main_minutes, DEFAULT_MAIN_ACTIVITY_MINUTES)
     dining_minutes = min(dining_minutes, DEFAULT_DINING_MINUTES)
 
     # ---- 用餐候选时段 ----
-    # 假设主活动后立刻去吃饭；预估转场 + 路上 30 分钟
-    earliest_dining_minutes = main_minutes + 30
+    # 起点：出发时间 + 路上（home→target）+ 主活动（如有）+ 转场缓冲
+    if has_main:
+        earliest_dining_minutes = main_minutes + 30  # 含转场 + 路上
+    else:
+        earliest_dining_minutes = 15  # 直接到餐厅，仅出发路程
     h, m = depart_time.split(":")
     base_minutes = int(h) * 60 + int(m) + earliest_dining_minutes
-    # 对齐到下一个整 30 分钟
-    base_minutes = ((base_minutes + 29) // 30) * 30
+    base_minutes = ((base_minutes + 29) // 30) * 30  # 对齐 30 分钟
 
-    # 给 5 个候选时段（每隔 30 分钟），让 _negotiate_dining 有更宽的尝试空间
-    # （mock 时段密度有限：常见的是整点 + 半点；多给候选能避免 NOT_FOUND 直接 fail）
     dining_slots: list[str] = []
     for i in range(5):
         t = base_minutes + i * 30
-        if t >= 24 * 60:  # 跨日防御
+        if t >= 24 * 60:
             break
         dining_slots.append(f"{t // 60:02d}:{t % 60:02d}")
 
@@ -1047,6 +1163,8 @@ def _plan_with_hybrid(
     from .planner_hybrid import plan_hybrid, CandidatePlan
 
     tracer = tracer or Tracer()
+    # 入口防线：与 plan_itinerary 一致，hybrid 路径也必须用 raw_input 兜底
+    intent = _enforce_intent_duration_from_raw(intent, tracer)
     tracer.emit("intent_parsed", payload=intent.model_dump())
 
     def _hybrid_assembler(

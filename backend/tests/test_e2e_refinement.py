@@ -181,7 +181,8 @@ def test_refine_too_far_shrinks_distance(scenario_id: str):
     intent = _intent(SCENARIOS[scenario_id])
     out = refine_intent(intent, "太远了，希望近一点")
     # raw_input 强制保留
-    assert out.refined_intent.raw_input == intent.raw_input
+    # raw_input 保留原句作为前缀（pitfalls P1-2026-05-17 引申：反馈作为最高约束追加到 raw_input）
+    assert out.refined_intent.raw_input.startswith(intent.raw_input)
     # 距离要么变小，要么因为已经触底（≤2km）保持
     if intent.distance_max_km > 2.0:
         assert out.refined_intent.distance_max_km <= intent.distance_max_km
@@ -228,7 +229,8 @@ def test_refine_empty_feedback():
     # 兜底必给说明
     assert out.refiner_note
     # raw_input 不漂移
-    assert out.refined_intent.raw_input == intent.raw_input
+    # raw_input 保留原句作为前缀（pitfalls P1-2026-05-17 引申：反馈作为最高约束追加到 raw_input）
+    assert out.refined_intent.raw_input.startswith(intent.raw_input)
 
 
 # ============================================================

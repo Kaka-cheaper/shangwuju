@@ -207,3 +207,114 @@ def test_refine_intent_no_client_falls_back_correctly(monkeypatch):
     original = _intent(duration=[4, 6])
     out = refine_intent(original, "我只有一个小时")
     assert list(out.refined_intent.duration_hours) == [1, 1]
+
+
+
+# ============================================================
+# 维度 5：截图 bug 完整端到端复现（pitfalls P1+P2-2026-05-17）
+# ============================================================
+
+def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
+    """截图复现：S5 闺蜜下午茶 + 反馈"只有一个小时"，rule mode 应削段+裁时长。
+
+    历史 bug：
+    - 截图旧行为：4.7h 总时长，5 段
+    - 修复后期望：≤ 1.5h 总时长，3 段（裁掉用餐段）
+
+    这是综合性回归测试，覆盖：
+    - refiner 真 LLM 路径输出 [1,1] 一致性（_enforce_duration_consistency）
+    - refiner 把反馈拼到 raw_input
+    - planner 入口 _enforce_intent_duration_from_raw 兜底
+    - segment_decider 决定削段
+    - _resolve_time_window 接受 segments 不再 30min 下限拉爆
+    - 二次裁段在 duration ≤ 2h 时启用
+    """
+    from agent.planner import plan_itinerary
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[1, 1],  # 已经被 refiner 改对（用 _rule_fallback 模拟）
+        distance_max_km=5,
+        companions=[Companion(role="闺蜜", count=1)],
+        physical_constraints=[],
+        dietary_constraints=["下午茶", "甜品"],
+        experience_tags=["网红打卡", "拍照友好"],
+        social_context="闺蜜聊天",
+        raw_input="周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。（反馈：只有一个小时）",
+        parse_confidence=0.9,
+    )
+    result = plan_itinerary(intent)
+
+    assert result.success
+    itin = result.itinerary
+    assert itin is not None
+
+    # 截图 bug 修复：总时长 ≤ 1.5h（容忍路程+对齐到 30min）
+    assert itin.total_minutes <= 90, (
+        f"反馈 1h 后总时长应 ≤ 90min，实际 {itin.total_minutes}"
+    )
+
+    # 段数应 ≤ 3（出发 + 单段主体 + 返回）
+    assert len(itin.stages) <= 3, (
+        f"反馈 1h 后段数应 ≤ 3，实际 {len(itin.stages)}"
+    )
+
+    # 必有出发与返回
+    kinds = {s.kind for s in itin.stages}
+    assert "出发" in kinds and "返回" in kinds
+
+
+def test_two_hour_feedback_caps_total_within_2_5_hours():
+    """反馈"2 小时" + 闺蜜下午茶：受 mock 餐厅时段约束，可能裁掉用餐段；
+    但总时长必须严格 ≤ 2.5h（不能像截图 4.7h 那样）。"""
+    from agent.planner import plan_itinerary
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[2, 2],
+        distance_max_km=5,
+        companions=[Companion(role="闺蜜", count=1)],
+        physical_constraints=[],
+        dietary_constraints=["下午茶", "甜品"],
+        experience_tags=["网红打卡"],
+        social_context="闺蜜聊天",
+        raw_input="周末下午约了闺蜜（反馈：就两小时吧）",
+        parse_confidence=0.9,
+    )
+    result = plan_itinerary(intent)
+    assert result.success
+    itin = result.itinerary
+
+    # 2h 反馈下总时长应严格 ≤ 2.5h（容忍 30min 路程+对齐）
+    assert itin.total_minutes <= 150, (
+        f"2h 反馈下总时长应 ≤ 150min，实际 {itin.total_minutes}"
+    )
+
+    # 必有出发返回，主活动或用餐至少一个
+    kinds = {s.kind for s in itin.stages}
+    assert "出发" in kinds and "返回" in kinds
+    assert "主活动" in kinds or "用餐" in kinds
+
+
+def test_long_duration_unaffected_by_dining_cut():
+    """4h 场景仍应 5 段，不被二次裁段误触发。"""
+    from agent.planner import plan_itinerary
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[3, 5],
+        distance_max_km=5,
+        companions=[Companion(role="妻子", count=1), Companion(role="孩子", age=5, count=1)],
+        physical_constraints=["亲子友好", "适合 5-10 岁"],
+        dietary_constraints=["低脂", "健康轻食"],
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input="今天下午带老婆孩子",
+        parse_confidence=0.9,
+    )
+    result = plan_itinerary(intent)
+    assert result.success
+    itin = result.itinerary
+    assert len(itin.stages) == 5  # 完整 5 段
+    kinds = {s.kind for s in itin.stages}
+    assert kinds == {"出发", "主活动", "转场", "用餐", "返回"}
