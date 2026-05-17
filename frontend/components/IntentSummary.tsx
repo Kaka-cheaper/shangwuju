@@ -1,8 +1,9 @@
 "use client";
 
+import { Icons } from "@/lib/icon-map";
 import type { IntentExtraction } from "@/lib/types";
 
-/** 意图解析结果摘要：作为评委可见的「Agent 听懂了什么」。 */
+/** 意图解析结果摘要：评委可见的「Agent 听懂了什么」（B+D 范式）。 */
 export default function IntentSummary({
   intent,
 }: {
@@ -18,45 +19,70 @@ export default function IntentSummary({
     .map((c) => `${c.role}${c.age ? `(${c.age}岁)` : ""}×${c.count}`)
     .join("、");
 
+  const confidencePct = Math.round(intent.parse_confidence * 100);
+
   return (
-    <div className="card px-3 py-2.5 border-brand-100 bg-brand-50/40 animate-fade-in-up">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="text-xs font-medium text-brand-700">
-          🎯 意图解析结果
+    <div className="card px-3.5 py-3 animate-fade-in-up">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Icons.spark
+            className="w-3.5 h-3.5 text-accent-500"
+            strokeWidth={2.5}
+          />
+          <span className="text-[11px] font-medium text-ink-700 tracking-tight">
+            意图解析
+          </span>
         </div>
-        <div className="text-[11px] text-ink-500">
-          置信度 {(intent.parse_confidence * 100).toFixed(0)}%
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-ink-400 mono">
+            {confidencePct}%
+          </span>
+          <div className="w-16 h-1 rounded-full bg-ink-100 overflow-hidden">
+            <div
+              className="h-full bg-accent-500 transition-[width] duration-500"
+              style={{ width: `${confidencePct}%` }}
+            />
+          </div>
         </div>
       </div>
       <div className="space-y-1 text-xs text-ink-700">
-        <div>
-          <span className="text-ink-500">时间：</span>
+        <Row label="时间">
           {intent.start_time} · {dur}
-        </div>
-        <div>
-          <span className="text-ink-500">距离上限：</span>
-          {intent.distance_max_km} km
-        </div>
-        {companions && (
-          <div>
-            <span className="text-ink-500">同行：</span>
-            {companions}
-          </div>
-        )}
-        <div>
-          <span className="text-ink-500">社交语境：</span>
+        </Row>
+        <Row label="距离上限">
+          <span className="mono text-ink-800">{intent.distance_max_km} km</span>
+        </Row>
+        {companions && <Row label="同行">{companions}</Row>}
+        <Row label="社交">
           <span className="chip">{intent.social_context}</span>
-        </div>
+        </Row>
         {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-0.5">
+          <div className="flex flex-wrap gap-1 pt-1.5">
             {tags.map((t) => (
-              <span key={t} className="chip bg-white border border-ink-200">
+              <span key={t} className="chip">
                 {t}
               </span>
             ))}
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-[10px] text-ink-400 uppercase tracking-wider w-12 shrink-0">
+        {label}
+      </span>
+      <span className="flex-1 min-w-0">{children}</span>
     </div>
   );
 }

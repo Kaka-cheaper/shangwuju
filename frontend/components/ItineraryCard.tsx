@@ -2,12 +2,14 @@
 
 import { useState } from "react";
 
+import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
 
-/** 行程卡片：六段时间轴 + 已为你预留清单 + 转发文案 + 三按钮（确认/反馈/取消）。 */
+/** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（B+D+C 范式）。 */
 export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
@@ -20,36 +22,51 @@ export default function ItineraryCard() {
 
   if (!itinerary && !streaming) {
     return (
-      <div className="card px-4 py-6 text-center text-sm text-ink-400">
-        🌤 行程将在这里出现
+      <div className="card px-4 py-8 flex flex-col items-center gap-2 text-ink-400">
+        <Icons.pin className="w-5 h-5 text-ink-300" strokeWidth={1.5} />
+        <span className="text-sm">行程将在这里出现</span>
       </div>
     );
   }
 
   if (!itinerary) {
     return (
-      <div className="card px-4 py-6 text-center text-sm text-ink-500 animate-pulse-soft">
-        正在为你拼装行程...
+      <div className="card px-4 py-8 flex flex-col items-center gap-2 text-ink-500">
+        <Icons.thinking
+          className="w-5 h-5 text-accent-500 animate-spin"
+          strokeWidth={2}
+        />
+        <span className="text-sm animate-pulse-soft">正在为你拼装行程...</span>
       </div>
     );
   }
 
-  const totalH = (itinerary.total_minutes / 60).toFixed(1);
+  const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
   const canAct = !streaming && !hasOrders && !cancelled;
 
   return (
     <div className="card animate-fade-in">
+      {/* Header */}
       <div className="px-4 py-3 border-b border-ink-200">
         <div className="flex items-center justify-between">
-          <div className="text-sm font-medium text-ink-700">行程方案</div>
-          <div className="text-xs text-ink-500">总时长 {totalH} 小时</div>
+          <span className="section-title">行程方案</span>
+          <span className="text-[11px] text-ink-500">
+            总时长{" "}
+            <NumberTicker
+              value={totalH}
+              format={(v) => v.toFixed(1)}
+              className="font-mono text-ink-800 mx-0.5"
+            />
+            <span className="text-ink-400">小时</span>
+          </span>
         </div>
-        <div className="mt-1 text-base font-semibold text-ink-900">
+        <div className="mt-0.5 text-[15px] font-semibold text-ink-900 tracking-tight">
           {itinerary.summary}
         </div>
       </div>
 
+      {/* Refinement summary banner */}
       {lastRefinement && lastRefinement.changedFields.length > 0 && (
         <div className="px-4 pt-3">
           <RefinementSummaryBanner
@@ -59,11 +76,12 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      <ol className="relative px-4 py-4 space-y-3">
-        {/* 时间轴竖线 */}
+      {/* Timeline */}
+      <ol className="relative px-4 py-4 space-y-3.5">
+        {/* 时间轴竖线（accent，淡） */}
         <div
           aria-hidden
-          className="absolute left-[51px] top-6 bottom-6 w-px bg-gradient-to-b from-brand-300 via-brand-200 to-transparent"
+          className="absolute left-[51px] top-6 bottom-6 w-px bg-gradient-to-b from-accent-300 via-ink-200 to-transparent"
         />
         {itinerary.stages.map((stage, idx) => (
           <li
@@ -71,14 +89,14 @@ export default function ItineraryCard() {
             className="relative flex items-start gap-3 animate-fade-in-up"
           >
             <div className="flex flex-col items-center min-w-[44px] z-10">
-              <div className="text-[11px] text-ink-500">{stage.start}</div>
-              <div className="my-1 w-2.5 h-2.5 rounded-full bg-brand-500 ring-2 ring-white shadow-sm"></div>
-              <div className="text-[11px] text-ink-400">{stage.end}</div>
+              <div className="text-[10px] text-ink-500 mono">{stage.start}</div>
+              <div className="my-1 w-2 h-2 rounded-full bg-ink-900 ring-[3px] ring-white shadow-[0_0_0_1px_rgb(228_228_231)]" />
+              <div className="text-[10px] text-ink-400 mono">{stage.end}</div>
             </div>
             <div className="flex-1 pt-0.5">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="chip">{stage.kind}</span>
-                <span className="text-sm font-medium text-ink-800">
+                <span className="text-sm font-medium text-ink-900 tracking-tight">
                   {stage.title}
                 </span>
               </div>
@@ -92,25 +110,34 @@ export default function ItineraryCard() {
         ))}
       </ol>
 
+      {/* 已为你预留 */}
       {hasOrders && (
         <div className="px-4 pb-3">
-          <div className="text-xs font-medium text-ink-700 mb-1.5">
-            已为你预留
-          </div>
+          <div className="section-title mb-1.5">已为你预留</div>
           <ul className="space-y-1.5">
             {itinerary.orders.map((o) => (
               <li
                 key={o.order_id}
-                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"
+                className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 animate-fade-in-up"
               >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">{o.target_name}</span>
-                  <span className="text-[11px] text-emerald-700/80">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Icons.success
+                      className="w-3.5 h-3.5 shrink-0"
+                      strokeWidth={2}
+                    />
+                    <span className="font-medium tracking-tight truncate">
+                      {o.target_name}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-emerald-700/80 mono shrink-0">
                     {o.kind}
                   </span>
                 </div>
-                <div className="mt-0.5 text-emerald-700/90">
-                  {o.detail} · 订单号 {o.order_id}
+                <div className="mt-1 text-emerald-700/90 ml-5">
+                  {o.detail}
+                  <span className="text-emerald-600/70 mx-1.5">·</span>
+                  <span className="mono text-[11px]">{o.order_id}</span>
                 </div>
               </li>
             ))}
@@ -118,47 +145,56 @@ export default function ItineraryCard() {
         </div>
       )}
 
+      {/* 转发文案 */}
       {itinerary.share_message && (
         <div className="px-4 pb-3">
           <ShareMessage text={itinerary.share_message} />
         </div>
       )}
 
+      {/* Action buttons */}
       <div className="px-4 pb-4">
         {!hasOrders && !cancelled && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
-              className="btn-primary"
+              className={cn("btn-primary", streaming && "shimmer-border")}
               disabled={!canAct}
               onClick={confirm}
             >
-              {streaming ? "执行中..." : "确认并预约"}
+              {streaming ? (
+                <>
+                  <Icons.thinking className="w-3.5 h-3.5 animate-spin" />
+                  <span>执行中</span>
+                </>
+              ) : (
+                <>
+                  <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
+                  <span>确认并预约</span>
+                </>
+              )}
             </button>
             <button
-              className={cn(
-                "btn-secondary",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-              )}
+              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!canAct}
               onClick={() => setRefineOpen(true)}
             >
-              我说说哪不对
+              <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
+              <span>说说哪不对</span>
             </button>
             <button
-              className={cn(
-                "btn-ghost-bordered",
-                "disabled:opacity-50 disabled:cursor-not-allowed",
-              )}
+              className="btn-danger-ghost disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!canAct}
               onClick={cancel}
             >
-              取消方案
+              <Icons.close className="w-3.5 h-3.5" strokeWidth={2.25} />
+              <span>取消方案</span>
             </button>
           </div>
         )}
         {hasOrders && (
-          <div className="text-center text-xs text-emerald-700">
-            ✓ 已完成下单与转发文案生成
+          <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-700">
+            <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
+            <span>已完成下单与转发文案生成</span>
           </div>
         )}
         {cancelled && !hasOrders && (
@@ -184,14 +220,17 @@ function RefinementSummaryBanner({
   note?: string | null;
 }) {
   return (
-    <div className="rounded-md border border-sky-200 bg-sky-50/70 px-3 py-2 text-xs text-sky-800 animate-fade-in">
-      <div className="font-medium mb-1">🪄 已根据你的反馈调整</div>
-      <ul className="space-y-0.5 text-sky-900">
+    <div className="rounded-md border border-accent-200 bg-accent-50/60 px-3 py-2 text-xs text-accent-800 animate-fade-in">
+      <div className="flex items-center gap-1.5 mb-1 font-medium">
+        <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
+        <span>已根据反馈调整</span>
+      </div>
+      <ul className="space-y-0.5 text-accent-900 ml-5 list-disc list-outside">
         {fields.map((f, i) => (
-          <li key={i}>· {f}</li>
+          <li key={i}>{f}</li>
         ))}
       </ul>
-      {note && <div className="mt-1 text-sky-700/80">{note}</div>}
+      {note && <div className="mt-1 ml-5 text-accent-700/80">{note}</div>}
     </div>
   );
 }
@@ -205,7 +244,6 @@ function ShareMessage({ text }: { text: string }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // 降级：选中文本
       const ta = document.createElement("textarea");
       ta.value = text;
       document.body.appendChild(ta);
@@ -221,22 +259,40 @@ function ShareMessage({ text }: { text: string }) {
   };
 
   return (
-    <div className="rounded-md border border-brand-200 bg-brand-50/60 p-3">
-      <div className="flex items-center justify-between mb-1">
-        <div className="text-xs font-medium text-brand-700">📋 转发文案</div>
+    <div className="rounded-md border border-ink-200 bg-ink-50/60 p-3">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <Icons.share
+            className="w-3.5 h-3.5 text-ink-500"
+            strokeWidth={2}
+          />
+          <span className="text-[11px] font-medium text-ink-700 tracking-tight">
+            转发文案
+          </span>
+        </div>
         <button
           onClick={copy}
           className={cn(
-            "text-xs px-2 py-1 rounded-md transition-colors",
+            "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
             copied
               ? "bg-emerald-600 text-white"
-              : "bg-white text-brand-700 border border-brand-300 hover:bg-brand-100",
+              : "bg-white text-ink-700 border border-ink-200 hover:border-ink-300 hover:bg-ink-50",
           )}
         >
-          {copied ? "✓ 已复制" : "复制到剪贴板"}
+          {copied ? (
+            <>
+              <Icons.success className="w-3 h-3" strokeWidth={2.5} />
+              <span>已复制</span>
+            </>
+          ) : (
+            <>
+              <Icons.copy className="w-3 h-3" strokeWidth={2} />
+              <span>复制</span>
+            </>
+          )}
         </button>
       </div>
-      <div className="text-xs leading-relaxed text-ink-700 whitespace-pre-wrap">
+      <div className="text-[13px] leading-relaxed text-ink-700 whitespace-pre-wrap tracking-tight">
         {text}
       </div>
     </div>

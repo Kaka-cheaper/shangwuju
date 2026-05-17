@@ -131,6 +131,9 @@ export interface ChatState {
   // UI 通知
   toasts: ToastItem[];
 
+  // Cmd+K 命令面板
+  commandPaletteOpen: boolean;
+
   // actions
   loadScenarios: () => Promise<void>;
   sendMessage: (input: string, scenarioId?: string) => Promise<void>;
@@ -145,6 +148,8 @@ export interface ChatState {
   resetUserMemory: () => Promise<void>;
   pushToast: (toast: Omit<ToastItem, "id">) => void;
   dismissToast: (id: string) => void;
+  openCommandPalette: () => void;
+  closeCommandPalette: () => void;
 }
 
 const initialState: Omit<
@@ -162,6 +167,8 @@ const initialState: Omit<
   | "resetUserMemory"
   | "pushToast"
   | "dismissToast"
+  | "openCommandPalette"
+  | "closeCommandPalette"
 > = {
   // 服务端渲染期间用占位值；客户端 mount 后由 reset/loadScenarios 触发更新
   sessionId: "sess_pending",
@@ -185,6 +192,7 @@ const initialState: Omit<
   lastRefinement: null,
   chitchatReplies: [],
   toasts: [],
+  commandPaletteOpen: false,
 };
 
 let abortController: AbortController | null = null;
@@ -447,7 +455,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const persona = get().personas.find((p) => p.user_id === userId);
     get().pushToast({
       kind: "info",
-      text: persona ? `已切到「${persona.label}」${persona.icon}` : `已切到 ${userId}`,
+      text: persona ? `已切到「${persona.label}」` : `已切到 ${userId}`,
     });
   },
 
@@ -514,6 +522,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  openCommandPalette: () => set({ commandPaletteOpen: true }),
+  closeCommandPalette: () => set({ commandPaletteOpen: false }),
 }));
 
 // ============================================================

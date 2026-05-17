@@ -1,22 +1,14 @@
 "use client";
 
 /**
- * UserSwitcher —— 顶栏 user 切换器（Phase 0.7）。
- *
- * 设计：
- * - 5 个 mock persona + "demo_user"（默认）
- * - 当前选中 user 显示头像 + label
- * - 点击展开下拉，选中后写 cookie + 刷 preferences
- * - reset 不会清 user（演示连续切 user 体验稳）
- *
- * 与后端契约：
- * - 切换后所有 SSE 请求带 X-User-Id header
- * - main.py 用此 header 选 persona / 累积 memory
+ * UserSwitcher —— 顶栏用户切换器（B+D 范式：去 emoji，Lucide 图标）。
  */
 
 import { useEffect, useRef, useState } from "react";
 
+import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 export default function UserSwitcher() {
   const personas = useChatStore((s) => s.personas);
@@ -42,50 +34,68 @@ export default function UserSwitcher() {
   }, []);
 
   const current = personas.find((p) => p.user_id === currentUserId);
-  const display = current
-    ? `${current.icon} ${current.label}`
-    : currentUserId === "demo_user"
-      ? "👤 默认"
-      : `👤 ${currentUserId ?? "未设置"}`;
+  const CurrentIcon = current
+    ? personaIconFromEmoji(current.icon)
+    : Icons.user;
+  const display = current?.label ?? (currentUserId === "demo_user" ? "默认" : currentUserId ?? "未设置");
 
   return (
     <div ref={wrapRef} className="relative">
       <button
         type="button"
-        className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-xs text-ink-700 hover:bg-ink-50 transition"
+        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-xs text-ink-700 hover:border-ink-300 hover:bg-ink-50 transition-colors tracking-tight"
         onClick={() => setOpen((v) => !v)}
         title="切换演示用户"
       >
-        <span>{display}</span>
-        <span className={`text-[10px] text-ink-400 transition ${open ? "rotate-180" : ""}`}>
+        <CurrentIcon className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
+        <span className="max-w-[90px] truncate">{display}</span>
+        <span
+          className={cn(
+            "text-[10px] text-ink-400 transition-transform",
+            open && "rotate-180",
+          )}
+        >
           ▾
         </span>
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-56 rounded-lg border border-ink-200 bg-white shadow-lg z-20">
-          <div className="px-3 py-2 text-[11px] text-ink-400 border-b border-ink-100">
+        <div className="absolute right-0 mt-1.5 w-64 rounded-lg border border-ink-200 bg-white shadow-elevated z-20 overflow-hidden">
+          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-400 border-b border-ink-100">
             选择演示用户档案
           </div>
           <ul className="py-1 max-h-72 overflow-auto">
             {personas.map((p) => {
+              const Icon = personaIconFromEmoji(p.icon);
               const active = p.user_id === currentUserId;
               return (
                 <li key={p.user_id}>
                   <button
                     type="button"
-                    className={`w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-ink-50 transition ${
-                      active ? "bg-brand-50" : ""
-                    }`}
+                    className={cn(
+                      "w-full px-3 py-2 text-left text-xs flex items-start gap-2 transition-colors",
+                      active
+                        ? "bg-ink-50"
+                        : "hover:bg-ink-50",
+                    )}
                     onClick={() => {
                       setCurrentUserId(p.user_id);
                       setOpen(false);
                     }}
                   >
-                    <span className="text-base leading-none mt-0.5">{p.icon}</span>
+                    <Icon
+                      className={cn(
+                        "w-3.5 h-3.5 mt-0.5 shrink-0",
+                        active ? "text-accent-600" : "text-ink-500",
+                      )}
+                      strokeWidth={2}
+                    />
                     <span className="flex-1 min-w-0">
                       <span
-                        className={`block font-medium ${active ? "text-brand-700" : "text-ink-800"}`}
+                        className={cn(
+                          "block font-medium tracking-tight",
+                          active ? "text-ink-900" : "text-ink-800",
+                        )}
                       >
                         {p.label}
                       </span>
@@ -93,7 +103,12 @@ export default function UserSwitcher() {
                         {p.notes}
                       </span>
                     </span>
-                    {active && <span className="text-brand-600 text-xs">✓</span>}
+                    {active && (
+                      <Icons.success
+                        className="w-3.5 h-3.5 text-accent-600 shrink-0"
+                        strokeWidth={2.5}
+                      />
+                    )}
                   </button>
                 </li>
               );

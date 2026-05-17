@@ -1,17 +1,12 @@
 "use client";
 
 /**
- * 「我说说哪不对」反馈弹窗（C2）。
- *
- * 用户操作流程：
- * 1. 点击 ItineraryCard 「我说说哪不对」 → open=true
- * 2. textarea 输入反馈（也可不填，refiner 走默认调整）
- * 3. 点提交 → 触发 store.refine(text) → POST /chat/refine
- * 4. 弹窗关闭后 ItineraryCard 重新进入 streaming 态展示 refinement_start/done 事件
+ * 「我说说哪不对」反馈弹窗（B+D 范式：去 ✕ emoji，灰阶克制）。
  */
 
 import { useEffect, useRef, useState } from "react";
 
+import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -41,17 +36,14 @@ export default function RefinementDialog({
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 弹窗打开时清空并聚焦；关闭时重置
   useEffect(() => {
     if (open) {
       setText("");
-      // 等动画结束再 focus 体感更稳
       const t = setTimeout(() => textareaRef.current?.focus(), 60);
       return () => clearTimeout(t);
     }
   }, [open]);
 
-  // ESC 关闭
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -76,24 +68,29 @@ export default function RefinementDialog({
       aria-modal="true"
       aria-labelledby="refine-title"
     >
-      {/* 遮罩 */}
       <div
-        className="absolute inset-0 bg-ink-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-ink-950/40 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden
       />
 
-      {/* 主体 */}
-      <div className="relative card w-full max-w-md p-5 animate-fade-in-up max-h-[90vh] overflow-y-auto">
+      <div className="relative card w-full max-w-md p-5 animate-fade-in-up max-h-[90vh] overflow-y-auto shadow-elevated">
         <div className="flex items-start justify-between gap-3">
           <div>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <Icons.refine
+                className="w-3.5 h-3.5 text-accent-500"
+                strokeWidth={2}
+              />
+              <span className="section-title">反馈调整</span>
+            </div>
             <h2
               id="refine-title"
-              className="text-base font-semibold text-ink-900"
+              className="text-[15px] font-semibold text-ink-900 tracking-tight"
             >
               说说哪不对？
             </h2>
-            <p className="mt-1 text-xs text-ink-500 leading-relaxed">
+            <p className="mt-1.5 text-xs text-ink-500 leading-relaxed">
               不喜欢的部分告诉我，Agent 会基于你的反馈调整原计划，
               而不是从零再想一遍。也可以直接提交让我换个组合。
             </p>
@@ -103,7 +100,7 @@ export default function RefinementDialog({
             onClick={onClose}
             aria-label="关闭"
           >
-            ✕
+            <Icons.close className="w-3.5 h-3.5" strokeWidth={2} />
           </button>
         </div>
 
@@ -122,29 +119,35 @@ export default function RefinementDialog({
             placeholder="例：太远了，希望 3 公里以内 / 想换一家不那么贵的"
             className={cn(
               "w-full resize-none rounded-md border border-ink-200 bg-white",
-              "px-3 py-2 text-sm text-ink-800 placeholder:text-ink-400",
-              "focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500",
+              "px-3 py-2 text-sm text-ink-800 placeholder:text-ink-400 tracking-tight",
+              "focus:outline-none focus:ring-2 focus:ring-accent-500/30 focus:border-accent-500",
+              "transition-colors duration-150",
             )}
           />
           <div className="mt-1 flex items-center justify-between text-[11px] text-ink-400">
-            <span>Ctrl/⌘ + Enter 快速提交</span>
-            <span>
+            <span className="flex items-center gap-1">
+              <span className="kbd">⌘</span>
+              <span className="kbd">↵</span>
+              <span className="ml-1">快速提交</span>
+            </span>
+            <span className="mono">
               {text.length} / {MAX_LEN}
             </span>
           </div>
         </div>
 
         <div className="mt-3">
-          <div className="text-xs text-ink-500 mb-1.5">常见反馈</div>
+          <div className="section-title mb-1.5">常见反馈</div>
           <div className="flex flex-wrap gap-1.5">
             {SUGGESTIONS.map((s) => (
               <button
                 key={s}
                 onClick={() => setText(s)}
                 className={cn(
-                  "text-xs rounded-full px-2.5 py-1",
-                  "bg-ink-100 hover:bg-brand-100 hover:text-brand-700",
-                  "text-ink-700 transition-colors",
+                  "text-[11px] rounded-md px-2.5 py-1 tracking-tight",
+                  "bg-ink-100 hover:bg-ink-200 text-ink-700",
+                  "border border-ink-200/60 hover:border-ink-300",
+                  "transition-colors duration-150",
                 )}
               >
                 {s}
@@ -154,15 +157,22 @@ export default function RefinementDialog({
         </div>
 
         <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
-          <button className="btn-ghost-bordered" onClick={onClose}>
+          <button className="btn-secondary" onClick={onClose}>
             取消
           </button>
           <button
-            className="btn-primary"
+            className={cn("btn-primary", streaming && "shimmer-border")}
             disabled={streaming}
             onClick={() => submit()}
           >
-            {streaming ? "提交中..." : "提交反馈"}
+            {streaming ? (
+              <>
+                <Icons.thinking className="w-3.5 h-3.5 animate-spin" />
+                <span>提交中</span>
+              </>
+            ) : (
+              <span>提交反馈</span>
+            )}
           </button>
         </div>
       </div>

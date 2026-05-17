@@ -3,9 +3,11 @@
 import { useEffect } from "react";
 
 import { useChatStore } from "@/lib/store";
+import { Icons } from "@/lib/icon-map";
 import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
 
 import ChatPanel from "./ChatPanel";
+import CommandPalette from "./CommandPalette";
 import ItineraryCard from "./ItineraryCard";
 import PlannerModeBadge from "./PlannerModeBadge";
 import PreferencesPanel from "./PreferencesPanel";
@@ -20,13 +22,12 @@ export default function HomeView() {
   const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const reset = useChatStore((s) => s.reset);
   const sessionId = useChatStore((s) => s.sessionId);
+  const openCommandPalette = useChatStore((s) => s.openCommandPalette);
 
   useEffect(() => {
-    // 客户端 mount 后再生成真实 session_id，避免 SSR/CSR 不一致 hydration 报错
     if (sessionId === "sess_pending") {
       useChatStore.setState({ sessionId: generateSessionId() });
     }
-    // Phase 0.7：从 cookie 恢复 user_id（演示连续切 user 体验稳）
     const persisted = getUserIdFromCookie();
     if (persisted) {
       useChatStore.setState({ currentUserId: persisted });
@@ -36,23 +37,55 @@ export default function HomeView() {
     refreshPreferences();
   }, [loadScenarios, loadPersonas, refreshPreferences, sessionId]);
 
+  // 全局键盘：Cmd+K / Ctrl+K 打开命令面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        openCommandPalette();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openCommandPalette]);
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-brand-50 via-ink-50 to-ink-50">
-      <header className="sticky top-0 z-10 border-b border-ink-200 bg-white/85 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-baseline gap-2 sm:gap-3 min-w-0">
-            <h1 className="text-lg sm:text-xl font-bold text-ink-900 shrink-0">
-              晌午局
-            </h1>
-            <span className="hidden md:inline text-sm text-ink-500 truncate">
-              一句话搞定下午行程 · 本地半日出行管家
+    <div className="min-h-screen bg-ink-50 text-ink-800">
+      <header className="sticky top-0 z-10 border-b border-ink-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+          {/* 左侧：品牌 + breadcrumb */}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2">
+              <Icons.pulse
+                className="w-4 h-4 text-accent-500"
+                strokeWidth={2.5}
+              />
+              <h1 className="text-[15px] font-semibold tracking-tight text-ink-900 shrink-0">
+                晌午局
+              </h1>
+            </div>
+            <span className="hidden md:inline text-ink-300">/</span>
+            <span className="hidden md:inline text-xs text-ink-500 truncate">
+              半日出行管家 · Agent 编排可视化
             </span>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 text-xs text-ink-500 shrink-0">
+
+          {/* 右侧：命令面板入口 / 切换器 / 会话 / 重置 */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={openCommandPalette}
+              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-ink-200 bg-white hover:border-ink-300 px-2.5 py-1 text-xs text-ink-500 transition-colors"
+              title="打开命令面板（场景 / 模式 / 用户切换）"
+            >
+              <span>命令</span>
+              <span className="kbd">⌘</span>
+              <span className="kbd">K</span>
+            </button>
             <UserSwitcher />
             <PlannerModeBadge />
             <span
-              className="hidden sm:inline truncate max-w-[160px]"
+              className="hidden lg:inline mono text-[11px] text-ink-400 truncate max-w-[140px]"
               title={`当前会话 ID：${sessionId}`}
             >
               {sessionId}
@@ -80,11 +113,14 @@ export default function HomeView() {
         </div>
       </main>
 
-      <footer className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center text-[11px] sm:text-xs text-ink-400">
-        美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
+      <footer className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center">
+        <span className="text-[11px] text-ink-400 tracking-tight">
+          美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
+        </span>
       </footer>
 
       <ToastStack />
+      <CommandPalette />
     </div>
   );
 }

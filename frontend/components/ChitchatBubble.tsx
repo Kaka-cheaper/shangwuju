@@ -1,59 +1,53 @@
 "use client";
 
 /**
- * ChitchatBubble —— Phase 0.8 暖心回话气泡。
+ * ChitchatBubble —— 暖心回话气泡（B+D 范式：去 emoji，灰阶克制）。
  *
- * 当 SSE 推 chitchat_reply 时（input_kind ∈ {chitchat / meta / emotional / off_topic / ambiguous}），
- * 由 ChatPanel 在消息流里渲染本组件。
- *
- * 视觉语言（不和现有色板冲突）：
- * - tone=warm        → amber-50 背景 + amber-700 强调
- * - tone=neutral     → sky-50  背景 + sky-700  强调
- * - tone=empathetic  → rose-50  背景 + rose-700  强调
- * - tone=playful     → emerald-50 背景 + emerald-700 强调
- *
- * 引导按钮：点击直接 sendMessage(chip.send) 重入主链路。
+ * tone 用 ink + accent 灰阶配色，不再把 emoji 当 chrome。
+ * cta_chips 仍可能含 emoji（来自后端），保留显示但限制大小。
  */
 
-import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
+import { Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
+
 import { useChatStore } from "@/lib/store";
+import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface ToneTheme {
   bg: string;
   border: string;
   accent: string;
-  emoji: string;
+  Icon: typeof Sparkles;
   label: string;
 }
 
 const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
   warm: {
-    bg: "bg-amber-50",
+    bg: "bg-amber-50/60",
     border: "border-amber-200",
     accent: "text-amber-700",
-    emoji: "☀️",
+    Icon: Coffee,
     label: "暖心",
   },
   neutral: {
-    bg: "bg-sky-50",
-    border: "border-sky-200",
-    accent: "text-sky-700",
-    emoji: "🤖",
+    bg: "bg-ink-50",
+    border: "border-ink-200",
+    accent: "text-ink-700",
+    Icon: MessageCircle,
     label: "介绍",
   },
   empathetic: {
-    bg: "bg-rose-50",
+    bg: "bg-rose-50/60",
     border: "border-rose-200",
     accent: "text-rose-700",
-    emoji: "🫶",
+    Icon: Heart,
     label: "陪伴",
   },
   playful: {
-    bg: "bg-emerald-50",
+    bg: "bg-emerald-50/60",
     border: "border-emerald-200",
     accent: "text-emerald-700",
-    emoji: "🌿",
+    Icon: Sparkles,
     label: "玩笑",
   },
 };
@@ -71,24 +65,28 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
   const sendMessage = useChatStore((s) => s.sendMessage);
   const streaming = useChatStore((s) => s.streaming);
   const theme = TONE_THEMES[payload.tone] ?? TONE_THEMES.warm;
+  const Icon = theme.Icon;
 
   return (
     <div className="flex justify-start animate-fade-in-up">
       <div
         className={cn(
-          "max-w-[92%] rounded-2xl border px-3.5 py-3 text-sm leading-relaxed",
+          "max-w-[92%] rounded-2xl border px-3.5 py-3 text-sm leading-relaxed tracking-tight",
           theme.bg,
           theme.border,
         )}
       >
-        {/* 头部：表情 + 类别标签 */}
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-xl leading-none">{theme.emoji}</span>
-          <span className={cn("text-xs font-medium", theme.accent)}>
+        {/* 头部：图标 + tone label + kind */}
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Icon
+            className={cn("w-3.5 h-3.5 shrink-0", theme.accent)}
+            strokeWidth={2}
+          />
+          <span className={cn("text-[11px] font-medium", theme.accent)}>
             {theme.label}
           </span>
-          <span className="text-xs text-ink-400">·</span>
-          <span className="text-xs text-ink-500">
+          <span className="text-[10px] text-ink-300">·</span>
+          <span className="text-[11px] text-ink-500">
             {KIND_LABELS[payload.input_kind] ?? payload.input_kind}
           </span>
         </div>
@@ -98,25 +96,28 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
 
         {/* 引导按钮 chips */}
         {payload.cta_chips.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
             {payload.cta_chips.map((chip, idx) => (
               <button
                 key={`${chip.send}-${idx}`}
                 disabled={streaming}
                 onClick={() => sendMessage(chip.send)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full",
-                  "px-3 py-1.5 text-xs font-medium",
+                  "inline-flex items-center gap-1 rounded-md",
+                  "px-2.5 py-1 text-[11px] font-medium tracking-tight",
                   "bg-white border border-ink-200 text-ink-700",
-                  "hover:border-brand-400 hover:text-brand-700 hover:bg-brand-50",
-                  "transition-all duration-200",
-                  "active:scale-95",
+                  "hover:border-ink-300 hover:bg-ink-50",
+                  "transition-colors duration-150",
+                  "active:scale-[0.98]",
                   "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-ink-200 disabled:hover:bg-white",
-                  "shadow-sm",
                 )}
                 title={chip.send}
               >
-                {chip.icon && <span className="text-base leading-none">{chip.icon}</span>}
+                {chip.icon && (
+                  <span className="text-[11px] leading-none opacity-70">
+                    {chip.icon}
+                  </span>
+                )}
                 <span>{chip.label}</span>
               </button>
             ))}

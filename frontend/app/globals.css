@@ -10,13 +10,7 @@
 
   body {
     @apply bg-ink-50 text-ink-800 antialiased;
-    font-family:
-      ui-sans-serif,
-      system-ui,
-      "PingFang SC",
-      "Microsoft YaHei",
-      "Source Han Sans CN",
-      sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter 风格变体 */
   }
 
   ::-webkit-scrollbar {
@@ -29,40 +23,143 @@
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-ink-300;
   }
+
+  /* 选中文本：避开默认的紫蓝调，统一到 accent */
+  ::selection {
+    @apply bg-accent-100 text-accent-900;
+  }
+
+  /* 等宽字段（Tool 输入 JSON / session id / 订单号 / 标识符） */
+  .mono,
+  code,
+  kbd {
+    @apply font-mono text-[0.92em] tracking-tight;
+  }
 }
 
 @layer components {
+  /* ============================================================
+     Card：去阴影、改纯边框分隔。Linear / Vercel 派系
+     ============================================================ */
   .card {
-    @apply bg-white border border-ink-200 rounded-xl shadow-sm transition-shadow;
+    @apply bg-white border border-ink-200 rounded-lg
+           transition-colors duration-150;
   }
+  .card-hover {
+    @apply hover:border-ink-300;
+  }
+
+  /* ============================================================
+     按钮：单色 accent + 灰阶 + 描边三档
+     ============================================================ */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md
-           bg-brand-600 hover:bg-brand-700 active:bg-brand-700
-           text-white text-sm font-medium
-           shadow-sm hover:shadow transition-all duration-200
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
+           bg-ink-900 hover:bg-ink-800 active:bg-ink-950
+           text-white text-sm font-medium tracking-tight
+           shadow-elevated transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-ink-700;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md
-           bg-white hover:bg-brand-50 active:bg-brand-100
-           text-brand-700 text-sm font-medium
-           border border-brand-300 hover:border-brand-500
-           shadow-sm transition-all duration-200;
-  }
-  .btn-ghost-bordered {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-md
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
            bg-white hover:bg-ink-50 active:bg-ink-100
-           text-ink-600 text-sm font-medium
+           text-ink-700 text-sm font-medium tracking-tight
            border border-ink-200 hover:border-ink-300
-           transition-all duration-200;
+           transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-danger-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
+           bg-white hover:bg-ink-50 active:bg-ink-100
+           text-ink-500 hover:text-ink-700 text-sm font-medium tracking-tight
+           border border-ink-200 hover:border-ink-300
+           transition-colors duration-150;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-md
-           text-ink-700 hover:bg-ink-100 active:bg-ink-200
-           transition-colors text-sm;
+    @apply inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md
+           text-ink-500 hover:text-ink-800 hover:bg-ink-100
+           transition-colors duration-150 text-xs;
   }
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
+           bg-accent-500 hover:bg-accent-600 active:bg-accent-700
+           text-white text-sm font-medium tracking-tight
+           shadow-elevated transition-colors duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* ============================================================
+     Chip / Tag：纯描边，单色变体
+     ============================================================ */
   .chip {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full
-           text-xs bg-ink-100 text-ink-700;
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight
+           bg-ink-100 text-ink-700 border border-ink-200/60;
+  }
+  .chip-accent {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight
+           bg-accent-50 text-accent-700 border border-accent-200/60;
+  }
+  .chip-success {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight
+           bg-emerald-50 text-emerald-700 border border-emerald-200/60;
+  }
+  .chip-warn {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight
+           bg-amber-50 text-amber-700 border border-amber-200/60;
+  }
+  .chip-danger {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight
+           bg-rose-50 text-rose-700 border border-rose-200/60;
+  }
+
+  /* ============================================================
+     KBD：键盘按键样式（Cmd+K 命令面板提示）
+     ============================================================ */
+  .kbd {
+    @apply inline-flex items-center justify-center
+           min-w-[18px] h-[18px] px-1 rounded
+           font-mono text-[10px] font-medium tracking-tight
+           bg-ink-100 text-ink-600 border border-ink-200
+           shadow-[inset_0_-1px_0_0_rgb(228_228_231)];
+  }
+
+  /* ============================================================
+     Section header：按 Linear 风格的克制段落标题
+     ============================================================ */
+  .section-title {
+    @apply text-[11px] font-medium tracking-wide uppercase text-ink-400;
+  }
+
+  /* ============================================================
+     C 局部动效：流光按钮（思考态用）
+     在 transparent 背景上叠一层从左到右的渐变 mask
+     ============================================================ */
+  .shimmer-border {
+    position: relative;
+    background-clip: padding-box;
+  }
+  .shimmer-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      110deg,
+      transparent 30%,
+      rgba(47, 111, 235, 0.5) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+    -webkit-mask: linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
   }
 }

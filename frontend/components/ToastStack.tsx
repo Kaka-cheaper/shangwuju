@@ -1,9 +1,28 @@
 "use client";
 
+import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-/** 右下角 Toast 堆叠：refine changed_fields 提示 / 取消反馈 / mode 切换提示。 */
+const KIND_STYLES = {
+  success: "bg-white border-emerald-200 text-emerald-800",
+  info: "bg-white border-accent-200 text-accent-800",
+  warn: "bg-white border-amber-200 text-amber-800",
+} as const;
+
+const KIND_ICONS = {
+  success: Icons.success,
+  info: Icons.spark,
+  warn: Icons.warn,
+} as const;
+
+const KIND_ICON_TINT = {
+  success: "text-emerald-600",
+  info: "text-accent-600",
+  warn: "text-amber-600",
+} as const;
+
+/** 右下角 Toast 堆叠：refine changed_fields / 取消反馈 / mode 切换提示。 */
 export default function ToastStack() {
   const toasts = useChatStore((s) => s.toasts);
   const dismiss = useChatStore((s) => s.dismissToast);
@@ -16,23 +35,28 @@ export default function ToastStack() {
       aria-live="polite"
       aria-atomic="false"
     >
-      {toasts.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => dismiss(t.id)}
-          className={cn(
-            "pointer-events-auto text-left text-xs leading-relaxed rounded-md shadow-md",
-            "px-3 py-2 border animate-fade-in-up",
-            t.kind === "success" &&
-              "bg-emerald-50 border-emerald-200 text-emerald-800",
-            t.kind === "info" && "bg-sky-50 border-sky-200 text-sky-800",
-            t.kind === "warn" && "bg-amber-50 border-amber-200 text-amber-800",
-          )}
-          aria-label="点击关闭通知"
-        >
-          {t.text}
-        </button>
-      ))}
+      {toasts.map((t) => {
+        const Icon = KIND_ICONS[t.kind];
+        return (
+          <button
+            key={t.id}
+            onClick={() => dismiss(t.id)}
+            className={cn(
+              "pointer-events-auto text-left text-xs leading-relaxed",
+              "rounded-md shadow-elevated border animate-fade-in-up",
+              "px-3 py-2.5 flex items-start gap-2 tracking-tight",
+              KIND_STYLES[t.kind],
+            )}
+            aria-label="点击关闭通知"
+          >
+            <Icon
+              className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", KIND_ICON_TINT[t.kind])}
+              strokeWidth={2}
+            />
+            <span className="flex-1">{t.text}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
