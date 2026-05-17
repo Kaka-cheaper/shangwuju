@@ -1879,3 +1879,78 @@ test_tools.py:       49 passed (原 44 + 5 新)
 - _rule_fallback 路径同样支持精确数字（无 LLM 时也工作）
 - 旧关键词路径（"时间紧"/"时间多"）保持兼容，回归测试 175 项零破坏
 - 防再犯：18 项参数化测试固化为回归 gate；以后任何对 refiner 的改动都跑得过这 18 条
+
+
+---
+
+## 问题13：方向 3「黄昏胶片」深色主题落地
+
+**用户原问**：
+
+> 方向3
+
+承问题 12 推荐的方向 3：Spotify Wrapped / MUBI / Linear-for-Agents 派系的「沉浸式深色 + 高饱和暖光斑」。
+
+**解决方案**（commit f82d60b 一次性落地）：
+
+为什么不分阶段：色板反转（ink-50 从浅变深）影响 18 个组件，分阶段会出现中间撕裂态（深色卡片配深色背景看不见），所以必须一次完成色板 + 组件适配再 commit。
+
+**核心改动**：
+
+1. **色板反转（tailwind.config.ts）**：ink 色阶从「浅→深」反转为「深→浅」（ink-50=#0a0a0a 页面底，ink-900=#f5f5f4 暖白文字），语义名不变 → 组件代码 `bg-ink-50 / text-ink-800 / border-ink-200` 一字未动语义自动适配深色
+
+2. **双 accent 系统**：accent 单色冷蓝 #2f6feb → 莓紫 #d946ef（管 Agent 思考链路）；brand 暖橙保留 + 强化（管主操作）；新增 sunset/dusk 光斑色组
+
+3. **沉浸式 aurora 背景（globals.css）**：fixed 全屏层，左上 760px 夕阳橙莓粉光斑 + 右下 880px 暮光紫蓝光斑，各自 100px blur + 18s/28s 反向 auroraDrift 呼吸；body 叠 SVG fractalNoise 4% 颗粒纹理
+
+4. **Glass 卡片**：`.card` 改 `rgba(20,20,23,0.72) + backdrop-blur(12px) saturate(140%)`，1px 暖白半透边框
+
+5. **暖渐变主按钮**：`btn-primary` 改 `linear-gradient(135deg, #f97316, #ec4899)` + glow 阴影 + hover 提亮
+
+6. **18 个组件深色适配**：
+   - 用户气泡：暖橙莓粉渐变胶囊 + shadow-glow
+   - 时间轴圆点：每个都是橙→粉小光球（ring-#08080d + 暖橙 glow），连接线改暖→紫渐变
+   - ChitchatBubble 四 tone：暖心 brand 渐变 / 介绍灰玻璃 / 陪伴 rose / 玩笑 emerald 全改深色玻璃
+   - PreferencesPanel 折叠态：加紫色渐变 persona icon 容器 + hover 紫光晕
+   - CommandPalette / UserSwitcher：玻璃描边 + 暗色下拉浮层
+   - Toast：三色玻璃半透 + 边发光
+   - 等
+
+**期间踩坑**：
+
+- `next/font` 引入后 layout.tsx 改了，但用户那份很早起的 dev server 没重启，导致 hydration 失败（页面显示对了但 React 没 attach）→ ?_t=now query string + ignoreCache reload 解决，之后就正常了
+- aurora 光斑用 `::before/::after` 而非额外 div，避免 stacking context 嵌套问题
+- noise 颗粒用内联 SVG data URL（不依赖外部文件）
+
+**修改的代码文件**：
+
+`frontend/`（15 个）：
+- `app/globals.css`（305+/127-）：完全重写 base/components 层，加 .aurora-bg / .brand-mark / glass card / 暖渐变按钮 / shimmer 三类 / 暗色滚动条 / 暗色 selection
+- `tailwind.config.ts`：ink 色阶反转 + accent 改莓紫 + sunset/dusk 新色组 + auroraDrift keyframes + glow shadow 系列
+- `components/HomeView.tsx`：aurora 层 + brand-mark + 双语副标题 + 玻璃顶栏
+- `components/ChatPanel.tsx`：用户气泡渐变 + agent 玻璃 + 空态暖橙渐变光圈
+- `components/ItineraryCard.tsx`：时间轴橙粉光球 + 渐变线 + 玻璃订单卡 + refinement banner 莓紫玻璃 + 转发文案暖橙玻璃
+- `components/ToolTracePanel.tsx`：所有 ink 色调暗色化
+- `components/ChitchatBubble.tsx`：四 tone 改深色玻璃渐变
+- `components/PreferencesPanel.tsx`：折叠态紫色渐变容器 + hover 紫光晕
+- `components/CommandPalette.tsx`：黑色 70% 遮罩 + 暗色面板
+- `components/UserSwitcher.tsx`：玻璃描边 + 暗色下拉
+- `components/PlannerModeBadge.tsx`：玻璃描边
+- `components/ToastStack.tsx`：三色渐变玻璃 + 边发光
+- `components/RefinementDialog.tsx`：textarea 玻璃 + 建议 chip 玻璃 + 黑色遮罩
+- `components/IntentSummary.tsx`：进度条暖橙渐变 + 暖色 spark 图标
+- `components/QuickScenarios.tsx`：玻璃描边按钮 + hover 暖橙光斑
+
+不动（按边界）：
+- 所有 `backend/`
+- 他人 untracked：`AGENTS.md` / `.codesee/prompts/scan.md / sync.md / scan-sdd.md` / `.agents/` / `backend/agent/segment_decider.py` / `backend/tests/*` 等
+
+**应当达成的效果**：
+
+- 整体气质从「黑白丧礼」彻底转为「Spotify Wrapped 级沉浸式产品」
+- 每屏至少 5 处暖橙/莓粉/紫色视觉亮点，不再压抑
+- 保留 B+D 范式 hierarchical 折叠 trace + Cmd+K 命令面板的工程师审美骨架
+- 时间轴每个圆点都是橙粉小光球，对应「下午→傍晚→暮色」的时间叙事
+- 评委一眼就知道「这是一个有温度的下午行程产品」，不是 admin dashboard
+- 4 项静态校验：tsc 静默 ✓ / pnpm build 通过（29.6 kB / 117 kB）
+- 浏览器实测真后端 LLM S1 端到端：消息渐变胶囊 / 时间轴小光球 / 6 段行程 / 9 调用 2 重规划 / 偏好画像彩 chip 全部正常显示，console 仅 favicon 404
