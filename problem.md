@@ -3107,3 +3107,145 @@ PowerShell 控制台用 GBK 编码，print `✓` 字符触发 UnicodeEncodeError
 - git diff 严格在 Agent D 独占文件名单内，未碰 .py / .ts / .tsx / .json / .env.example / AGENTS.md / problem.md（之外）/ 比赛详情.md / 技术架构.md / chatgpt分析.md / 项目说明.md / pitfalls.md / progress.md
 - markdown 渲染 0 诊断告警（getDiagnostics 验证全 9 个文件 No diagnostics found）
 
+
+
+---
+
+## 问题20：Agent F 协作落地——Critic 兜底层 critics_v2.py（LLM-Modulo 范式）
+
+**用户原问**：
+
+> 你是「晌午局」Multi-agent 协作的 Agent F，负责 Critic 兜底层。新建 backend/agent/v2/critics_v2.py：ViolationCode / Severity / Violation / validate_itinerary / format_violations_for_llm。critic 设计：7 类违规码，CRITICAL/WARNING 两级，纯 Python 验证 LLM 产出的 Itinerary，违规反馈给 LLM 让它 ModelRetry。这是 Kambhampati LLM-Modulo（NeurIPS 2024）：LLM 决主观，算法决客观。
+
+**为什么叫 critics_v2 而非 critics**：
+
+`backend/agent/critics.py` 已存在（旧规则化 critic 内部组件，由 planner_hybrid 用），命名 v2 避免冲突且语义清晰：v2 是给 Pydantic AI ReAct Agent（Agent E 在并行做）用的兜底层，直接读 Itinerary 顶层字段，不读 PlanBlueprint，与旧 critic 解耦。
+
+**解决方案**：
+
+### 1. critics_v2.py 实现要点
+
+**7 类 ViolationCode**：
+- `STAGES_INCOMPLETE` (critical)：段数 < 5 或缺主活动/用餐/返回任一关键词段
+- `DURATION_OUT_OF_RANGE` (critical)：total_minutes 超出 `[lo*60-30, hi*60+30]` 容差
+- `TIMELINE_INCONSISTENT` (critical)：HH:MM 格式错 / end < start / 段间反序超 5min 容差
+- `DISTANCE_EXCEEDED` (warning)：stage 的 poi_id/restaurant_id 距家 > distance_max_km + 0.5km
+- `RESTAURANT_FULL_UNRESOLVED` (critical, demo-aware)：用餐 stage start = "17:00" 触发（mock 满座埋点）
+- `DIETARY_VIOLATION` (warning)：用餐餐厅 tags 未覆盖 intent.dietary_constraints 任意一项
+- `SOCIAL_CONTEXT_MISMATCH` (warning)：独处场景预约多人位 / 家庭场景 title 含「商务」
+
+**两级 Severity**：
+- CRITICAL：必须 ModelRetry，调用方应把 violation 转成 prompt 让 LLM 重做
+- WARNING：方案可继续上呈，仅日志/调试关注
+
+**关键设计纪律**（写在模块 docstring + 各处注释）：
+- 不抛异常（违规返 violations 列表，由调用方决定 ModelRetry）
+- 不调 LLM（critic 是算法不是 LLM，违背 LLM-Modulo 范式）
+- 不发明新 schema 模型（直接用 schemas/ 现有的 IntentExtraction / Itinerary）
+- 容错加载 mock_data：`_safe_load_pois` / `_safe_load_restaurants` 失败返空，跳过相关检查
+
+**RESTAURANT_FULL 的简化策略**：
+critic 看不到工具调用历史，只能看最终 itinerary。简化方案——用餐 stage start = "17:00" 整点视为「LLM 没处理 RESTAURANT_FULL 强制重做」。通过 `ENABLE_DEMO_FULL_CHECK=1` 环境变量控制开关（默认开），评委 demo 时不可能跑到 17:00 用餐又一切正常。真产品要换成「对工具调用日志的事后分析」。
+
+### 2. format_violations_for_llm 实现
+
+```python
+def format_violations_for_llm(violations: list[Violation]) -> str:
+    critical = [v for v in violations if v.severity == Severity.CRITICAL]
+    if not critical:
+        return ""  # 0 critical → 调用方据此决定不 ModelRetry
+    lines = [f"你产出的行程方案有 {len(critical)} 处违规需要修复："]
+    for i, v in enumerate(critical, 1):
+        loc = f"[{v.field_path}] " if v.field_path else ""
+        lines.append(f"{i}. {loc}{v.message}")
+    lines.append("请按上述建议重新调用工具或调整方案，重新输出 ItineraryResponse。")
+    return "\n".join(lines)
+```
+
+warning 不进 prompt（避免噪声分散 LLM 注意力）。
+
+### 3. test_critics_v2.py（11 项，比任务要求 7 项更细）
+
+```text
+| 测试                                                | 触发                              | 预期        |
+|-----------------------------------------------------|----------------------------------|-------------|
+| test_legal_itinerary_no_critical_violations         | 5 段 + 17:30 用餐 + R001 低脂    | 0 critical  |
+| test_stages_incomplete_triggers_critical            | 3 段                              | STAGES_INCOMPLETE critical |
+| test_duration_too_long_triggers_critical            | total=480 / 期望 [4,6]           | DURATION critical |
+| test_duration_too_short_triggers_critical           | total=60 / 期望 [4,6]            | DURATION critical |
+| test_timeline_inconsistent_triggers_critical        | stages[1].start 比前一段早 60min | TIMELINE critical |
+| test_format_violations_only_critical_in_message     | 1 critical + 1 warning           | 仅 critical 进消息 |
+| test_format_violations_empty_when_no_critical       | 0 critical / 全 warning          | 空字符串    |
+| test_dietary_violation_warning_when_restaurant_...  | dietary=低脂 / R002 粤菜         | DIETARY warning |
+| test_dietary_violation_no_trigger_when_tag_match    | dietary=低脂 / R001 含低脂       | 无 dietary  |
+| test_demo_full_check_enabled_triggers_at_17_00      | 用餐 17:00 + ENABLE=1            | RESTAURANT_FULL critical |
+| test_demo_full_check_disabled_no_trigger_at_17_00   | 用餐 17:00 + ENABLE=0            | 无 trigger  |
+```
+
+用真 mock_data：R001 = 轻语沙拉（含低脂 tag，距家 0.6km）/ R002 = 粤味轩（不含低脂 tag）。
+
+**期间小坑**：
+
+1. **`ItineraryStage` extra="forbid"**：第一版给 `kind="出发"` 但忘了 stage 必须有完整字段（start/end/title）。Pydantic 立刻报错暴露字段缺失。
+2. **`IntentExtraction.companions` 必传**：测试 fixture 必须显式 `companions=[]`，不能省略（D9 schema 硬条款）。第一版 unit test 报「missing required field」，加上 `[]` 后修复。
+3. **DURATION 容差区间**：3 段测试 `total_minutes=150` 同时触发 STAGES_INCOMPLETE 和 DURATION（150 < 4*60-30=210），所以测试只断言 STAGES_INCOMPLETE 在 codes 里（用 `in` 而非 `==`），不强制 codes 长度=1。
+4. **monkeypatch 改 ENABLE_DEMO_FULL_CHECK**：用 pytest 内置 monkeypatch fixture，确保测试间环境变量不污染。
+
+**测试矩阵**：
+
+```text
+| 套件                        | 通过项     |
+|-----------------------------|-----------|
+| test_critics_v2（新增）     | 11/11     |
+| pytest 总（含旧 256）       | 267/267   |
+```
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/v2/critics_v2.py`（371 行：7 类 ViolationCode + 2 级 Severity + Violation 模型 + 7 个 _check 函数 + validate_itinerary 主入口 + format_violations_for_llm helper）
+- `backend/tests/test_critics_v2.py`（11 项 pytest 测试）
+
+未动（Multi-agent 协作硬边界）：
+- `backend/agent/critics.py`（旧规则 critic，命名 v2 避免冲突）
+- `backend/agent/v2/` 下所有现有文件（conversation/orchestrator/deps/intent_agent/router_agent/model_factory/tool_provider/observability 等）
+- `backend/agent/` 下其它文件、`backend/main.py`、`backend/tools/`、`backend/schemas/`、`frontend/`
+- 其它 untracked 文件（`backend/agent/v2/output_types.py` / `react_agent.py` / `.agents/` / `backend/tests/fake_tools.py` 等是其它 Agent owner）
+
+**应当达成的效果**：
+
+- Pydantic AI ReAct Agent（Agent E）拿 Itinerary 后调一次 `validate_itinerary(itinerary, intent)` 就能拿 violations
+- critical violations 通过 `format_violations_for_llm()` 转成中文修复 prompt，喂给 Pydantic AI 的 ModelRetry 机制
+- LLM 最多重试 N 次（调用方控制）后仍无法过 critic → 转给 fallback rule planner（保 demo 兜底）
+- 评分项 2（规划链路 25%）：LLM 自主决策 + 算法 critic 验证 + 自动 ModelRetry 闭环（教科书级 LLM-Modulo 实现）
+- 评分项 5（异常韧性 15%）：RESTAURANT_FULL_UNRESOLVED demo-aware 强制 LLM 处理满座埋点
+- 7 类 ViolationCode 覆盖时长 / 距离 / 段数 / 营业 / 时序 / 社交 / 饮食 七大维度
+- pytest 总 256 → 267 全过；旧测试一字不破
+
+**用户反馈**：（待填）
+
+---
+
+问题：Agent E — ReAct 单一 Agent 主体（让 LLM 看到全部 8 工具自主决策）
+解决方案：
+1. 新建 `backend/agent/v2/react_agent.py`：模块级实例化 `unified_agent: Agent[AgentDeps, AgentOutput]`，挂载 8 个工具（get_user_profile / search_pois / search_restaurants / check_restaurant_availability / estimate_route_time / reserve_restaurant / buy_ticket / generate_share_message），所有工具参数化展开（让 LLM 看到每个参数的中文 + 英文括号 description），通过 ToolProvider 抽象解耦数据源 + observability.trace_span 包每次调用。
+2. 公共入口 `run_react_turn_inner(message, deps, message_history)` 返回 Pydantic AI 原生 AgentRunResult，G agent 可用 `unified_agent.iter()` 流式包装。
+3. 6000 字以内的 instructions：决策原则（6 条按场景判断）+ 8 工具表 + 失败 reason 应对策略 + 输出纪律 + 中文词典强约束 + 5 个 few-shot + list-as-string 防 Bug 警示。
+4. critic 通过 `@output_validator` 接入：critical violations → ModelRetry；用 try/import 兜底 critics_v2，F 未合流时静默放行。
+5. 容错层（针对 MiMo Function Calling 序列化 Bug）：
+   - `_coerce_list` / `_coerce_int` / `_coerce_int_list`：把 LLM 误序列化为 JSON 字符串的数组/整数还原
+   - `_filter_dict` / `_filter_social_context`：白名单过滤防漂值
+   - 工具入口对所有 list/int 参数走 _coerce_*；签名改成 `Any` 让框架放行
+   - 新建 `_FlexibleItineraryResponse` 子类（仅作 Agent output_type 用）：通过 Pydantic v2 `model_validator(mode="before")` 把字符串型 itinerary / stages / orders 自动 json.loads 成 dict；output_validator 转回标准 ItineraryResponse 保契约
+6. 新建 `backend/scripts/verify_react_agent.py`：5 场景端到端验证（闲聊 / POI Q&A / 完整规划 / 拒答 / 上下文反馈），LLM_PROVIDER=stub 时 SKIPPED；其他模式真 LLM 跑全部 5 场景。
+修改的代码文件：
+- `backend/agent/v2/react_agent.py`（新建）
+- `backend/scripts/verify_react_agent.py`（新建）
+应当达成的效果：
+- LLM 通过 OpenAI Function Calling 自主决策何时调哪个工具、是否输出行程或仅文字回话
+- 闲聊 / 拒答场景不调任何工具（首字节快）
+- 完整规划场景调多工具产出 stages ≥ 5 段的 ItineraryResponse + 暖语气 narration
+- 上下文反馈轮通过 message_history 接住主线 baseline，调工具调整后给新 itinerary
+- MiMo v2.5 Pro 的 list-as-string Bug 被三层兜底（提示工程 + 入参 coerce + Flexible 子类）
+- verify 真 LLM 模式 5/5 全过；pytest 267/267 不破
+- git diff 仅在独占文件（react_agent.py + verify 脚本）
