@@ -846,60 +846,209 @@
     },
     {
       "id": "f-llm-planner",
-      "name": "LLM 自主规划",
-      "summary": "PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 走 hybrid（ILS+Critic+LLM 权重）或 function_calling（旧路径），失败自动 fallback rule",
+      "name": "LLM 范式分发",
+      "summary": "PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 路由到 hybrid（A+C 默认）或 function_calling，stub 客户端兼容回 rule",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "PLANNER_MODE=llm 或 X-Planner-Mode=llm 时由分发器选用" }
       ],
       "steps": [
-        { "id": "receive", "name": "接收意图", "role": "input" },
-        { "id": "stub_check", "name": "判断客户端", "role": "validation" },
+        { "id": "receive", "name": "接收意图与客户端", "role": "input" },
+        { "id": "ensure_tracer", "name": "提前生成追踪器", "role": "compute" },
+        { "id": "stub_check", "name": "判断客户端能力", "role": "validation" },
         { "id": "select_strategy", "name": "选规划策略", "role": "compute" },
-        { "id": "llm_weights", "name": "请求权重决策", "role": "compute" },
-        { "id": "candidate_gen", "name": "生成候选池", "role": "data-read" },
-        { "id": "ils_search", "name": "ILS 局部搜索", "role": "compute" },
-        { "id": "critic_check", "name": "Critic 验证方案", "role": "validation" },
-        { "id": "critic_retry", "name": "硬违规反馈重排", "role": "compute" },
-        { "id": "function_calling", "name": "LLM 工具自主调用", "role": "compute" },
-        { "id": "assemble", "name": "组装六段方案", "role": "compute" },
-        { "id": "output", "name": "返回方案", "role": "output" },
-        { "id": "fallback", "name": "降级到规则范式", "role": "error" }
+        { "id": "to_hybrid", "name": "派发到混合范式", "role": "compute" },
+        { "id": "to_function_calling", "name": "派发到工具自主调用", "role": "compute" },
+        { "id": "fallback_rule", "name": "降级到规则范式", "role": "error" },
+        { "id": "output", "name": "返回方案", "role": "output" }
       ],
       "flow": [
-        { "from": "receive", "to": "stub_check", "kind": "next" },
-        { "from": "stub_check", "to": "fallback", "kind": "conditional", "condition": "client 是 stub" },
+        { "from": "receive", "to": "ensure_tracer", "kind": "next" },
+        { "from": "ensure_tracer", "to": "stub_check", "kind": "next" },
+        { "from": "stub_check", "to": "fallback_rule", "kind": "conditional", "condition": "client.provider=stub 或 不可用" },
         { "from": "stub_check", "to": "select_strategy", "kind": "conditional", "condition": "client 可决策" },
-        { "from": "select_strategy", "to": "llm_weights", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=hybrid（默认）" },
-        { "from": "select_strategy", "to": "function_calling", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=function_calling" },
-        { "from": "llm_weights", "to": "candidate_gen", "kind": "next" },
-        { "from": "candidate_gen", "to": "ils_search", "kind": "next" },
-        { "from": "ils_search", "to": "assemble", "kind": "next" },
-        { "from": "assemble", "to": "critic_check", "kind": "next" },
-        { "from": "critic_check", "to": "output", "kind": "conditional", "condition": "无硬违规" },
-        { "from": "critic_check", "to": "critic_retry", "kind": "error", "condition": "硬违规（Critic backprompt）" },
-        { "from": "critic_retry", "to": "assemble", "kind": "loop", "condition": "黑名单候选后重排" },
-        { "from": "critic_retry", "to": "fallback", "kind": "error", "condition": "重排仍失败" },
-        { "from": "function_calling", "to": "output", "kind": "conditional", "condition": "LLM 收敛且方案合法" },
-        { "from": "function_calling", "to": "fallback", "kind": "error", "condition": "调用超 12 次或不收敛" },
-        { "from": "fallback", "to": "output", "kind": "next" }
+        { "from": "select_strategy", "to": "to_hybrid", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=hybrid（默认）" },
+        { "from": "select_strategy", "to": "to_function_calling", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=function_calling" },
+        { "from": "to_hybrid", "to": "output", "kind": "conditional", "condition": "hybrid 成功" },
+        { "from": "to_hybrid", "to": "fallback_rule", "kind": "error", "condition": "hybrid 失败" },
+        { "from": "to_function_calling", "to": "output", "kind": "conditional", "condition": "LLM 收敛" },
+        { "from": "to_function_calling", "to": "fallback_rule", "kind": "error", "condition": "调用超 12 次或不收敛" },
+        { "from": "fallback_rule", "to": "output", "kind": "next" }
       ],
       "refs": [
         { "file": "backend/agent/planner.py", "lines": [855, 1010] },
-        { "file": "backend/agent/planner_hybrid.py", "lines": [1, 480] },
-        { "file": "backend/agent/weights_llm.py", "lines": [1, 230] },
-        { "file": "backend/agent/critics.py", "lines": [1, 280] },
-        { "file": "backend/agent/llm_planner.py", "lines": [1, 360] },
-        { "file": "backend/agent/prompts/llm_planner_prompt.py", "lines": [1, 80] },
         { "file": "backend/schemas/planner_mode.py", "lines": [1, 70] },
-        { "file": "backend/tests/test_llm_planner.py", "lines": [1, 180] },
-        { "file": "backend/tests/test_planner_hybrid.py", "lines": [1, 280] },
-        { "file": "backend/scripts/verify_planning.py", "lines": [1, 220] }
+        { "file": "backend/.env.example", "lines": [40, 60] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T16:00:00Z"
+    },
+    {
+      "id": "f-planning-weights",
+      "name": "规划权重决策",
+      "summary": "LLM 出 4 维加权效用权重（comfort/time/cost/smoothness），LLM 不可用兜底启发式 9 套场景预设",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "hybrid 范式启动时调 get_planning_weights(intent, client)" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收意图与客户端", "role": "input" },
+        { "id": "branch_llm", "name": "判断是否走模型", "role": "validation" },
+        { "id": "build_prompt", "name": "拼装权重提示词", "role": "transform" },
+        { "id": "call_llm", "name": "请求模型给权重", "role": "compute" },
+        { "id": "parse_json", "name": "解析权重 JSON", "role": "transform" },
+        { "id": "heuristic", "name": "查场景预设兜底", "role": "compute" },
+        { "id": "keyword_adjust", "name": "关键词修正权重", "role": "compute" },
+        { "id": "normalize", "name": "归一化总和到 1", "role": "compute" },
+        { "id": "output", "name": "返回 4 维权重", "role": "output" },
+        { "id": "fallback", "name": "模型失败转启发式", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "branch_llm", "kind": "next" },
+        { "from": "branch_llm", "to": "build_prompt", "kind": "conditional", "condition": "client 真 LLM" },
+        { "from": "branch_llm", "to": "heuristic", "kind": "conditional", "condition": "client 缺失或 stub" },
+        { "from": "build_prompt", "to": "call_llm", "kind": "next" },
+        { "from": "call_llm", "to": "parse_json", "kind": "conditional", "condition": "返回成功" },
+        { "from": "call_llm", "to": "fallback", "kind": "error", "condition": "超时或异常" },
+        { "from": "parse_json", "to": "normalize", "kind": "conditional", "condition": "JSON 合法" },
+        { "from": "parse_json", "to": "fallback", "kind": "error", "condition": "JSON 非法" },
+        { "from": "fallback", "to": "heuristic", "kind": "next" },
+        { "from": "heuristic", "to": "keyword_adjust", "kind": "next" },
+        { "from": "keyword_adjust", "to": "normalize", "kind": "next" },
+        { "from": "normalize", "to": "output", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/weights_llm.py", "lines": [1, 230] },
+        { "file": "backend/tests/test_planner_hybrid.py", "lines": [70, 160] }
       ],
       "confidence": 0.88,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-17T15:00:00Z"
+      "updated_at": "2026-05-17T16:00:00Z"
+    },
+    {
+      "id": "f-ils-search",
+      "name": "ILS 启发式搜索",
+      "summary": "TOPTW 加权效用 + 迭代局部搜索（扰动 swap_poi/swap_rest/shift_time + 邻域贪心，30 轮 5% 接受劣解）",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "hybrid 范式拿到权重和候选池后启动" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收候选与权重", "role": "input" },
+        { "id": "candidate_gen", "name": "拉候选 POI 与餐厅", "role": "data-read" },
+        { "id": "compute_utility", "name": "计算加权效用", "role": "compute" },
+        { "id": "feasibility_check", "name": "检查物理可行", "role": "validation" },
+        { "id": "greedy_init", "name": "贪心选初始解", "role": "compute" },
+        { "id": "perturb", "name": "随机扰动当前解", "role": "compute" },
+        { "id": "local_search", "name": "邻域贪心改进", "role": "compute" },
+        { "id": "accept", "name": "判断是否接受", "role": "compute" },
+        { "id": "output_best", "name": "输出最优候选", "role": "output" },
+        { "id": "abort_empty", "name": "候选池空中止", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "candidate_gen", "kind": "next" },
+        { "from": "candidate_gen", "to": "compute_utility", "kind": "conditional", "condition": "命中 ≥ 1" },
+        { "from": "candidate_gen", "to": "abort_empty", "kind": "error", "condition": "POI 或餐厅候选为空" },
+        { "from": "compute_utility", "to": "feasibility_check", "kind": "next" },
+        { "from": "feasibility_check", "to": "greedy_init", "kind": "next" },
+        { "from": "greedy_init", "to": "perturb", "kind": "next" },
+        { "from": "perturb", "to": "local_search", "kind": "next" },
+        { "from": "local_search", "to": "accept", "kind": "next" },
+        { "from": "accept", "to": "perturb", "kind": "loop", "condition": "迭代 < ILS_ITERATIONS=30" },
+        { "from": "accept", "to": "output_best", "kind": "conditional", "condition": "迭代完成" }
+      ],
+      "refs": [
+        { "file": "backend/agent/planner_hybrid.py", "lines": [200, 480] },
+        { "file": "backend/agent/planner_hybrid.py", "lines": [305, 410] },
+        { "file": "backend/tests/test_planner_hybrid.py", "lines": [200, 250] }
+      ],
+      "confidence": 0.85,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T16:00:00Z"
+    },
+    {
+      "id": "f-plan-critics",
+      "name": "方案批评验证",
+      "summary": "LLM-Modulo 4 个 Critic（硬约束/时段/预算/调性）；硬违规阻断+反馈，软违规扣 soft_score",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "hybrid 拼装出 Itinerary 后调 run_critics(plan, intent)" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收方案与意图", "role": "input" },
+        { "id": "hard_check", "name": "查硬约束段数与时长", "role": "validation" },
+        { "id": "time_window", "name": "查餐厅时段可订", "role": "validation" },
+        { "id": "budget_check", "name": "查预算上限", "role": "validation" },
+        { "id": "style_check", "name": "查场景调性匹配", "role": "validation" },
+        { "id": "aggregate", "name": "聚合违规分级", "role": "compute" },
+        { "id": "soft_score", "name": "扣分计算", "role": "compute" },
+        { "id": "pass_through", "name": "通过返回", "role": "output" },
+        { "id": "hard_fail", "name": "硬违规阻断", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "hard_check", "kind": "next" },
+        { "from": "hard_check", "to": "time_window", "kind": "next" },
+        { "from": "time_window", "to": "budget_check", "kind": "next" },
+        { "from": "budget_check", "to": "style_check", "kind": "next" },
+        { "from": "style_check", "to": "aggregate", "kind": "next" },
+        { "from": "aggregate", "to": "soft_score", "kind": "next" },
+        { "from": "soft_score", "to": "pass_through", "kind": "conditional", "condition": "无硬违规" },
+        { "from": "soft_score", "to": "hard_fail", "kind": "error", "condition": "存在硬违规" }
+      ],
+      "refs": [
+        { "file": "backend/agent/critics.py", "lines": [1, 300] },
+        { "file": "backend/tests/test_planner_hybrid.py", "lines": [165, 230] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T16:00:00Z"
+    },
+    {
+      "id": "f-hybrid-planner",
+      "name": "A+C 混合规划",
+      "summary": "ItiNera 范式：LLM 出权重 → ILS 搜索 → Critic 验证 → 硬违规反馈重排，主流程协调器",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "f-llm-planner 在 PLANNER_LLM_STRATEGY=hybrid 时调用" }
+      ],
+      "steps": [
+        { "id": "receive", "name": "接收意图与客户端", "role": "input" },
+        { "id": "fetch_weights", "name": "调权重决策", "role": "compute" },
+        { "id": "fetch_candidates", "name": "调候选生成", "role": "compute" },
+        { "id": "run_ils", "name": "调 ILS 搜索", "role": "compute" },
+        { "id": "assemble", "name": "拼装六段方案", "role": "compute" },
+        { "id": "run_critics", "name": "调批评验证", "role": "validation" },
+        { "id": "blacklist_retry", "name": "黑名单重排", "role": "compute" },
+        { "id": "output", "name": "返回方案", "role": "output" },
+        { "id": "fallback", "name": "失败上抛 fallback", "role": "error" }
+      ],
+      "flow": [
+        { "from": "receive", "to": "fetch_weights", "kind": "next" },
+        { "from": "fetch_weights", "to": "fetch_candidates", "kind": "next" },
+        { "from": "fetch_candidates", "to": "run_ils", "kind": "conditional", "condition": "候选非空" },
+        { "from": "fetch_candidates", "to": "fallback", "kind": "error", "condition": "候选为空" },
+        { "from": "run_ils", "to": "assemble", "kind": "next" },
+        { "from": "assemble", "to": "run_critics", "kind": "next" },
+        { "from": "run_critics", "to": "output", "kind": "conditional", "condition": "Critic 通过" },
+        { "from": "run_critics", "to": "blacklist_retry", "kind": "error", "condition": "硬违规" },
+        { "from": "blacklist_retry", "to": "assemble", "kind": "loop", "condition": "拉黑后重排" },
+        { "from": "blacklist_retry", "to": "fallback", "kind": "error", "condition": "重排仍失败" }
+      ],
+      "refs": [
+        { "file": "backend/agent/planner_hybrid.py", "lines": [127, 280] },
+        { "file": "backend/agent/planner.py", "lines": [918, 1010] },
+        { "file": "backend/scripts/verify_planning.py", "lines": [1, 220] },
+        { "file": "backend/tests/test_planner_hybrid.py", "lines": [255, 330] }
+      ],
+      "confidence": 0.88,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T16:00:00Z"
     },
     {
       "id": "f-persona-prior",
@@ -1311,6 +1460,18 @@
     { "from": "f-llm-planner", "to": "f-estimate-route", "kind": "triggers", "note": "LLM 自主决定调路线估算" },
     { "from": "f-llm-planner", "to": "f-plan-assembly", "kind": "depends_on", "note": "LLM 收敛失败时降级到规则规划" },
     { "from": "f-llm-planner", "to": "f-tool-trace", "kind": "publishes", "note": "LLM 自主调用事件推送给前端" },
+    { "from": "f-llm-planner", "to": "f-hybrid-planner", "kind": "triggers", "note": "PLANNER_LLM_STRATEGY=hybrid 时分发到 A+C 主流程" },
+    { "from": "f-hybrid-planner", "to": "f-planning-weights", "kind": "depends_on", "note": "首先调权重决策出 4 维向量" },
+    { "from": "f-hybrid-planner", "to": "f-search-pois", "kind": "triggers", "note": "候选生成阶段拉 POI" },
+    { "from": "f-hybrid-planner", "to": "f-search-restaurants", "kind": "triggers", "note": "候选生成阶段拉餐厅" },
+    { "from": "f-hybrid-planner", "to": "f-ils-search", "kind": "triggers", "note": "把权重与候选交给 ILS 搜索" },
+    { "from": "f-hybrid-planner", "to": "f-plan-critics", "kind": "triggers", "note": "拼装方案后调 Critic 验证" },
+    { "from": "f-hybrid-planner", "to": "f-estimate-route", "kind": "triggers", "note": "组装六段时复用路线估算" },
+    { "from": "f-hybrid-planner", "to": "f-plan-assembly", "kind": "depends_on", "note": "复用 rule planner 的时间轴拼装 helper" },
+    { "from": "f-hybrid-planner", "to": "f-tool-trace", "kind": "publishes", "note": "权重决策与 ILS 改进事件推到前端" },
+    { "from": "f-plan-critics", "to": "f-hybrid-planner", "kind": "publishes", "note": "硬违规反馈给 hybrid 触发黑名单重排" },
+    { "from": "f-ils-search", "to": "f-tool-trace", "kind": "publishes", "note": "ILS 迭代改进 agent_thought 推到前端" },
+    { "from": "f-planning-weights", "to": "f-tool-trace", "kind": "publishes", "note": "权重决策结果展示给评委" },
     { "from": "f-itinerary-card", "to": "f-refinement-dialog", "kind": "triggers", "note": "卡片「我说说哪不对」按钮打开反馈弹窗" },
     { "from": "f-refinement-dialog", "to": "f-refine-replan", "kind": "triggers", "note": "提交反馈触发 POST /chat/refine" },
     { "from": "f-refine-replan", "to": "f-toast-stack", "kind": "publishes", "note": "refinement_done.changed_fields 转 toast 提示" },
