@@ -147,9 +147,14 @@ def test_scenario_x_mode_main_path(scenario_id: str, mode: str):
     )
     itinerary = result.itinerary
     assert itinerary is not None
-    assert len(itinerary.stages) >= 5
+    # Phase 0.10：段数按 segment_decider 决定，不再硬要 5 段
+    from agent.segment_decider import decide_segments
+    expected = decide_segments(intent)
+    assert len(itinerary.stages) >= len(expected), (
+        f"段数不足：实际 {len(itinerary.stages)}，按 intent 应有 {len(expected)} 段"
+    )
     kinds = {s.kind for s in itinerary.stages}
-    for required in ("出发", "主活动", "转场", "用餐", "返回"):
+    for required in expected:
         assert required in kinds, f"{scenario_id}/{mode} 缺段：{required}"
 
 

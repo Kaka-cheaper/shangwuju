@@ -141,9 +141,36 @@ def plan_hybrid(
                     _estimate 工具函数；通过函数注入避免循环依赖。
 
     返回 HybridResult；上层 planner_with_mode 把它包成 PlannerResult。
+
+    Phase 0.10（pitfalls P1-2026-05-17）：
+    若 segment_decider 决定本次要削段（少于 5 段），ILS 的笛卡尔积不再适用——
+    削段场景直接上抛失败让上层 fallback rule planner（rule 已支持按 segments 拼）。
+    这样 hybrid 仍是 5 段场景的加分项；削段场景由 rule 兜底（demo 不翻车）。
     """
     tracer = tracer or Tracer()
     rng = random.Random(ILS_SEED)
+
+    # ---- 步骤 0：决定段集合（pitfalls P1-2026-05-17）----
+    from .segment_decider import FULL_SEGMENTS, decide_segments
+    segments = decide_segments(intent)
+    if segments != FULL_SEGMENTS:
+        # 削段场景直接交还 rule（hybrid 的 ILS 假设 POI×餐厅 笛卡尔积）
+        weights = get_planning_weights(intent, client=client)
+        tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"段决策：本次仅需 {sorted(segments)}，"
+                    "hybrid ILS 不适用，已转交规则 planner（仍走 segments-aware 拼装）"
+                ),
+            },
+        )
+        return HybridResult(
+            success=False,
+            failure_reason=FailureReason.UPSTREAM_FAILURE,
+            failure_detail="segments_reduced_fallback_to_rule",
+            weights=weights,
+        )
 
     # ---- 步骤 1：LLM 出权重 ----
     weights = get_planning_weights(intent, client=client)

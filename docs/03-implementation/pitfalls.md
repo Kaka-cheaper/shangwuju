@@ -219,3 +219,53 @@
   - 任何 prior 影响下游过滤的设计，必带 fallback 兜底链
   - mock 数据稀疏的 social_context 走向（商务、独处、跨代际）需要在 prior 注入时给「降级开关」
 - **优先级**：P2（不影响 demo 跑通；但首版会让评委演示时碰到 empty_candidates，影响印象）
+
+
+### [P1] 2026-05-17 行程"5 段写死"反模式（架构级根因）
+
+- **现象**：用户反馈"我只有一个小时"，refiner 把 `intent.duration_hours` 改到 [1,1] 后，下游 planner 仍强塞「出发 + 主活动 + 转场 + 用餐 + 返回」5 段，导致总时长仍 5+ 小时（用户截图复现）。
+- **根因（架构级）**：
+  - `演示场景集.md §三` 把 5 段当模板期待结构 → `planner._assemble_itinerary` 把 5 段写进 list 字面量 → `critics.HardConstraintCritic` 把"5 段缺失"作硬违规 → `test_8_scenarios.py` 等多处断言 `len(stages) >= 5`
+  - 文档→代码→测试三层都把 5 段当默认，导致**段集合**不是 IntentExtraction 的函数，而是死常量
+  - 即使 refiner 改对了 duration，下游不消费段数维度的变化
+- **解法**：
+  - 新增 `agent/segment_decider.py`：`decide_segments(intent) -> frozenset[str]`，按 duration / social / dietary 推导
+  - `planner._assemble_itinerary(segments=...)` 按段集合选段拼装
+  - `critics.HardConstraintCritic` 改成「按 intent 决定的 segments 判段缺失」
+  - `planner_hybrid.plan_hybrid` 检测到 segments != FULL_SEGMENTS 直接 fallback rule（ILS 假设 POI×餐厅 笛卡尔积，削段下不适用）
+  - 改写 4 处测试断言（test_8_scenarios / test_e2e_refinement / test_llm_planner / test_segment_decider）从「硬要 5 段」改为「按 intent 期望段数」
+- **相关文件**：
+  - `backend/agent/segment_decider.py`（新）
+  - `backend/agent/planner.py` `_assemble_itinerary` / `plan_itinerary`
+  - `backend/agent/planner_hybrid.py` `plan_hybrid`
+  - `backend/agent/critics.py` `_hard_constraint_critic`
+  - `backend/tests/test_segment_decider.py`（新，22 项参数化）
+  - `演示场景集.md` §三（语义需对齐：5 段是「典型」而非「必要」）
+- **防再犯**（必读）：
+  1. **任何"行程结构"相关字段必须是 IntentExtraction 的函数**——不要在代码字面量里硬写段名清单
+  2. **写 `_assemble_*` / `_render_*` 类函数前先检查依赖什么 intent 字段**：缺一个就回头补 decider 层（不要在拼装层做条件 if）
+  3. **测试断言 `len(stages) >= N` 是可疑信号**：写之前问"如果用户说 N=1 呢？" 测试反映的是**典型场景**而不是**所有场景**
+  4. **Critic 的硬违规列表反映"什么算合规"**——这等同于隐式 schema，必须随 intent 变
+  5. 引申潜伏场景（每条都可能被同一根因影响，按 P1 处理）：
+     - 用户说"想吃下午茶"→ 应少 POI 多餐厅
+     - 用户说"独处去图书馆"→ 应只 POI 不餐厅
+     - 用户说"全家粤菜"→ 应直接餐厅 + 蛋糕加购
+     - 用户说"city walk 半天"→ 应多个 POI 串成路线
+     - 用户说"先吃饭再去看展"→ 应反序（餐厅 → POI）
+- **优先级**：P1（直接影响 demo 现场反馈环；任何"反馈削减约束"场景都被这个反模式拖垮）
+
+### [P2] 2026-05-17 段被削后餐厅可订时段反向卡死总时长（P1 引申问题）
+
+- **现象**：reduce 到「出发+用餐+返回」3 段后，若用户原 social=老人伴助 + dietary=软烂，候选餐厅时段最早 17:30（mock 数据），导致 14:00 出发后等到 17:30 才用餐——总时长 248min ≠ 用户期望的 60min。
+- **根因**：段决策只看 intent，不看候选物理约束。candidate.dining_time 由 `_negotiate_dining` 在受限时段池（如 17:00/17:30/18:00）里选首个可订的，与"压缩到 1 小时"目标冲突。
+- **临时解**：暂不修复——demo 当前重点是段决策本身工作；二级时段问题属于"约束优先级排序"问题，需改 `_resolve_time_window` 让 dining_slots 跟 depart_time 紧贴（不再用全局默认晚餐时段）。
+- **防再犯**：实现"反馈→削段"链路时，**同时**审视该反馈是否还要影响 *时段池*——段数与时段池是双维度，不能只改一个。
+- **优先级**：P2（不影响 demo 跑通，但削段场景的总时长仍可能偏离用户期望；需要二次修复）
+
+### [P3] 2026-05-17 测试断言中的"硬常量集"是隐式 schema
+
+- **现象**：测试 `for required in ("出发", "主活动", "转场", "用餐", "返回")` 这种硬字符串集合在多个测试文件出现 → 同一字面量被多处独立维护 → segment_decider 落地后必须改 4 处。
+- **根因**：测试期望被「直觉式 5 段」绑架；没有用统一的 `decide_segments(intent)` 当真值。
+- **解法**：现已统一从 `agent.segment_decider` 导入；新测试不要再硬列段名。
+- **防再犯**：未来测试段数相关行为时，**强制**用 `decide_segments(intent)` 算 expected，而非字面量。
+- **优先级**：P3（不影响功能；规范开发习惯）

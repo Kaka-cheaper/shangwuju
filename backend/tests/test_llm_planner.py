@@ -49,7 +49,10 @@ def test_llm_planner_fallback_to_rule_with_stub():
     result = plan_itinerary_llm(intent, client=StubLLMClient())
     assert result.success
     assert result.itinerary is not None
-    assert len(result.itinerary.stages) >= 5
+    # Phase 0.10：家庭场景应得 5 段（segment_decider 默认）
+    from agent.segment_decider import decide_segments
+    expected = decide_segments(intent)
+    assert len(result.itinerary.stages) >= len(expected)
 
     # 必须留下 fallback 提示事件
     thoughts = [r for r in result.tracer.records if r.type == "agent_thought"]
@@ -145,4 +148,7 @@ def test_llm_mode_handles_all_scenes_via_fallback(payload):
     result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())
     assert result.success, f"场景 {payload['social_context']} 失败：{result.failure_detail}"
     assert result.itinerary is not None
-    assert len(result.itinerary.stages) >= 5
+    # Phase 0.10：段数按 segment_decider 决定（独处放空可能 3 段）
+    from agent.segment_decider import decide_segments
+    expected = decide_segments(intent)
+    assert len(result.itinerary.stages) >= len(expected)

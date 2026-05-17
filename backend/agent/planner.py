@@ -197,42 +197,64 @@ def plan_itinerary(
     if user_profile is None:
         return _abort(tracer, FailureReason.NOT_FOUND, "用户画像为空")
 
-    # ---- 2. 查询 POI 候选 ----
-    pois = _query_pois(intent, _call, tracer)
-    if isinstance(pois, FailureReason):
-        return _abort(tracer, pois, "POI 候选为空，约束过严")
-    if not pois:
-        return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "POI 候选为空")
+    # ---- 1.5. 决定本次行程要哪些段（pitfalls P1-2026-05-17：段=intent 的函数）----
+    from .segment_decider import decide_segments, explain_segments
+    segments = decide_segments(intent)
+    tracer.emit("agent_thought", {"text": explain_segments(intent, segments)})
 
-    main_poi = pois[0]
-    backup_pois = pois[1:4]
+    needs_main = "主活动" in segments
+    needs_dining = "用餐" in segments
 
-    # ---- 3. 查询餐厅候选 ----
-    restaurants = _query_restaurants(intent, _call, tracer)
-    if isinstance(restaurants, FailureReason):
-        return _abort(tracer, restaurants, "餐厅候选为空，约束过严")
-    if not restaurants:
-        return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "餐厅候选为空")
+    # ---- 2. 查询 POI 候选（按需）----
+    main_poi: Poi | None = None
+    backup_pois: list[Poi] = []
+    if needs_main:
+        pois = _query_pois(intent, _call, tracer)
+        if isinstance(pois, FailureReason):
+            return _abort(tracer, pois, "POI 候选为空，约束过严")
+        if not pois:
+            return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "POI 候选为空")
+        main_poi = pois[0]
+        backup_pois = pois[1:4]
 
-    # ---- 4. 餐厅可用性 + 重规划（E1）----
-    # Phase 0.8.1：从 intent 推导时间窗，让用餐时段反映 start_time + duration
+    # ---- 3. 查询餐厅候选（按需）----
+    chosen_restaurant: Restaurant | None = None
+    chosen_time: str | None = None
     depart_time, dining_slots, main_minutes, dining_minutes = _resolve_time_window(
         intent
     )
-    chosen_restaurant, chosen_time = _negotiate_dining(
-        restaurants, intent, _call, tracer, dining_slots=dining_slots
-    )
-    if chosen_restaurant is None:
-        return _abort(
-            tracer,
-            FailureReason.RESTAURANT_FULL,
-            "所有候选餐厅与时段组合均无空位",
-        )
 
-    # ---- 5. 路线时间 ----
-    home_to_poi = _estimate(_call, "home", main_poi.id)
-    poi_to_rest = _estimate(_call, main_poi.id, chosen_restaurant.id)
-    rest_to_home = _estimate(_call, chosen_restaurant.id, "home")
+    if needs_dining:
+        restaurants = _query_restaurants(intent, _call, tracer)
+        if isinstance(restaurants, FailureReason):
+            return _abort(tracer, restaurants, "餐厅候选为空，约束过严")
+        if not restaurants:
+            return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "餐厅候选为空")
+
+        # ---- 4. 餐厅可用性 + 重规划（E1）----
+        chosen_restaurant, chosen_time = _negotiate_dining(
+            restaurants, intent, _call, tracer, dining_slots=dining_slots
+        )
+        if chosen_restaurant is None:
+            return _abort(
+                tracer,
+                FailureReason.RESTAURANT_FULL,
+                "所有候选餐厅与时段组合均无空位",
+            )
+
+    # ---- 5. 路线时间（按 segments 决定查哪些）----
+    home_to_poi = _estimate(_call, "home", main_poi.id) if main_poi else 0
+    poi_to_rest = (
+        _estimate(_call, main_poi.id, chosen_restaurant.id)
+        if (main_poi and chosen_restaurant)
+        else 0
+    )
+    if chosen_restaurant:
+        rest_to_home = _estimate(_call, chosen_restaurant.id, "home")
+    elif main_poi:
+        rest_to_home = _estimate(_call, main_poi.id, "home")
+    else:
+        rest_to_home = 0  # 极端兜底（理论上 segments 总会含 main 或 dining 之一）
 
     # ---- 6. 组装 Itinerary ----
     party_size = sum(c.count for c in intent.companions) or 1
@@ -248,6 +270,7 @@ def plan_itinerary(
         depart_time=depart_time,
         main_activity_minutes=main_minutes,
         dining_minutes=dining_minutes,
+        segments=segments,
     )
     tracer.emit("itinerary_ready", payload=itinerary.model_dump())
     return PlannerResult(success=True, itinerary=itinerary, tracer=tracer)
@@ -754,9 +777,9 @@ def _add_minutes(time_str: str, minutes: int) -> str:
 
 def _assemble_itinerary(
     *,
-    main_poi: Poi,
-    chosen_restaurant: Restaurant,
-    chosen_time: str,
+    main_poi: Poi | None,
+    chosen_restaurant: Restaurant | None,
+    chosen_time: str | None,
     home_to_poi: int,
     poi_to_rest: int,
     rest_to_home: int,
@@ -765,79 +788,164 @@ def _assemble_itinerary(
     depart_time: str = DEFAULT_DEPART_TIME,
     main_activity_minutes: int = DEFAULT_MAIN_ACTIVITY_MINUTES,
     dining_minutes: int = DEFAULT_DINING_MINUTES,
+    segments: frozenset[str] | None = None,
 ) -> Itinerary:
-    """组装六段行程。
+    """组装行程。
 
     新增参数（Phase 0.8.1，修复硬编码 14-19 时间窗 bug）：
         depart_time: 出发时间，从 intent.start_time 推导
         main_activity_minutes: 主活动时长，从 intent.duration_hours 按比例推导
         dining_minutes: 用餐时长，同上
     缺省走兼容默认值（14:00 / 120 / 90），不破现有测试。
-    """
-    depart = depart_time
-    arrive_poi = _add_minutes(depart, home_to_poi)
-    leave_poi = _add_minutes(arrive_poi, main_activity_minutes)
-    arrive_rest = _add_minutes(leave_poi, poi_to_rest + TRANSFER_BUFFER_MINUTES)
-    # 若 arrive_rest 早于 chosen_time（比如用户说 1 小时，活动结束才 14:30 但餐厅最早只有 17:00 空位）：
-    # 用餐起点采用 chosen_time，但要让"转场"段延长到 chosen_time，避免出现 14:30-17:00 空白窗口
-    dining_start = chosen_time if chosen_time > arrive_rest else arrive_rest
-    transfer_end = dining_start  # 转场段直接拉到 dining_start
-    dining_end = _add_minutes(dining_start, dining_minutes)
-    home_back = _add_minutes(dining_end, rest_to_home)
 
-    stages = [
+    新增参数（Phase 0.10，pitfalls P1-2026-05-17 修复）：
+        segments: 本次要拼的段集合；缺省时按 main_poi/chosen_restaurant 是否为空回兼容 5 段
+        main_poi / chosen_restaurant 改为可空：极短场景（1h）只去 POI 不吃饭，或反之
+
+    向后兼容：
+        老调用方（不传 segments）+ 主 POI/餐厅都给 → 走旧 5 段路径
+        老调用方 + 缺其一 → 抛 ValueError（早暴露 bug 而非默默退化）
+    """
+    # 决定 segments：缺省时按可用 POI/餐厅推导
+    if segments is None:
+        if main_poi is not None and chosen_restaurant is not None:
+            segments = frozenset({"出发", "主活动", "转场", "用餐", "返回"})
+        else:
+            raise ValueError(
+                "_assemble_itinerary: 缺省 segments 时 main_poi 与 chosen_restaurant 必须都给；"
+                "若需要削段请显式传 segments"
+            )
+
+    # 校验：segments 与 POI/餐厅不一致时早抛
+    if "主活动" in segments and main_poi is None:
+        raise ValueError("segments 含「主活动」但 main_poi 为空")
+    if "用餐" in segments and chosen_restaurant is None:
+        raise ValueError("segments 含「用餐」但 chosen_restaurant 为空")
+
+    has_main = "主活动" in segments
+    has_dining = "用餐" in segments
+    has_transfer = "转场" in segments and has_main and has_dining
+
+    # ---- 时间轴推导 ----
+    depart = depart_time
+    cursor = depart  # 当前时间游标
+
+    stages: list[ItineraryStage] = []
+
+    # 出发段（始终有）
+    if has_main:
+        first_target = main_poi
+        first_target_name = main_poi.name
+    elif has_dining:
+        first_target = chosen_restaurant
+        first_target_name = chosen_restaurant.name
+    else:
+        # 极端兜底：只有出发返回也得有目的地
+        raise ValueError("segments 必须至少含「主活动」或「用餐」之一")
+
+    arrive_first = _add_minutes(cursor, home_to_poi if has_main else rest_to_home)
+    stages.append(
         ItineraryStage(
             kind="出发",
-            start=depart,
-            end=arrive_poi,
-            title=f"出发前往「{main_poi.name}」",
-            poi_id=main_poi.id,
-            note=f"打车约 {home_to_poi} 分钟",
-        ),
-        ItineraryStage(
-            kind="主活动",
-            start=arrive_poi,
-            end=leave_poi,
-            title=f"{main_poi.type} · {main_poi.name}",
-            poi_id=main_poi.id,
-        ),
-        ItineraryStage(
-            kind="转场",
-            start=leave_poi,
-            end=transfer_end,
-            title=f"前往「{chosen_restaurant.name}」",
-            note=(
-                f"打车约 {poi_to_rest} 分钟"
-                if transfer_end == arrive_rest
-                else f"打车约 {poi_to_rest} 分钟，到达后稍作休息等到用餐时段"
-            ),
-        ),
-        ItineraryStage(
-            kind="用餐",
-            start=dining_start,
-            end=dining_end,
-            title=f"{chosen_restaurant.cuisine} · {chosen_restaurant.name}",
-            restaurant_id=chosen_restaurant.id,
-            note=f"已为你预留 {chosen_time}（{party_size} 人）",
-        ),
+            start=cursor,
+            end=arrive_first,
+            title=f"出发前往「{first_target_name}」",
+            poi_id=main_poi.id if has_main else None,
+            restaurant_id=chosen_restaurant.id if (not has_main and has_dining) else None,
+            note=f"打车约 {home_to_poi if has_main else rest_to_home} 分钟",
+        )
+    )
+    cursor = arrive_first
+
+    # 主活动
+    if has_main:
+        leave_poi = _add_minutes(cursor, main_activity_minutes)
+        stages.append(
+            ItineraryStage(
+                kind="主活动",
+                start=cursor,
+                end=leave_poi,
+                title=f"{main_poi.type} · {main_poi.name}",
+                poi_id=main_poi.id,
+            )
+        )
+        cursor = leave_poi
+
+    # 用餐 + 可选转场
+    if has_dining:
+        # 若同时有主活动 + 用餐 → 拼转场（用 chosen_time 对齐到餐厅时段）
+        if has_transfer:
+            arrive_rest = _add_minutes(
+                cursor, poi_to_rest + TRANSFER_BUFFER_MINUTES
+            )
+            dining_start = (
+                chosen_time
+                if (chosen_time and chosen_time > arrive_rest)
+                else arrive_rest
+            )
+            transfer_end = dining_start
+            stages.append(
+                ItineraryStage(
+                    kind="转场",
+                    start=cursor,
+                    end=transfer_end,
+                    title=f"前往「{chosen_restaurant.name}」",
+                    note=(
+                        f"打车约 {poi_to_rest} 分钟"
+                        if transfer_end == arrive_rest
+                        else f"打车约 {poi_to_rest} 分钟，到达后稍作休息等到用餐时段"
+                    ),
+                )
+            )
+            cursor = transfer_end
+        else:
+            # 没主活动直接吃：cursor 就是到达餐厅的时间
+            dining_start = chosen_time or cursor
+            if chosen_time and dining_start > cursor:
+                # 出发到餐厅但餐厅最早只有 chosen_time → 提示等待
+                pass
+
+        dining_end = _add_minutes(dining_start, dining_minutes)
+        stages.append(
+            ItineraryStage(
+                kind="用餐",
+                start=dining_start,
+                end=dining_end,
+                title=f"{chosen_restaurant.cuisine} · {chosen_restaurant.name}",
+                restaurant_id=chosen_restaurant.id,
+                note=f"已为你预留 {chosen_time or dining_start}（{party_size} 人）",
+            )
+        )
+        cursor = dining_end
+
+    # 返回（始终有）
+    home_back = _add_minutes(cursor, rest_to_home)
+    stages.append(
         ItineraryStage(
             kind="返回",
-            start=dining_end,
+            start=cursor,
             end=home_back,
             title="回家",
             note=f"打车约 {rest_to_home} 分钟",
-        ),
-    ]
+        )
+    )
 
     total_minutes = _diff_minutes(depart, home_back)
-    backup_summary = (
-        f"；备选 POI：{', '.join(p.name for p in backup_pois[:2])}"
-        if backup_pois
-        else ""
-    )
-    summary = (
-        f"半日方案 · {main_poi.name} → {chosen_restaurant.name}{backup_summary}"
-    )
+
+    # summary 文案按段数适配
+    if has_main and has_dining:
+        backup_summary = (
+            f"；备选 POI：{', '.join(p.name for p in backup_pois[:2])}"
+            if backup_pois
+            else ""
+        )
+        summary = f"半日方案 · {main_poi.name} → {chosen_restaurant.name}{backup_summary}"
+    elif has_main:
+        summary = f"轻量方案 · {main_poi.name}（{total_minutes // 60} 小时左右）"
+    elif has_dining:
+        summary = f"用餐方案 · {chosen_restaurant.cuisine} · {chosen_restaurant.name}"
+    else:
+        summary = "短途方案"
 
     return Itinerary(
         summary=summary,
@@ -980,6 +1088,8 @@ def _plan_with_hybrid(
         )
         rest_to_home = _estimate(_call_route, candidate.restaurant.id, "home")
         party_size = max(1, sum(c.count for c in intent_.companions) or 1)
+        # hybrid 走完整 5 段（segments_reduced 已在 plan_hybrid 入口被剔出）
+        from .segment_decider import FULL_SEGMENTS
         return _assemble_itinerary(
             main_poi=candidate.main_poi,
             chosen_restaurant=candidate.restaurant,
@@ -992,6 +1102,7 @@ def _plan_with_hybrid(
             depart_time=depart_time,
             main_activity_minutes=main_minutes,
             dining_minutes=dining_minutes,
+            segments=FULL_SEGMENTS,
         )
 
     result = plan_hybrid(

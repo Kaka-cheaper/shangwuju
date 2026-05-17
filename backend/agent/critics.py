@@ -78,7 +78,12 @@ class CriticReport:
 def _hard_constraint_critic(
     plan: Itinerary, intent: IntentExtraction
 ) -> list[CriticViolation]:
-    """C1：距离 / 总时长 / 段数。"""
+    """C1：距离 / 总时长 / 段数。
+
+    段数判定（Phase 0.10）：按 segment_decider 决定本场景应有的段，而非硬要 5 段。
+    旧行为：5 段全部缺一不可（家庭场景没问题，1h 场景永远过不了）
+    新行为：段集合取自 decide_segments(intent)
+    """
     out: list[CriticViolation] = []
 
     # 总时长：超过 duration_hours 上限 30 分钟以内允许（软）；以上为硬
@@ -105,8 +110,9 @@ def _hard_constraint_critic(
             )
         )
 
-    # 段数：≥5 段（出发/主活动/转场/用餐/返回）
-    required_kinds = {"出发", "主活动", "转场", "用餐", "返回"}
+    # 段数：按 intent 决定的 segments 判（不再硬要 5 段）
+    from .segment_decider import decide_segments
+    required_kinds = decide_segments(intent)
     have_kinds = {s.kind for s in plan.stages}
     missing = required_kinds - have_kinds
     if missing:
@@ -114,7 +120,7 @@ def _hard_constraint_critic(
             CriticViolation(
                 critic="hard_constraint",
                 severity="hard",
-                message=f"行程段缺失：{sorted(missing)}",
+                message=f"行程段缺失：{sorted(missing)}（按 intent 应有 {sorted(required_kinds)}）",
                 field_hint="stages",
             )
         )

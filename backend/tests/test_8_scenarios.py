@@ -165,18 +165,27 @@ def test_scenario_end_to_end(scenario_id: str):
 
     itinerary = plan_result.itinerary
     assert isinstance(itinerary, Itinerary)
-    assert len(itinerary.stages) >= 5, (
-        f"场景 {scenario_id} 行程段数不足：{len(itinerary.stages)}"
+
+    # Phase 0.10（pitfalls P1-2026-05-17）：段数按 segment_decider 决定，不再硬要 5 段
+    # S7 独处放空 → 3 段（出发/主活动/返回）；其他主场景 → 5 段
+    from agent.segment_decider import decide_segments
+    expected_segments = decide_segments(intent)
+    assert len(itinerary.stages) >= len(expected_segments), (
+        f"场景 {scenario_id} 行程段数不足：实际 {len(itinerary.stages)}，"
+        f"按 intent 应有 {len(expected_segments)} 段（{sorted(expected_segments)}）"
     )
 
-    # 必须的 5 个阶段
+    # 必须包含 segment_decider 决定的段（S7 → 3 段；其他 → 5 段）
     kinds = {s.kind for s in itinerary.stages}
-    for required in ("出发", "主活动", "转场", "用餐", "返回"):
+    for required in expected_segments:
         assert required in kinds, f"场景 {scenario_id} 缺少行程段：{required}"
 
-    # 总时长在 4-6h 上下浮动（允许 ±1h 容忍）
-    assert 120 <= itinerary.total_minutes <= 600, (
+    # 总时长按 intent 与段数判（Phase 0.10）：段越多下限越高
+    # 5 段（含用餐转场）→ ≥120；3 段（独处仅去 POI）→ ≥60
+    min_floor = 60 if len(expected_segments) <= 3 else 120
+    assert min_floor <= itinerary.total_minutes <= 600, (
         f"场景 {scenario_id} 总时长越界：{itinerary.total_minutes} 分钟"
+        f"（按 {len(expected_segments)} 段下限 {min_floor}）"
     )
 
 
@@ -230,9 +239,11 @@ def test_scenario_tone_match(scenario_id: str):
             f"场景 {scenario_id} 主活动 POI {poi.id} 不适配 {context}：suitable_for={poi.suitable_for}"
         )
 
-    # 用餐餐厅
-    dining_stage = next(s for s in itinerary.stages if s.kind == "用餐")
-    if dining_stage.restaurant_id:
+    # 用餐餐厅（仅当 segment_decider 决定有用餐段时检查；S7 独处放空可能无用餐）
+    dining_stage = next(
+        (s for s in itinerary.stages if s.kind == "用餐"), None
+    )
+    if dining_stage and dining_stage.restaurant_id:
         rest = next((r for r in load_restaurants() if r.id == dining_stage.restaurant_id), None)
         assert rest is not None
         assert context in rest.suitable_for, (

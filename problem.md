@@ -1954,3 +1954,128 @@ test_tools.py:       49 passed (原 44 + 5 新)
 - 评委一眼就知道「这是一个有温度的下午行程产品」，不是 admin dashboard
 - 4 项静态校验：tsc 静默 ✓ / pnpm build 通过（29.6 kB / 117 kB）
 - 浏览器实测真后端 LLM S1 端到端：消息渐变胶囊 / 时间轴小光球 / 6 段行程 / 9 调用 2 重规划 / 偏好画像彩 chip 全部正常显示，console 仅 favicon 404
+
+
+---
+
+## 问题12：行程"5 段写死"架构级反模式（接续问题 11）
+
+**用户原问**：
+
+> 我发现一个根本性的问题，就是现在活动定死了有主活动、就餐活动等等，但是如果说用户反馈只有 1 个小时，那就应该直接削减掉就餐活动等等。这个是什么问题，引申出来还有没有遗漏的、潜伏的点？
+
+**根因诊断**（按 superpowers 4 阶段协议）：
+
+这是**架构级反模式**——文档（演示场景集 §三 期待 5 段）→ 代码（`_assemble_itinerary` 写死 5 段 list 字面量）→ 测试（多处 `len(stages) >= 5` 硬断言）三层都把"5 段"当默认。即使 refiner 改对了 `duration_hours=[1,1]`，下游各层都没消费段维度的变化。
+
+**引申潜伏场景盘点**（详见 pitfalls P1-2026-05-17）：
+
+```
+| 用户输入                | 当前会怎么样      | 应当怎么样          |
+| --------------------- | --------------- | ------------------ |
+| "我只有一个小时"        | 强塞 17:00 用餐 | 1 段主活动 + 返回   |
+| "下午茶 2 小时"        | POI + 餐厅重复   | 1 段下午茶 + 返回   |
+| "独处去图书馆"          | POI + 餐厅强吃  | 1 段图书馆 + 返回   |
+| "全家粤菜"              | POI + 粤菜      | 直接餐厅 + 蛋糕加购 |
+| "city walk 半天"       | 1 POI + 1 餐厅  | 多 POI 串成路线     |
+| "先吃饭再去看展"        | 顺序写死 POI→餐厅 | 应反序 餐厅→POI    |
+```
+
+至少 50% 场景被同一根因影响。
+
+**解决方案**（方案 A：意图层加字段 + planner 按需拼段）：
+
+新增 `agent/segment_decider.py`：
+
+```python
+def decide_segments(intent: IntentExtraction) -> frozenset[str]:
+    duration_max = intent.duration_hours[1] * 60
+    # < 90min（极短）：单段沉浸
+    # < 180min（短）：弹性单/三段
+    # ≥ 180min（中长）：默认 5 段，独处放空例外
+```
+
+按时长 / social_context / dietary 推导段集合。例：
+- 1h + 无 dietary → `{出发, 主活动, 返回}` 3 段
+- 1h + 有 dietary 或商务 → `{出发, 用餐, 返回}` 3 段（直接吃）
+- 2h + 独处放空 → `{出发, 主活动, 返回}` 单段沉浸
+- 4h+ 主线场景 → `{出发, 主活动, 转场, 用餐, 返回}` 5 段（向后兼容）
+
+**实施清单**（10 步全部完成）：
+
+```
+| 步骤 | 文件                                       | 说明                                   |
+| -- | ---------------------------------------- | ------------------------------------ |
+|  1 | `backend/agent/segment_decider.py`（新）    | `decide_segments` + `explain_segments`  |
+|  2 | `backend/tests/test_segment_decider.py`（新） | 22 项参数化（覆盖 8 主场景 + 1h 削段 + 商务阈值）|
+|  3 | `backend/agent/planner.py` `plan_itinerary` | 入口决定 segments，按 needs_main/needs_dining 跳过 Tool 调用 |
+|  4 | `backend/agent/planner.py` `_assemble_itinerary` | 接受 segments 参数，main_poi/chosen_restaurant 可空 |
+|  5 | `backend/agent/critics.py` `_hard_constraint_critic` | 按 `decide_segments(intent)` 判段缺失 |
+|  6 | `backend/agent/planner_hybrid.py` `plan_hybrid` | 削段场景上抛失败让 _plan_with_hybrid fallback rule |
+|  7 | `backend/tests/test_8_scenarios.py`         | 段数断言改"按 intent 期望"，下限按段数算 |
+|  8 | `backend/tests/test_e2e_refinement.py`     | 同步改                                |
+|  9 | `backend/tests/test_llm_planner.py`         | 同步改                                |
+| 10 | 文档：`pitfalls.md` P1/P2/P3 + `progress.md` D-segments + 本条 problem | 三文档分工记录   |
+```
+
+**测试矩阵**（215/215 全过 + 4 个 verify 全过）：
+
+```
+| 测试                      | 数量      | 状态 |
+| ------------------------ | -------- | ---- |
+| test_segment_decider.py    | 22       | ✓    |
+| pytest 全套                | 215      | ✓    |
+|   含原回归                 | 193      | ✓    |
+|   含本次新增               | 22       | ✓    |
+| verify_schemas             | 6        | ✓    |
+| verify_phase0_5            | 8        | ✓    |
+| verify_refine              | 13       | ✓    |
+| verify_planning            | 4 场景   | ✓    |
+| 真 LLM e2e（截图复现）      | 1h → 3 段 | ✓    |
+```
+
+**真 LLM 端到端验证**：
+
+输入「周日下午想带外公外婆出去走走，别走太远」+ 反馈「我只有一个小时」：
+
+```
+原 intent: duration_hours=[3, 5]  social=老人伴助  dietary=['软烂']
+refined.duration_hours = [1, 1]
+段决策：本次仅需 ['出发', '用餐', '返回']，hybrid ILS 不适用，已转交规则 planner
+段数 = 3 ✓
+```
+
+**遗留问题（已记录到 pitfalls P2-2026-05-17）**：
+
+削段后**总时长**仍偏长（用餐时段被 mock 数据 17:30 起卡死）。这是「段决策」与「时段池」的双维度问题，本次不修——pitfalls.md 已登记防再犯，下一轮 fix `_resolve_time_window` 让 dining_slots 跟 depart_time 紧贴。
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/segment_decider.py`（180 行：决策逻辑 + explain）
+- `backend/tests/test_segment_decider.py`（200 行 / 22 项）
+
+修改：
+- `backend/agent/planner.py`：`plan_itinerary` 按段裁剪 + `_assemble_itinerary` 重构（main_poi/chosen_restaurant 可空 + segments 参数 + summary 文案适配）
+- `backend/agent/planner_hybrid.py` `plan_hybrid`：削段场景 fallback rule
+- `backend/agent/critics.py` `_hard_constraint_critic`：按 intent 判段
+- `backend/tests/test_8_scenarios.py` / `test_e2e_refinement.py` / `test_llm_planner.py`：硬断言 → segment_decider 期望
+
+文档：
+- `docs/03-implementation/pitfalls.md`：P1（5 段反模式架构级根因）+ P2（时段池二级耦合）+ P3（测试硬常量集）
+- `docs/00-overview/progress.md`：决策记录新增 D-segments
+- `problem.md`：本条
+
+**未动**（owner 不是自己）：
+- `backend/main.py` / `frontend/*`（B owner）
+- `schemas/*`（用户拍板锁）
+- `tools/*`、`mock_data/*`（C owner）
+- `演示场景集.md`（人写文档；语义需对齐"5 段是典型而非必要"——pitfalls 已记，下次跨 agent 协调时改）
+
+**应当达成的效果**：
+
+- 反馈「我只有 1 小时」→ refiner 改 duration → segment_decider 改段集合 → planner 按段拼 → 3 段输出（出发+主活动+返回 或 出发+用餐+返回）
+- 8 主场景维持 5 段（D9 + 演示场景集 §三 向后兼容）
+- 独处放空场景从 5 段瘦身到 3 段（更贴 social=独处放空 的本意）
+- 引申潜伏场景将来都可通过扩 `_DINING_FOCUSED_CONTEXTS` / `_SOLO_IMMERSIVE_CONTEXTS` / 新阈值常量解决，无需改 planner
+- pitfalls P1-2026-05-17 起到"架构反模式" guard——下次再写 `for required in (硬段名)` 这种代码或测试，会被审查时按 P3 防再犯条款拦截

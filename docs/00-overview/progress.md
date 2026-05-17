@@ -236,6 +236,18 @@
   - `backend/` 内：`agent/ tools/ prompts/ schemas/ main.py`
   - `frontend/` 内：`app/ components/ lib/`
 
+- **D-segments** [2026-05-17]：行程段集合是 IntentExtraction 的函数，不是模板常量
+  - 候选：A 维持 5 段写死（最快）/ B 段=intent 函数（本决策）/ C Itinerary 升级为段图（重构）
+  - 选择：B
+  - 理由：用户反馈"我只有一个小时"暴露 5 段写死的反模式；refiner 改 duration 后下游不消费段维度变化（详见 `pitfalls.md` P1-2026-05-17）。把段决策抽到 `agent/segment_decider.py` 让所有规划路径（rule / hybrid fallback）都走它，保证「反馈→约束→段集合」单向数据流。
+  - 影响：
+    - `演示场景集.md §三` 的"5 段期待结构"语义改为"典型场景下的默认段集"，不是必要约束
+    - `_assemble_itinerary` 接受 `segments` 参数，main_poi/chosen_restaurant 改为可空
+    - `HardConstraintCritic` 按 `decide_segments(intent)` 判段缺失
+    - hybrid 路径检测到削段直接 fallback rule（ILS 假设 POI×餐厅 笛卡尔积）
+    - 4 处测试断言从「硬要 5 段」改为「按 intent 期望」
+    - 引申：未来加 segment 类型（如「下午茶」「city walk」「附加加购」）只需扩 `segment_decider`，无需改 planner / critics
+
 ## 五、更新规则
 
 每次 session 结束前必须更新：
