@@ -231,7 +231,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController?.abort();
     abortController = new AbortController();
 
-    // 重置中间过程，但保留 messages 历史
+    // 重置中间过程，但保留 messages 历史与 chitchatReplies 气泡
+    // （聊天历史不应被新输入清空——只有用户主动 reset 才清）
     set((s) => ({
       streaming: true,
       streamError: null,
@@ -242,7 +243,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       itinerary: null,
       cancelled: false,
       lastRefinement: null,
-      chitchatReplies: [],
       messages: [
         ...s.messages,
         {

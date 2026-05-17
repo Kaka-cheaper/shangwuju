@@ -21,6 +21,37 @@ export default function ChatPanel() {
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // 把 messages 与 chitchatReplies 按时间穿插成统一时间线
+  // user 输入「我累了」→ agent 暖心气泡 → user 输入「你是谁」→ agent 气泡 …
+  type TimelineItem =
+    | { kind: "msg"; id: string; ts: number; role: "user" | "agent"; text: string }
+    | {
+        kind: "chitchat";
+        id: string;
+        ts: number;
+        payload: (typeof chitchatReplies)[number]["payload"];
+      };
+
+  const timeline: TimelineItem[] = [
+    ...messages.map(
+      (m): TimelineItem => ({
+        kind: "msg",
+        id: m.id,
+        ts: m.createdAt,
+        role: m.role,
+        text: m.text,
+      }),
+    ),
+    ...chitchatReplies.map(
+      (r): TimelineItem => ({
+        kind: "chitchat",
+        id: r.id,
+        ts: r.receivedAtMs,
+        payload: r.payload,
+      }),
+    ),
+  ].sort((a, b) => a.ts - b.ts);
+
   // 新消息或思考时滚到底
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -50,7 +81,7 @@ export default function ChatPanel() {
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && !streaming && (
+        {timeline.length === 0 && !streaming && (
           <div className="h-full flex flex-col items-center justify-center text-center text-ink-400">
             <div className="text-4xl mb-2">☀️</div>
             <div className="text-sm">点上方场景按钮，或输入一句话开始</div>
@@ -60,14 +91,14 @@ export default function ChatPanel() {
           </div>
         )}
 
-        {messages.map((m) => (
-          <MessageBubble key={m.id} role={m.role} text={m.text} />
-        ))}
-
-        {/* Phase 0.8 暖心回话气泡 */}
-        {chitchatReplies.map((rec) => (
-          <ChitchatBubble key={rec.id} payload={rec.payload} />
-        ))}
+        {/* 按时间穿插渲染：user 消息 ↔ agent 总结 ↔ 暖心气泡 */}
+        {timeline.map((item) =>
+          item.kind === "msg" ? (
+            <MessageBubble key={item.id} role={item.role} text={item.text} />
+          ) : (
+            <ChitchatBubble key={item.id} payload={item.payload} />
+          ),
+        )}
 
         {streaming && intent && (
           <div className="space-y-2">
