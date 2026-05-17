@@ -1,22 +1,58 @@
 # frontend —— Next.js 14 App Router
 
-> P3 W3 启动时由 B 同学初始化。本文件先占位 + 锁定与后端的契约引用。
+> 晌午局 Web UI。Phase 0.8 完成（输入域路由 + 暖心气泡 + 引导按钮）。
 
 ## 启动前必读
 
 1. **后端契约**：`backend/api_contract.md`（HTTP 路径 + SSE 事件序列）
-2. **类型来源**：`backend/schemas/sse.py` + `backend/schemas/itinerary.py` + `backend/schemas/intent.py`
+2. **类型来源**：`backend/schemas/{sse,itinerary,intent,refine,router,persona}.py`
 3. **演示场景**：`docs/01-requirements/演示场景集.md`（8 个场景的输入文案 + 调性）
 4. **环境变量**：`.env.local` 内填 `NEXT_PUBLIC_API_BASE=http://localhost:8000`
 
 ## 启动方式
 
 ```bash
-# 后端（stub 模式，不需要 LLM API key）
-cd backend && uv run uvicorn main:app --port 8000
+# 后端（stub 模式，无需 LLM API key）
+cd backend
+$env:LLM_PROVIDER='stub'   # PowerShell；Bash 用 export
+uv run uvicorn main:app --port 8000
 
 # 前端
-cd frontend && pnpm dev
+cd frontend
+pnpm install
+pnpm dev
+```
+
+打开 http://localhost:3000 。
+
+### 真 LLM 模式
+
+`backend/.env` 填一份 OpenAI 兼容凭证（DeepSeek/通义/OpenAI/智谱/Ollama 等任意），然后：
+
+```bash
+cd backend
+uv run uvicorn main:app --port 8000   # 自动切真 planner + 真 router
+```
+
+前端零改动。在浏览器输入「我累死了」「你是谁」「1+1=?」即可看到 Phase 0.8 暖心气泡。
+
+## 组件清单
+
+```
+| 组件                   | 职责                                                      |
+|------------------------|-----------------------------------------------------------|
+| HomeView               | 顶栏 + 7/5 网格（聊天 + 行程/链路双栏）                    |
+| QuickScenarios         | 8 个演示场景按钮，从 /scenarios 拉数据                     |
+| ChatPanel              | 消息流 + 意图卡 + 暖心气泡 + Agent 思考 + 输入框             |
+| ChitchatBubble         | Phase 0.8 暖心气泡（4 套 tone 配色 + 引导按钮）              |
+| IntentSummary          | §5.7 IntentExtraction 实时摘要                             |
+| ToolTracePanel         | 8 Tool 调用链路可视化 + 异常重规划高亮                       |
+| ItineraryCard          | 六段时间轴 + 三按钮（确认/反馈/取消）+ 转发文案复制          |
+| RefinementDialog       | 反馈弹窗（textarea + 6 chip 预设建议）                      |
+| PlannerModeBadge       | rule ↔ llm 一键切换 chip                                   |
+| UserSwitcher           | 5 persona 用户切换（cookie 持久化）                         |
+| PreferencesPanel       | 偏好画像 top 5 + 一键清空记忆                               |
+| ToastStack             | 右下角浮层（changed_fields / mode 切换 / 取消反馈）          |
 ```
 
 ## TypeScript 类型同步策略
@@ -24,32 +60,53 @@ cd frontend && pnpm dev
 后端 Pydantic 模型 → 前端 TS 类型，本项目采用 **手抄方案**（`lib/types.ts`），原因：
 
 - `tags.Literal` 在 JSON Schema 上会被展开成大量 anyOf，自动生成结果难读
-- 项目体量手抄维护成本最低（~150 行）
+- 项目体量手抄维护成本最低（~200 行）
 - 后端字段变动 → 先改 `backend/schemas/`，再 grep + 同步本目录 `lib/types.ts`，再 grep 组件代码
 
 ## 与后端的硬契约
 
-```text
-| 字段            | 来源                  | 改动纪律                             |
-|-----------------|-----------------------|--------------------------------------|
-| SseEvent        | schemas/sse.py        | 双方同时改，不能单边                 |
-| Itinerary       | schemas/itinerary.py  | 同上                                 |
-| IntentExtraction| schemas/intent.py     | §5.7 D-SoT，绝对禁止前端发明字段     |
-| /chat/stream    | api_contract.md §2    | 路径/方法/事件序列固定               |
+```
+| 字段             | 来源                  | 改动纪律                               |
+|------------------|-----------------------|----------------------------------------|
+| SseEvent         | schemas/sse.py        | 双方同时改，不能单边                    |
+| SseEventType     | schemas/sse.py        | 含 chitchat_reply（P0.8）/ refinement_*（P0.6）|
+| Itinerary        | schemas/itinerary.py  | 同上                                   |
+| IntentExtraction | schemas/intent.py     | §5.7 D-SoT，绝对禁止前端发明字段        |
+| RouterDecision   | schemas/router.py     | input_kind 6 类 + cta_chips 白名单       |
+| Persona / Memory | schemas/persona.py    | 5 mock + memory 累积                   |
+| /chat/stream     | api_contract.md §2    | 路径/方法/事件序列固定                  |
+| /chat/refine     | api_contract.md §7    | 反馈重规划事件序列                      |
 ```
 
 ## 校验脚本
 
 ```bash
 pnpm verify:all   # lint + typecheck + vitest + next build 一气过
-pnpm test         # 仅 vitest（23 项 SSE 解析鲁棒性单测）
+pnpm test         # vitest（23 SSE 鲁棒性 + 7 store 共 30 项）
+pnpm build        # 生产构建（首页 ~21 kB / 加载 ~108 kB）
 ```
 
 后端起来后还可以跑：
 
 ```bash
 node frontend/scripts/pressure-test-scenarios.mjs   # 8 场景 SSE 端到端
+node frontend/scripts/verify-refine.mjs             # 反馈重规划联调
 ```
+
+## 输入域路由（Phase 0.8 演示要点）
+
+```
+| 输入示例     | input_kind | tone        | 引导按钮                       |
+|--------------|------------|-------------|--------------------------------|
+| 你是谁       | meta       | neutral 🤖  | 带娃放电 / 一个人放空 / 商务接待 |
+| 你好         | chitchat   | warm ☀️     | 带娃放电 / 一个人放空           |
+| 我累死了     | emotional  | empathetic 🫶| 一个人放空                      |
+| 1+1=?        | off_topic  | playful 🌿  | 3 个白名单引导                  |
+| 出去玩       | ambiguous  | warm ☀️     | 带娃放电 / 一个人放空 / 商务接待 |
+| 带老婆孩子玩 | planning   | warm ☀️     | （透传到主路径，无 chips）       |
+```
+
+引导按钮的 `send` 字段经后端白名单校验——LLM 发明的输入文本会被丢弃，不会污染下游意图解析。
 
 ## 演示录屏脚本
 
@@ -66,16 +123,16 @@ node frontend/scripts/pressure-test-scenarios.mjs   # 8 场景 SSE 端到端
 ### 3 分钟版（家庭主路径 + E1 异常恢复）
 
 ```text
-| 时间   | 操作                       | 旁白要点                                       |
-|--------|----------------------------|------------------------------------------------|
-| 0-15s  | 介绍页面布局：8 场景 / 聊天 / 行程 / Tool 链路 | 「这是晌午局，本地半日出行管家」  |
-| 15-25s | 鼠标 hover S1 按钮看 tooltip 显示完整文案     | 「评委可一键提交 8 个预设场景」    |
-| 25-30s | 点击「S1 · 家庭主线」按钮                    | 「我是减肥的妈妈带 5 岁孩子」      |
-| 30-50s | 看意图卡片实时渲染：抽出 5 岁 / 低脂 / 家庭   | 「Agent 听懂了约束」               |
-| 50-100s| 看 Tool 链路逐条出：用户画像 → POI → 餐厅 → 17:00 满 → 重规划 | 「评分项 5：异常韧性」 |
-| 100-130s| 看 17:30 改约成功 → 行程卡片六段时间轴渲染   | 「方案出来了」                     |
-| 130-160s| 点「确认并预约」→ 订单号 + 转发文案出现      | 「转发文案给老婆，一键复制」       |
-| 160-180s| 点「复制到剪贴板」→ 打开微信 / 文本框验证    | 「评委可以亲自看到文案落到剪贴板」 |
+| 时间    | 操作                                          | 旁白要点                                         |
+|---------|-----------------------------------------------|--------------------------------------------------|
+| 0-15s   | 介绍页面布局：8 场景 / 聊天 / 行程 / Tool 链路     | 「这是晌午局，本地半日出行管家」                  |
+| 15-25s  | 鼠标 hover S1 按钮看 tooltip 显示完整文案         | 「评委可一键提交 8 个预设场景」                   |
+| 25-30s  | 点击「S1 · 家庭主线」按钮                        | 「我是减肥的妈妈带 5 岁孩子」                     |
+| 30-50s  | 看意图卡片实时渲染：抽出 5 岁 / 低脂 / 家庭        | 「Agent 听懂了约束」                              |
+| 50-100s | 看 Tool 链路逐条出：用户画像 → POI → 餐厅 → 17:00 满 → 重规划 | 「评分项 5：异常韧性」              |
+| 100-130s| 看 17:30 改约成功 → 行程卡片六段时间轴渲染         | 「方案出来了」                                    |
+| 130-160s| 点「确认并预约」→ 订单号 + 转发文案出现           | 「转发文案给老婆，一键复制」                      |
+| 160-180s| 点「复制到剪贴板」→ 打开微信 / 文本框验证         | 「评委可以亲自看到文案落到剪贴板」                |
 ```
 
 ### 5 分钟版（含异常 + 一个开放场景）
@@ -85,6 +142,18 @@ node frontend/scripts/pressure-test-scenarios.mjs   # 8 场景 SSE 端到端
 - 在第 130s 后增加 **S7 · 独处放空** 演示（评委想看不同社交语境）
 - 注意点 S7 前先点页面右上「重置」让 trace 面板归零
 - 旁白点出「同一套 Tool 不写 if scene_type 分支也能 cover 8 种社交场景」
+
+### Phase 0.8 加演（推荐 5 分钟版插一段）
+
+在主路径演示前，插入一组「评委即兴扔输入」段落（约 30 秒）：
+
+```text
+1. 输入「你是谁」    → 暖心气泡 + 3 个引导按钮
+2. 输入「我累死了」  → 共情气泡 + 推荐独处场景
+3. 点引导按钮一键回主路径
+```
+
+旁白：「Agent 不会被无关输入卡死——一句温柔回话再绕回主题。」
 
 ### 完整版（8 场景全跑通）
 
@@ -99,14 +168,24 @@ node frontend/scripts/pressure-test-scenarios.mjs
 
 把上面这条命令的输出当作「8 场景压测全过」的字幕证据。
 
+### Persona 加演（同句 × 不同 user 哇时刻，60 秒）
+
+```text
+1. 顶栏切「商务白领」→ 输入「今天下午想出去玩」→ 商务茶室方案（distance=8km）
+2. 顶栏切「新手爸爸」→ 输入完全相同 →    亲子绘本馆方案（distance=5km）
+3. 旁白：「同一句话，Agent 知道你是谁。」
+```
+
 ### 录屏文件管理
 
 - 存放：`recordings/`（仓库根目录，**已 gitignore**）
 - 命名：`shangwuju_3min_<YYYYMMDD>.mp4` / `shangwuju_5min_<YYYYMMDD>.mp4` / `shangwuju_full_<YYYYMMDD>.mp4`
 - 备份：录完上传到云盘 / 飞书；`recordings/README.md` 记一行链接，**链接才入仓，文件不入仓**
 
-## 已决定
+## 已决定（不再讨论）
 
 - 状态管理库：**Zustand**（lib/store.ts）
-- 主题色：暖橙 brand-orange + 沉静蓝灰 ink；避开紫粉
+- 主题色：暖橙 brand-orange + 沉静蓝灰 ink；ChitchatBubble 用 amber/sky/rose/emerald 4 套 tone；**避开紫粉**
 - 组件库：Tailwind 自手写组件（shadcn 原料 cn + clsx + tailwind-merge）
+- SSE 解析：fetch + ReadableStream 自手写（`lib/sse.ts`），不用 EventSource（不支持 POST + 自定义 header）
+- 类型同步：手抄（`lib/types.ts`），不上 OpenAPI 自动生成
