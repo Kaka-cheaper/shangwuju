@@ -1325,3 +1325,74 @@ LLM 一次性输出**结构化结果**（不需要二次调用生成回话），
 
 **用户反馈**：（待填）
 
+
+
+---
+
+## 问题17：行程时间硬编码 14-19，不管 start_time 和 duration 都不变
+
+**用户原问**：「我发现好像时间都是固定死了？不管我怎么调整时间，规划的整个行程都是 14 到 19？」
+
+**根因分析**：
+
+`backend/agent/planner.py` 的 `_assemble_itinerary` 完全忽略了 `intent.start_time` 和 `intent.duration_hours`，直接硬编码：
+
+```python
+DEFAULT_DEPART_TIME = "14:00"             # 不看 start_time
+MAIN_ACTIVITY_MINUTES = 120                # 不看 duration_hours
+DINING_MINUTES = 90                        # 同上
+DEFAULT_DINING_TIMES = ["17:00", "17:30", "18:00"]  # 写死晚餐时段
+```
+
+加上 `_negotiate_dining` 里直接用 `DEFAULT_DINING_TIMES` loop——「下午」「早上」「晚上」抽出的 IntentExtraction 进来后输出全部是 14:00-19:00 的相同时间窗。
+
+**解决方案**：
+
+1. **新增 `_resolve_time_window(intent)` 推导函数**
+   - 从 `intent.start_time` 抽出小时（支持 ISO-like + 口语标签 morning/afternoon/evening/dinner/night/lunch/noon）
+   - 修了关键 bug：`afternoon` 含 `noon` 子串导致误判 12:00 → 改用排序后的关键词列表，长子串优先
+   - 从 `intent.duration_hours` 中点 × 比例（主:餐 = 4:3）算 main_minutes / dining_minutes
+   - 设上下限（main 30-120 min / dining 30-90 min）防极端值
+   - 推算用餐起点 = depart + main + 30min 路上转场，对齐到下个整 30 分钟，给 5 个候选时段
+
+2. **`_assemble_itinerary` 接受动态参数**
+   - 新增 `depart_time / main_activity_minutes / dining_minutes` 三个 kwargs（缺省走原默认值，不破现有调用）
+   - 修复转场段视觉：dining_start > arrive_rest 时把转场段拉到 dining_start，避免出现 14:30-17:00 空白窗口
+
+3. **`_negotiate_dining` 接受 dining_slots + 兜底第二轮**
+   - 接受 dining_slots 参数（None 时退化为 DEFAULT_DINING_TIMES）
+   - 第一轮：3 餐厅 × 5 时段 = 最多 15 次
+   - **第二轮兜底**：第一轮全 fail 时，扫每家餐厅自带的 available slots（mock 时段稀疏的 case 如 S8 粤菜 sunday_lunch 推算 14:30 但只 17:30/18:00 有空位）
+
+4. **Tool quota 上限调整**
+   - `check_restaurant_availability` 单独给 `MAX_TOOL_CALLS_FOR_AVAILABILITY=30`（原 3）
+   - `MAX_TOTAL_TOOL_CALLS = 25 → 45`（适配第二轮兜底）
+   - 同步更新 `test_tool_quota_enforced` 测试上限分级
+
+**实测效果**：
+
+```
+| 输入                       | depart | dining_slots               | main | dining | 总时长 |
+|----------------------------|--------|----------------------------|------|--------|--------|
+| sunday_afternoon × 5h      | 14:00  | 16:30/17:00/17:30/18:00/18:30 | 120 | 90     | 282min |
+| sunday_afternoon × 1h      | 14:00  | 15:30/16:00/16:30/17:00/17:30 | 34  | 30     | 222min |
+| sunday_morning × 3h        | 09:00  | 11:00/11:30/12:00/12:30/13:00 | 85  | 64     | 259min |
+| sunday_evening × 3h        | 18:00  | 20:00/20:30/21:00/21:30/22:00 | 85  | 64     | 196min |
+```
+
+四种输入对应 4 种完全不同的时间窗（14:00 出 / 9:00 出 / 18:00 出），主活动时长真实跟随 duration 变化（1h vs 5h）。
+
+**修改的代码文件**：
+
+- `backend/agent/planner.py`（新增 `_resolve_time_window` + `_parse_start_time_hour` 共 ~80 行；改 `_negotiate_dining` 加第二轮兜底；改 `_assemble_itinerary` 加 3 个 kwargs；调 quota 上限）
+- `backend/tests/test_agent_flow.py`（test_tool_quota_enforced 上限分级）
+
+**应当达成的效果**：
+
+- 用户输入「早上」→ 行程 9-13 点；「下午」→ 14-18 点；「晚上 6 点」→ 18-21 点
+- refine 把 duration 从 5h 改成 1h → 主活动从 120min 缩到 34min，总时长跟着缩
+- 不破现有 155/155 后端测试 + 7/7 verify_router
+- D9 不破：动态推导基于 §5.7 字段（start_time/duration_hours），不引入场景枚举
+
+**用户反馈**：（待填）
+
