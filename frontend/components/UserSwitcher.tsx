@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 /**
  * UserSwitcher —— 顶栏用户切换器（黄昏深色主题：玻璃描边）。
+ * 配色：用户档案语义采用 caramel 焦糖琥珀色（替代 AI 莓紫，去 AI 味）。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -37,7 +38,9 @@ export default function UserSwitcher() {
   const CurrentIcon = current
     ? personaIconFromEmoji(current.icon)
     : Icons.user;
-  const display = current?.label ?? (currentUserId === "demo_user" ? "默认" : currentUserId ?? "未设置");
+  const display =
+    current?.label ??
+    (currentUserId === "demo_user" ? "默认" : currentUserId ?? "未设置");
 
   return (
     <div ref={wrapRef} className="relative">
@@ -47,7 +50,7 @@ export default function UserSwitcher() {
         onClick={() => setOpen((v) => !v)}
         title="切换演示用户"
       >
-        <CurrentIcon className="w-3.5 h-3.5 text-accent-300" strokeWidth={2} />
+        <CurrentIcon className="w-3.5 h-3.5 text-caramel-300" strokeWidth={2} />
         <span className="max-w-[90px] truncate">{display}</span>
         <span
           className={cn(
@@ -77,9 +80,7 @@ export default function UserSwitcher() {
                     type="button"
                     className={cn(
                       "w-full px-3 py-2 text-left text-xs flex items-start gap-2 transition-colors",
-                      active
-                        ? "bg-white/[0.06]"
-                        : "hover:bg-white/[0.04]",
+                      active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
                     )}
                     onClick={() => {
                       setCurrentUserId(p.user_id);
@@ -89,7 +90,7 @@ export default function UserSwitcher() {
                     <Icon
                       className={cn(
                         "w-3.5 h-3.5 mt-0.5 shrink-0",
-                        active ? "text-accent-300" : "text-ink-500",
+                        active ? "text-caramel-300" : "text-ink-500",
                       )}
                       strokeWidth={2}
                     />
@@ -108,7 +109,7 @@ export default function UserSwitcher() {
                     </span>
                     {active && (
                       <Icons.success
-                        className="w-3.5 h-3.5 text-accent-300 shrink-0"
+                        className="w-3.5 h-3.5 text-caramel-300 shrink-0"
                         strokeWidth={2.5}
                       />
                     )}

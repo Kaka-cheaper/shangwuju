@@ -82,6 +82,21 @@ const config: Config = {
           600: "#6366f1", // 靛
           700: "#4f46e5",
         },
+        // caramel：焦糖琥珀色（替代偏好画像处的莓紫，去 AI 味）
+        // 灵感：中古电影焦糖滤镜 + Aesop 沙漠米色 + 旧版 stripe 焦糖文档
+        // 用于：偏好画像 persona icon / chip-warm / 收藏标签
+        caramel: {
+          50: "#faf6f0",
+          100: "#f0e3d0",
+          200: "#e0c9a8",
+          300: "#cda87b",
+          400: "#b8895a", // 主焦糖色（icon）
+          500: "#a06a3a",
+          600: "#834f25",
+          700: "#623818",
+          800: "#412410",
+          900: "#2a170a",
+        },
       },
       fontFamily: {
         sans: [
@@ -113,6 +128,10 @@ const config: Config = {
         // 黄昏光斑缓慢呼吸
         "aurora-drift": "auroraDrift 18s ease-in-out infinite",
         "aurora-drift-slow": "auroraDrift 28s ease-in-out infinite reverse",
+        // 行程卡到达聚光灯（2.4s 一次性脉冲）
+        "spotlight-once": "spotlightPulse 2400ms ease-out 1",
+        // 烟花粒子飞起
+        "confetti-fly": "confettiFly 1600ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
       },
       keyframes: {
         pulseSoft: {
@@ -154,6 +173,39 @@ const config: Config = {
             opacity: "0.6",
           },
         },
+        // 行程卡聚光灯：暖橙 → 莓粉两层光环外扩 + 内部微缩放
+        spotlightPulse: {
+          "0%": {
+            boxShadow:
+              "0 0 0 0 rgba(249, 115, 22, 0.45), 0 0 0 0 rgba(236, 72, 153, 0.35), 0 8px 32px -12px rgba(0,0,0,0.6)",
+            transform: "scale(0.985)",
+          },
+          "30%": {
+            boxShadow:
+              "0 0 0 8px rgba(249, 115, 22, 0.18), 0 0 0 18px rgba(236, 72, 153, 0.12), 0 16px 48px -12px rgba(249, 115, 22, 0.4)",
+            transform: "scale(1.005)",
+          },
+          "100%": {
+            boxShadow:
+              "0 0 0 24px rgba(249, 115, 22, 0), 0 0 0 40px rgba(236, 72, 153, 0), 0 8px 32px -12px rgba(0,0,0,0.6)",
+            transform: "scale(1)",
+          },
+        },
+        // 烟花粒子：从中心向四周飞 + 旋转 + 衰减
+        confettiFly: {
+          "0%": {
+            transform: "translate3d(0, 0, 0) rotate(0deg) scale(0.6)",
+            opacity: "0",
+          },
+          "10%": {
+            opacity: "1",
+          },
+          "100%": {
+            transform:
+              "translate3d(var(--cf-dx, 0px), var(--cf-dy, -120px), 0) rotate(var(--cf-rot, 540deg)) scale(1)",
+            opacity: "0",
+          },
+        },
       },
       boxShadow: {
         // 深色主题阴影：用浅色光晕替代真阴影（深底投不出阴影）
@@ -162,6 +214,8 @@ const config: Config = {
         glow: "0 0 0 1px rgb(255 255 255 / 0.1), 0 0 24px rgb(249 115 22 / 0.15)",
         "glow-accent":
           "0 0 0 1px rgb(255 255 255 / 0.08), 0 0 24px rgb(217 70 239 / 0.2)",
+        "glow-caramel":
+          "0 0 0 1px rgb(255 255 255 / 0.08), 0 0 24px rgb(184 137 90 / 0.18)",
       },
     },
   },

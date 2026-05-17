@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
 import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 import ChatPanel from "./ChatPanel";
 import CommandPalette from "./CommandPalette";
+import Confetti from "./Confetti";
 import ItineraryCard from "./ItineraryCard";
 import PlannerModeBadge from "./PlannerModeBadge";
 import PreferencesPanel from "./PreferencesPanel";
@@ -22,6 +24,9 @@ export default function HomeView() {
   const reset = useChatStore((s) => s.reset);
   const sessionId = useChatStore((s) => s.sessionId);
   const openCommandPalette = useChatStore((s) => s.openCommandPalette);
+
+  // 顶栏滚动下沉：scrolled=true 时加深背景 + 暖色发光底线
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
@@ -48,13 +53,38 @@ export default function HomeView() {
     return () => document.removeEventListener("keydown", onKey);
   }, [openCommandPalette]);
 
+  // 滚动下沉：用 rAF 节流，过 12px 阈值切换
+  useEffect(() => {
+    let rafId = 0;
+    const onScroll = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setScrolled(window.scrollY > 12);
+      });
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
   return (
     <div className="min-h-screen relative">
       {/* 黄昏光斑背景层（fixed，最底层） */}
       <div className="aurora-bg" aria-hidden />
 
-      {/* 顶栏：玻璃质感 */}
-      <header className="relative-content sticky top-0 z-20 border-b border-white/[0.06] bg-[#08080d]/70 backdrop-blur-xl">
+      {/* 顶栏：玻璃质感 + 滚动下沉 */}
+      <header
+        className={cn(
+          "relative-content sticky top-0 z-20 border-b border-white/[0.06]",
+          "bg-[#08080d]/70 backdrop-blur-xl",
+          "transition-[background-color,box-shadow] duration-300",
+          scrolled && "header-scrolled",
+        )}
+      >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           {/* 左侧：品牌渐变 mark + breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
@@ -126,6 +156,7 @@ export default function HomeView() {
 
       <ToastStack />
       <CommandPalette />
+      <Confetti />
     </div>
   );
 }

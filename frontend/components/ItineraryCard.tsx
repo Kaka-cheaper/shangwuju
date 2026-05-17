@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
@@ -20,6 +20,20 @@ export default function ItineraryCard() {
   const cancel = useChatStore((s) => s.cancel);
 
   const [refineOpen, setRefineOpen] = useState(false);
+
+  // 聚光灯：itinerary 从 null/无 → 有时触发一次性脉冲
+  const [spotlight, setSpotlight] = useState(false);
+  const prevHadItinerary = useRef(false);
+  useEffect(() => {
+    const has = !!itinerary;
+    if (has && !prevHadItinerary.current) {
+      setSpotlight(true);
+      const timer = setTimeout(() => setSpotlight(false), 2400);
+      prevHadItinerary.current = true;
+      return () => clearTimeout(timer);
+    }
+    if (!has) prevHadItinerary.current = false;
+  }, [itinerary]);
 
   if (!itinerary && !streaming) {
     return (
@@ -52,7 +66,7 @@ export default function ItineraryCard() {
   const canAct = !streaming && !hasOrders && !cancelled;
 
   return (
-    <div className="card animate-fade-in">
+    <div className={cn("card animate-fade-in", spotlight && "spotlight-once")}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/[0.06]">
         <div className="flex items-center justify-between">

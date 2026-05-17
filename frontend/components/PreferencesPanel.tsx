@@ -1,7 +1,12 @@
 "use client";
 
 /**
- * PreferencesPanel —— 用户偏好面板（黄昏深色主题）。
+ * PreferencesPanel —— 用户偏好画像（黄昏深色主题 · 焦糖琥珀配色）。
+ *
+ * 设计意图：
+ *   - 偏好画像是「档案 / 笔记」语义，应是温润的纸张感而非 AI 紫
+ *   - 用 caramel 焦糖琥珀色（替代莓紫 accent），与主题暖橙脉络一致
+ *   - 灵感：Aesop 沙漠米色 / Stripe 旧版焦糖文档 / 中古电影焦糖滤镜
  */
 
 import { useEffect, useState } from "react";
@@ -51,19 +56,19 @@ export default function PreferencesPanel() {
           "w-full group relative flex items-center justify-between gap-3",
           "rounded-lg border border-white/[0.08] bg-white/[0.04]",
           "px-3.5 py-2.5 text-left",
-          "hover:border-accent-500/40 hover:bg-white/[0.06]",
-          "hover:shadow-glow-accent transition-all duration-200",
+          "hover:border-caramel-400/40 hover:bg-white/[0.06]",
+          "hover:shadow-glow-caramel transition-all duration-200",
           "active:scale-[0.99]",
           "backdrop-blur-sm overflow-hidden",
         )}
       >
-        {/* hover 时浮现紫色光斑 */}
+        {/* hover 时浮现暖焦糖光斑（替代原紫粉） */}
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
           style={{
             background:
-              "radial-gradient(circle at 100% 100%, rgba(217,70,239,0.16) 0%, transparent 60%)",
+              "radial-gradient(circle at 100% 100%, rgba(184,137,90,0.18) 0%, transparent 60%)",
           }}
         />
         <div className="relative flex items-center gap-2.5 min-w-0 flex-1">
@@ -71,11 +76,11 @@ export default function PreferencesPanel() {
             className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 border border-white/[0.08]"
             style={{
               background:
-                "linear-gradient(135deg, rgba(217,70,239,0.14) 0%, rgba(139,92,246,0.14) 100%)",
+                "linear-gradient(135deg, rgba(184,137,90,0.18) 0%, rgba(160,106,58,0.14) 100%)",
             }}
           >
             <PersonaIcon
-              className="w-4 h-4 text-accent-300"
+              className="w-4 h-4 text-caramel-300"
               strokeWidth={1.75}
             />
           </div>
@@ -95,7 +100,7 @@ export default function PreferencesPanel() {
                 {previewTags.map((t) => (
                   <span
                     key={t}
-                    className="chip-accent text-[10px] truncate max-w-[100px]"
+                    className="chip-warm text-[10px] truncate max-w-[100px]"
                   >
                     {t}
                   </span>
@@ -113,7 +118,7 @@ export default function PreferencesPanel() {
             )}
           </div>
         </div>
-        <div className="relative text-[11px] text-ink-500 group-hover:text-accent-400 transition-colors shrink-0 flex items-center gap-1">
+        <div className="relative text-[11px] text-ink-500 group-hover:text-caramel-300 transition-colors shrink-0 flex items-center gap-1">
           <span>展开</span>
           <svg
             className="w-3 h-3 transition-transform group-hover:translate-y-0.5"
@@ -159,7 +164,7 @@ export default function PreferencesPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Icons.user
-            className="w-3.5 h-3.5 text-accent-400"
+            className="w-3.5 h-3.5 text-caramel-300"
             strokeWidth={2}
           />
           <h2 className="text-[12px] font-medium text-ink-900 tracking-tight">
@@ -191,18 +196,18 @@ export default function PreferencesPanel() {
         <div className="text-ink-500">加载中…</div>
       ) : (
         <>
-          {/* persona 档案：玻璃半透 */}
+          {/* persona 档案：玻璃半透 + 焦糖暖底 */}
           <div className="rounded-md bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 backdrop-blur-sm">
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 border border-white/[0.08]"
                 style={{
                   background:
-                    "linear-gradient(135deg, rgba(217,70,239,0.14) 0%, rgba(139,92,246,0.14) 100%)",
+                    "linear-gradient(135deg, rgba(184,137,90,0.18) 0%, rgba(160,106,58,0.14) 100%)",
                 }}
               >
                 <PersonaIcon
-                  className="w-3.5 h-3.5 text-accent-300"
+                  className="w-3.5 h-3.5 text-caramel-300"
                   strokeWidth={1.75}
                 />
               </div>
@@ -222,7 +227,7 @@ export default function PreferencesPanel() {
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {top_priors.map((t) => (
-                  <span key={t} className="chip-accent">
+                  <span key={t} className="chip-warm">
                     {t}
                   </span>
                 ))}

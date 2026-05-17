@@ -263,6 +263,14 @@
     color: rgb(253 164 175);
     border: 1px solid rgb(244 63 94 / 0.24);
   }
+  /* chip-warm：焦糖琥珀，用于偏好画像里学到的偏好（替代 accent 莓紫，去 AI 味） */
+  .chip-warm {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
+           text-[11px] font-medium tracking-tight;
+    background: rgb(184 137 90 / 0.14);
+    color: rgb(224 201 168);
+    border: 1px solid rgb(184 137 90 / 0.28);
+  }
 
   /* ============================================================
      KBD：键盘按键（玻璃质感）
@@ -379,6 +387,74 @@
     background-size: 200% 100%;
     animation: shimmer 2s linear infinite;
   }
+
+  /* ============================================================
+     顶栏滚动下沉
+     - 默认：bg #08080d/70 + backdrop-blur-xl
+     - scrolled：bg 加深到 92%、加微阴影、底部多一道暖色发光细线
+     ============================================================ */
+  .header-scrolled {
+    background-color: rgb(8 8 13 / 0.92) !important;
+    box-shadow:
+      0 1px 0 0 rgb(255 255 255 / 0.04),
+      0 8px 24px -12px rgb(0 0 0 / 0.8);
+  }
+  .header-scrolled::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgb(249 115 22 / 0.4) 30%,
+      rgb(236 72 153 / 0.5) 50%,
+      rgb(139 92 246 / 0.35) 70%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  /* ============================================================
+     行程卡聚光灯（一次性）
+     - 触发：itinerary 从 null → 有
+     - 效果：暖橙 + 莓粉双层光环外扩 2.4s
+     ============================================================ */
+  .spotlight-once {
+    animation: spotlightPulse 2400ms ease-out 1;
+  }
+
+  /* ============================================================
+     烟花容器：fixed 全屏，pointer-events:none，挂在 ToastStack 旁
+     ============================================================ */
+  .confetti-stage {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .confetti-piece {
+    position: absolute;
+    width: 8px;
+    height: 12px;
+    border-radius: 1.5px;
+    will-change: transform, opacity;
+    animation: confettiFly 1600ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+    box-shadow: 0 0 8px currentColor;
+  }
+  .confetti-piece.shape-circle {
+    border-radius: 50%;
+    width: 7px;
+    height: 7px;
+  }
+  .confetti-piece.shape-line {
+    width: 2px;
+    height: 14px;
+    border-radius: 1px;
+  }
 }
 
 @layer utilities {
@@ -386,5 +462,75 @@
   .relative-content {
     position: relative;
     z-index: 1;
+  }
+}
+
+/* ============================================================
+   全局 @keyframes：直接 CSS animation 引用的 keyframe 必须在
+   tailwind layer 之外定义，tailwind config 里的 keyframes 仅服务
+   `animate-XXX` utility class，不会被 tailwind 注入到全局 CSS。
+   ============================================================ */
+@keyframes auroraDrift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.7;
+  }
+  33% {
+    transform: translate3d(40px, -30px, 0) scale(1.1);
+    opacity: 0.85;
+  }
+  66% {
+    transform: translate3d(-30px, 40px, 0) scale(0.95);
+    opacity: 0.6;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes spotlightPulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(249, 115, 22, 0.45),
+      0 0 0 0 rgba(236, 72, 153, 0.35),
+      0 8px 32px -12px rgba(0, 0, 0, 0.6);
+    transform: scale(0.985);
+  }
+  30% {
+    box-shadow:
+      0 0 0 8px rgba(249, 115, 22, 0.18),
+      0 0 0 18px rgba(236, 72, 153, 0.12),
+      0 16px 48px -12px rgba(249, 115, 22, 0.4);
+    transform: scale(1.005);
+  }
+  100% {
+    box-shadow:
+      0 0 0 24px rgba(249, 115, 22, 0),
+      0 0 0 40px rgba(236, 72, 153, 0),
+      0 8px 32px -12px rgba(0, 0, 0, 0.6);
+    transform: scale(1);
+  }
+}
+
+@keyframes confettiFly {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(0.6);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform:
+      translate3d(var(--cf-dx, 0px), var(--cf-dy, -120px), 0)
+      rotate(var(--cf-rot, 540deg)) scale(1);
+    opacity: 0;
   }
 }
