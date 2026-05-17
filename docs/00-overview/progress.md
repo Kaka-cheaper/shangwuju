@@ -111,6 +111,16 @@
   - **C5 CodeSee sync**（commit a0aa6fd）：升级 f-itinerary-card（confidence 0.88→0.92，confirm_btn 拆三按钮 + refinement_banner step）；新增 3 个 feature（f-refinement-dialog / f-planner-mode-badge / f-toast-stack）+ 8 条 cross_feature；不动 A 的 f-refine-replan / f-llm-planner、B 的 f-tool-trace
   - 校验：30/30 vitest（23 sse + 7 store）；pnpm verify:all 4/4 全过（lint / ts / test / build，首页 19.2 kB）；浏览器实测三按钮 + 弹窗 + toast + 切换器全链路；零 console error；color 仅用 brand-orange + ink + emerald/sky/amber，全程无紫粉
 
+- ✅ **Phase 0.9 A+C 混合规划范式**（2026-05-17 完成，A 扛，commit 4299b14）：
+  - **学术依据**：Vansteenwegen 2009（TOPTW + ILS）+ Gunawan 2019（多目标 TOPTW 加权和）+ Kambhampati NeurIPS 2024（LLM-Modulo Critic）+ ItiNera EMNLP 2024（LLM 决主观 + 算法决客观）
+  - **A 段**：`backend/agent/weights_llm.py` 4 维加权效用权重（comfort/time/cost/smoothness），LLM 出权重失败兜底启发式（按 social_context + 同行人 + raw_input 关键词）；`backend/agent/planner_hybrid.py` 候选生成（top-K=5）+ utility 函数（rating/标签/距离/预算/连贯）+ ILS 30 次迭代（扰动 swap_poi/swap_rest/shift_time + 邻域贪心，5% 接受劣解）
+  - **C 段**：`backend/agent/critics.py` 4 个 Critic（HardConstraint 段缺失/总耗时；TimeWindow 查 mock reservation_slots；Budget 软违规；Style suitable_for 软违规）；硬违规 → 黑名单候选 + 重排
+  - **集成**：`plan_itinerary_with_mode` 新增 stub_check（保单测稳定）+ PLANNER_LLM_STRATEGY=hybrid|function_calling 切换；hybrid 复用 rule planner 已有的 `_resolve_time_window` / `_estimate` / `_assemble_itinerary` helper 拼装六段，零重写
+  - **失败兜底**：四级 fallback——stub client → API 不可用 → ILS 失败 → Critic 重排失败，全部回 rule planner 保 demo
+  - **演示**：`backend/scripts/verify_planning.py` 4 场景对比（S1 家庭 / S4 老人 / S6 商务 / S8 纪念日）；S1 hybrid 修复 rule 的 R023 hard 违规；S6 hybrid 修复 rule 的 R008 style soft 违规
+  - **测试**：170/170 全过（含新增 15 项 hybrid 单测：权重启发式 6 项 + Critic 5 项 + utility 1 项 + 端到端 3 项）+ 4 个原 verify 脚本无回归
+  - CodeSee sync：仅升 `f-llm-planner`（owner=A），summary + step 9→12 + flow 按 strategy 分支 + refs 补 5 个新文件 + confidence 0.78→0.88；不动其他 owner 的任何 feature
+
 ### Week 2
 
 - ✅ **6 个核心 Tool 实现** + **buy_ticket** 共 8 个（参数按 §5.7 schema，无 `scene_type` / `relation`，由 P1 第二轮 376dedd 提前完成）
