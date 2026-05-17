@@ -567,5 +567,301 @@
     ],
     "tags": ["热闹", "社交"],
     "suitable_for": ["同学重聚", "朋友热闹"]
+  },
+  {
+    "id": "R031",
+    "name": "炭烤大叔 · 路边烧烤",
+    "cuisine": "烧烤",
+    "location": { "name": "湖滨银泰" },
+    "distance_km": 4.6,
+    "opening_hours": "17:00-02:00",
+    "avg_price": 90,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 },
+      { "time": "18:30", "available": true, "queue_minutes": 25 },
+      { "time": "19:00", "available": true, "queue_minutes": 30 },
+      { "time": "19:30", "available": true, "queue_minutes": 20 },
+      { "time": "20:00", "available": true, "queue_minutes": 10 }
+    ],
+    "tags": ["热闹", "社交"],
+    "suitable_for": ["朋友热闹", "同学重聚"]
+  },
+  {
+    "id": "R032",
+    "name": "夜烤场 · 精致烧烤",
+    "cuisine": "烧烤",
+    "location": { "name": "南宋御街" },
+    "distance_km": 4.9,
+    "opening_hours": "17:00-02:00",
+    "avg_price": 130,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 },
+      { "time": "18:30", "available": true, "queue_minutes": 20 },
+      { "time": "19:00", "available": true, "queue_minutes": 30 },
+      { "time": "20:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["热闹", "社交", "网红打卡", "拍照友好", "有包间"],
+    "suitable_for": ["朋友热闹", "情侣亲密"]
+  },
+  {
+    "id": "R033",
+    "name": "烤季 · 韩式烤肉",
+    "cuisine": "烧烤",
+    "location": { "name": "嘉里中心" },
+    "distance_km": 3.7,
+    "opening_hours": "11:30-23:00",
+    "avg_price": 150,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 },
+      { "time": "18:30", "available": true, "queue_minutes": 25 },
+      { "time": "19:00", "available": true, "queue_minutes": 10 }
+    ],
+    "tags": ["热闹", "社交", "有包间", "网红打卡"],
+    "suitable_for": ["朋友热闹", "同学重聚", "情侣亲密"]
+  },
+  {
+    "id": "R034",
+    "name": "鼎鼎 · 鸳鸯火锅",
+    "cuisine": "火锅",
+    "location": { "name": "西溪银泰" },
+    "distance_km": 2.4,
+    "opening_hours": "11:00-23:30",
+    "avg_price": 140,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 10 },
+      { "time": "18:00", "available": true, "queue_minutes": 20 },
+      { "time": "18:30", "available": true, "queue_minutes": 30 },
+      { "time": "19:00", "available": true, "queue_minutes": 15 },
+      { "time": "20:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["热闹", "社交", "不辣", "有包间"],
+    "suitable_for": ["朋友热闹", "家庭日常", "同学重聚"]
+  },
+  {
+    "id": "R035",
+    "name": "蜀香源 · 老麻火锅",
+    "cuisine": "火锅",
+    "location": { "name": "湖滨银泰" },
+    "distance_km": 4.6,
+    "opening_hours": "11:00-23:00",
+    "avg_price": 150,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:00", "available": true, "queue_minutes": 5 },
+      { "time": "17:30", "available": true, "queue_minutes": 20 },
+      { "time": "18:00", "available": true, "queue_minutes": 30 },
+      { "time": "18:30", "available": true, "queue_minutes": 25 },
+      { "time": "19:00", "available": true, "queue_minutes": 10 }
+    ],
+    "tags": ["热闹", "社交", "有包间"],
+    "suitable_for": ["朋友热闹", "同学重聚"]
+  },
+  {
+    "id": "R036",
+    "name": "椰汤白汤 · 港式火锅",
+    "cuisine": "火锅",
+    "location": { "name": "钱江新城万象城" },
+    "distance_km": 4.6,
+    "opening_hours": "11:30-23:00",
+    "avg_price": 180,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 10 },
+      { "time": "18:00", "available": true, "queue_minutes": 20 },
+      { "time": "18:30", "available": true, "queue_minutes": 15 },
+      { "time": "19:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["热闹", "不辣", "有包间", "粤菜"],
+    "suitable_for": ["朋友热闹", "家庭日常"]
+  },
+  {
+    "id": "R037",
+    "name": "巴蜀传奇 · 麻辣川菜",
+    "cuisine": "川菜",
+    "location": { "name": "天目里" },
+    "distance_km": 4.0,
+    "opening_hours": "11:00-22:30",
+    "avg_price": 130,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 20 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["热闹", "社交", "有包间"],
+    "suitable_for": ["朋友热闹", "同学重聚"]
+  },
+  {
+    "id": "R038",
+    "name": "椒邦 · 商务川菜会所",
+    "cuisine": "川菜",
+    "location": { "name": "钱江世纪城" },
+    "distance_km": 4.7,
+    "opening_hours": "11:30-22:30",
+    "avg_price": 320,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": true, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["商务体面", "高人均", "有包间", "礼仪感", "不辣"],
+    "suitable_for": ["商务接待", "纪念日仪式感"]
+  },
+  {
+    "id": "R039",
+    "name": "椰风海岸 · 东南亚菜",
+    "cuisine": "东南亚菜",
+    "location": { "name": "天目里" },
+    "distance_km": 4.0,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 145,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "12:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 10 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["网红打卡", "拍照友好", "亲密情侣", "热闹"],
+    "suitable_for": ["情侣亲密", "闺蜜聊天", "朋友热闹"]
+  },
+  {
+    "id": "R040",
+    "name": "曼谷夜市 · 泰式街头",
+    "cuisine": "东南亚菜",
+    "location": { "name": "湖滨银泰" },
+    "distance_km": 4.5,
+    "opening_hours": "11:30-22:00",
+    "avg_price": 115,
+    "rating": 4.5,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 5 },
+      { "time": "18:00", "available": true, "queue_minutes": 15 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["热闹", "社交", "网红打卡", "拍照友好"],
+    "suitable_for": ["朋友热闹", "闺蜜聊天", "同学重聚"]
+  },
+  {
+    "id": "R041",
+    "name": "云朵烘焙 · DIY 蛋糕坊",
+    "cuisine": "烘焙甜品",
+    "location": { "name": "西溪天街" },
+    "distance_km": 2.5,
+    "opening_hours": "10:00-21:00",
+    "avg_price": 88,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 5 },
+      { "time": "15:00", "available": true, "queue_minutes": 0 },
+      { "time": "16:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["甜品", "下午茶", "网红打卡", "拍照友好", "亲子友好"],
+    "suitable_for": ["闺蜜聊天", "家庭日常", "情侣亲密"]
+  },
+  {
+    "id": "R042",
+    "name": "珍珠舒芙蕾 · 日式甜品",
+    "cuisine": "烘焙甜品",
+    "location": { "name": "嘉里中心" },
+    "distance_km": 3.7,
+    "opening_hours": "10:30-22:00",
+    "avg_price": 75,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "14:00", "available": true, "queue_minutes": 0 },
+      { "time": "15:00", "available": true, "queue_minutes": 5 },
+      { "time": "16:00", "available": true, "queue_minutes": 0 },
+      { "time": "17:30", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["甜品", "下午茶", "网红打卡", "拍照友好"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
+  },
+  {
+    "id": "R043",
+    "name": "Beef House · 美式牛排",
+    "cuisine": "西餐",
+    "location": { "name": "钱江新城万象城" },
+    "distance_km": 4.6,
+    "opening_hours": "11:30-22:30",
+    "avg_price": 380,
+    "rating": 4.7,
+    "capacity": { "2": true, "4": true, "6": true, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 5 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 },
+      { "time": "20:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["商务体面", "高人均", "有包间", "礼仪感", "亲密情侣"],
+    "suitable_for": ["商务接待", "情侣亲密", "纪念日仪式感"]
+  },
+  {
+    "id": "R044",
+    "name": "暖光西餐厅 · 情侣套餐",
+    "cuisine": "西餐",
+    "location": { "name": "南宋御街" },
+    "distance_km": 4.7,
+    "opening_hours": "11:30-23:00",
+    "avg_price": 280,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": true },
+    "reservation_slots": [
+      { "time": "17:30", "available": true, "queue_minutes": 0 },
+      { "time": "18:00", "available": true, "queue_minutes": 0 },
+      { "time": "18:30", "available": true, "queue_minutes": 0 },
+      { "time": "19:00", "available": true, "queue_minutes": 0 }
+    ],
+    "tags": ["亲密情侣", "礼仪感", "高人均", "安静聊天"],
+    "suitable_for": ["情侣亲密", "纪念日仪式感"]
+  },
+  {
+    "id": "R045",
+    "name": "晨光 brunch · 早午餐厅",
+    "cuisine": "西餐",
+    "location": { "name": "良渚文化村" },
+    "distance_km": 4.4,
+    "opening_hours": "08:30-15:30",
+    "avg_price": 95,
+    "rating": 4.6,
+    "capacity": { "2": true, "4": true, "6": false, "8": false, "private_room": false },
+    "reservation_slots": [
+      { "time": "10:00", "available": true, "queue_minutes": 0 },
+      { "time": "10:30", "available": true, "queue_minutes": 5 },
+      { "time": "11:00", "available": true, "queue_minutes": 10 },
+      { "time": "12:00", "available": true, "queue_minutes": 20 },
+      { "time": "13:00", "available": true, "queue_minutes": 5 }
+    ],
+    "tags": ["拍照友好", "网红打卡", "下午茶"],
+    "suitable_for": ["闺蜜聊天", "情侣亲密"]
   }
 ]

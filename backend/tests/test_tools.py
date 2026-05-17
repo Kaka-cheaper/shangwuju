@@ -477,6 +477,51 @@ def test_coverage_e2_ticket_sold_out_explicit():
 
 
 # ============================================================
+# Phase 0.8.x：扩 mock 后的本地生活类目覆盖（用户提到的猫咖 / 剧本杀 / KTV 等）
+# ============================================================
+
+
+def test_coverage_pois_at_least_35():
+    """扩 mock 后：POI ≥ 35 条（演示密度）。"""
+    pois = load_pois()
+    assert len(pois) >= 35, f"POI 不足 35：当前 {len(pois)} 条"
+
+
+def test_coverage_restaurants_at_least_40():
+    """扩 mock 后：Restaurant ≥ 40 条。"""
+    rs = load_restaurants()
+    assert len(rs) >= 40, f"Restaurant 不足 40：当前 {len(rs)} 条"
+
+
+def test_coverage_new_poi_categories():
+    """扩 mock 后：以下高价值类目每类 ≥ 1 条。"""
+    pois = load_pois()
+    types = {p.type for p in pois}
+    required = {"猫咖", "剧本杀", "KTV", "电影院", "美甲", "瑜伽馆", "健身房", "主题乐园", "室内运动馆", "livehouse", "酒吧", "烘焙工坊"}
+    missing = required - types
+    assert not missing, f"缺以下 POI 类目：{sorted(missing)}"
+
+
+def test_coverage_new_cuisines():
+    """扩 mock 后：餐厅 cuisine 覆盖以下高价值菜系。"""
+    rs = load_restaurants()
+    cuisines = {r.cuisine for r in rs}
+    required = {"烧烤", "火锅", "川菜", "东南亚菜", "烘焙甜品", "西餐"}
+    missing = required - cuisines
+    assert not missing, f"缺以下菜系：{sorted(missing)}"
+
+
+def test_coverage_evening_dining_slots():
+    """扩 mock 后：≥ 5 家餐厅有 19:00 之后的可用 slot（晚饭后社交场景）。"""
+    rs = load_restaurants()
+    late = [
+        r for r in rs
+        if any(s.available and s.time >= "19:00" for s in r.reservation_slots)
+    ]
+    assert len(late) >= 5, f"晚饭后可订餐厅仅 {len(late)} 家"
+
+
+# ============================================================
 # 通过 invoke_tool 的端到端冒烟（保证 OpenAI Function Calling 链路正常）
 # ============================================================
 
