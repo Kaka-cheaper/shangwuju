@@ -25,26 +25,90 @@ export default function PreferencesPanel() {
 
   const [open, setOpen] = useState(false);
 
+  // 切 user 后自动刷一次（mount 时也拉，确保折叠态预览有数据可显示）
+  useEffect(() => {
+    if (currentUserId) refreshPreferences();
+  }, [currentUserId, refreshPreferences]);
+
+  // 兜底：展开时如果还没数据再拉一次
   useEffect(() => {
     if (open && !preferences) {
       refreshPreferences();
     }
   }, [open, preferences, refreshPreferences]);
 
-  // 切 user 后自动刷一次
-  useEffect(() => {
-    if (currentUserId) refreshPreferences();
-  }, [currentUserId, refreshPreferences]);
-
   if (!open) {
+    // 折叠态预览卡：显示 persona + 已学 top 2 + 接受次数
+    // 设计目标：评委一眼看到「Agent 知道我是谁、学了多少」
+    const persona = preferences?.persona;
+    const top_priors = preferences?.top_priors ?? [];
+    const acceptedCount = preferences?.memory
+      ? Object.values(preferences.memory.accepted_tags.counts).reduce(
+          (a, b) => a + b,
+          0,
+        )
+      : 0;
+    const previewTags = top_priors.slice(0, 2);
+
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs text-ink-500 hover:text-brand-600 transition"
         title="查看当前用户的偏好画像与历史记忆"
+        className={[
+          "w-full group flex items-center justify-between gap-3",
+          "rounded-xl border border-brand-200 bg-gradient-to-r from-brand-50 to-amber-50",
+          "px-3.5 py-2.5 text-left",
+          "hover:border-brand-400 hover:shadow-sm transition-all duration-200",
+          "active:scale-[0.99]",
+        ].join(" ")}
       >
-        📚 偏好
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="text-xl shrink-0">{persona?.icon ?? "📚"}</div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-semibold text-ink-800 truncate">
+                {persona?.label ?? "偏好画像"}
+              </span>
+              {acceptedCount > 0 && (
+                <span className="text-[10px] text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                  已学 {acceptedCount} 次
+                </span>
+              )}
+            </div>
+            {previewTags.length > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1 overflow-hidden">
+                {previewTags.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-block rounded-full bg-white/80 border border-brand-200 px-1.5 py-0.5 text-[10px] text-brand-700 truncate max-w-[100px]"
+                  >
+                    {t}
+                  </span>
+                ))}
+                <span className="text-[10px] text-ink-400 self-center">
+                  · 共 {top_priors.length} 项
+                </span>
+              </div>
+            ) : (
+              <div className="mt-0.5 text-[11px] text-ink-500">
+                {persona?.notes ?? "点击查看 Agent 已学到的偏好"}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="text-xs text-ink-400 group-hover:text-brand-600 transition shrink-0 flex items-center gap-1">
+          <span>展开</span>
+          <svg
+            className="w-3 h-3 transition-transform group-hover:translate-y-0.5"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M3 4.5L6 7.5L9 4.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
       </button>
     );
   }
