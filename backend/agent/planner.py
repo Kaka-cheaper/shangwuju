@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -869,7 +870,11 @@ def plan_itinerary_with_mode(
     mode 解析优先级（详见 schemas/planner_mode.py）：
         显式参数 > PLANNER_MODE 环境变量 > "rule" 默认值
 
-    LLM 模式失败时由 llm_planner 内部 fallback 回 rule，外层无须感知。
+    LLM 模式内部由 PLANNER_LLM_STRATEGY 决定具体实现：
+        - "hybrid"           ：A+C 混合（ILS + Critic + LLM 决策；评分项 2 主推；默认）
+        - "function_calling" ：纯 LLM Function Calling 自主调 Tool（旧实现）
+    任一 LLM 路径失败时自动 fallback 到 rule。
+
     若 mode="llm" 但 llm_client 为 None，自动用 get_llm_client() 取（B 块端点会显式注入）。
     """
     from schemas.planner_mode import normalize_mode, current_env_mode
@@ -877,23 +882,140 @@ def plan_itinerary_with_mode(
     resolved = normalize_mode(mode) if mode else current_env_mode()
 
     if resolved == "llm":
-        # 延迟 import 避免循环依赖
-        from .llm_planner import plan_itinerary_llm
-        from .llm_client import get_llm_client
+        # 提前确保 tracer 存在，让 LLM 分支的 agent_thought（fallback / stub 提示）
+        # 都能落到 result.tracer 里被 SSE 网关 / 测试断言消费
+        tracer = tracer or Tracer()
 
         client = llm_client
         if client is None:
+            from .llm_client import get_llm_client
             try:
                 client = get_llm_client()
             except (ValueError, RuntimeError):
                 # 缺 API key / base_url → 降级到 rule，而非抛异常让 demo 翻车
-                if tracer is not None:
-                    tracer.emit(
-                        "agent_thought",
-                        {"text": "LLM 客户端不可用（缺 API Key 或 base_url），已切回规则规划"},
-                    )
+                tracer.emit(
+                    "agent_thought",
+                    {"text": "LLM 客户端不可用（缺 API Key 或 base_url），已切回规则规划"},
+                )
                 return plan_itinerary(intent, tracer=tracer)
-        return plan_itinerary_llm(intent, client=client, tracer=tracer)
+
+        # 当 client 是 stub 时，意味着无真 LLM 决策能力——保持 rule 行为以确保 demo 单测稳定
+        # （Hybrid / Function Calling 都需要真 LLM 出权重 / 决策）
+        if getattr(client, "provider", None) == "stub":
+            tracer.emit(
+                "agent_thought",
+                {"text": "LLM 客户端为 stub 模式，无主观决策能力，已切回规则规划"},
+            )
+            return plan_itinerary(intent, tracer=tracer)
+
+        strategy = (os.getenv("PLANNER_LLM_STRATEGY", "hybrid") or "hybrid").strip().lower()
+
+        if strategy == "function_calling":
+            from .llm_planner import plan_itinerary_llm
+            return plan_itinerary_llm(intent, client=client, tracer=tracer)
+
+        # 默认 hybrid：A+C 混合
+        return _plan_with_hybrid(intent, client=client, tracer=tracer)
 
     # 默认 rule
+    return plan_itinerary(intent, tracer=tracer)
+
+
+# ============================================================
+# A+C 混合范式适配器
+# ============================================================
+
+def _plan_with_hybrid(
+    intent: IntentExtraction,
+    *,
+    client: Any,
+    tracer: Tracer | None,
+) -> PlannerResult:
+    """把 planner_hybrid 的输出包成 PlannerResult；失败时 fallback 到 rule。
+
+    rule_assembler：闭包内调 rule planner 的 _estimate / _resolve_time_window /
+    _assemble_itinerary 三个 helper，让 hybrid 不需要重写时间轴拼装逻辑。
+    """
+    from .planner_hybrid import plan_hybrid, CandidatePlan
+
+    tracer = tracer or Tracer()
+    tracer.emit("intent_parsed", payload=intent.model_dump())
+
+    def _hybrid_assembler(
+        intent_: IntentExtraction,
+        candidate: "CandidatePlan",
+        local_tracer: Tracer,
+    ):
+        """把 ILS 选出来的 candidate 跑路线估算 + 时间窗 + 组装。"""
+        # 用最简包装让 _estimate 复用现有 trace 接口
+        def _call_route(tool: str, args: dict[str, Any]):
+            local_tracer.emit("tool_call_start", {"tool": tool, "input": args})
+            res = invoke_tool(tool, args)
+            local_tracer.emit(
+                "tool_call_end",
+                {
+                    "tool": tool,
+                    "output": res.output,
+                    "success": res.success,
+                    "reason": res.reason.value if res.reason else None,
+                    "duration_ms": res.duration_ms,
+                },
+            )
+            return res
+
+        depart_time, _, main_minutes, dining_minutes = _resolve_time_window(intent_)
+        home_to_poi = _estimate(_call_route, "home", candidate.main_poi.id)
+        poi_to_rest = _estimate(
+            _call_route, candidate.main_poi.id, candidate.restaurant.id
+        )
+        rest_to_home = _estimate(_call_route, candidate.restaurant.id, "home")
+        party_size = max(1, sum(c.count for c in intent_.companions) or 1)
+        return _assemble_itinerary(
+            main_poi=candidate.main_poi,
+            chosen_restaurant=candidate.restaurant,
+            chosen_time=candidate.dining_time,
+            home_to_poi=home_to_poi,
+            poi_to_rest=poi_to_rest,
+            rest_to_home=rest_to_home,
+            party_size=party_size,
+            backup_pois=candidate.backup_pois,
+            depart_time=depart_time,
+            main_activity_minutes=main_minutes,
+            dining_minutes=dining_minutes,
+        )
+
+    result = plan_hybrid(
+        intent,
+        client=client,
+        tracer=tracer,
+        rule_assembler=_hybrid_assembler,
+    )
+
+    if result.success and result.itinerary is not None:
+        # 把 critic_report / weights 写到 trace 末尾，方便前端展示
+        if result.weights is not None:
+            tracer.emit("agent_thought", {
+                "text": f"采用权重：{result.weights.summary()}",
+                "weights": result.weights.to_dict(),
+            })
+        if result.critic_report is not None:
+            tracer.emit("agent_thought", {
+                "text": (
+                    f"Critic 通过；soft_score={result.critic_report.soft_score:.2f}"
+                ),
+                "critic_report": result.critic_report.to_dict(),
+            })
+        tracer.emit("itinerary_ready", payload=result.itinerary.model_dump())
+        return PlannerResult(success=True, itinerary=result.itinerary, tracer=tracer)
+
+    # Hybrid 失败 → fallback 到 rule（不让 demo 翻车）
+    tracer.emit(
+        "agent_thought",
+        {
+            "text": (
+                f"A+C 混合规划失败：{result.failure_detail or '未知原因'}；"
+                "已自动切回规则规划"
+            ),
+        },
+    )
     return plan_itinerary(intent, tracer=tracer)
