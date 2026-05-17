@@ -3,7 +3,6 @@
 import { useEffect } from "react";
 
 import { useChatStore } from "@/lib/store";
-import { Icons } from "@/lib/icon-map";
 import { generateSessionId, getUserIdFromCookie } from "@/lib/utils";
 
 import ChatPanel from "./ChatPanel";
@@ -50,32 +49,38 @@ export default function HomeView() {
   }, [openCommandPalette]);
 
   return (
-    <div className="min-h-screen bg-ink-50 text-ink-800">
-      <header className="sticky top-0 z-10 border-b border-ink-200 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
+    <div className="min-h-screen relative">
+      {/* 黄昏光斑背景层（fixed，最底层） */}
+      <div className="aurora-bg" aria-hidden />
+
+      {/* 顶栏：玻璃质感 */}
+      <header className="relative-content sticky top-0 z-20 border-b border-white/[0.06] bg-[#08080d]/70 backdrop-blur-xl">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
-          {/* 左侧：品牌 + breadcrumb */}
+          {/* 左侧：品牌渐变 mark + breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2">
-              <Icons.pulse
-                className="w-4 h-4 text-accent-500"
-                strokeWidth={2.5}
-              />
-              <h1 className="text-[15px] font-semibold tracking-tight text-ink-900 shrink-0">
-                晌午局
-              </h1>
+            <div className="flex items-center gap-2.5">
+              <div className="brand-mark" aria-hidden />
+              <div className="flex flex-col leading-none">
+                <h1 className="text-[15px] font-semibold tracking-tight text-ink-900 shrink-0">
+                  晌午局
+                </h1>
+                <span className="hidden sm:inline text-[10px] text-ink-500 mt-0.5 tracking-wide">
+                  Shangwu · Local Half-Day Agent
+                </span>
+              </div>
             </div>
-            <span className="hidden md:inline text-ink-300">/</span>
+            <span className="hidden md:inline text-ink-300/40">/</span>
             <span className="hidden md:inline text-xs text-ink-500 truncate">
               半日出行管家 · Agent 编排可视化
             </span>
           </div>
 
-          {/* 右侧：命令面板入口 / 切换器 / 会话 / 重置 */}
+          {/* 右侧 */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <button
               type="button"
               onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-ink-200 bg-white hover:border-ink-300 px-2.5 py-1 text-xs text-ink-500 transition-colors"
+              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.16] px-2.5 py-1 text-xs text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
               title="打开命令面板（场景 / 模式 / 用户切换）"
             >
               <span>命令</span>
@@ -97,7 +102,7 @@ export default function HomeView() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6">
+      <main className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6">
         <QuickScenarios />
 
         <div className="mt-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -113,8 +118,8 @@ export default function HomeView() {
         </div>
       </main>
 
-      <footer className="mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center">
-        <span className="text-[11px] text-ink-400 tracking-tight">
+      <footer className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-6 text-center">
+        <span className="text-[11px] text-ink-400/70 tracking-tight">
           美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
         </span>
       </footer>

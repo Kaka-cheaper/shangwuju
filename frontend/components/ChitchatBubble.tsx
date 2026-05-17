@@ -1,10 +1,7 @@
 "use client";
 
 /**
- * ChitchatBubble —— 暖心回话气泡（B+D 范式：去 emoji，灰阶克制）。
- *
- * tone 用 ink + accent 灰阶配色，不再把 emoji 当 chrome。
- * cta_chips 仍可能含 emoji（来自后端），保留显示但限制大小。
+ * ChitchatBubble —— 暖心回话气泡（黄昏深色主题）。
  */
 
 import { Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
@@ -14,8 +11,11 @@ import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface ToneTheme {
-  bg: string;
+  /** 卡片渐变背景 */
+  gradient: string;
+  /** 边框色 */
   border: string;
+  /** 文字 accent 色 */
   accent: string;
   Icon: typeof Sparkles;
   label: string;
@@ -23,30 +23,34 @@ interface ToneTheme {
 
 const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
   warm: {
-    bg: "bg-amber-50/60",
-    border: "border-amber-200",
-    accent: "text-amber-700",
+    gradient:
+      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(236,72,153,0.10) 100%)",
+    border: "border-brand-500/30",
+    accent: "text-brand-300",
     Icon: Coffee,
     label: "暖心",
   },
   neutral: {
-    bg: "bg-ink-50",
-    border: "border-ink-200",
+    gradient:
+      "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
+    border: "border-white/[0.1]",
     accent: "text-ink-700",
     Icon: MessageCircle,
     label: "介绍",
   },
   empathetic: {
-    bg: "bg-rose-50/60",
-    border: "border-rose-200",
-    accent: "text-rose-700",
+    gradient:
+      "linear-gradient(135deg, rgba(244,63,94,0.18) 0%, rgba(217,70,239,0.10) 100%)",
+    border: "border-rose-500/30",
+    accent: "text-rose-300",
     Icon: Heart,
     label: "陪伴",
   },
   playful: {
-    bg: "bg-emerald-50/60",
-    border: "border-emerald-200",
-    accent: "text-emerald-700",
+    gradient:
+      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(20,184,166,0.10) 100%)",
+    border: "border-emerald-500/30",
+    accent: "text-emerald-300",
     Icon: Sparkles,
     label: "玩笑",
   },
@@ -71,10 +75,10 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
     <div className="flex justify-start animate-fade-in-up">
       <div
         className={cn(
-          "max-w-[92%] rounded-2xl border px-3.5 py-3 text-sm leading-relaxed tracking-tight",
-          theme.bg,
+          "max-w-[92%] rounded-2xl border px-3.5 py-3 text-sm leading-relaxed tracking-tight backdrop-blur-sm",
           theme.border,
         )}
+        style={{ background: theme.gradient }}
       >
         {/* 头部：图标 + tone label + kind */}
         <div className="flex items-center gap-1.5 mb-1.5">
@@ -85,14 +89,14 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
           <span className={cn("text-[11px] font-medium", theme.accent)}>
             {theme.label}
           </span>
-          <span className="text-[10px] text-ink-300">·</span>
-          <span className="text-[11px] text-ink-500">
+          <span className="text-[10px] text-ink-500">·</span>
+          <span className="text-[11px] text-ink-600">
             {KIND_LABELS[payload.input_kind] ?? payload.input_kind}
           </span>
         </div>
 
         {/* 暖心回话文本 */}
-        <div className="text-ink-800 whitespace-pre-wrap">{payload.reply_text}</div>
+        <div className="text-ink-900 whitespace-pre-wrap">{payload.reply_text}</div>
 
         {/* 引导按钮 chips */}
         {payload.cta_chips.length > 0 && (
@@ -105,11 +109,11 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                 className={cn(
                   "inline-flex items-center gap-1 rounded-md",
                   "px-2.5 py-1 text-[11px] font-medium tracking-tight",
-                  "bg-white border border-ink-200 text-ink-700",
-                  "hover:border-ink-300 hover:bg-ink-50",
+                  "bg-white/[0.06] border border-white/[0.1] text-ink-800",
+                  "hover:bg-white/[0.1] hover:border-white/[0.2] hover:text-ink-900",
                   "transition-colors duration-150",
                   "active:scale-[0.98]",
-                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-ink-200 disabled:hover:bg-white",
+                  "disabled:opacity-50 disabled:cursor-not-allowed",
                 )}
                 title={chip.send}
               >

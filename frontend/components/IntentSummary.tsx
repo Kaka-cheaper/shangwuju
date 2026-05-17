@@ -3,7 +3,7 @@
 import { Icons } from "@/lib/icon-map";
 import type { IntentExtraction } from "@/lib/types";
 
-/** 意图解析结果摘要：评委可见的「Agent 听懂了什么」（B+D 范式）。 */
+/** 意图解析结果摘要（黄昏深色主题：暖橙图标 + glass 进度槽）。 */
 export default function IntentSummary({
   intent,
 }: {
@@ -26,31 +26,36 @@ export default function IntentSummary({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <Icons.spark
-            className="w-3.5 h-3.5 text-accent-500"
+            className="w-3.5 h-3.5 text-brand-400"
             strokeWidth={2.5}
           />
-          <span className="text-[11px] font-medium text-ink-700 tracking-tight">
+          <span className="text-[11px] font-medium text-ink-800 tracking-tight">
             意图解析
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-ink-400 mono">
+          <span className="text-[10px] text-ink-500 mono">
             {confidencePct}%
           </span>
-          <div className="w-16 h-1 rounded-full bg-ink-100 overflow-hidden">
+          <div className="w-16 h-1 rounded-full bg-white/[0.06] overflow-hidden">
             <div
-              className="h-full bg-accent-500 transition-[width] duration-500"
-              style={{ width: `${confidencePct}%` }}
+              className="h-full transition-[width] duration-500"
+              style={{
+                width: `${confidencePct}%`,
+                background:
+                  "linear-gradient(90deg, #fb923c 0%, #ec4899 100%)",
+                boxShadow: "0 0 8px rgb(249 115 22 / 0.6)",
+              }}
             />
           </div>
         </div>
       </div>
-      <div className="space-y-1 text-xs text-ink-700">
+      <div className="space-y-1 text-xs text-ink-800">
         <Row label="时间">
           {intent.start_time} · {dur}
         </Row>
         <Row label="距离上限">
-          <span className="mono text-ink-800">{intent.distance_max_km} km</span>
+          <span className="mono text-ink-900">{intent.distance_max_km} km</span>
         </Row>
         {companions && <Row label="同行">{companions}</Row>}
         <Row label="社交">
@@ -79,7 +84,7 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[10px] text-ink-400 uppercase tracking-wider w-12 shrink-0">
+      <span className="text-[10px] text-ink-500 uppercase tracking-wider w-12 shrink-0">
         {label}
       </span>
       <span className="flex-1 min-w-0">{children}</span>

@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   设计系统 v3「黄昏胶片」深色主题
+   ============================================================
+   参考：
+   - linear.app/agents 暗色 aurora
+   - Spotify Wrapped 高饱和暖光
+   - shadcn.io noise hero block 颗粒纹理
+   - magicui.design Aurora Background
+*/
+
 @layer base {
   html,
   body {
@@ -10,133 +20,309 @@
 
   body {
     @apply bg-ink-50 text-ink-800 antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter 风格变体 */
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    /* 深色主题底色：接近黑但带极淡蓝紫底（#0a0a0a + 微紫漂移） */
+    background-color: #0a0a0a;
+    color-scheme: dark; /* 让浏览器原生 UI（滚动条 / 选择器）也用暗色 */
+    /* 颗粒胶片纹理：用 SVG noise 当 background-image，固定不滚动 */
+    background-image:
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.04 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-attachment: fixed;
+    background-size: 200px 200px;
+    /* 真正的暗色基调：稍微偏蓝紫的深底 */
+    background-color: #08080d;
   }
 
+  /* 滚动条暗色 */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
   ::-webkit-scrollbar-thumb {
-    @apply bg-ink-200 rounded;
+    background: rgb(255 255 255 / 0.08);
+    border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-ink-300;
+    background: rgb(255 255 255 / 0.16);
   }
 
-  /* 选中文本：避开默认的紫蓝调，统一到 accent */
+  /* 选中文字：暖橙底色 */
   ::selection {
-    @apply bg-accent-100 text-accent-900;
+    background: rgb(249 115 22 / 0.35);
+    color: #fafaf9;
   }
 
-  /* 等宽字段（Tool 输入 JSON / session id / 订单号 / 标识符） */
+  /* 等宽字体 */
   .mono,
   code,
   kbd {
     @apply font-mono text-[0.92em] tracking-tight;
   }
+
+  /* 默认 input 的 autofill 不被浏览器染白 */
+  input:-webkit-autofill,
+  textarea:-webkit-autofill {
+    -webkit-text-fill-color: #f5f5f4;
+    -webkit-box-shadow: 0 0 0 1000px #161616 inset;
+    transition: background-color 5000s ease-in-out 0s;
+  }
 }
 
 @layer components {
   /* ============================================================
-     Card：去阴影、改纯边框分隔。Linear / Vercel 派系
+     Aurora 背景光斑层（fixed 全屏，z-0 在内容下方）
+     左上夕阳橙 + 右下暮光紫蓝，缓慢漂移呼吸
      ============================================================ */
-  .card {
-    @apply bg-white border border-ink-200 rounded-lg
-           transition-colors duration-150;
+  .aurora-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
   }
-  .card-hover {
-    @apply hover:border-ink-300;
+  .aurora-bg::before,
+  .aurora-bg::after {
+    content: "";
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    will-change: transform, opacity;
+  }
+  /* 左上：夕阳橙 → 莓粉 */
+  .aurora-bg::before {
+    width: 760px;
+    height: 760px;
+    top: -240px;
+    left: -180px;
+    background: radial-gradient(
+      circle at 30% 30%,
+      rgb(249 115 22 / 0.45) 0%,
+      rgb(236 72 153 / 0.28) 40%,
+      transparent 70%
+    );
+    animation: auroraDrift 18s ease-in-out infinite;
+  }
+  /* 右下：暮光紫蓝 */
+  .aurora-bg::after {
+    width: 880px;
+    height: 880px;
+    bottom: -260px;
+    right: -220px;
+    background: radial-gradient(
+      circle at 70% 70%,
+      rgb(139 92 246 / 0.35) 0%,
+      rgb(99 102 241 / 0.22) 45%,
+      transparent 75%
+    );
+    animation: auroraDrift 28s ease-in-out infinite reverse;
   }
 
   /* ============================================================
-     按钮：单色 accent + 灰阶 + 描边三档
+     Glass Card：玻璃拟态卡片（核心容器）
+     - 半透白底（ink-100 = #161616 半透）
+     - backdrop-blur 把背后光斑揉糊
+     - 1px 暖白边框 + 微弱内发光
+     ============================================================ */
+  .card {
+    background: rgb(20 20 23 / 0.72);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgb(255 255 255 / 0.06);
+    border-radius: 0.75rem;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.02) inset,
+      0 8px 32px -12px rgb(0 0 0 / 0.6);
+    transition: border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .card-hover:hover {
+    border-color: rgb(255 255 255 / 0.12);
+  }
+
+  /* ============================================================
+     按钮：主按钮换暖橙→莓粉渐变 + 发光阴影
      ============================================================ */
   .btn-primary {
     @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           bg-ink-900 hover:bg-ink-800 active:bg-ink-950
            text-white text-sm font-medium tracking-tight
-           shadow-elevated transition-colors duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-ink-700;
+           transition-all duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed;
+    background: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.08) inset,
+      0 4px 14px -2px rgb(249 115 22 / 0.4);
   }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #fb923c 0%, #f472b6 100%);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.14) inset,
+      0 6px 20px -2px rgb(249 115 22 / 0.55);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .btn-primary:disabled {
+    background: rgb(255 255 255 / 0.06);
+    color: rgb(255 255 255 / 0.3);
+    box-shadow: none;
+  }
+
+  /* 次按钮：玻璃描边 */
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           bg-white hover:bg-ink-50 active:bg-ink-100
-           text-ink-700 text-sm font-medium tracking-tight
-           border border-ink-200 hover:border-ink-300
-           transition-colors duration-150
+           text-sm font-medium tracking-tight
+           transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
+    background: rgb(255 255 255 / 0.04);
+    color: rgb(245 245 244 / 0.92);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    backdrop-filter: blur(6px);
   }
+  .btn-secondary:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.08);
+    border-color: rgb(255 255 255 / 0.16);
+    color: #fafaf9;
+  }
+
+  /* 危险幽灵：取消方案 */
   .btn-danger-ghost {
     @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           bg-white hover:bg-ink-50 active:bg-ink-100
-           text-ink-500 hover:text-ink-700 text-sm font-medium tracking-tight
-           border border-ink-200 hover:border-ink-300
-           transition-colors duration-150;
+           text-sm font-medium tracking-tight
+           transition-all duration-150;
+    background: transparent;
+    color: rgb(245 245 244 / 0.5);
+    border: 1px solid rgb(255 255 255 / 0.06);
   }
+  .btn-danger-ghost:hover:not(:disabled) {
+    background: rgb(244 63 94 / 0.08);
+    border-color: rgb(244 63 94 / 0.24);
+    color: rgb(251 113 133);
+  }
+
+  /* 顶栏 ghost 按钮 */
   .btn-ghost {
     @apply inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md
-           text-ink-500 hover:text-ink-800 hover:bg-ink-100
-           transition-colors duration-150 text-xs;
+           text-xs tracking-tight
+           transition-colors duration-150;
+    color: rgb(245 245 244 / 0.6);
   }
+  .btn-ghost:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.06);
+    color: #fafaf9;
+  }
+
+  /* accent 按钮（莓紫）：备用 */
   .btn-accent {
     @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           bg-accent-500 hover:bg-accent-600 active:bg-accent-700
            text-white text-sm font-medium tracking-tight
-           shadow-elevated transition-colors duration-150
+           transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
+    background: linear-gradient(135deg, #d946ef 0%, #8b5cf6 100%);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.08) inset,
+      0 4px 14px -2px rgb(217 70 239 / 0.4);
   }
 
   /* ============================================================
-     Chip / Tag：纯描边，单色变体
+     Chip / Tag：深色版（半透底 + 暖色文字）
      ============================================================ */
   .chip {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight
-           bg-ink-100 text-ink-700 border border-ink-200/60;
+           text-[11px] font-medium tracking-tight;
+    background: rgb(255 255 255 / 0.06);
+    color: rgb(245 245 244 / 0.78);
+    border: 1px solid rgb(255 255 255 / 0.08);
   }
   .chip-accent {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight
-           bg-accent-50 text-accent-700 border border-accent-200/60;
+           text-[11px] font-medium tracking-tight;
+    background: rgb(217 70 239 / 0.12);
+    color: rgb(240 171 252);
+    border: 1px solid rgb(217 70 239 / 0.24);
   }
   .chip-success {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight
-           bg-emerald-50 text-emerald-700 border border-emerald-200/60;
+           text-[11px] font-medium tracking-tight;
+    background: rgb(16 185 129 / 0.12);
+    color: rgb(110 231 183);
+    border: 1px solid rgb(16 185 129 / 0.24);
   }
   .chip-warn {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight
-           bg-amber-50 text-amber-700 border border-amber-200/60;
+           text-[11px] font-medium tracking-tight;
+    background: rgb(245 158 11 / 0.12);
+    color: rgb(252 211 77);
+    border: 1px solid rgb(245 158 11 / 0.24);
   }
   .chip-danger {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight
-           bg-rose-50 text-rose-700 border border-rose-200/60;
+           text-[11px] font-medium tracking-tight;
+    background: rgb(244 63 94 / 0.12);
+    color: rgb(253 164 175);
+    border: 1px solid rgb(244 63 94 / 0.24);
   }
 
   /* ============================================================
-     KBD：键盘按键样式（Cmd+K 命令面板提示）
+     KBD：键盘按键（玻璃质感）
      ============================================================ */
   .kbd {
     @apply inline-flex items-center justify-center
            min-w-[18px] h-[18px] px-1 rounded
-           font-mono text-[10px] font-medium tracking-tight
-           bg-ink-100 text-ink-600 border border-ink-200
-           shadow-[inset_0_-1px_0_0_rgb(228_228_231)];
+           font-mono text-[10px] font-medium tracking-tight;
+    background: rgb(255 255 255 / 0.06);
+    color: rgb(245 245 244 / 0.7);
+    border: 1px solid rgb(255 255 255 / 0.1);
+    box-shadow: inset 0 -1px 0 0 rgb(0 0 0 / 0.3);
   }
 
   /* ============================================================
-     Section header：按 Linear 风格的克制段落标题
+     Section title
      ============================================================ */
   .section-title {
-    @apply text-[11px] font-medium tracking-wide uppercase text-ink-400;
+    @apply text-[11px] font-medium tracking-wide uppercase;
+    color: rgb(245 245 244 / 0.4);
+  }
+
+  /* ============================================================
+     Brand mark：左上品牌渐变方块（顶栏 logo）
+     ============================================================ */
+  .brand-mark {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(
+      135deg,
+      #fb923c 0%,
+      #f97316 30%,
+      #ec4899 65%,
+      #8b5cf6 100%
+    );
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 0.12) inset,
+      0 0 0 1px rgb(255 255 255 / 0.04),
+      0 4px 16px -2px rgb(249 115 22 / 0.4),
+      0 4px 16px -2px rgb(139 92 246 / 0.3);
+    position: relative;
+    overflow: hidden;
+  }
+  /* mark 内部光泽 */
+  .brand-mark::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(
+        circle at 30% 25%,
+        rgb(255 255 255 / 0.45) 0%,
+        transparent 50%
+      );
   }
 
   /* ============================================================
      C 局部动效：流光按钮（思考态用）
-     在 transparent 背景上叠一层从左到右的渐变 mask
+     边框流光叠加在主按钮上方
      ============================================================ */
   .shimmer-border {
     position: relative;
@@ -151,12 +337,14 @@
     background: linear-gradient(
       110deg,
       transparent 30%,
-      rgba(47, 111, 235, 0.5) 50%,
+      rgba(251, 146, 60, 0.6) 45%,
+      rgba(236, 72, 153, 0.6) 55%,
       transparent 70%
     );
     background-size: 200% 100%;
     animation: shimmer 2s linear infinite;
-    -webkit-mask: linear-gradient(#000 0 0) content-box,
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
       linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;
@@ -164,26 +352,39 @@
   }
 
   /* ============================================================
-     C 局部动效：流光横条（streaming 顶部光带 + 骨架屏）
+     Streaming 顶部进度光带
+     从单色冷蓝 → 暖橙莓紫渐变扫过
      ============================================================ */
   .shimmer-bar {
     background: linear-gradient(
       110deg,
       transparent 30%,
-      rgb(47 111 235) 50%,
+      rgb(251 146 60) 45%,
+      rgb(236 72 153) 55%,
+      rgb(139 92 246) 65%,
       transparent 70%
     );
     background-size: 200% 100%;
     animation: shimmer 2s linear infinite;
   }
+
+  /* 骨架屏：暗色主题适配 */
   .shimmer-skeleton {
     background: linear-gradient(
       110deg,
-      rgb(244 244 245) 30%,
-      rgb(228 228 231) 50%,
-      rgb(244 244 245) 70%
+      rgb(255 255 255 / 0.04) 30%,
+      rgb(255 255 255 / 0.1) 50%,
+      rgb(255 255 255 / 0.04) 70%
     );
     background-size: 200% 100%;
     animation: shimmer 2s linear infinite;
+  }
+}
+
+@layer utilities {
+  /* 给 main 内容一个 z-index，让 aurora-bg 在底层 */
+  .relative-content {
+    position: relative;
+    z-index: 1;
   }
 }

@@ -153,25 +153,25 @@ export default function ToolTracePanel() {
           className="absolute top-0 left-0 right-0 h-px shimmer-bar"
         />
       )}
-      <div className="px-4 py-3 border-b border-ink-200 flex items-center justify-between">
+      <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <Sparkles
             className={cn(
               "w-3.5 h-3.5 transition-colors",
-              streaming ? "text-accent-500" : "text-ink-700",
+              streaming ? "text-brand-400" : "text-ink-700",
             )}
             strokeWidth={2}
           />
-          <span className="text-[12px] font-medium text-ink-800 tracking-tight">
+          <span className="text-[12px] font-medium text-ink-900 tracking-tight">
             Agent 思考链路
           </span>
         </div>
-        <div className="text-[11px] text-ink-400 mono">
+        <div className="text-[11px] text-ink-500 mono">
           {totalCalls} 调用
           {totalReplans > 0 && (
             <>
-              <span className="mx-1.5 text-ink-300">·</span>
-              <span className="text-amber-600">{totalReplans} 重规划</span>
+              <span className="mx-1.5 text-ink-400">·</span>
+              <span className="text-amber-400">{totalReplans} 重规划</span>
             </>
           )}
         </div>
@@ -226,12 +226,12 @@ function EpicBlock({
 
   // 头部状态色
   const headerAccent = hasInProgress
-    ? "text-accent-700"
+    ? "text-brand-400"
     : hasFail
-      ? "text-rose-700"
+      ? "text-rose-400"
       : hasReplan
-        ? "text-amber-700"
-        : "text-ink-700";
+        ? "text-amber-400"
+        : "text-ink-800";
 
   return (
     <div className="rounded-md">
@@ -240,13 +240,13 @@ function EpicBlock({
         onClick={onToggle}
         className={cn(
           "w-full flex items-center gap-2 rounded-md px-2 py-1.5",
-          "hover:bg-ink-50 transition-colors duration-150",
+          "hover:bg-white/[0.04] transition-colors duration-150",
           "text-left",
         )}
       >
         <ChevronDown
           className={cn(
-            "w-3 h-3 text-ink-400 shrink-0 transition-transform duration-200",
+            "w-3 h-3 text-ink-500 shrink-0 transition-transform duration-200",
             collapsed && "-rotate-90",
           )}
           strokeWidth={2.5}
@@ -254,53 +254,53 @@ function EpicBlock({
         <span className={cn("text-[12px] font-medium tracking-tight", headerAccent)}>
           {epic.label}
         </span>
-        <span className="text-[10px] text-ink-400 truncate flex-1 min-w-0">
+        <span className="text-[10px] text-ink-500 truncate flex-1 min-w-0">
           {epic.hint}
         </span>
         <span className="flex items-center gap-1.5 shrink-0">
           {hasInProgress && (
             <Loader2
-              className="w-3 h-3 text-accent-500 animate-spin"
+              className="w-3 h-3 text-brand-400 animate-spin"
               strokeWidth={2}
             />
           )}
           {hasReplan && !hasInProgress && (
             <TriangleAlert
-              className="w-3 h-3 text-amber-600"
+              className="w-3 h-3 text-amber-400"
               strokeWidth={2}
             />
           )}
-          <span className="text-[10px] text-ink-400 mono tabular-nums">
+          <span className="text-[10px] text-ink-500 mono tabular-nums">
             {callCount}× · {totalDurationMs}ms
           </span>
         </span>
       </button>
 
       {!collapsed && (
-        <ol className="ml-3 pl-2 border-l border-ink-200 space-y-1 py-1 animate-collapse-in overflow-hidden">
+        <ol className="ml-3 pl-2 border-l border-white/[0.08] space-y-1 py-1 animate-collapse-in overflow-hidden">
           {items.map((it, idx) => {
             const localIdx = idx + 1;
             if (it.kind === "replan") {
               return (
                 <li
                   key={`replan-${it.idx}`}
-                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-800"
+                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300"
                 >
                   <CornerDownRight
-                    className="w-3 h-3 text-amber-500 mt-0.5 shrink-0"
+                    className="w-3 h-3 text-amber-400 mt-0.5 shrink-0"
                     strokeWidth={2}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1">
                       <TriangleAlert
-                        className="w-3 h-3 text-amber-600 shrink-0"
+                        className="w-3 h-3 text-amber-400 shrink-0"
                         strokeWidth={2}
                       />
                       <span className="font-medium">触发异常重规划</span>
                     </div>
-                    <div className="mt-0.5 text-amber-700/90">
+                    <div className="mt-0.5 text-amber-400/90">
                       {FAILURE_REASON_LABEL[it.reason] ?? it.reason}
-                      <span className="mx-1 text-amber-400">·</span>
+                      <span className="mx-1 text-amber-500/60">·</span>
                       来自 <span className="mono text-[10px]">{it.fromTool}</span>
                     </div>
                   </div>
@@ -335,14 +335,14 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         : Icons.success;
 
   const iconClass = inProgress
-    ? "text-accent-500 animate-spin"
+    ? "text-brand-400 animate-spin"
     : replaced
-      ? "text-ink-400"
+      ? "text-ink-500"
       : isFail
-        ? "text-rose-500"
-        : "text-emerald-500";
+        ? "text-rose-400"
+        : "text-emerald-400";
 
-  const textClass = replaced ? "text-ink-400" : "text-ink-800";
+  const textClass = replaced ? "text-ink-500" : "text-ink-900";
 
   return (
     <li
@@ -352,7 +352,7 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
       )}
     >
       <div className="flex items-start gap-1.5">
-        <span className="text-[10px] text-ink-300 mono w-3 text-right shrink-0 mt-0.5 tabular-nums">
+        <span className="text-[10px] text-ink-500 mono w-3 text-right shrink-0 mt-0.5 tabular-nums">
           {index}
         </span>
         <StatusIcon
@@ -365,23 +365,23 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
               <span className={cn("text-[12px] font-medium tracking-tight", textClass)}>
                 {TOOL_LABEL[call.tool] ?? call.tool}
               </span>
-              <span className="text-[10px] text-ink-400 mono truncate">
+              <span className="text-[10px] text-ink-500 mono truncate">
                 {call.tool}
               </span>
             </div>
-            <span className="text-[10px] text-ink-400 mono shrink-0 tabular-nums">
+            <span className="text-[10px] text-ink-500 mono shrink-0 tabular-nums">
               {call.durationMs != null ? `${call.durationMs}ms` : "..."}
             </span>
           </div>
 
           {Object.keys(call.input).length > 0 && (
-            <div className="mt-0.5 text-[10px] text-ink-500 mono break-all line-clamp-1">
+            <div className="mt-0.5 text-[10px] text-ink-600 mono break-all line-clamp-1">
               {compactInput(call.input)}
             </div>
           )}
 
           {isFail && call.reason && (
-            <div className="mt-0.5 text-[10px] text-rose-600">
+            <div className="mt-0.5 text-[10px] text-rose-400">
               {FAILURE_REASON_LABEL[call.reason] ?? call.reason}
             </div>
           )}

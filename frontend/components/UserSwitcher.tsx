@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * UserSwitcher —— 顶栏用户切换器（B+D 范式：去 emoji，Lucide 图标）。
+ * UserSwitcher —— 顶栏用户切换器（黄昏深色主题：玻璃描边）。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -43,15 +43,15 @@ export default function UserSwitcher() {
     <div ref={wrapRef} className="relative">
       <button
         type="button"
-        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1 text-xs text-ink-700 hover:border-ink-300 hover:bg-ink-50 transition-colors tracking-tight"
+        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs text-ink-700 hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-ink-900 transition-colors tracking-tight backdrop-blur"
         onClick={() => setOpen((v) => !v)}
         title="切换演示用户"
       >
-        <CurrentIcon className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
+        <CurrentIcon className="w-3.5 h-3.5 text-accent-300" strokeWidth={2} />
         <span className="max-w-[90px] truncate">{display}</span>
         <span
           className={cn(
-            "text-[10px] text-ink-400 transition-transform",
+            "text-[10px] text-ink-500 transition-transform",
             open && "rotate-180",
           )}
         >
@@ -60,8 +60,11 @@ export default function UserSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-1.5 w-64 rounded-lg border border-ink-200 bg-white shadow-elevated z-20 overflow-hidden">
-          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-400 border-b border-ink-100">
+        <div
+          className="absolute right-0 mt-1.5 w-64 rounded-lg border border-white/[0.08] z-30 overflow-hidden shadow-elevated backdrop-blur-xl"
+          style={{ background: "rgba(20, 20, 23, 0.95)" }}
+        >
+          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-500 border-b border-white/[0.06]">
             选择演示用户档案
           </div>
           <ul className="py-1 max-h-72 overflow-auto">
@@ -75,8 +78,8 @@ export default function UserSwitcher() {
                     className={cn(
                       "w-full px-3 py-2 text-left text-xs flex items-start gap-2 transition-colors",
                       active
-                        ? "bg-ink-50"
-                        : "hover:bg-ink-50",
+                        ? "bg-white/[0.06]"
+                        : "hover:bg-white/[0.04]",
                     )}
                     onClick={() => {
                       setCurrentUserId(p.user_id);
@@ -86,7 +89,7 @@ export default function UserSwitcher() {
                     <Icon
                       className={cn(
                         "w-3.5 h-3.5 mt-0.5 shrink-0",
-                        active ? "text-accent-600" : "text-ink-500",
+                        active ? "text-accent-300" : "text-ink-500",
                       )}
                       strokeWidth={2}
                     />
@@ -99,13 +102,13 @@ export default function UserSwitcher() {
                       >
                         {p.label}
                       </span>
-                      <span className="block text-[11px] text-ink-500 line-clamp-2">
+                      <span className="block text-[11px] text-ink-600 line-clamp-2">
                         {p.notes}
                       </span>
                     </span>
                     {active && (
                       <Icons.success
-                        className="w-3.5 h-3.5 text-accent-600 shrink-0"
+                        className="w-3.5 h-3.5 text-accent-300 shrink-0"
                         strokeWidth={2.5}
                       />
                     )}

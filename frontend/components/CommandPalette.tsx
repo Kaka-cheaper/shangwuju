@@ -237,15 +237,22 @@ export default function CommandPalette() {
       aria-label="命令面板"
     >
       <div
-        className="absolute inset-0 bg-ink-950/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70 backdrop-blur-md"
         onClick={close}
         aria-hidden
       />
 
-      <div className="relative w-full max-w-xl bg-white border border-ink-200 rounded-lg shadow-elevated overflow-hidden animate-fade-in-up">
+      <div
+        className="relative w-full max-w-xl border border-white/[0.08] rounded-lg overflow-hidden animate-fade-in-up backdrop-blur-xl"
+        style={{
+          background: "rgba(20, 20, 23, 0.95)",
+          boxShadow:
+            "0 0 0 1px rgba(255,255,255,0.04), 0 24px 48px -12px rgba(0,0,0,0.8)",
+        }}
+      >
         {/* 搜索框 */}
-        <div className="flex items-center gap-2 px-3.5 py-3 border-b border-ink-200">
-          <Compass className="w-4 h-4 text-ink-400" strokeWidth={2} />
+        <div className="flex items-center gap-2 px-3.5 py-3 border-b border-white/[0.06]">
+          <Compass className="w-4 h-4 text-brand-400" strokeWidth={2} />
           <input
             ref={inputRef}
             type="text"
@@ -255,7 +262,7 @@ export default function CommandPalette() {
               setActive(0);
             }}
             placeholder="搜索场景 / 切换用户 / 切换模式..."
-            className="flex-1 bg-transparent border-0 outline-none text-sm text-ink-900 placeholder:text-ink-400 tracking-tight"
+            className="flex-1 bg-transparent border-0 outline-none text-sm text-ink-900 placeholder:text-ink-500 tracking-tight"
           />
           <span className="kbd">ESC</span>
         </div>
@@ -263,7 +270,7 @@ export default function CommandPalette() {
         {/* 列表 */}
         <div className="max-h-[420px] overflow-y-auto py-1">
           {flatItems.length === 0 && (
-            <div className="px-4 py-10 text-center text-sm text-ink-400">
+            <div className="px-4 py-10 text-center text-sm text-ink-500">
               没有匹配结果
             </div>
           )}
@@ -284,13 +291,15 @@ export default function CommandPalette() {
                         onClick={() => cmd.perform()}
                         className={cn(
                           "w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors",
-                          isActive ? "bg-ink-100" : "hover:bg-ink-50",
+                          isActive
+                            ? "bg-white/[0.08]"
+                            : "hover:bg-white/[0.04]",
                         )}
                       >
                         <Icon
                           className={cn(
                             "w-3.5 h-3.5 shrink-0",
-                            isActive ? "text-ink-900" : "text-ink-500",
+                            isActive ? "text-brand-400" : "text-ink-500",
                           )}
                           strokeWidth={2}
                         />
@@ -300,19 +309,19 @@ export default function CommandPalette() {
                               "text-[13px] tracking-tight truncate",
                               isActive
                                 ? "text-ink-900 font-medium"
-                                : "text-ink-700",
+                                : "text-ink-800",
                             )}
                           >
                             {cmd.label}
                           </div>
                           {cmd.hint && (
-                            <div className="text-[11px] text-ink-400 truncate">
+                            <div className="text-[11px] text-ink-500 truncate">
                               {cmd.hint}
                             </div>
                           )}
                         </div>
                         {isActive && (
-                          <span className="text-[10px] text-ink-400 mono">
+                          <span className="text-[10px] text-brand-400 mono">
                             ↵
                           </span>
                         )}
@@ -326,7 +335,7 @@ export default function CommandPalette() {
         </div>
 
         {/* 底部 hint */}
-        <div className="px-3.5 py-2 border-t border-ink-200 bg-ink-50/50 flex items-center justify-between text-[11px] text-ink-400">
+        <div className="px-3.5 py-2 border-t border-white/[0.06] bg-white/[0.02] flex items-center justify-between text-[11px] text-ink-500">
           <div className="flex items-center gap-1.5">
             <span className="kbd">↑</span>
             <span className="kbd">↓</span>

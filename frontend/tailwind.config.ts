@@ -10,49 +10,77 @@ const config: Config = {
     extend: {
       colors: {
         // ============================================================
-        // 设计系统 v2（B+D+C 混搭）
+        // 设计系统 v3「黄昏胶片」深色主题
         //
-        // - ink：zinc 灰阶（near-black 系），承担 95% 视觉层次
-        // - accent：单色蓝（Vercel/Linear 派系），仅在「主操作 / 当前
-        //   高亮 / Agent 思考态边框」三处用
-        // - 仍保留 brand-orange 作为「正在进行 / 重规划」状态色（次要）
+        // 核心思路：把 ink 色阶语义「反转」——在浅色主题里 ink-50
+        // 是最浅、ink-950 是最深；深色主题里 ink-50 = 最深的页面底色，
+        // ink-950 = 最亮的强调白。这样所有组件代码（bg-ink-50 / text-ink-800
+        // / border-ink-200）不需要动一行，整体语义自动适配深色。
         //
-        // 所有色值参考 Tailwind v3 zinc + 自调单色 accent
+        // 灵感来源（参考问题 12 研究）：
+        // - linear.app/agents 的暗色 aurora
+        // - Spotify Wrapped / MUBI 的暖光暗底
+        // - shadcn.io noise hero block 的颗粒感
+        //
+        // 三层色板：
+        // - ink: stone 暖灰系（带 5% 黄底，比纯 zinc 暖一档）
+        // - accent: 暖紫莓（替代原冷蓝），管 Agent 思考链路 / 进度
+        // - brand: 夕阳橙（保留 + 强化），管主操作 / 时间轴 / hover
+        // - sunset / dusk: 背景光斑专用渐变色组
         // ============================================================
         ink: {
-          50: "#fafafa",
-          100: "#f4f4f5",
-          200: "#e4e4e7",
-          300: "#d4d4d8",
-          400: "#a1a1aa",
-          500: "#71717a",
-          600: "#52525b",
-          700: "#3f3f46",
-          800: "#27272a",
-          900: "#18181b",
-          950: "#09090b",
+          // 反转后：50=最深页面底，950=最亮强调白
+          50: "#0a0a0a", // 页面底色 · 接近黑但带蓝紫底
+          100: "#161616", // 二级背景 / hover 浅亮一档
+          200: "#1f1f1f", // 边框 / 分隔
+          300: "#2e2e2e", // 弱边框
+          400: "#52525b", // 占位文字
+          500: "#71717a", // 次要文字
+          600: "#a3a3a8", // 正常文字次轴
+          700: "#d4d4d4", // 标题次
+          800: "#e7e5e4", // 主标题
+          900: "#f5f5f4", // 最亮文字（暖白系，非冷白）
+          950: "#fafaf9", // 极亮强调
         },
         accent: {
-          50: "#eff6ff",
-          100: "#dbeafe",
-          200: "#bfdbfe",
-          300: "#93c5fd",
-          400: "#60a5fa",
-          500: "#2f6feb",
-          600: "#1e5dd6",
-          700: "#1849b0",
-          800: "#173d8a",
-          900: "#172d63",
+          // 暖紫莓（替代原冷蓝 #2f6feb）—— Agent 思考链路色
+          50: "#fdf4ff",
+          100: "#fae8ff",
+          200: "#f5d0fe",
+          300: "#f0abfc",
+          400: "#e879f9",
+          500: "#d946ef", // 主 accent 莓紫
+          600: "#c026d3",
+          700: "#a21caf",
+          800: "#86198f",
+          900: "#701a75",
         },
-        // brand：保留作为「进行中 / 重规划」状态色，仅在 ToolTracePanel
-        // 与 streaming 指示器使用。不再作为品牌主色。
+        // brand：夕阳橙系（强化）—— 主操作 / 时间轴 / hover
         brand: {
           50: "#fff7ed",
           100: "#ffedd5",
+          200: "#fed7aa",
           300: "#fdba74",
+          400: "#fb923c",
           500: "#f97316",
           600: "#ea580c",
           700: "#c2410c",
+          800: "#9a3412",
+          900: "#7c2d12",
+        },
+        // sunset：暖橙→玫红光斑色（夕阳）
+        sunset: {
+          400: "#fb923c", // 暖橙
+          500: "#f97316",
+          600: "#ec4899", // 莓粉
+          700: "#db2777",
+        },
+        // dusk：紫蓝光斑色（暮光）
+        dusk: {
+          400: "#a78bfa", // 浅紫
+          500: "#8b5cf6", // 紫
+          600: "#6366f1", // 靛
+          700: "#4f46e5",
         },
       },
       fontFamily: {
@@ -79,12 +107,12 @@ const config: Config = {
         "pulse-soft": "pulseSoft 1.6s ease-in-out infinite",
         "fade-in": "fadeIn 240ms ease-out",
         "fade-in-up": "fadeInUp 280ms ease-out",
-        // C 局部动效：思考态边框流光
         shimmer: "shimmer 2s linear infinite",
-        // C 局部动效：数字滚动用 spring 感
         "tick-up": "tickUp 380ms cubic-bezier(0.34, 1.56, 0.64, 1)",
-        // B 范式：trace 段展开折叠
         "collapse-in": "collapseIn 200ms ease-out",
+        // 黄昏光斑缓慢呼吸
+        "aurora-drift": "auroraDrift 18s ease-in-out infinite",
+        "aurora-drift-slow": "auroraDrift 28s ease-in-out infinite reverse",
       },
       keyframes: {
         pulseSoft: {
@@ -100,7 +128,6 @@ const config: Config = {
           to: { opacity: "1", transform: "translateY(0)" },
         },
         shimmer: {
-          // 边框流光：用 background-position 滚动渐变
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
@@ -113,10 +140,28 @@ const config: Config = {
           from: { opacity: "0", maxHeight: "0", transform: "translateY(-2px)" },
           to: { opacity: "1", maxHeight: "1000px", transform: "translateY(0)" },
         },
+        auroraDrift: {
+          "0%, 100%": {
+            transform: "translate3d(0, 0, 0) scale(1)",
+            opacity: "0.7",
+          },
+          "33%": {
+            transform: "translate3d(40px, -30px, 0) scale(1.1)",
+            opacity: "0.85",
+          },
+          "66%": {
+            transform: "translate3d(-30px, 40px, 0) scale(0.95)",
+            opacity: "0.6",
+          },
+        },
       },
       boxShadow: {
-        // 比 shadow-sm 更克制的「分隔感」，用在 hover 微浮起
-        elevated: "0 1px 2px 0 rgb(0 0 0 / 0.04), 0 0 0 1px rgb(0 0 0 / 0.04)",
+        // 深色主题阴影：用浅色光晕替代真阴影（深底投不出阴影）
+        elevated:
+          "0 0 0 1px rgb(255 255 255 / 0.06), 0 8px 32px -8px rgb(0 0 0 / 0.6)",
+        glow: "0 0 0 1px rgb(255 255 255 / 0.1), 0 0 24px rgb(249 115 22 / 0.15)",
+        "glow-accent":
+          "0 0 0 1px rgb(255 255 255 / 0.08), 0 0 24px rgb(217 70 239 / 0.2)",
       },
     },
   },

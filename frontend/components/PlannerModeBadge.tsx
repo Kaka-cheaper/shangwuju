@@ -28,8 +28,8 @@ const MODE_TITLE: Record<PlannerMode, string> = {
 };
 
 const MODE_DOT: Record<PlannerMode, string> = {
-  rule: "bg-ink-400",
-  llm: "bg-accent-500",
+  rule: "bg-ink-500",
+  llm: "bg-gradient-to-br from-brand-400 to-accent-500",
 };
 
 export default function PlannerModeBadge() {
@@ -79,10 +79,10 @@ export default function PlannerModeBadge() {
       aria-label={`当前 planner 模式：${MODE_LABEL[mode]}，点击切换为 ${MODE_LABEL[next]}`}
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
-        "border border-ink-200 bg-white text-ink-600 tracking-tight",
-        "hover:border-ink-300 hover:bg-ink-50 hover:text-ink-800",
-        "transition-colors",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-ink-600 disabled:hover:border-ink-200",
+        "border border-white/[0.08] bg-white/[0.03] text-ink-700 tracking-tight",
+        "hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-ink-900",
+        "transition-colors backdrop-blur",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/[0.03] disabled:hover:text-ink-700 disabled:hover:border-white/[0.08]",
       )}
     >
       <span
