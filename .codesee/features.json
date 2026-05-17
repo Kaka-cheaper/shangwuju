@@ -2,7 +2,7 @@
   "version": "0",
   "manifest": {
     "repo": "shangwuju",
-    "generated_at": "2026-05-16T00:00:00Z",
+    "generated_at": "2026-05-17T18:00:00Z",
     "generator": "ai@claude-opus-4.7",
     "lang": "zh-CN"
   },
@@ -847,28 +847,35 @@
     {
       "id": "f-llm-planner",
       "name": "LLM 范式分发",
-      "summary": "PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 路由到 hybrid（A+C 默认）或 function_calling，stub 客户端兼容回 rule",
+      "summary": "PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 路由到 llm_first（默认；LLM-First Planner，参考 problem.md 问题 15）/ hybrid（A+C 混合）/ function_calling 三种策略；4 级 fallback 链 llm_first → hybrid → rule，stub 客户端兼容回 rule",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "PLANNER_MODE=llm 或 X-Planner-Mode=llm 时由分发器选用" }
       ],
       "steps": [
-        { "id": "receive", "name": "接收意图与客户端", "role": "input" },
-        { "id": "ensure_tracer", "name": "提前生成追踪器", "role": "compute" },
-        { "id": "stub_check", "name": "判断客户端能力", "role": "validation" },
-        { "id": "select_strategy", "name": "选规划策略", "role": "compute" },
-        { "id": "to_hybrid", "name": "派发到混合范式", "role": "compute" },
-        { "id": "to_function_calling", "name": "派发到工具自主调用", "role": "compute" },
-        { "id": "fallback_rule", "name": "降级到规则范式", "role": "error" },
-        { "id": "output", "name": "返回方案", "role": "output" }
+        { "id": "receive", "name": "接收意图", "role": "input" },
+        { "id": "ensure_tracer", "name": "建追踪器", "role": "compute" },
+        { "id": "stub_check", "name": "判客户端", "role": "validation" },
+        { "id": "select_strategy", "name": "选策略", "role": "compute" },
+        { "id": "to_llm_first", "name": "派 LLM-First", "role": "compute" },
+        { "id": "to_hybrid", "name": "派混合", "role": "compute" },
+        { "id": "to_function_calling", "name": "派工具调", "role": "compute" },
+        { "id": "fallback_hybrid_from_llm_first", "name": "降级混合", "role": "error" },
+        { "id": "fallback_rule", "name": "降级规则", "role": "error" },
+        { "id": "output", "name": "返方案", "role": "output" }
       ],
       "flow": [
         { "from": "receive", "to": "ensure_tracer", "kind": "next" },
         { "from": "ensure_tracer", "to": "stub_check", "kind": "next" },
         { "from": "stub_check", "to": "fallback_rule", "kind": "conditional", "condition": "client.provider=stub 或 不可用" },
         { "from": "stub_check", "to": "select_strategy", "kind": "conditional", "condition": "client 可决策" },
-        { "from": "select_strategy", "to": "to_hybrid", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=hybrid（默认）" },
+        { "from": "select_strategy", "to": "to_llm_first", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=llm_first（默认）" },
+        { "from": "select_strategy", "to": "to_hybrid", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=hybrid" },
         { "from": "select_strategy", "to": "to_function_calling", "kind": "conditional", "condition": "PLANNER_LLM_STRATEGY=function_calling" },
+        { "from": "to_llm_first", "to": "output", "kind": "conditional", "condition": "LLM-First 蓝图通过 critic" },
+        { "from": "to_llm_first", "to": "fallback_hybrid_from_llm_first", "kind": "error", "condition": "LLM-First 重试用尽" },
+        { "from": "fallback_hybrid_from_llm_first", "to": "output", "kind": "conditional", "condition": "hybrid 成功" },
+        { "from": "fallback_hybrid_from_llm_first", "to": "fallback_rule", "kind": "error", "condition": "hybrid 也失败" },
         { "from": "to_hybrid", "to": "output", "kind": "conditional", "condition": "hybrid 成功" },
         { "from": "to_hybrid", "to": "fallback_rule", "kind": "error", "condition": "hybrid 失败" },
         { "from": "to_function_calling", "to": "output", "kind": "conditional", "condition": "LLM 收敛" },
@@ -876,14 +883,14 @@
         { "from": "fallback_rule", "to": "output", "kind": "next" }
       ],
       "refs": [
-        { "file": "backend/agent/planner.py", "lines": [855, 1010] },
+        { "file": "backend/agent/planner.py", "lines": [1080, 1305] },
         { "file": "backend/schemas/planner_mode.py", "lines": [1, 70] },
-        { "file": "backend/.env.example", "lines": [40, 60] }
+        { "file": "backend/.env.example", "lines": [40, 70] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-17T16:00:00Z"
+      "updated_at": "2026-05-17T18:00:00Z"
     },
     {
       "id": "f-planning-weights",
@@ -1419,6 +1426,82 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-17T00:00:00Z"
+    },
+    {
+      "id": "f-llm-first-planner",
+      "name": "LLM-First 规划主流程",
+      "summary": "LLM-First Planner 主流程：候选搜索 → LLM 看候选预览出 PlanBlueprint → Critic 验证 → 硬违规 backprompt 重试 ≤2 次 → 蓝图拼装为 Itinerary。LLM 决主观（段集合/段顺序/每段时长/target_id），算法决客观（时序无重叠/营业时间/总时长）。问题 15 解决耦合反模式。",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "PLANNER_LLM_STRATEGY=llm_first（默认）时被 f-llm-planner 调用" }
+      ],
+      "steps": [
+        { "id": "search_pois_phase", "name": "搜 POI", "role": "data-read" },
+        { "id": "search_rests_phase", "name": "搜餐厅", "role": "data-read" },
+        { "id": "build_preview", "name": "打包候选", "role": "compute" },
+        { "id": "llm_blueprint", "name": "LLM 出蓝图", "role": "compute" },
+        { "id": "critic_check", "name": "蓝图校验", "role": "validation" },
+        { "id": "backprompt_retry", "name": "回灌重试", "role": "compute" },
+        { "id": "assemble", "name": "拼装行程", "role": "compute" },
+        { "id": "emit_itinerary_ready", "name": "推方案", "role": "output" },
+        { "id": "fail_to_hybrid", "name": "降级混合", "role": "error" }
+      ],
+      "flow": [
+        { "from": "search_pois_phase", "to": "search_rests_phase", "kind": "next" },
+        { "from": "search_rests_phase", "to": "build_preview", "kind": "next" },
+        { "from": "build_preview", "to": "llm_blueprint", "kind": "next" },
+        { "from": "llm_blueprint", "to": "critic_check", "kind": "next" },
+        { "from": "critic_check", "to": "assemble", "kind": "conditional", "condition": "无硬违规" },
+        { "from": "critic_check", "to": "backprompt_retry", "kind": "conditional", "condition": "存在硬违规且未达重试上限" },
+        { "from": "critic_check", "to": "fail_to_hybrid", "kind": "error", "condition": "硬违规且重试用尽" },
+        { "from": "backprompt_retry", "to": "llm_blueprint", "kind": "next" },
+        { "from": "assemble", "to": "emit_itinerary_ready", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/planner_llm_first.py", "lines": [1, 280] },
+        { "file": "backend/agent/blueprint_llm.py", "lines": [1, 240] },
+        { "file": "backend/agent/assemble_blueprint.py", "lines": [1, 154] },
+        { "file": "backend/agent/prompts/blueprint_prompt.py", "lines": [1, 133] },
+        { "file": "backend/scripts/verify_llm_first.py", "lines": [1, 152] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T18:00:00Z"
+    },
+    {
+      "id": "f-blueprint-critics",
+      "name": "蓝图级 Critic（C1/C2/C3）",
+      "summary": "对 LLM 出的 PlanBlueprint 跑 3 个客观约束 critic：C1 时序无重叠 / C2 总时长不超用户上限 / C3 段时间在 target 营业时间内。硬违规 → 反馈消息给 LLM 重生成；soft 违规仅扣 soft_score。LLM-Modulo (Kambhampati NeurIPS 2024) 闭环。",
+      "epicId": "planning",
+      "triggers": [
+        { "kind": "event", "detail": "由 f-llm-first-planner 在 LLM 蓝图生成后调用" }
+      ],
+      "steps": [
+        { "id": "input_blueprint", "name": "接收蓝图", "role": "input" },
+        { "id": "c1_temporal", "name": "查时序", "role": "validation" },
+        { "id": "c2_duration", "name": "查时长", "role": "validation" },
+        { "id": "c3_opening_hours", "name": "查营业", "role": "validation" },
+        { "id": "aggregate_report", "name": "聚合报告", "role": "compute" },
+        { "id": "output_passed", "name": "通过", "role": "output" },
+        { "id": "output_violations", "name": "回灌违规", "role": "output" }
+      ],
+      "flow": [
+        { "from": "input_blueprint", "to": "c1_temporal", "kind": "next" },
+        { "from": "c1_temporal", "to": "c2_duration", "kind": "next" },
+        { "from": "c2_duration", "to": "c3_opening_hours", "kind": "next" },
+        { "from": "c3_opening_hours", "to": "aggregate_report", "kind": "next" },
+        { "from": "aggregate_report", "to": "output_passed", "kind": "conditional", "condition": "无硬违规" },
+        { "from": "aggregate_report", "to": "output_violations", "kind": "conditional", "condition": "存在硬违规" }
+      ],
+      "refs": [
+        { "file": "backend/agent/blueprint.py", "lines": [200, 375] },
+        { "file": "backend/tests/test_blueprint.py", "lines": [1, 308] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-17T18:00:00Z"
     }
   ],
   "cross_feature": [
@@ -1488,7 +1571,11 @@
     { "from": "f-memory-learning", "to": "f-quick-input", "kind": "publishes", "note": "preferences 端点产出，前端切 user 时拉取" },
     { "from": "f-quick-input", "to": "f-input-router", "kind": "triggers", "note": "任意输入先经 router 6 类分类" },
     { "from": "f-input-router", "to": "f-intent-parse", "kind": "triggers", "note": "planning 类透传给意图解析" },
-    { "from": "f-input-router", "to": "f-tool-trace", "kind": "publishes", "note": "chitchat_reply 事件推前端展示" }
+    { "from": "f-input-router", "to": "f-tool-trace", "kind": "publishes", "note": "chitchat_reply 事件推前端展示" },
+    { "from": "f-llm-planner", "to": "f-llm-first-planner", "kind": "depends_on", "note": "PLANNER_LLM_STRATEGY=llm_first 时分发" },
+    { "from": "f-llm-first-planner", "to": "f-blueprint-critics", "kind": "depends_on", "note": "蓝图生成后强制走 critic 验证" },
+    { "from": "f-blueprint-critics", "to": "f-llm-first-planner", "kind": "publishes", "note": "硬违规 → backprompt 反馈给 LLM 重生成" },
+    { "from": "f-llm-first-planner", "to": "f-hybrid-planner", "kind": "triggers", "note": "LLM-First 重试用尽时 fallback 到 hybrid" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
