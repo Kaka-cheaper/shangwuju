@@ -64,17 +64,26 @@ MAX_TOOL_CALLS_PER_KIND = 3
 MAX_TOOL_CALLS_FOR_SEARCH = 5
 
 # 一次会话内总 Tool 调用上限
-MAX_TOTAL_TOOL_CALLS = 16
+# 注：check_restaurant_availability 在最坏情况下要试 3 餐厅 × 5 时段 = 15 次第一轮
+# + 第二轮兜底再扫每家自带 slots（约 6×3=18）= 33 次；
+# 加上 user_profile + search_pois + search_restaurants + 3 estimate_route_time = 6
+# 总共最多 39 次，给 45 留点 buffer
+MAX_TOTAL_TOOL_CALLS = 45
 
 # 标准用餐时段（按演示场景集 §S1）
+# 注意：这是「下午局」的默认晚餐时段；实际时段会由 _resolve_time_window 根据 intent.start_time 动态推导
 DEFAULT_DINING_TIMES = ["17:00", "17:30", "18:00"]
 
-# 出发时间默认值
+# 出发时间默认值（intent.start_time 解析失败时兜底）
 DEFAULT_DEPART_TIME = "14:00"
 
-# 每段活动默认时长
-MAIN_ACTIVITY_MINUTES = 120
-DINING_MINUTES = 90
+# 每段活动默认时长（分钟）
+# 注意：实际时长由 _resolve_time_window 根据 intent.duration_hours 动态推导
+DEFAULT_MAIN_ACTIVITY_MINUTES = 120
+DEFAULT_DINING_MINUTES = 90
+# 行程总时长的硬下限（防 duration_hours 异常给出 [0,0]）
+MIN_MAIN_ACTIVITY_MINUTES = 30
+MIN_DINING_MINUTES = 30
 TRANSFER_BUFFER_MINUTES = 5
 
 
@@ -124,14 +133,26 @@ def plan_itinerary(
 
     counters: dict[str, int] = {}
 
-    _SEARCH_TOOLS = {"search_pois", "search_restaurants"}
+    # 查询类 Tool 走更高上限（多级降级重试 + 多时段尝试）；其他 Tool 仍走原 3 次
+    # check_restaurant_availability 也归此列：dining_slots 从 intent.duration 推导
+    # 后可能产出 5 个候选时段，3 餐厅 × 5 时段 = 15 次潜在调用（首个命中即返）
+    _SEARCH_TOOLS = {
+        "search_pois",
+        "search_restaurants",
+        "check_restaurant_availability",
+    }
+    # check_availability 单独给更高上限（最坏 3 餐厅 × 5 时段 + 第二轮兜底扫餐厅自带 slots 约 6×3 = 33）
+    MAX_TOOL_CALLS_FOR_AVAILABILITY = 30
 
     def _bumped(name: str) -> bool:
         counters[name] = counters.get(name, 0) + 1
         # 查询类 Tool 走更高上限（多级降级重试）；其他 Tool 仍走原 3 次
-        cap = (
-            MAX_TOOL_CALLS_FOR_SEARCH if name in _SEARCH_TOOLS else MAX_TOOL_CALLS_PER_KIND
-        )
+        if name == "check_restaurant_availability":
+            cap = MAX_TOOL_CALLS_FOR_AVAILABILITY
+        elif name in _SEARCH_TOOLS:
+            cap = MAX_TOOL_CALLS_FOR_SEARCH
+        else:
+            cap = MAX_TOOL_CALLS_PER_KIND
         if counters[name] > cap:
             return True
         if sum(counters.values()) > MAX_TOTAL_TOOL_CALLS:
@@ -193,8 +214,12 @@ def plan_itinerary(
         return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "餐厅候选为空")
 
     # ---- 4. 餐厅可用性 + 重规划（E1）----
+    # Phase 0.8.1：从 intent 推导时间窗，让用餐时段反映 start_time + duration
+    depart_time, dining_slots, main_minutes, dining_minutes = _resolve_time_window(
+        intent
+    )
     chosen_restaurant, chosen_time = _negotiate_dining(
-        restaurants, intent, _call, tracer
+        restaurants, intent, _call, tracer, dining_slots=dining_slots
     )
     if chosen_restaurant is None:
         return _abort(
@@ -219,6 +244,9 @@ def plan_itinerary(
         rest_to_home=rest_to_home,
         party_size=party_size,
         backup_pois=backup_pois,
+        depart_time=depart_time,
+        main_activity_minutes=main_minutes,
+        dining_minutes=dining_minutes,
     )
     tracer.emit("itinerary_ready", payload=itinerary.model_dump())
     return PlannerResult(success=True, itinerary=itinerary, tracer=tracer)
@@ -484,18 +512,29 @@ def _negotiate_dining(
     intent: IntentExtraction,
     call,
     tracer: Tracer,
+    *,
+    dining_slots: list[str] | None = None,
 ) -> tuple[Restaurant | None, str | None]:
-    """对每家餐厅依序尝试默认时段，命中即返。
+    """对每家餐厅依序尝试候选时段，命中即返。
+
+    Args:
+        dining_slots: 用餐尝试时段列表；None 时退化为 DEFAULT_DINING_TIMES。
+            实际由 plan_itinerary 通过 _resolve_time_window 从 intent.start_time
+            + duration_hours 推导（不再硬编码 17:00/17:30/18:00）。
 
     异常恢复策略（E1）：
     - 第一家 17:00 满 → 切 17:30
     - 第一家全满 → 切第二家
+    - 候选时段都试完仍不命中 → 把每家餐厅自带的 available 时段也试一遍兜底
+      （应对 mock 时段稀疏的极端 case）
     - 全部组合失败 → (None, None)
     """
     party_size = max(1, sum(c.count for c in intent.companions) or 1)
+    slots = dining_slots or DEFAULT_DINING_TIMES
 
+    # 第一轮：用推算时段 × 前 3 家
     for idx, rest in enumerate(restaurants[:3]):  # 最多尝试前 3 家
-        for time_slot in DEFAULT_DINING_TIMES:
+        for time_slot in slots:
             result = call(
                 "check_restaurant_availability",
                 CheckRestaurantAvailabilityInput(
@@ -539,6 +578,29 @@ def _negotiate_dining(
                 )
                 continue
 
+    # 第二轮兜底：推算时段都没命中，扫描每家餐厅自带的 available slots
+    # （应对 mock 时段稀疏的极端 case，如 S8 粤菜的 sunday_lunch 推算 14:30 但只有 17:30/18:00 有空位）
+    for rest in restaurants[:3]:
+        slots_in_data = sorted(
+            (s for s in rest.reservation_slots if s.available),
+            key=lambda s: s.time,
+        )
+        for slot in slots_in_data:
+            if slot.time in slots:
+                continue  # 第一轮已试过
+            result = call(
+                "check_restaurant_availability",
+                CheckRestaurantAvailabilityInput(
+                    restaurant_id=rest.id,
+                    time=slot.time,
+                    party_size=party_size,
+                ).model_dump(),
+            )
+            if result.success:
+                output = CheckRestaurantAvailabilityOutput.model_validate(result.output)
+                if output.available:
+                    return rest, slot.time
+
     return None, None
 
 
@@ -561,6 +623,127 @@ def _estimate(call, from_id: str, to_id: str) -> int:
 # 行程组装
 # ============================================================
 
+# 输入域 → 默认出发时间（小时，24h）
+# 用户没明示具体时间时按这个表选
+_TIME_OF_DAY_DEPART_HOUR = {
+    "morning": 9,
+    "noon": 12,
+    "lunch": 12,
+    "afternoon": 14,
+    "evening": 18,
+    "dinner": 18,
+    "night": 19,
+}
+
+
+def _parse_start_time_hour(start_time: str | None) -> int | None:
+    """从 intent.start_time 抽出小时数（24h）。
+
+    支持的输入形态（按 §5.7 D-SoT）：
+    - ISO-like："2026-05-09T14:00" / "2026-05-09 14:00"
+    - 口语标签："today_afternoon" / "sunday_evening" / "weekend_morning" 等
+    - 单纯口语："morning" / "evening"
+
+    解析不出 → 返 None，调用方按默认 14:00 兜底。
+    """
+    if not start_time:
+        return None
+    text = start_time.strip().lower()
+
+    # ISO-like: 取 T 或空格后的 HH
+    for sep in ("t", " "):
+        if sep in text:
+            tail = text.split(sep, 1)[1]
+            if ":" in tail:
+                try:
+                    h = int(tail.split(":", 1)[0])
+                    if 0 <= h <= 23:
+                        return h
+                except ValueError:
+                    pass
+
+    # 口语标签：扫描关键词
+    # 注意子串重叠：必须先扫描更长 / 更具体的关键词
+    # 例：「afternoon」含「noon」子串，若先扫 noon 会把 afternoon 误判为 12 点
+    keywords_ordered = [
+        ("afternoon", 14),
+        ("morning", 9),
+        ("evening", 18),
+        ("dinner", 18),
+        ("night", 19),
+        ("lunch", 12),
+        ("noon", 12),
+    ]
+    for kw, h in keywords_ordered:
+        if kw in text:
+            return h
+
+    return None
+
+
+def _resolve_time_window(intent: IntentExtraction) -> tuple[str, list[str], int, int]:
+    """从 intent 推导：出发时间、可选用餐时段、主活动时长、用餐时长。
+
+    返回：
+        (depart_time, dining_slots, main_minutes, dining_minutes)
+
+    规则：
+    - depart_time：从 intent.start_time 抽出小时；解析不出按 14:00 兜底
+    - dining_slots：基于 depart + 主活动时长 + 转场，给 3 个候选时段（每隔 30 分钟）
+        例：14:00 出发 / 主活动 2h → 用餐尝试 16:30 / 17:00 / 17:30
+            18:00 出发 / 主活动 1h → 用餐尝试 19:30 / 20:00 / 20:30
+    - main_minutes / dining_minutes：按 duration_hours 的中点 × 比例（主活动:用餐 ≈ 4:3）
+        总时长 1h → 主 30 + 餐 30
+        总时长 5h → 主 150 + 餐 90
+        总时长 ≥ 5h → 维持上限 main 150 / dining 90（防过长）
+    """
+    # ---- 出发时间 ----
+    depart_hour = _parse_start_time_hour(intent.start_time)
+    if depart_hour is None:
+        depart_time = DEFAULT_DEPART_TIME
+    else:
+        depart_time = f"{depart_hour:02d}:00"
+
+    # ---- 总时长 ----
+    # duration_hours 是 [min, max]，取中点
+    lo, hi = intent.duration_hours
+    total_hours = max(0.5, (lo + hi) / 2.0)
+    total_minutes = int(total_hours * 60)
+
+    # 总时长里要扣两段路程 buffer（约 30 分钟）剩余分给主活动 + 用餐
+    activity_pool = max(60, total_minutes - 30)
+
+    # 主活动:用餐 = 4:3
+    main_minutes = max(MIN_MAIN_ACTIVITY_MINUTES, int(activity_pool * 4 / 7))
+    dining_minutes = max(MIN_DINING_MINUTES, int(activity_pool * 3 / 7))
+
+    # 上限：单段不超过默认值（防 duration 给 [10, 12] 把 demo 拉太长）
+    main_minutes = min(main_minutes, DEFAULT_MAIN_ACTIVITY_MINUTES)
+    dining_minutes = min(dining_minutes, DEFAULT_DINING_MINUTES)
+
+    # ---- 用餐候选时段 ----
+    # 假设主活动后立刻去吃饭；预估转场 + 路上 30 分钟
+    earliest_dining_minutes = main_minutes + 30
+    h, m = depart_time.split(":")
+    base_minutes = int(h) * 60 + int(m) + earliest_dining_minutes
+    # 对齐到下一个整 30 分钟
+    base_minutes = ((base_minutes + 29) // 30) * 30
+
+    # 给 5 个候选时段（每隔 30 分钟），让 _negotiate_dining 有更宽的尝试空间
+    # （mock 时段密度有限：常见的是整点 + 半点；多给候选能避免 NOT_FOUND 直接 fail）
+    dining_slots: list[str] = []
+    for i in range(5):
+        t = base_minutes + i * 30
+        if t >= 24 * 60:  # 跨日防御
+            break
+        dining_slots.append(f"{t // 60:02d}:{t % 60:02d}")
+
+    if not dining_slots:
+        dining_slots = list(DEFAULT_DINING_TIMES)
+
+    return depart_time, dining_slots, main_minutes, dining_minutes
+
+
 def _add_minutes(time_str: str, minutes: int) -> str:
     """形如 "14:00" + 30 → "14:30"。简化实现，不处理跨日。"""
     h, m = time_str.split(":")
@@ -578,14 +761,27 @@ def _assemble_itinerary(
     rest_to_home: int,
     party_size: int,
     backup_pois: list[Poi],
+    depart_time: str = DEFAULT_DEPART_TIME,
+    main_activity_minutes: int = DEFAULT_MAIN_ACTIVITY_MINUTES,
+    dining_minutes: int = DEFAULT_DINING_MINUTES,
 ) -> Itinerary:
-    depart = DEFAULT_DEPART_TIME
+    """组装六段行程。
+
+    新增参数（Phase 0.8.1，修复硬编码 14-19 时间窗 bug）：
+        depart_time: 出发时间，从 intent.start_time 推导
+        main_activity_minutes: 主活动时长，从 intent.duration_hours 按比例推导
+        dining_minutes: 用餐时长，同上
+    缺省走兼容默认值（14:00 / 120 / 90），不破现有测试。
+    """
+    depart = depart_time
     arrive_poi = _add_minutes(depart, home_to_poi)
-    leave_poi = _add_minutes(arrive_poi, MAIN_ACTIVITY_MINUTES)
+    leave_poi = _add_minutes(arrive_poi, main_activity_minutes)
     arrive_rest = _add_minutes(leave_poi, poi_to_rest + TRANSFER_BUFFER_MINUTES)
-    # 餐厅约 chosen_time，但若 arrive_rest > chosen_time 则采用 arrive_rest
-    dining_start = max(arrive_rest, chosen_time)
-    dining_end = _add_minutes(dining_start, DINING_MINUTES)
+    # 若 arrive_rest 早于 chosen_time（比如用户说 1 小时，活动结束才 14:30 但餐厅最早只有 17:00 空位）：
+    # 用餐起点采用 chosen_time，但要让"转场"段延长到 chosen_time，避免出现 14:30-17:00 空白窗口
+    dining_start = chosen_time if chosen_time > arrive_rest else arrive_rest
+    transfer_end = dining_start  # 转场段直接拉到 dining_start
+    dining_end = _add_minutes(dining_start, dining_minutes)
     home_back = _add_minutes(dining_end, rest_to_home)
 
     stages = [
@@ -607,9 +803,13 @@ def _assemble_itinerary(
         ItineraryStage(
             kind="转场",
             start=leave_poi,
-            end=arrive_rest,
+            end=transfer_end,
             title=f"前往「{chosen_restaurant.name}」",
-            note=f"打车约 {poi_to_rest} 分钟",
+            note=(
+                f"打车约 {poi_to_rest} 分钟"
+                if transfer_end == arrive_rest
+                else f"打车约 {poi_to_rest} 分钟，到达后稍作休息等到用餐时段"
+            ),
         ),
         ItineraryStage(
             kind="用餐",

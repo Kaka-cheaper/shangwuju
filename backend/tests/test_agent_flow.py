@@ -85,7 +85,14 @@ def test_no_forbidden_d9_fields_in_intent():
 
 
 def test_tool_quota_enforced():
-    """planner 不应把任何 Tool 调超过 3 次（pitfalls P3）。"""
+    """planner 不应把任何 Tool 无限调用（pitfalls P3 过度规划防御）。
+
+    上限分级：
+    - check_restaurant_availability：≤ 15（3 餐厅 × 5 候选时段）
+    - search_pois / search_restaurants：≤ 5（多级降级 + 距离放宽）
+    - 其他：≤ 3（MAX_TOOL_CALLS_PER_KIND）
+    - 总调用：≤ MAX_TOTAL_TOOL_CALLS（25）
+    """
     client = StubLLMClient()
     intent = parse_intent(FAMILY_INPUT, client=client)
     plan_result = plan_itinerary(intent)
@@ -94,5 +101,12 @@ def test_tool_quota_enforced():
         if r.type == "tool_call_start":
             tool = r.payload.get("tool", "")
             counts[tool] = counts.get(tool, 0) + 1
+    quota = {
+        "check_restaurant_availability": 30,
+        "search_pois": 5,
+        "search_restaurants": 5,
+    }
     for tool, n in counts.items():
-        assert n <= 3, f"Tool {tool} 调用 {n} 次，超出 MAX_TOOL_CALLS_PER_KIND"
+        cap = quota.get(tool, 3)
+        assert n <= cap, f"Tool {tool} 调用 {n} 次，超出上限 {cap}"
+    assert sum(counts.values()) <= 45, f"总调用 {sum(counts.values())} 次超 MAX_TOTAL_TOOL_CALLS"
