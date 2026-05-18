@@ -3721,3 +3721,115 @@ dock 直接输入「太远了，希望3公里以内」回车
 ✓ ReAct 上下文识别（dock 直接输反馈）仍正常工作
 
 **用户反馈**：（待填）
+
+
+---
+
+## 问题22：dock collapsed 态底部空白 padding + snap 阈值不灵敏
+
+**用户原问**：
+
+> 还有一个问题，就是底部的这个对话框我拖动到最下面一定位置的时候应当是吸附到最下方，而不是这种存有大面积空白的视觉。
+>
+> （澄清后）我指的是下方的 padding，拖到一定低度自动吸附到最下方，然后只有超过一定高度才展开。这个阈值可以设的小一些
+
+**问题诊断**：
+
+旧 ChatDock 配置：
+
+```text
+HEIGHT_COLLAPSED = 112  # 固定，无论有无 agent 预览
+HEIGHT_PEEK = 340
+SNAP_TO_COLLAPSED_THRESHOLD = 130  # 只有拖到 < 130 才吸附
+SHOW_TIMELINE_THRESHOLD = 180      # 与 snap 阈值不重合，130-180 之间是「中间空白态」
+```
+
+存在三个问题：
+1. **collapsed 态底部空白**：dock 高度永远 112px，但内容（仅输入框约 76px）撑不满，差出来的 ~30px 是空 padding
+2. **snap 阈值太苛刻**：拖到接近底部（160-180）时不吸附，dock 撑着空容器
+3. **130-180 区间是中间空白态**：既没到 timeline 显示阈值（>180），也没触发 snap（<130），dock 撑得很大但只显示 collapsed 内容
+
+**解决方案**：
+
+### 1. collapsed 高度动态化（按是否有 agent 预览）
+
+```typescript
+const HEIGHT_COLLAPSED_BASE = 76;            // 仅输入框
+const HEIGHT_COLLAPSED_WITH_PREVIEW = 104;   // 含 agent 单行预览
+const HEIGHT_PEEK = 360;
+const SNAP_AND_TIMELINE_THRESHOLD = 160;     // snap 与 timeline 阈值同点
+const SHOW_INTENT_THRESHOLD = 240;
+
+// 渲染时按当前是否有预览动态选高度
+const hasCollapsedPreview = latestChitchat != null || latestAgent != null;
+const collapsedHeight = hasCollapsedPreview
+  ? HEIGHT_COLLAPSED_WITH_PREVIEW
+  : HEIGHT_COLLAPSED_BASE;
+```
+
+### 2. snap 与 timeline 阈值合并到同一个点
+
+```typescript
+// 拖到 < 160 → snap collapsed（吸附到底）
+// 拖到 >= 160 → 自动展开 timeline 区
+// 中间没有空白态
+if (cur != null && cur < SNAP_AND_TIMELINE_THRESHOLD) {
+  setManualHeight(null);
+  setMode("collapsed");
+}
+```
+
+### 3. 输入区与预览的 padding 紧凑化
+
+```text
+collapsed 预览按钮 padding: pt-2.5 pb-1   → pt-1.5 pb-0.5
+输入区 padding:           pt-2 pb-3      → pt-1.5 pb-2
+```
+
+合计每个方向减 ~6px，整体 dock 高度 -12px，无空白 padding 视觉。
+
+**实测验证**（mcp Chrome DevTools，重启 dev server 后浏览器实测）：
+
+```text
+启动态（无对话）
+↓
+✓ dock 76px，仅输入框，紧贴页面底部，零空白 padding
+
+S1 触发 streaming
+↓
+✓ dock 自动 peek 360px，timeline 显示用户消息 + 4 条 thoughts
+
+规划完成 1.6s 后自动收回
+↓
+✓ dock 收到 104px collapsed-with-preview 态
+✓ Agent 单行预览紧贴输入区，无空白
+✓ 整体高度比之前 130px 短约 30px
+✓ 主内容三栏多出 ~30px 显示空间
+
+拖动测试
+↓
+✓ 拖到 < 160px：snap 到底 collapsed（76 / 104）
+✓ 拖到 >= 160px：timeline 区立即出现，无中间空白态
+✓ 拖到 >= 240px：intent 摘要也显示
+```
+
+**修改的代码文件**：
+
+- `frontend/components/ChatDock.tsx`（+32 / -24 行）
+
+未动：
+- 任何 store / SSE / 后端代码
+- 文档 / features.json（功能流程不变，仅 UI 紧凑度调整）
+
+静态校验：
+- `pnpm build` 通过：33.2 kB / 120 kB（不变）
+
+**应当达成的效果**：
+
+- collapsed 态 dock 紧贴页面底部，**零空白 padding**
+- collapsed 高度按是否有 agent 预览动态选 76 / 104
+- 拖动到接近底部（< 160）自动吸附（之前需要 < 130）
+- 拖动到 ≥ 160 立即展开 timeline，不再有中间空白态
+- 主内容区多出 ~30px 视觉空间
+
+**用户反馈**：（待填）
