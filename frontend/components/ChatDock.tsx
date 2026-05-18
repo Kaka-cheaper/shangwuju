@@ -39,13 +39,14 @@ import IntentSummary from "./IntentSummary";
 
 type DockMode = "collapsed" | "peek";
 
-// 高度档位
-const HEIGHT_COLLAPSED = 112;
-const HEIGHT_PEEK = 340;
+// 高度档位（贴底紧凑，无空白 padding）
+const HEIGHT_COLLAPSED_BASE = 76; // 仅输入框（无 agent 预览）
+const HEIGHT_COLLAPSED_WITH_PREVIEW = 104; // 含 agent 单行预览
+const HEIGHT_PEEK = 360; // 自动展开默认高度
 const HEIGHT_FULL_RATIO = 0.7; // viewport * 0.7
-const SNAP_TO_COLLAPSED_THRESHOLD = 130;
-const SHOW_TIMELINE_THRESHOLD = 180;
-const SHOW_INTENT_THRESHOLD = 280;
+// snap 与 timeline 阈值同点 → 消除中间空白态：< 阈值吸到 collapsed，>= 阈值展开 timeline
+const SNAP_AND_TIMELINE_THRESHOLD = 160;
+const SHOW_INTENT_THRESHOLD = 240;
 
 export default function ChatDock() {
   const messages = useChatStore((s) => s.messages);
@@ -72,10 +73,23 @@ export default function ChatDock() {
   const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef<{ startY: number; startH: number } | null>(null);
 
+  // 取最新一条 agent 消息（折叠态显示）
+  const latestAgent = [...messages].reverse().find((m) => m.role === "agent");
+  // 取最新一条 chitchat 气泡（折叠态/peek 态可见）
+  const latestChitchat = chitchatReplies[chitchatReplies.length - 1];
+  const userMsgCount = messages.filter((m) => m.role === "user").length;
+  const totalCount = messages.length + chitchatReplies.length;
+
+  // collapsed 态目标高度：有预览 → 104，无预览 → 76
+  const hasCollapsedPreview = latestChitchat != null || latestAgent != null;
+  const collapsedHeight = hasCollapsedPreview
+    ? HEIGHT_COLLAPSED_WITH_PREVIEW
+    : HEIGHT_COLLAPSED_BASE;
+
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startH =
-      manualHeight ?? (mode === "peek" ? HEIGHT_PEEK : HEIGHT_COLLAPSED);
+      manualHeight ?? (mode === "peek" ? HEIGHT_PEEK : collapsedHeight);
     dragRef.current = { startY: e.clientY, startH };
     setIsDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -96,8 +110,9 @@ export default function ChatDock() {
     };
     const onUp = () => {
       const cur = manualHeight;
-      // snap：拖到接近 collapsed → 释放回自动模式
-      if (cur != null && cur < SNAP_TO_COLLAPSED_THRESHOLD) {
+      // snap：拖到 < 阈值 → 释放回 collapsed（吸附到底）
+      // 阈值与 timeline 显示阈值同点：拖动接近底部时直接吸附，避免中间空白态
+      if (cur != null && cur < SNAP_AND_TIMELINE_THRESHOLD) {
         setManualHeight(null);
         setMode("collapsed");
       }
@@ -125,18 +140,18 @@ export default function ChatDock() {
       ? manualHeight
       : mode === "peek"
         ? HEIGHT_PEEK
-        : HEIGHT_COLLAPSED;
+        : collapsedHeight;
 
-  // 是否显示 timeline 区域（peek 自动 / manualHeight > 阈值）
+  // 是否显示 timeline 区域（peek 自动 / manualHeight >= 阈值）
   const showTimeline =
     mode === "peek" ||
-    (manualHeight != null && manualHeight > SHOW_TIMELINE_THRESHOLD);
+    (manualHeight != null && manualHeight >= SNAP_AND_TIMELINE_THRESHOLD);
 
   // 是否显示 intent 摘要（仅在大尺寸 + 流式或拖大时）
   const showIntent =
     intent != null &&
     (mode === "peek" ||
-      (manualHeight != null && manualHeight > SHOW_INTENT_THRESHOLD));
+      (manualHeight != null && manualHeight >= SHOW_INTENT_THRESHOLD));
 
   // streaming 时自动 peek（让评委看到 agent_thought / chitchat 流）
   // streaming 结束 1.6s 后自动收回 collapsed（让用户先看到 agent 总结消息）
@@ -146,7 +161,7 @@ export default function ChatDock() {
     } else {
       const timer = setTimeout(() => {
         // 用户手动拖大过 → 不动，尊重用户
-        if (manualHeight != null && manualHeight > SHOW_TIMELINE_THRESHOLD) {
+        if (manualHeight != null && manualHeight >= SNAP_AND_TIMELINE_THRESHOLD) {
           return;
         }
         setMode("collapsed");
@@ -175,13 +190,6 @@ export default function ChatDock() {
     sendMessage(draft);
     setDraft("");
   };
-
-  // 取最新一条 agent 消息（折叠态显示）
-  const latestAgent = [...messages].reverse().find((m) => m.role === "agent");
-  // 取最新一条 chitchat 气泡（折叠态/peek 态可见）
-  const latestChitchat = chitchatReplies[chitchatReplies.length - 1];
-  const userMsgCount = messages.filter((m) => m.role === "user").length;
-  const totalCount = messages.length + chitchatReplies.length;
 
   // 时序合并（messages + chitchatReplies）—— peek 拖大态显示
   type TimelineItem =
@@ -360,7 +368,7 @@ export default function ChatDock() {
           <button
             type="button"
             onClick={onTogglePeek}
-            className="w-full pt-2.5 pb-1 text-left animate-fade-in group"
+            className="w-full pt-1.5 pb-0.5 text-left animate-fade-in group"
             title="点击展开完整对话历史"
           >
             <div className="flex items-start gap-2 text-xs">
@@ -380,8 +388,8 @@ export default function ChatDock() {
           </button>
         )}
 
-        {/* 输入区（始终在底部） */}
-        <div className="pt-2 pb-3 flex items-end gap-2">
+        {/* 输入区（始终在底部，紧贴屏幕底） */}
+        <div className="pt-1.5 pb-2 flex items-end gap-2">
           {/* 展开按钮：左侧（toggle 70vh ↔ collapsed） */}
           <button
             type="button"
