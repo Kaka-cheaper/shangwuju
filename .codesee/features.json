@@ -2,7 +2,7 @@
   "version": "0",
   "manifest": {
     "repo": "shangwuju",
-    "generated_at": "2026-05-17T22:30:00Z",
+    "generated_at": "2026-05-18T00:30:00Z",
     "generator": "ai@claude-opus-4.7",
     "lang": "zh-CN"
   },
@@ -649,6 +649,16 @@
           "refs": [{ "file": "frontend/components/ToolTracePanel.tsx", "lines": [55, 80] }]
         },
         {
+          "id": "render_dock_timeline",
+          "name": "渲染对话时间线",
+          "role": "output",
+          "note": "ChatDock 单一对话框（4 段连续高度 96/180/340/70vh），timeline 时序合并 messages 与 chitchatReplies",
+          "refs": [
+            { "file": "frontend/components/ChatDock.tsx", "lines": [196, 218] },
+            { "file": "frontend/components/ChatDock.tsx", "lines": [291, 357] }
+          ]
+        },
+        {
           "id": "fallback",
           "name": "断流降级提示",
           "role": "error",
@@ -656,7 +666,7 @@
           "refs": [
             { "file": "frontend/lib/sse.ts", "lines": [180, 215] },
             { "file": "frontend/lib/utils.ts", "lines": [44, 70] },
-            { "file": "frontend/components/ChatDock.tsx", "lines": [200, 280] }
+            { "file": "frontend/components/ChatDock.tsx", "lines": [340, 355] }
           ]
         }
       ],
@@ -669,6 +679,7 @@
         { "from": "dispatch", "to": "render_intent", "kind": "conditional", "condition": "事件 type=intent_parsed" },
         { "from": "dispatch", "to": "render_trace", "kind": "conditional", "condition": "事件 type=tool_call_*" },
         { "from": "dispatch", "to": "render_replan", "kind": "conditional", "condition": "事件 type=replan_triggered" },
+        { "from": "dispatch", "to": "render_dock_timeline", "kind": "conditional", "condition": "事件 type=agent_thought / chitchat_reply / agent_narration" },
         { "from": "arm_watchdog", "to": "fallback", "kind": "error", "condition": "首字节或空闲超时" },
         { "from": "open_stream", "to": "fallback", "kind": "error", "condition": "网络层 / HTTP 错误" }
       ],
@@ -684,7 +695,7 @@
       "confidence": 0.95,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-16T18:00:00Z"
+      "updated_at": "2026-05-18T00:30:00Z"
     },
     {
       "id": "f-itinerary-card",
@@ -1400,10 +1411,10 @@
           "id": "render_bubble",
           "name": "前端渲染暖心气泡",
           "role": "output",
-          "note": "tone-amber/sky/rose/emerald 4 套配色；引导按钮点击重入 sendMessage",
+          "note": "tone-amber/sky/rose/emerald 4 套配色；引导按钮点击重入 sendMessage；在 ChatDock 单一对话框内 timeline 时序合并渲染",
           "refs": [
             { "file": "frontend/components/ChitchatBubble.tsx" },
-            { "file": "frontend/components/ChatDock.tsx", "lines": [300, 380] }
+            { "file": "frontend/components/ChatDock.tsx", "lines": [320, 335] }
           ]
         },
         {
