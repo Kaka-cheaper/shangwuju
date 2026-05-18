@@ -429,3 +429,35 @@
   3. **跨 owner 引用文档**：写「已实现」时附文件路径让评委可验证；写「Phase X 落地」时同步说明在哪个 commit
   4. **Agent E/F 互相依赖的特殊处理**：双方 try/import 兜底；commit 时哪个先合都不破
 - **优先级**：P3（流程优化；不影响代码功能）
+
+
+### [P2] 2026-05-18 子元素 z-index 被父级 stacking context 困住
+
+- **现象**：UserSwitcher 顶栏下拉面板用 `position: absolute z-30`，但仍被全局 `z-30` 的 ChatDock 盖住——明明 z-index 数字相同，却显示在 dock 下面。
+- **根因（CSS stacking context）**：
+  - `<header className="sticky top-0 z-20">` 创建了 z-20 stacking context
+  - 下拉面板作为 header 的子元素，它的 z-30 仅在 header stacking context **内部**生效
+  - 实际堆叠层级是「z-20 内部的 z-30」，与全局 z-30 dock 比较时永远输
+  - 任何带 z-index 的 sticky / fixed 容器都会创建 stacking context（同样适用于 transform / opacity < 1 / will-change 等 CSS 特性）
+- **解法**：跨越 stacking context 时，子元素**必须**用 `position: fixed`（或用 React Portal 渲染到 body），脱离父级容器的层叠上下文。配合按钮 ref + `getBoundingClientRect()` 动态计算位置：
+  ```typescript
+  const rect = buttonRef.current.getBoundingClientRect();
+  setPanelPos({
+    top: rect.bottom + 6,
+    right: window.innerWidth - rect.right,
+    maxHeight: Math.max(160, window.innerHeight - rect.bottom - 18),
+  });
+  ```
+- **相关文件**：`frontend/components/UserSwitcher.tsx`（fix commit 2df8b6c）
+- **防再犯**（必读）：
+  1. **任何下拉菜单 / tooltip / popover / context menu** 类组件，**默认采用 `position: fixed`**，不要图省事用 `position: absolute`
+  2. 即使 absolute 在简单场景能工作，未来父级加 `transform / opacity / sticky` 任何一个都会创建 stacking context，下拉立刻被遮挡
+  3. fixed 定位需要监听 `resize` + `scroll`（capture phase）保持位置同步
+  4. 跨 stacking context 的 z-index 体系建议显式分层：
+     - z-20: Header / 固定导航
+     - z-30: 主要 fixed 容器（dock / dialog）
+     - z-40: 瞬时通知（toast）
+     - z-45: 下拉菜单（高于 dock，低于命令面板）
+     - z-50: 顶级模态（command palette / 关键确认弹窗）
+  5. 写新 popover 类组件时**默认从 fixed 开始**，遇到「为什么我的 z-index 不生效」立刻怀疑 stacking context
+- **优先级**：P2（典型 CSS 层级陷阱；前端开发常踩）

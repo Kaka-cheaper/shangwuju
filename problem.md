@@ -3833,3 +3833,144 @@ S1 触发 streaming
 - 主内容区多出 ~30px 视觉空间
 
 **用户反馈**：（待填）
+
+
+---
+
+## 问题23：UserSwitcher 下拉面板被 ChatDock 盖住（z-index stacking context）
+
+**用户原问**：
+
+> 还有个问题，就是我打开用户档案后，这个框被放在了底层，实际上应该放到最顶层
+
+**问题诊断**：
+
+z-index 体系审计：
+
+```text
+| 组件                       | z-index | 容器                      |
+|----------------------------|---------|---------------------------|
+| Header（sticky 顶栏）       | z-20    | document body             |
+| ChatDock                   | z-30    | document body（fixed）    |
+| UserSwitcher 下拉面板       | z-30    | header 内（absolute）      | ← 被 dock 盖住
+| RefinementDialog           | z-30    | document body（fixed）    |
+| ToastStack                 | z-40    | document body（fixed）    |
+| CommandPalette             | z-50    | document body（fixed）    |
+```
+
+**根因（CSS stacking context）**：
+
+`<header className="sticky top-0 z-20">` 创建了一个 z-20 的 stacking context。
+UserSwitcher 下拉面板用 `position: absolute z-30`，但它仍然在 header stacking context **内部**——CSS 规则下，子元素的 z-index 不能突破父级 stacking context 的层级。所以下拉面板的实际堆叠层级是「z-20 内的 z-30」，被全局 z-30 的 ChatDock 盖住。
+
+这是经典的「子元素 z-index 被父级 stacking context 困住」问题。
+
+**解决方案**：
+
+把下拉面板从 `position: absolute` 改成 `position: fixed`——脱离 header stacking context，直接进入 viewport 全局层级。配合按钮 ref + `getBoundingClientRect()` 计算位置：
+
+```typescript
+const buttonRef = useRef<HTMLButtonElement | null>(null);
+const [panelPos, setPanelPos] = useState<{
+  top: number;
+  right: number;
+  maxHeight: number;
+} | null>(null);
+
+const updatePosition = () => {
+  if (!buttonRef.current) return;
+  const rect = buttonRef.current.getBoundingClientRect();
+  const top = rect.bottom + PANEL_OFFSET_Y;
+  setPanelPos({
+    top,
+    right: window.innerWidth - rect.right,
+    // 自适应可视高度：从面板顶到视口底部留 12px 缓冲
+    // 避免拖大态 dock(70vh) 把面板挤成只剩 header
+    maxHeight: Math.max(160, window.innerHeight - top - 12),
+  });
+};
+
+useLayoutEffect(() => {
+  if (!open) return;
+  updatePosition();
+  window.addEventListener("resize", updatePosition);
+  window.addEventListener("scroll", updatePosition, true);
+  return () => { /* cleanup */ };
+}, [open]);
+```
+
+z-index 选 `z-[45]`：
+
+```text
+| 层级 | 用途                             |
+|------|----------------------------------|
+| z-50 | CommandPalette（顶级模态）        |
+| z-45 | UserSwitcher 下拉（本次）         |
+| z-40 | ToastStack（瞬时通知）           |
+| z-30 | ChatDock / RefinementDialog      |
+| z-20 | Header                           |
+```
+
+UserSwitcher 高于 dock 与 toast 但低于 CommandPalette（确保 ⌘K 命令面板永远是最顶层模态）。
+
+**关键边界处理**：
+
+1. **点击外部关闭**：旧逻辑 `wrapRef.current?.contains(target)` 失效——面板用 fixed 后已脱离 wrap 容器。新增 `panelRef`，外部判断要排除 button + panel 两处。
+2. **ESC 关闭**：作为加分项，键盘可访问性。
+3. **resize / scroll 同步位置**：用户拖窗口大小或滚动页面时面板位置实时跟随。
+4. **maxHeight 自适应**：当 dock 拖到 70vh 时，UserSwitcher 仍能显示全部 persona（4 个 ~280px），不被裁切。
+
+**实测验证**（mcp Chrome DevTools，重启 dev server 后）：
+
+```text
+default 态点用户切换器
+↓
+✓ 面板浮在场景按钮区上方
+✓ 完整显示 4 个 persona：孝顺儿女 / 独居青年 / 情侣党 / ...
+✓ z-45 在 dock z-30 之上
+
+dock 拖大到 70vh + 点用户切换器
+↓
+✓ 面板仍可见（之前会被 dock 完整盖住）
+✓ maxHeight 自适应缩小，仅显示标题 + 部分列表（行为合理）
+
+点外部场景按钮
+↓
+✓ 面板自动关闭
+
+ESC
+↓
+✓ 面板自动关闭
+```
+
+**修改的代码文件**：
+
+- `frontend/components/UserSwitcher.tsx`（+66 / -9 行）
+
+未动：
+- 任何其他组件 z-index
+- store / SSE / 后端
+- 文档 / features.json（z-index fix 不影响功能流程）
+
+静态校验：
+- `pnpm build` 通过
+- `getDiagnostics`：No diagnostics found
+
+**应当达成的效果**：
+
+✓ UserSwitcher 下拉面板永远在最顶层（仅低于 CommandPalette）
+✓ 不被 ChatDock / 演示场景按钮区 / 偏好画像等盖住
+✓ 拖窗口 / 滚动时面板位置实时跟随
+✓ 拖大 dock 时面板高度自适应不被裁切
+✓ ESC + 点外部均可关闭
+
+**举一反三**（防再犯）：
+
+> 任何 sticky / fixed 的「容器组件」（如 header / sidebar）只要带了 z-index，就会创建 stacking context。
+> 它内部的子元素（即使 z-index 很大）也无法突破到父级之上。
+>
+> **解法**：跨越 stacking context 时，子元素必须用 `position: fixed`（或用 React Portal 渲染到 body），脱离父级容器的层叠上下文。
+>
+> 列入 pitfalls.md：未来下拉菜单 / tooltip / popover 类组件，**默认采用 fixed + ref 计算位置**，不要图省事用 absolute。
+
+**用户反馈**：（待填）
