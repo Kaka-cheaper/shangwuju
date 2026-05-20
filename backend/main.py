@@ -491,6 +491,39 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
     )
     user_id = _resolve_user_id(req.user_id, request.headers.get("X-User-Id"))
 
+    # ---- LangGraph 路径（USE_LANGGRAPH=1，最高优先级）----
+    use_langgraph = (os.getenv("USE_LANGGRAPH") or "0").strip() == "1"
+    if use_langgraph:
+        try:
+            from agent.graph.sse_adapter import run_graph_stream
+            # 探活：构造一次 graph build（首次调时 lazy compile）
+            from agent.graph.build import get_compiled_graph
+            get_compiled_graph()
+        except Exception as e:  # noqa: BLE001
+            import logging as _logging
+            _logging.getLogger("main").warning(
+                "langgraph_unavailable_fallback: %s: %s",
+                type(e).__name__,
+                e,
+            )
+        else:
+            # graph 自带 InMemorySaver，thread_id=session_id；不再走 ConversationStore
+            inner = run_graph_stream(
+                user_input=req.message,
+                session_id=req.session_id,
+                user_id=user_id,
+                scenario_id=req.scenario_id,
+            )
+            return EventSourceResponse(
+                _safe_stream(inner),
+                media_type="text/event-stream",
+                headers={
+                    "X-Planner-Mode": mode,
+                    "X-User-Id": user_id,
+                    "X-Turn-Kind": "langgraph",
+                },
+            )
+
     use_react = (os.getenv("USE_REACT_AGENT") or "1").strip() != "0"
 
     if use_react:

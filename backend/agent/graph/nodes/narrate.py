@@ -31,8 +31,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     text = generate_narration(
         intent=intent,
         itinerary=itinerary,
-        stage="initial",
+        stage="stream",
         use_llm=use_llm,
-        client=client,
     )
     return {"narration": text}

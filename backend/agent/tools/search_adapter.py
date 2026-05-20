@@ -41,7 +41,18 @@ def search_pois_for_intent(intent: IntentExtraction, *, limit: int = 5) -> list[
     out = invoke_tool("search_pois", inp.model_dump())
     if not out or not getattr(out, "success", False):
         return []
-    return list(out.candidates or [])
+    candidates = (out.output or {}).get("candidates") or []
+    # output 是 dict, candidates 内可能是 dict 也可能是 Poi 对象
+    result: list[Poi] = []
+    for c in candidates:
+        if isinstance(c, Poi):
+            result.append(c)
+        elif isinstance(c, dict):
+            try:
+                result.append(Poi.model_validate(c))
+            except Exception:  # noqa: BLE001
+                continue
+    return result
 
 
 def search_restaurants_for_intent(
@@ -59,7 +70,17 @@ def search_restaurants_for_intent(
     out = invoke_tool("search_restaurants", inp.model_dump())
     if not out or not getattr(out, "success", False):
         return []
-    return list(out.candidates or [])
+    candidates = (out.output or {}).get("candidates") or []
+    result: list[Restaurant] = []
+    for c in candidates:
+        if isinstance(c, Restaurant):
+            result.append(c)
+        elif isinstance(c, dict):
+            try:
+                result.append(Restaurant.model_validate(c))
+            except Exception:  # noqa: BLE001
+                continue
+    return result
 
 
 def get_user_profile_for_user(user_id: str) -> Optional[GetUserProfileOutput]:
@@ -69,6 +90,9 @@ def get_user_profile_for_user(user_id: str) -> Optional[GetUserProfileOutput]:
         out = invoke_tool("get_user_profile", inp.model_dump())
         if not out or not getattr(out, "success", False):
             return None
-        return out
+        try:
+            return GetUserProfileOutput.model_validate(out.output)
+        except Exception:  # noqa: BLE001
+            return None
     except Exception:  # noqa: BLE001
         return None
