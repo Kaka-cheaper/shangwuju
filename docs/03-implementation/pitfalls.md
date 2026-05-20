@@ -461,3 +461,91 @@
      - z-50: 顶级模态（command palette / 关键确认弹窗）
   5. 写新 popover 类组件时**默认从 fixed 开始**，遇到「为什么我的 z-index 不生效」立刻怀疑 stacking context
 - **优先级**：P2（典型 CSS 层级陷阱；前端开发常踩）
+
+
+### [P1] 2026-05-20 MiMo / DeepSeek-R1 / Kimi K2 thinking 模型 + LangGraph 多轮工具调用兼容性
+
+- **现象**：LangGraph create_react_agent 跑 MiMo v2.5 Pro 时，第一轮工具调用成功，第二轮（拿到 tool 结果回 LLM 时）报 `400 - Param Incorrect: The reasoning_content in the thinking mode must be passed back to the API`。
+- **根因（业界已知问题）**：
+  - MiMo / DeepSeek-R1 / Kimi K2.5 thinking / OpenAI o1 等 **thinking 模型**在第一轮响应里返回 `reasoning_content` 字段
+  - 第二轮调用时模型要求把它回传，证明上下文连续
+  - LangGraph + langchain-openai 默认不携带 reasoning_content（这是 OpenAI 兼容层接口约定外的扩展字段）
+  - 同类问题在 LiteLLM issue #23828（Kimi K2.5）+ Cherry Studio issue #12002（MiMo）+ DeepSeek-R1 issue #9 多次报告
+- **解法**：构造 ChatOpenAI 时显式关 thinking 模式：
+  ```python
+  llm = ChatOpenAI(
+      api_key=...,
+      base_url=...,
+      model="mimo-v2.5-pro",
+      # MiMo 官方 vllm recipe 推荐：enable_thinking=False
+      extra_body={"enable_thinking": False},
+  )
+  ```
+- **相关文件**：
+  - `backend/scripts/smoke_langgraph_mimo.py`（第一次踩坑 + 修复）
+  - `backend/agent/graph/build.py`（生产路径 ChatOpenAI 构造）
+- **防再犯**（必读）：
+  1. **任何接 thinking 模型 + LangGraph / 框架时**，第一时间检查 `extra_body={"enable_thinking": False}` 是否设上
+  2. 如果业务确实需要 thinking 模式（推理质量加分），需要自己实现 `reasoning_content` 回传逻辑——LangGraph v1 当前不原生支持
+  3. 切换到非 thinking 模型（GPT-4o / Claude Sonnet 4 / Gemini 2.5）天然没这问题，但不能解决用户已选 MiMo 的诉求
+  4. 写 LangGraph 烟雾测试时**必须**测「多轮工具调用」，不能只测 bind_tools 单轮——本次 [3/4] bind_tools 通过但 [4/4] create_react_agent 才暴露问题
+- **优先级**：P1（接 thinking 模型时直接挂 demo）
+
+### [P2] 2026-05-20 invoke_tool 返 dict 不返对象的兼容性陷阱（LangGraph execute 阶段触发）
+
+- **现象**：LangGraph execute 阶段 4 个 worker 并行调 backend/tools/，search_pois_for_intent 返回空列表，但旧 ReAct 路径同样调用却返候选。
+- **根因**：
+  - `tools/registry.py` 的 `invoke_tool` 返回 SearchPoisOutput 对象，但 `output.candidates` 字段在某些路径下是 dict 列表而不是 Poi 对象列表
+  - 旧 ReAct 路径不直接拿 candidates，而是把整个 output 序列化到 messages 给 LLM 看，绕开了类型检查
+  - 新 graph 路径 `search_pois_for_intent` 直接 `list(out.candidates or [])` → 拿到 dict 后下游 planner 期待 Poi 对象触发 AttributeError
+- **解法**：`backend/agent/tools/search_adapter.py` 加 isinstance 兜底：
+  ```python
+  candidates = (out.output or {}).get("candidates") or []
+  result: list[Poi] = []
+  for c in candidates:
+      if isinstance(c, Poi):
+          result.append(c)
+      elif isinstance(c, dict):
+          try:
+              result.append(Poi.model_validate(c))
+          except Exception:
+              continue
+  return result
+  ```
+- **相关文件**：`backend/agent/tools/search_adapter.py`（search_pois_for_intent / search_restaurants_for_intent / get_user_profile_for_user 三处）
+- **防再犯**：
+  1. **任何 adapter 函数 cross 多个调用路径时**，第一行就 isinstance 校验类型，dict → model_validate
+  2. invoke_tool 返回类型应该收敛为 Pydantic 对象，不应散布 dict——这是历史包袱，未来重构 registry.py 时统一
+  3. 写新调用路径时**必须**端到端测一次（不只测 invoke_tool 单点），本次因 verify_langgraph 端到端测才暴露
+- **优先级**：P2（不直接挂 demo，但 LangGraph 路径 candidates 全空让规划失败）
+
+### [P2] 2026-05-20 LangGraph create_react_agent 的 deprecation 与 v1 / v2 迁移
+
+- **现象**：`from langgraph.prebuilt import create_react_agent` 触发 `LangGraphDeprecatedSinceV10`：「create_react_agent has been moved to `langchain.agents`. Please update your import to `from langchain.agents import create_agent`. Deprecated in LangGraph V1.0 to be removed in V2.0」
+- **根因**：LangGraph 1.0 GA（2025-10）把 prebuilt agents 迁到 langchain.agents 子包，原入口废弃将在 v2.0 删除
+- **解法**：
+  - 烟雾测试用旧入口能跑通，**不强制立刻迁**（v2.0 还没到，删除时间未定）
+  - 生产 build.py **不用 prebuilt**，自己 add_node 显式注册节点（精确控制 + 可见拓扑），天然规避 deprecation
+- **相关文件**：`backend/scripts/smoke_langgraph_mimo.py`（仅烟雾测试用，预期会有 warning）
+- **防再犯**：
+  1. **写新代码不用 prebuilt**，按业务自己 add_node + add_edge 显式编织拓扑——更清晰、可见、不会被迁移强制改动
+  2. 迁移时机看 `langgraph` 的 v1 minor → v2 升级路线图，预留 1-2 周适配窗口
+  3. CI 不应把 deprecation warning 当 error（PowerShell 把 warning 当 stderr 算 exit=1 是误判）
+- **优先级**：P2（暂不影响功能；提前知晓避免 v2.0 出来时被动）
+
+### [P3] 2026-05-20 跨 session AI 对接：上下文「Phase 已完成」状态丢失风险
+
+- **现象**：本会话开始时 AI（我）以为「从 Phase 1 开始」，结果工作树发现 commit 1cdd40c 已经把 Phase 1-9 全部 build 好（前一 session 已写）；又开始重写 `backend/agent/graph/__init__.py` 覆盖了已有版本——破坏性写入。
+- **根因**：
+  - 我只看了 `git log --oneline` 末尾，看到 commit 52d8535（Phase 0），没继续看 1cdd40c（Phase 1-9）
+  - 没看工作树 untracked / modified 范围（`backend/agent/graph/` 子包整个已存在）
+  - 用 `fs_write` 写 `__init__.py` 而不是先 `read_file` 看现有版本
+- **解法**：
+  - `git checkout HEAD -- backend/agent/graph/__init__.py` 回滚我的破坏性覆盖
+  - 改用 `list_directory` + `read_file` 精确摸清 graph 子包已有内容
+- **相关文件**：`backend/agent/graph/__init__.py`（已恢复）
+- **防再犯**：
+  1. **跨 session 接手项目第一件事**：`git log --oneline -20` + `git status` + `list_directory` 三件套
+  2. 用户的报错信号「等一下，有的改动没提交，你先看一下文件，不只看 git」是关键——意味着工作树 ≠ git 视角
+  3. **写新文件用 fs_write 之前**，先 `file_search` 或 `list_directory` 确认是否已存在；存在就用 `str_replace` 而不是 `fs_write`（fs_write 会无脑覆盖）
+- **优先级**：P3（流程纪律；不影响代码功能但浪费时间且差点丢了 commit 1cdd40c 的工作）

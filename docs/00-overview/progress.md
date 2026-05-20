@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.11/0.12 ReAct 单一 Agent + 商业演进抽象层（multi-agent 并行重构）完成**（2026-05-17）
+**阶段**：**Phase 0.20 LangGraph Plan-and-Execute 业界标配重构完成**（2026-05-20）
 
 **MVP 状态**：
 
@@ -19,8 +19,9 @@
 | MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
 | MVP-3 输入域路由 | 100% ✅ | LLM 前置 6 类分类 + 暖心气泡 + 引导按钮（Phase 0.8）  |
 | MVP-3 LLM-First Planner | 100% ✅ | LLM 自主决段 + critic backprompt + 4 级 fallback（Phase 0.10.3）|
-| MVP-3 ReAct 单一 Agent | 100% ✅ | LLM 看全部 8 工具自主决策 + critic 兜底（Phase 0.12）|
+| MVP-3 ReAct 单一 Agent | 100% ✅ | LLM 看全部 8 工具自主决策 + critic 兜底（Phase 0.12，现 fallback）|
 | MVP-3 商业抽象层 | 100% ✅ | ToolProvider / ConversationRepository / observability 三层骨架（Phase 0.11）|
+| MVP-3 LangGraph 主架构 | 100% ✅ | Plan-and-Execute + Routing + Evaluator-Optimizer 三大业界范式（Phase 0.20）|
 | MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
@@ -265,6 +266,60 @@
 **遗留小 bug**（用户决议不修先 push）：
 - 第二次 confirm 后 orders / share_message 偶发不渲染（abortController 时序问题）
 
+**Round 8（W4 r8，2026-05-20）：Phase 0.20 LangGraph Plan-and-Execute 业界标配重构（commits 52d8535 → 5c16144 共 4 个核心 + 1 sync）**
+
+> 用户决策：「先按业界成熟范式来，创新可以之后再加」+「ILS 应该结合现有算法」+「就按推荐路线，先看效果」
+> 学术依据：LangChain 官方 workflows-agents 三大范式（Routing + Plan-and-Execute + Evaluator-Optimizer）+ AWS Nova travel agent 案例 + 学术 2025 旅行规划论文（arxiv 2509.21842 / 2512.11271 / 2405.18208）
+> 框架选型依据：LangGraph 1.2.0（2025-10 GA，47M+ monthly downloads）+ langchain-openai ChatOpenAI（base_url 接 MiMo）+ InMemorySaver checkpointer
+
+**Phase 0 烟雾测试**（commit 52d8535）：
+
+- ✅ 加依赖 `langgraph 1.2.0` + `langchain-openai 1.2.1` + `langchain-core` 14 个新包
+- ✅ `backend/scripts/smoke_langgraph_mimo.py` 4 步烟雾测试全过
+- ✅ **关键发现并修复 MiMo thinking 模式 + LangGraph 兼容性问题**：MiMo v2.5 Pro 是 thinking 模型，第二轮调用要求传回 reasoning_content；LangGraph 默认不携带 → 加 `extra_body={"enable_thinking": False}` 关 thinking（参考 MiMo 官方 vllm recipe），与 DeepSeek-R1 / Kimi K2 thinking / o1 同类问题的标准解法
+
+**Phase 1-9 拓扑构建**（commit 1cdd40c）：
+
+- ✅ `backend/agent/graph/` 子包建立：state.py + build.py + sse_adapter.py + 11 nodes/
+- ✅ **AgentState TypedDict** 复用 v1 已有 schema（IntentExtraction / Itinerary / PlanBlueprint / PlanningWeights / Violation / RouterDecision），不发明新结构；messages 字段用 langgraph.graph.message.add_messages reducer 自动 merge
+- ✅ **16 节点拓扑全部 build**：router / chitchat / intent / refiner / 4 个并行 execute worker / planner / assemble / critic / replan_router / ils_replan / narrate / execute_finalize
+- ✅ **Plan-and-Execute 范式核心**：LLM 决主观（PlanBlueprint 段集合/段顺序/每段时长/target_id）+ 算法决客观（critics_v2 7 类约束）+ critic backprompt 重试（≤2 次）+ ILS 算法兜底
+- ✅ **InMemorySaver checkpointer + thread_id=session_id**：跨 turn 持久化 messages
+
+**Phase 10-14 接入与验证**（commit 7c07441）：
+
+- ✅ `backend/main.py` /chat/turn 端点加 USE_LANGGRAPH=1 主路径；探活失败 fallback USE_REACT_AGENT=1 → fallback rule planner（三层 fallback 链让 demo 永不翻车）
+- ✅ `backend/agent/graph/sse_adapter.py` 275 行：graph.astream(stream_mode='updates') → 现有 SseEventType 序列；前端零改动复用旧事件 schema
+- ✅ `backend/scripts/verify_langgraph.py` 端到端 3 场景全过：planning 主路径 20 事件含 critic backprompt + ILS replan / chitchat / feedback-like 鲁棒性
+- ✅ **真 LLM 浏览器实测**：S1 家庭主线 LangGraph 路径完整跑通——20 事件 / 4 段→5 段 critic backprompt 闭环 / 暖语气 narration / X-Turn-Kind: langgraph header；feedback 反馈环 distance 5km→3km / POI 切换悦读绘本馆→童趣海洋亲子馆 / 餐厅切换轻语沙拉→绿野鲜厨
+
+**Phase 15 文档对齐**（commit 5c16144）：
+
+- ✅ `.codesee/features.json` 全量 sync：+1 graph epic / +11 graph feature / 4 legacy 标记 / 1 fallback 标记 / +27 cross_feature / +5 epic_flow（graph epic depends_on 5 旧 epic 表达「复用关系」）
+- ✅ 所有现有算法零代码废弃：PlanBlueprint / weights_llm / critics_v2 / planner_hybrid ILS / narrator / refiner / segment_decider 全部嵌进 graph 节点
+
+**测试矩阵**（Phase 0.20 后）：
+
+```
+| 套件                          | 通过项     |
+|-------------------------------|-----------|
+| 后端 pytest（旧测试零破坏）    | 267/267   |
+| verify_langgraph 真 LLM e2e   |   3/3     |
+| smoke_langgraph_mimo（Phase 0）|   4/4     |
+| 浏览器实测 LangGraph 路径     | 主路径+反馈环全过 |
+```
+
+**对评分项的影响**：
+
+```
+| 评审维度  | 重构前        | 重构后                                          |
+|----------|--------------|------------------------------------------------|
+| 创新性   | 中            | 高（LLM-Modulo + Plan-and-Execute + Hybrid 合体）|
+| 完整性   | 中            | 高（LangGraph 业界标配 + plan 显式 + checkpoint）|
+| 应用效果 | 中            | 高（execute 阶段并行 + 算法兜底 + critic backprompt）|
+| 商业价值 | 中-高         | 高（业界共识架构 + 三层抽象就绪 → 真产品演进路径）|
+```
+
 ## 三、待决策清单
 
 > 任何 session 中冒出的"先记下来、不当下决定"的问题进这里。决策后挪到下面"决策记录"。
@@ -379,6 +434,30 @@
     - 评分项 5（异常韧性 15%）：四级 fallback 链（LLM 蓝图重试 → hybrid → rule）让任何失败都有兜底
     - 加新 segment 类型（夜跑 / 晨练 / city walk）→ 只改 prompt 不改代码
   - 学术依据：LLM-Modulo (Kambhampati NeurIPS 2024) + ItiNera (EMNLP 2024) + LLM as Planning Backbone
+
+- **D-langgraph** [2026-05-20]：LangGraph Plan-and-Execute 取代手写 ReAct 单一 Agent 作为 v1 业界标配主架构
+  - 候选：A 维持 Pydantic AI ReAct 单一 Agent（v0.12 主架构）/ B LangGraph + Plan-and-Execute（业界共识，本决策）/ C LangGraph + ReAct（业界但视觉密度更强）/ D LangGraph + Plan-and-Execute + Hybrid 合体（本决策的合体形态）
+  - 选择：D（B + 把现有 ILS / blueprint / weights_llm 全嵌进 graph 节点）
+  - 理由：
+    - 用户反问「业界是否有成熟范式」+「先按业界标配，创新可以之后再加」+「ILS 应该结合现有算法」三连问 → 暴露手写 ReAct 是偷懒方案
+    - 学术界 + LangChain 官方共识：旅行规划属于「多步可预测 + 多约束」场景，**Plan-and-Execute 优于 ReAct**（参考 langchain blog 2024-02 + arxiv 2509.21842 / 2512.11271 / 2405.18208）
+    - AWS Nova travel agent / DocentPro 多 Agent 旅行同伴等业界案例几乎一致选 LangGraph
+    - 手写 ReAct + ConversationRepository + ToolProvider + observability 等抽象层等同于「重新发明 LangGraph 的子集」——评委「商业价值」维度本应认知到这是业界共识架构
+    - PlanBlueprint（Phase 0.10.3）天然就是 P-and-E 的 plan 形态，**这次重写正好把所有 Phase 0.6-0.12 创新合并进 v1**，不再「v2 创新章节口头讲」
+  - 影响：
+    - 新增 `backend/agent/graph/` 子包（state.py / build.py / sse_adapter.py + 11 nodes/）共 ~1700 行
+    - 新增 `langgraph 1.2.0` + `langchain-openai 1.2.1` + 14 个新依赖
+    - 节点全部复用现有算法（PlanBlueprint / weights_llm / critics_v2 / planner_hybrid ILS / narrator / refiner / segment_decider 0 代码废弃）
+    - `backend/main.py` /chat/turn 加 USE_LANGGRAPH=1 主路径；三层 fallback 链：LangGraph → ReAct → rule planner
+    - 评分项 1（场景理解 20%）：router_node + 启发式 _looks_like_feedback 双层判断 + LLM 自主决策
+    - 评分项 2（规划链路 25%）：教科书级 LLM-Modulo + Plan-and-Execute 合体——LLM 出 PlanBlueprint，critic 验证客观约束，硬违规 backprompt 重生成 ≤2 次，ILS 算法兜底
+    - 评分项 3（应用效果）：execute 阶段 4 个 worker 并行（LangGraph 多边并发触发）vs ReAct 串行约 3 倍速
+    - 评分项 5（异常韧性 15%）：四级 fallback（LLM 重试 → ILS → rule give_up → 三层架构 fallback），每层都推 agent_thought 让评委可见
+    - 商业价值评分项：业界共识架构（LangGraph）+ Checkpointer 演进路径（InMemorySaver→SqliteSaver→PostgresSaver）+ 0 代码废弃的「v2 创新可加分」组件库
+  - **关键风险与修复**：
+    - MiMo v2.5 Pro 是 thinking 模型，第二轮调用要求传回 reasoning_content；LangGraph 默认不携带 → 加 `extra_body={"enable_thinking": False}` 关 thinking（参考 MiMo 官方 vllm recipe + LiteLLM #23828）。这是 DeepSeek-R1 / Kimi K2 thinking / o1 同类问题的标准解法
+    - search_adapter invoke_tool 返 dict 不返对象（旧 ReAct 路径未触发的兼容性 bug）→ 加 isinstance + Poi/Restaurant.model_validate 兜底
+  - 测试结果：267/267 pytest（旧测试零破坏）+ 3/3 verify_langgraph 真 LLM e2e + 4/4 smoke_langgraph_mimo + 浏览器实测主路径（含 critic backprompt 4 段→5 段）+ 反馈环（distance 5→3km / POI 切换 / 餐厅切换）全过
 
 ## 五、更新规则
 
