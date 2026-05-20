@@ -142,13 +142,14 @@ export default function UserSwitcher() {
         ? createPortal(
           <div
             ref={panelRef}
-            className="fixed rounded-lg border border-white/[0.08] z-[60] overflow-hidden shadow-elevated backdrop-blur-xl animate-fade-in flex flex-col"
+            className="fixed rounded-lg border border-white/[0.08] overflow-hidden shadow-elevated backdrop-blur-xl animate-fade-in flex flex-col"
             style={{
               top: `${panelPos.top}px`,
               right: `${panelPos.right}px`,
               width: `${PANEL_WIDTH}px`,
               maxHeight: `${panelPos.maxHeight}px`,
               background: "rgba(20, 20, 23, 0.95)",
+              zIndex: 60,
             }}
           >
             <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-500 border-b border-white/[0.06] shrink-0">
