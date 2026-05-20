@@ -2,7 +2,7 @@
   "version": "0",
   "manifest": {
     "repo": "shangwuju",
-    "generated_at": "2026-05-18T00:30:00Z",
+    "generated_at": "2026-05-20T00:00:00Z",
     "generator": "ai@claude-opus-4.7",
     "lang": "zh-CN"
   },
@@ -46,6 +46,14 @@
       "order": 4,
       "importance": "normal",
       "tags": ["planned"]
+    },
+    {
+      "id": "graph",
+      "name": "LangGraph 业界标配编排（v1）",
+      "summary": "Plan-and-Execute + Routing + Evaluator-Optimizer 三大范式合体；LLM 出 plan、并行 execute、critic 验证、双层 replan（LLM backprompt + ILS 兜底）",
+      "order": 5,
+      "importance": "core",
+      "tags": []
     }
   ],
   "features": [
@@ -868,8 +876,8 @@
     },
     {
       "id": "f-llm-planner",
-      "name": "LLM 范式分发",
-      "summary": "PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 路由到 llm_first（默认；LLM-First Planner，参考 problem.md 问题 15）/ hybrid（A+C 混合）/ function_calling 三种策略；4 级 fallback 链 llm_first → hybrid → rule，stub 客户端兼容回 rule",
+      "name": "LLM 范式分发（legacy）",
+      "summary": "[v1 LangGraph 已取代 → fallback] PLANNER_MODE=llm 入口；按 PLANNER_LLM_STRATEGY 路由到 llm_first（默认）/ hybrid / function_calling 三种策略；4 级 fallback 链 llm_first → hybrid → rule，stub 客户端兼容回 rule。Phase 0.10.3 主架构 → Phase 0.20 LangGraph graph/nodes/planner.py 统一接管，本入口仅 USE_LANGGRAPH=0 时启用",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "PLANNER_MODE=llm 或 X-Planner-Mode=llm 时由分发器选用" }
@@ -909,10 +917,10 @@
         { "file": "backend/schemas/planner_mode.py", "lines": [1, 70] },
         { "file": "backend/.env.example", "lines": [40, 70] }
       ],
-      "confidence": 0.92,
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-17T18:00:00Z"
+      "tags": ["legacy"],
+      "updated_at": "2026-05-20T00:00:00Z"
     },
     {
       "id": "f-planning-weights",
@@ -1039,8 +1047,8 @@
     },
     {
       "id": "f-hybrid-planner",
-      "name": "A+C 混合规划",
-      "summary": "ItiNera 范式：LLM 出权重 → ILS 搜索 → Critic 验证 → 硬违规反馈重排，主流程协调器",
+      "name": "A+C 混合规划（legacy）",
+      "summary": "[v1 LangGraph ils_replan_node 直接复用 → fallback] ItiNera 范式：LLM 出权重 → ILS 搜索 → Critic 验证 → 硬违规反馈重排，主流程协调器。Phase 0.9 主架构 → Phase 0.20 LangGraph graph/nodes/replan.py.ils_replan_node 调 plan_hybrid 作为 critic backprompt 用尽后的算法兜底",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "f-llm-planner 在 PLANNER_LLM_STRATEGY=hybrid 时调用" }
@@ -1074,10 +1082,10 @@
         { "file": "backend/scripts/verify_planning.py", "lines": [1, 220] },
         { "file": "backend/tests/test_planner_hybrid.py", "lines": [255, 330] }
       ],
-      "confidence": 0.88,
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-17T16:00:00Z"
+      "tags": ["legacy"],
+      "updated_at": "2026-05-20T00:00:00Z"
     },
     {
       "id": "f-persona-prior",
@@ -1451,8 +1459,8 @@
     },
     {
       "id": "f-llm-first-planner",
-      "name": "LLM-First 规划主流程",
-      "summary": "LLM-First Planner 主流程：候选搜索 → LLM 看候选预览出 PlanBlueprint → Critic 验证 → 硬违规 backprompt 重试 ≤2 次 → 蓝图拼装为 Itinerary。LLM 决主观（段集合/段顺序/每段时长/target_id），算法决客观（时序无重叠/营业时间/总时长）。问题 15 解决耦合反模式。",
+      "name": "LLM-First 规划主流程（legacy）",
+      "summary": "[v1 LangGraph graph/nodes/planner.py 取代 → fallback] LLM-First Planner 主流程：候选搜索 → LLM 看候选预览出 PlanBlueprint → Critic 验证 → 硬违规 backprompt 重试 ≤2 次 → 蓝图拼装为 Itinerary。LLM 决主观（段集合/段顺序/每段时长/target_id），算法决客观（时序无重叠/营业时间/总时长）。Phase 0.10.3 主架构 → Phase 0.20 LangGraph 内 planner_node + assemble_node + critic_node 三段拆分，本流程仅 USE_LANGGRAPH=0 时启用",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "PLANNER_LLM_STRATEGY=llm_first（默认）时被 f-llm-planner 调用" }
@@ -1486,15 +1494,15 @@
         { "file": "backend/agent/prompts/blueprint_prompt.py", "lines": [1, 133] },
         { "file": "backend/scripts/verify_llm_first.py", "lines": [1, 152] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-17T18:00:00Z"
+      "tags": ["legacy"],
+      "updated_at": "2026-05-20T00:00:00Z"
     },
     {
       "id": "f-blueprint-critics",
-      "name": "蓝图级 Critic（C1/C2/C3）",
-      "summary": "对 LLM 出的 PlanBlueprint 跑 3 个客观约束 critic：C1 时序无重叠 / C2 总时长不超用户上限 / C3 段时间在 target 营业时间内。硬违规 → 反馈消息给 LLM 重生成；soft 违规仅扣 soft_score。LLM-Modulo (Kambhampati NeurIPS 2024) 闭环。",
+      "name": "蓝图级 Critic C1/C2/C3（legacy）",
+      "summary": "[v1 LangGraph graph/nodes/critic.py 直接复用 → 共用算法] 对 LLM 出的 PlanBlueprint 跑 3 个客观约束 critic：C1 时序无重叠 / C2 总时长不超用户上限 / C3 段时间在 target 营业时间内。硬违规 → 反馈消息给 LLM 重生成；soft 违规仅扣 soft_score。LLM-Modulo (Kambhampati NeurIPS 2024) 闭环。LangGraph 路径用 critics_v2.validate_itinerary 包装",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "由 f-llm-first-planner 在 LLM 蓝图生成后调用" }
@@ -1520,15 +1528,15 @@
         { "file": "backend/agent/blueprint.py", "lines": [200, 375] },
         { "file": "backend/tests/test_blueprint.py", "lines": [1, 308] }
       ],
-      "confidence": 0.9,
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-17T18:00:00Z"
+      "tags": ["legacy"],
+      "updated_at": "2026-05-20T00:00:00Z"
     },
     {
       "id": "f-react-unified-agent",
-      "name": "ReAct 单一 Agent",
-      "summary": "Pydantic AI Agent 实例 unified_agent: Agent[AgentDeps, AgentOutput]，让 LLM 看到全部 8 工具自主决策何时调用；output_type=Union[ChatResponse, ItineraryResponse] 让 LLM 自选输出形态；critics_v2 通过 output_validator 兜底，critical 违规 ModelRetry 让 LLM 自纠错（LLM-Modulo 范式）。三层 MiMo 容错：prompt 警示 + 入参 _coerce_* + _FlexibleItineraryResponse 子类（Phase 0.12 主菜）",
+      "name": "ReAct 单一 Agent（fallback）",
+      "summary": "Pydantic AI Agent 实例 unified_agent，USE_LANGGRAPH=0 时启用作 fallback。Phase 0.12 主架构，Phase 0.20 LangGraph 重构后退为 fallback。让 LLM 看到全部 8 工具自主决策何时调用；output_type=Union[ChatResponse, ItineraryResponse] 让 LLM 自选输出形态；critics_v2 通过 output_validator 兜底，critical 违规 ModelRetry 让 LLM 自纠错（LLM-Modulo 范式）。三层 MiMo 容错：prompt 警示 + 入参 _coerce_* + _FlexibleItineraryResponse 子类。",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "/chat/turn 在 USE_REACT_AGENT=1（默认）时调 run_react_turn 拦截 unified_agent.iter()" }
@@ -1566,10 +1574,10 @@
         { "file": "backend/scripts/verify_react_agent.py" },
         { "file": "backend/scripts/verify_v2_react.py" }
       ],
-      "confidence": 0.9,
+      "confidence": 0.85,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-17T22:00:00Z"
+      "tags": ["fallback"],
+      "updated_at": "2026-05-20T00:00:00Z"
     },
     {
       "id": "f-critics-v2",
@@ -1619,7 +1627,7 @@
     {
       "id": "f-conversation-repo",
       "name": "对话历史持久化",
-      "summary": "ConversationRepository Protocol（@runtime_checkable）+ InMemoryRepository（demo 默认）+ RedisRepositoryStub（Milestone 2 接入点，5 写方法抛 NotImplementedError）；SESSION_STORE=memory|redis 工厂解析；旧名 ConversationStore = InMemoryRepository 别名向后兼容。Phase 0.11 主菜：解决「dock 直接反馈无上下文」根因——跨 turn 持久化 Pydantic AI ModelMessage list 喂回 unified_agent 让 LLM 自主判断反馈 vs 新需求。",
+      "summary": "[v1 LangGraph InMemorySaver 取代 → fallback] ConversationRepository Protocol（@runtime_checkable）+ InMemoryRepository（demo 默认）+ RedisRepositoryStub（Milestone 2 接入点）；SESSION_STORE=memory|redis 工厂解析；旧名 ConversationStore = InMemoryRepository 别名向后兼容。Phase 0.11 ReAct 路径用 → LangGraph 路径改用 InMemorySaver(thread_id=session_id)",
       "epicId": "input",
       "triggers": [
         { "kind": "event", "detail": "main.py / orchestrator.py / react_agent.py 通过 get_default_repo() 获取单例" }
@@ -1724,7 +1732,7 @@
     {
       "id": "f-chat-turn-endpoint",
       "name": "/chat/turn 单一对话入口",
-      "summary": "POST /chat/turn 单一入口：USE_REACT_AGENT=1（默认）走 ReAct 单一 Agent，探活失败自动 fallback 旧 router→planner / refiner 双路径（demo 安全兜底）。前端 dock 直接输入反馈走这里——LLM 看 message_history 自主判断反馈 vs 新需求，无需启发式 looks_like_feedback。Phase 0.11/0.12 整合接入点。",
+      "summary": "POST /chat/turn 单一入口（v1 LangGraph 主路径）：USE_LANGGRAPH=1（默认）→ 走 LangGraph Plan-and-Execute；探活失败 fallback USE_REACT_AGENT=1 → 走 ReAct；再失败 → fallback rule planner。三层 fallback 链 LangGraph → ReAct → rule 让 demo 永不翻车。前端 dock 直接输入反馈也走这里（router_node._looks_like_feedback 启发式判断）",
       "epicId": "input",
       "triggers": [
         { "kind": "http", "detail": "POST /chat/turn" },
@@ -1765,6 +1773,374 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-17T22:00:00Z"
+    },
+    {
+      "id": "f-graph-state",
+      "name": "LangGraph 全局 State",
+      "summary": "TypedDict AgentState 跨节点共享：user_input / messages / intent / pois / restaurants / weights / blueprint / itinerary / violations / retry_count / replan_strategy / narration / 三按钮决策。复用 v1 已有 schema（IntentExtraction / Itinerary / PlanBlueprint / PlanningWeights / Violation），不发明新结构。messages 字段用 langgraph.graph.message.add_messages reducer 自动 merge",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "LangGraph build_graph 编织拓扑时初始化" }
+      ],
+      "steps": [
+        { "id": "define_state", "name": "定义状态字段", "role": "compute" },
+        { "id": "factory", "name": "构造初始状态", "role": "compute" },
+        { "id": "merge_diff", "name": "节点输出合并", "role": "data-write" },
+        { "id": "checkpoint_serialize", "name": "持久化序列化", "role": "data-write" }
+      ],
+      "flow": [
+        { "from": "define_state", "to": "factory", "kind": "next" },
+        { "from": "factory", "to": "merge_diff", "kind": "loop", "condition": "每个节点完成时" },
+        { "from": "merge_diff", "to": "checkpoint_serialize", "kind": "async", "condition": "InMemorySaver 触发 checkpoint" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/state.py", "lines": [1, 125] },
+        { "file": "backend/agent/graph/__init__.py" }
+      ],
+      "confidence": 0.95,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-build",
+      "name": "LangGraph 拓扑编织",
+      "summary": "build_graph() 编译完整拓扑：START → router → {chitchat | intent | refiner} → execute（4 worker 并行）→ planner → assemble → critic → {narrate | replan_router → ils_replan} → END。InMemorySaver checkpointer + thread_id=session_id 跨 turn 持久化 messages。模块级单例 _compiled_graph 防重复 compile",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "startup", "detail": "main.py /chat/turn 首次访问时 lazy compile" },
+        { "kind": "event", "detail": "verify_langgraph.py 测试入口" }
+      ],
+      "steps": [
+        { "id": "init_graph", "name": "初始化空图", "role": "compute" },
+        { "id": "add_nodes", "name": "注册节点", "role": "compute" },
+        { "id": "add_edges", "name": "连接边", "role": "compute" },
+        { "id": "add_conditional", "name": "挂条件路由", "role": "compute" },
+        { "id": "compile_with_saver", "name": "编译附带保存器", "role": "compute" },
+        { "id": "cache_singleton", "name": "缓存单例", "role": "data-write" }
+      ],
+      "flow": [
+        { "from": "init_graph", "to": "add_nodes", "kind": "next" },
+        { "from": "add_nodes", "to": "add_edges", "kind": "next" },
+        { "from": "add_edges", "to": "add_conditional", "kind": "next" },
+        { "from": "add_conditional", "to": "compile_with_saver", "kind": "next" },
+        { "from": "compile_with_saver", "to": "cache_singleton", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/build.py", "lines": [1, 147] }
+      ],
+      "confidence": 0.95,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-router-node",
+      "name": "Graph 路由节点",
+      "summary": "复用旧 router.classify_input + LLM 6 类分类；启发式 _looks_like_feedback 优先（已有 itinerary + 反馈关键词 → feedback 路径）；route_after_router 作 conditional edge 函数：planning → intent / feedback → refiner / 其他 5 类 → chitchat。LLM 失败兜底 fallback_decision",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "build.py START → router 边触发" }
+      ],
+      "steps": [
+        { "id": "input_text", "name": "接收用户输入", "role": "input" },
+        { "id": "feedback_heuristic", "name": "判反馈启发式", "role": "validation" },
+        { "id": "call_router_llm", "name": "调路由模型", "role": "compute" },
+        { "id": "fallback_keyword", "name": "失败关键词兜底", "role": "error" },
+        { "id": "decide_route", "name": "决定下一节点", "role": "compute" }
+      ],
+      "flow": [
+        { "from": "input_text", "to": "feedback_heuristic", "kind": "next" },
+        { "from": "feedback_heuristic", "to": "decide_route", "kind": "conditional", "condition": "命中反馈" },
+        { "from": "feedback_heuristic", "to": "call_router_llm", "kind": "conditional", "condition": "未命中反馈" },
+        { "from": "call_router_llm", "to": "decide_route", "kind": "conditional", "condition": "调用成功" },
+        { "from": "call_router_llm", "to": "fallback_keyword", "kind": "error", "condition": "异常 / JSON 失败" },
+        { "from": "fallback_keyword", "to": "decide_route", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/router.py", "lines": [1, 65] },
+        { "file": "backend/agent/router.py", "lines": [1, 142] }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-execute",
+      "name": "Graph 并行 Execute 阶段",
+      "summary": "Plan-and-Execute 中的 execute 阶段：4 个 worker 节点（search_pois_worker / search_restaurants_worker / get_user_profile_worker / 路线粗估）通过 LangGraph 多边并行触发，结果合并到 State。execute_collect 节点作 join point。任何 worker 失败不阻塞其他（候选为空让 replan 兜）。比 ReAct 串行约 3 倍速",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "intent_node / refiner_node 完成后多边并发触发" }
+      ],
+      "steps": [
+        { "id": "fanout", "name": "扇出并行任务", "role": "compute" },
+        { "id": "search_pois_w", "name": "搜地点 worker", "role": "data-read" },
+        { "id": "search_rests_w", "name": "搜餐厅 worker", "role": "data-read" },
+        { "id": "user_profile_w", "name": "读画像 worker", "role": "data-read" },
+        { "id": "collect", "name": "汇聚候选", "role": "compute" }
+      ],
+      "flow": [
+        { "from": "fanout", "to": "search_pois_w", "kind": "async" },
+        { "from": "fanout", "to": "search_rests_w", "kind": "async" },
+        { "from": "fanout", "to": "user_profile_w", "kind": "async" },
+        { "from": "search_pois_w", "to": "collect", "kind": "next" },
+        { "from": "search_rests_w", "to": "collect", "kind": "next" },
+        { "from": "user_profile_w", "to": "collect", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/execute.py", "lines": [1, 44] },
+        { "file": "backend/agent/tools/search_adapter.py" },
+        { "file": "backend/agent/graph/build.py", "lines": [110, 130] }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-planner-node",
+      "name": "Graph LLM-First Plan 节点",
+      "summary": "Plan-and-Execute 中的 plan 阶段：LLM 看候选预览出 PlanBlueprint + 4 维 PlanningWeights（复用 blueprint_llm.generate_blueprint + weights_llm.get_planning_weights）。critic 反馈通过 critic_feedback_text 字段回灌让 LLM 重生成（backprompt 范式）。retry 由 plan_attempt 计数",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "execute_collect → planner 边" }
+      ],
+      "steps": [
+        { "id": "load_intent", "name": "读取意图", "role": "input" },
+        { "id": "load_candidates", "name": "读候选预览", "role": "input" },
+        { "id": "compute_weights", "name": "出 4 维权重", "role": "compute" },
+        { "id": "build_prompt", "name": "拼装提示词", "role": "transform" },
+        { "id": "include_feedback", "name": "回灌违规反馈", "role": "transform" },
+        { "id": "call_blueprint_llm", "name": "请求模型出蓝图", "role": "compute" },
+        { "id": "increment_attempt", "name": "累计尝试次数", "role": "data-write" },
+        { "id": "fail_empty", "name": "蓝图空让上层兜底", "role": "error" }
+      ],
+      "flow": [
+        { "from": "load_intent", "to": "load_candidates", "kind": "next" },
+        { "from": "load_candidates", "to": "compute_weights", "kind": "next" },
+        { "from": "compute_weights", "to": "build_prompt", "kind": "next" },
+        { "from": "build_prompt", "to": "include_feedback", "kind": "conditional", "condition": "非首次出 plan" },
+        { "from": "build_prompt", "to": "call_blueprint_llm", "kind": "conditional", "condition": "首次出 plan" },
+        { "from": "include_feedback", "to": "call_blueprint_llm", "kind": "next" },
+        { "from": "call_blueprint_llm", "to": "increment_attempt", "kind": "next" },
+        { "from": "call_blueprint_llm", "to": "fail_empty", "kind": "error", "condition": "BlueprintGenError" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/planner.py", "lines": [1, 53] },
+        { "file": "backend/agent/blueprint_llm.py" },
+        { "file": "backend/agent/weights_llm.py" }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-assemble-node",
+      "name": "Graph 蓝图拼装节点",
+      "summary": "复用 assemble_blueprint.assemble_from_blueprint 把 PlanBlueprint 拼装为 Itinerary（含 stages / total_minutes / orders 占位）。纯算法节点不调 LLM。失败时 itinerary=None 让 critic 标 STAGES_INCOMPLETE 触发 replan",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "planner → assemble 边" }
+      ],
+      "steps": [
+        { "id": "load_blueprint", "name": "读取蓝图", "role": "input" },
+        { "id": "expand_stages", "name": "展开段落", "role": "transform" },
+        { "id": "compute_durations", "name": "算时长字段", "role": "compute" },
+        { "id": "build_itinerary", "name": "构造行程对象", "role": "compute" },
+        { "id": "fail_invalid", "name": "蓝图非法返空", "role": "error" }
+      ],
+      "flow": [
+        { "from": "load_blueprint", "to": "expand_stages", "kind": "conditional", "condition": "蓝图非空" },
+        { "from": "load_blueprint", "to": "fail_invalid", "kind": "error", "condition": "蓝图空" },
+        { "from": "expand_stages", "to": "compute_durations", "kind": "next" },
+        { "from": "compute_durations", "to": "build_itinerary", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/assemble.py", "lines": [1, 16] },
+        { "file": "backend/agent/assemble_blueprint.py" }
+      ],
+      "confidence": 0.95,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-critic-node",
+      "name": "Graph Critic 验证节点",
+      "summary": "Plan-and-Execute 的 Evaluator 阶段：复用 critics_v2.validate_itinerary 做 7 类客观约束检查；critical 违规填 critic_feedback_text 给 backprompt 用；route_after_critic conditional edge 决定走 narrate（通过）还是 replan_router（违规）",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "assemble → critic 边" }
+      ],
+      "steps": [
+        { "id": "load_artifact", "name": "读取行程与意图", "role": "input" },
+        { "id": "run_critics", "name": "跑 7 类约束", "role": "validation" },
+        { "id": "classify_severity", "name": "分级违规", "role": "compute" },
+        { "id": "format_feedback", "name": "格式化反馈文本", "role": "transform" },
+        { "id": "decide_branch", "name": "决定下一节点", "role": "compute" }
+      ],
+      "flow": [
+        { "from": "load_artifact", "to": "run_critics", "kind": "next" },
+        { "from": "run_critics", "to": "classify_severity", "kind": "next" },
+        { "from": "classify_severity", "to": "format_feedback", "kind": "conditional", "condition": "存在 critical 违规" },
+        { "from": "format_feedback", "to": "decide_branch", "kind": "next" },
+        { "from": "classify_severity", "to": "decide_branch", "kind": "conditional", "condition": "无 critical" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/critic.py", "lines": [1, 39] },
+        { "file": "backend/agent/v2/critics_v2.py" }
+      ],
+      "confidence": 0.95,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-replan-node",
+      "name": "Graph 双层 Replan 节点",
+      "summary": "Plan-and-Execute 的 Optimizer 阶段：retry_count ≤ 2 → llm_backprompt（回 planner_node 带 critic_feedback_text）；retry_count > 2 → ils_fallback（转 ils_replan_node 调 plan_hybrid 算法兜底，复用 planner_hybrid ILS）；ILS 也失败 → give_up 用当前方案降级出 narrate。LLM-Modulo + Hybrid 合体形态",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "critic 检测到 has_critical=True" }
+      ],
+      "steps": [
+        { "id": "input_violations", "name": "读违规清单", "role": "input" },
+        { "id": "increment_retry", "name": "累加重试次数", "role": "data-write" },
+        { "id": "decide_strategy", "name": "选 LLM 或 ILS", "role": "compute" },
+        { "id": "to_planner", "name": "回灌给 LLM", "role": "compute" },
+        { "id": "to_ils", "name": "转 ILS 兜底", "role": "compute" },
+        { "id": "ils_search", "name": "ILS 局部搜索", "role": "compute" },
+        { "id": "give_up", "name": "兜底失败放弃", "role": "error" }
+      ],
+      "flow": [
+        { "from": "input_violations", "to": "increment_retry", "kind": "next" },
+        { "from": "increment_retry", "to": "decide_strategy", "kind": "next" },
+        { "from": "decide_strategy", "to": "to_planner", "kind": "conditional", "condition": "retry_count ≤ 2" },
+        { "from": "decide_strategy", "to": "to_ils", "kind": "conditional", "condition": "retry_count > 2" },
+        { "from": "to_ils", "to": "ils_search", "kind": "next" },
+        { "from": "ils_search", "to": "give_up", "kind": "error", "condition": "ILS 失败" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/replan.py", "lines": [1, 92] },
+        { "file": "backend/agent/planner_hybrid.py" }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-narrate-node",
+      "name": "Graph 暖语气文案节点",
+      "summary": "复用 narrator.generate_narration 给最终 itinerary 出暖语气导游开场白；stage='stream' 模式（区别于 confirm 后的「都给你搞定了」收尾文案）。LLM 失败自动 fallback 到模板兜底（按 social_context 6 套语气）",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "event", "detail": "critic 通过 → narrate / replan give_up → narrate" }
+      ],
+      "steps": [
+        { "id": "load_itinerary", "name": "读最终行程", "role": "input" },
+        { "id": "build_narration_prompt", "name": "拼装暖语气提示词", "role": "transform" },
+        { "id": "call_llm", "name": "请求模型出文案", "role": "compute" },
+        { "id": "template_fallback", "name": "模板兜底", "role": "error" },
+        { "id": "write_narration", "name": "写回 state", "role": "data-write" }
+      ],
+      "flow": [
+        { "from": "load_itinerary", "to": "build_narration_prompt", "kind": "next" },
+        { "from": "build_narration_prompt", "to": "call_llm", "kind": "next" },
+        { "from": "call_llm", "to": "write_narration", "kind": "conditional", "condition": "LLM 成功" },
+        { "from": "call_llm", "to": "template_fallback", "kind": "error", "condition": "LLM 失败" },
+        { "from": "template_fallback", "to": "write_narration", "kind": "next" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/narrate.py", "lines": [1, 27] },
+        { "file": "backend/agent/narrator.py" }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-finalize-node",
+      "name": "Graph 用户确认下单节点",
+      "summary": "interrupt(plan_ready) 后用户选 confirm 走本节点：依次调 reserve_restaurant + buy_ticket（仅收费 POI）+ generate_share_message。把 orders + share_message 写回 itinerary。任何 Tool 失败不阻塞其他（捕异常继续，让前端拿到部分订单也能展示）",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "ui", "detail": "用户在行程卡片点击「确认并预约」" }
+      ],
+      "steps": [
+        { "id": "load_decision", "name": "读用户决策", "role": "input" },
+        { "id": "find_dining", "name": "找用餐 stage", "role": "compute" },
+        { "id": "reserve_restaurant", "name": "调餐厅预约", "role": "side-effect" },
+        { "id": "buy_ticket", "name": "调门票购买", "role": "side-effect" },
+        { "id": "generate_share", "name": "调文案生成", "role": "side-effect" },
+        { "id": "merge_back", "name": "写回行程", "role": "data-write" },
+        { "id": "tolerate_failure", "name": "容忍部分失败", "role": "error" }
+      ],
+      "flow": [
+        { "from": "load_decision", "to": "find_dining", "kind": "next" },
+        { "from": "find_dining", "to": "reserve_restaurant", "kind": "conditional", "condition": "用餐段存在" },
+        { "from": "reserve_restaurant", "to": "buy_ticket", "kind": "conditional", "condition": "POI 收费" },
+        { "from": "reserve_restaurant", "to": "generate_share", "kind": "conditional", "condition": "POI 免费" },
+        { "from": "buy_ticket", "to": "generate_share", "kind": "next" },
+        { "from": "generate_share", "to": "merge_back", "kind": "next" },
+        { "from": "reserve_restaurant", "to": "tolerate_failure", "kind": "error", "condition": "Tool 异常" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/nodes/execute_finalize.py", "lines": [1, 73] }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
+    },
+    {
+      "id": "f-graph-sse-adapter",
+      "name": "Graph SSE 事件适配层",
+      "summary": "graph.astream(stream_mode='updates') → 现有 SseEventType 序列。每个节点完成后产出 {node_name: state_diff}，本层订阅 updates 按节点名映射到 intent_parsed / tool_call_start_end / replan_triggered / agent_thought / chitchat_reply / itinerary_ready / agent_narration / done。前端零改动复用现有事件 schema",
+      "epicId": "graph",
+      "triggers": [
+        { "kind": "http", "detail": "main.py /chat/turn 在 USE_LANGGRAPH=1 时调 run_graph_stream" }
+      ],
+      "steps": [
+        { "id": "compile_graph", "name": "懒编译图", "role": "compute" },
+        { "id": "init_state", "name": "初始化状态", "role": "compute" },
+        { "id": "heartbeat", "name": "推送心跳", "role": "output" },
+        { "id": "subscribe_updates", "name": "订阅节点更新", "role": "compute" },
+        { "id": "map_router", "name": "映射路由事件", "role": "transform" },
+        { "id": "map_search", "name": "映射搜索事件", "role": "transform" },
+        { "id": "map_planner", "name": "映射蓝图事件", "role": "transform" },
+        { "id": "map_critic", "name": "映射验证事件", "role": "transform" },
+        { "id": "map_assemble", "name": "映射行程就绪", "role": "transform" },
+        { "id": "map_narrate", "name": "映射暖语气", "role": "transform" },
+        { "id": "emit_done", "name": "推送结束", "role": "output" },
+        { "id": "stream_error", "name": "异常推错误事件", "role": "error" }
+      ],
+      "flow": [
+        { "from": "compile_graph", "to": "init_state", "kind": "next" },
+        { "from": "init_state", "to": "heartbeat", "kind": "next" },
+        { "from": "heartbeat", "to": "subscribe_updates", "kind": "next" },
+        { "from": "subscribe_updates", "to": "map_router", "kind": "conditional", "condition": "node=router" },
+        { "from": "subscribe_updates", "to": "map_search", "kind": "conditional", "condition": "node=search_*_worker" },
+        { "from": "subscribe_updates", "to": "map_planner", "kind": "conditional", "condition": "node=planner" },
+        { "from": "subscribe_updates", "to": "map_critic", "kind": "conditional", "condition": "node=critic" },
+        { "from": "subscribe_updates", "to": "map_assemble", "kind": "conditional", "condition": "node=assemble" },
+        { "from": "subscribe_updates", "to": "map_narrate", "kind": "conditional", "condition": "node=narrate" },
+        { "from": "subscribe_updates", "to": "emit_done", "kind": "next", "condition": "graph 完成" },
+        { "from": "subscribe_updates", "to": "stream_error", "kind": "error", "condition": "异常" }
+      ],
+      "refs": [
+        { "file": "backend/agent/graph/sse_adapter.py", "lines": [1, 275] },
+        { "file": "backend/main.py", "lines": [490, 540] },
+        { "file": "backend/scripts/verify_langgraph.py" }
+      ],
+      "confidence": 0.92,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-05-20T00:00:00Z"
     }
   ],
   "cross_feature": [
@@ -1857,13 +2233,45 @@
     { "from": "f-tool-provider", "to": "f-user-profile", "kind": "depends_on", "note": "同上" },
     { "from": "f-conversation-repo", "to": "f-persona-prior", "kind": "depends_on", "note": "user_id 透传到 persona prior 注入" },
     { "from": "f-react-unified-agent", "to": "f-tool-trace", "kind": "publishes", "note": "ReAct 循环工具调用事件推前端" },
-    { "from": "f-react-unified-agent", "to": "f-itinerary-card", "kind": "publishes", "note": "ItineraryResponse 分支推方案卡片" }
+    { "from": "f-react-unified-agent", "to": "f-itinerary-card", "kind": "publishes", "note": "ItineraryResponse 分支推方案卡片" },
+    { "from": "f-chat-turn-endpoint", "to": "f-graph-sse-adapter", "kind": "triggers", "note": "USE_LANGGRAPH=1（默认）走 LangGraph 主路径" },
+    { "from": "f-graph-sse-adapter", "to": "f-graph-build", "kind": "depends_on", "note": "懒编译 graph 单例" },
+    { "from": "f-graph-build", "to": "f-graph-state", "kind": "depends_on", "note": "拓扑共享 AgentState schema" },
+    { "from": "f-graph-build", "to": "f-graph-router-node", "kind": "depends_on", "note": "拓扑首节点" },
+    { "from": "f-graph-router-node", "to": "f-input-router", "kind": "depends_on", "note": "复用旧 router LLM 6 类分类" },
+    { "from": "f-graph-router-node", "to": "f-graph-execute", "kind": "triggers", "note": "planning 路径分发" },
+    { "from": "f-graph-router-node", "to": "f-refine-replan", "kind": "triggers", "note": "feedback 路径分发到 refiner（复用旧 refiner.refine_intent）" },
+    { "from": "f-graph-execute", "to": "f-search-pois", "kind": "depends_on", "note": "search_pois_worker 调旧 search_pois_for_intent" },
+    { "from": "f-graph-execute", "to": "f-search-restaurants", "kind": "depends_on", "note": "search_restaurants_worker 调旧 search_restaurants_for_intent" },
+    { "from": "f-graph-execute", "to": "f-user-profile", "kind": "depends_on", "note": "get_user_profile_worker 调旧 get_user_profile_for_user" },
+    { "from": "f-graph-execute", "to": "f-graph-planner-node", "kind": "next", "note": "execute_collect → planner 边" },
+    { "from": "f-graph-planner-node", "to": "f-llm-first-planner", "kind": "depends_on", "note": "复用 blueprint_llm.generate_blueprint 算法" },
+    { "from": "f-graph-planner-node", "to": "f-planning-weights", "kind": "depends_on", "note": "复用 weights_llm.get_planning_weights" },
+    { "from": "f-graph-planner-node", "to": "f-graph-assemble-node", "kind": "next", "note": "planner → assemble 边" },
+    { "from": "f-graph-assemble-node", "to": "f-graph-critic-node", "kind": "next", "note": "assemble → critic 边" },
+    { "from": "f-graph-critic-node", "to": "f-critics-v2", "kind": "depends_on", "note": "复用 critics_v2.validate_itinerary" },
+    { "from": "f-graph-critic-node", "to": "f-graph-narrate-node", "kind": "next", "note": "无 critical 违规 → narrate" },
+    { "from": "f-graph-critic-node", "to": "f-graph-replan-node", "kind": "next", "note": "有 critical 违规 → replan_router" },
+    { "from": "f-graph-replan-node", "to": "f-graph-planner-node", "kind": "loop", "note": "llm_backprompt 回 planner（带 critic_feedback_text）" },
+    { "from": "f-graph-replan-node", "to": "f-hybrid-planner", "kind": "depends_on", "note": "ils_fallback 调 plan_hybrid 算法兜底（ILS 重排）" },
+    { "from": "f-graph-replan-node", "to": "f-ils-search", "kind": "depends_on", "note": "ils_replan_node 内部用 ILS 启发式搜索" },
+    { "from": "f-graph-narrate-node", "to": "f-itinerary-card", "kind": "next", "note": "narrate 完出 itinerary_ready 事件给前端卡片" },
+    { "from": "f-graph-finalize-node", "to": "f-reserve-restaurant", "kind": "triggers", "note": "用户 confirm 后调餐厅预约" },
+    { "from": "f-graph-finalize-node", "to": "f-buy-ticket", "kind": "triggers", "note": "POI 收费时调门票购买" },
+    { "from": "f-graph-finalize-node", "to": "f-share-message", "kind": "triggers", "note": "永远调转发文案生成" },
+    { "from": "f-graph-sse-adapter", "to": "f-tool-trace", "kind": "next", "note": "前端订阅 SSE 流复用旧 ToolTrace 渲染" },
+    { "from": "f-graph-sse-adapter", "to": "f-itinerary-card", "kind": "next", "note": "itinerary_ready 事件触发卡片渲染" }
   ],
   "epic_flow": [
     { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后查询候选" },
     { "from": "discovery", "to": "planning", "kind": "next", "note": "候选齐全后组装行程" },
     { "from": "planning", "to": "execution", "kind": "next", "note": "方案确认后下发执行" },
     { "from": "execution", "to": "sharing", "kind": "next", "note": "下单完成后生成转发文案" },
-    { "from": "planning", "to": "discovery", "kind": "depends_on", "note": "异常重规划在规划阶段反向调用 discovery 取备选" }
+    { "from": "planning", "to": "discovery", "kind": "depends_on", "note": "异常重规划在规划阶段反向调用 discovery 取备选" },
+    { "from": "graph", "to": "input", "kind": "depends_on", "note": "v1 LangGraph 主路径复用 input 阶段的 router / intent / refiner 算法" },
+    { "from": "graph", "to": "discovery", "kind": "depends_on", "note": "v1 LangGraph execute 阶段复用 discovery 的 8 工具实现" },
+    { "from": "graph", "to": "planning", "kind": "depends_on", "note": "v1 LangGraph planner / critic / replan 节点复用 planning 阶段算法（blueprint / weights / critics_v2 / hybrid ILS）" },
+    { "from": "graph", "to": "execution", "kind": "depends_on", "note": "v1 LangGraph finalize 节点复用 execution 阶段下单工具" },
+    { "from": "graph", "to": "sharing", "kind": "publishes", "note": "v1 LangGraph sse_adapter 推送给前端复用 sharing 阶段渲染" }
   ]
 }
