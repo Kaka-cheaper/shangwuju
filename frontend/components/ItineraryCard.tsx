@@ -13,6 +13,7 @@ import RefinementDialog from "./RefinementDialog";
 import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
+import PosterGenerator from "./PosterGenerator";
 import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
 
@@ -508,27 +509,31 @@ function ShareMessage({ text }: { text: string }) {
             转发文案
           </span>
         </div>
-        <button
-          onClick={copy}
-          className={cn(
-            "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
-            copied
-              ? "bg-emerald-500 text-white"
-              : "bg-white/[0.06] text-ink-700 border border-white/[0.08] hover:bg-white/[0.1] hover:text-ink-900",
-          )}
-        >
-          {copied ? (
-            <>
-              <Icons.success className="w-3 h-3" strokeWidth={2.5} />
-              <span>已复制</span>
-            </>
-          ) : (
-            <>
-              <Icons.copy className="w-3 h-3" strokeWidth={2} />
-              <span>复制</span>
-            </>
-          )}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {/* T6/R5: 一键生成海报（图片版分享） */}
+          <PosterGenerator />
+          <button
+            onClick={copy}
+            className={cn(
+              "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
+              copied
+                ? "bg-emerald-500 text-white"
+                : "bg-white/[0.06] text-ink-700 border border-white/[0.08] hover:bg-white/[0.1] hover:text-ink-900",
+            )}
+          >
+            {copied ? (
+              <>
+                <Icons.success className="w-3 h-3" strokeWidth={2.5} />
+                <span>已复制</span>
+              </>
+            ) : (
+              <>
+                <Icons.copy className="w-3 h-3" strokeWidth={2} />
+                <span>复制</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
       <div className="text-[13px] leading-relaxed text-ink-800 whitespace-pre-wrap tracking-tight">
         {text}
