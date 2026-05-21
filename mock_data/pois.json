@@ -3,509 +3,1211 @@
     "id": "P001",
     "name": "森林儿童探索乐园",
     "type": "亲子乐园",
-    "location": { "name": "西溪湿地北门", "lat": 30.27, "lng": 120.07 },
+    "location": {
+      "name": "西溪湿地北门",
+      "lat": 30.27,
+      "lng": 120.07
+    },
     "distance_km": 4.2,
     "opening_hours": "09:00-18:00",
     "rating": 4.6,
-    "age_range": [3, 10],
-    "price_range": [80, 120],
-    "tags": ["亲子友好", "适合 5-10 岁", "户外", "低强度"],
-    "suitable_for": ["家庭日常"],
-    "capacity": { "daily_quota": 200, "available_slots": 45 }
+    "age_range": [
+      3,
+      10
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 45
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P002",
     "name": "西溪艺术展中心 · 当季特展",
     "type": "展览",
-    "location": { "name": "西溪文创园" },
+    "location": {
+      "name": "西溪文创园"
+    },
     "distance_km": 3.8,
     "opening_hours": "10:00-20:00",
     "rating": 4.4,
-    "price_range": [60, 60],
-    "tags": ["看展", "安静聊天", "拍照友好", "亲密情侣", "室内"],
-    "suitable_for": ["情侣亲密", "闺蜜聊天", "独处放空"],
-    "capacity": { "daily_quota": 300, "available_slots": 0 }
+    "price_range": [
+      60,
+      60
+    ],
+    "tags": [
+      "看展",
+      "安静聊天",
+      "拍照友好",
+      "亲密情侣",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 300,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": 75
   },
   {
     "id": "P003",
     "name": "城市儿童博物馆",
     "type": "亲子博物馆",
-    "location": { "name": "城西银泰" },
+    "location": {
+      "name": "城西银泰"
+    },
     "distance_km": 3.2,
     "opening_hours": "09:30-17:30",
     "rating": 4.5,
-    "age_range": [3, 12],
-    "price_range": [60, 100],
-    "tags": ["亲子友好", "适合 5-10 岁", "学习成长", "室内", "低强度"],
-    "suitable_for": ["家庭日常"],
-    "capacity": { "daily_quota": 300, "available_slots": 80 }
+    "age_range": [
+      3,
+      12
+    ],
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "学习成长",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 300,
+      "available_slots": 80
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P004",
     "name": "悦读亲子绘本馆",
     "type": "儿童阅读馆",
-    "location": { "name": "西溪天街" },
+    "location": {
+      "name": "西溪天街"
+    },
     "distance_km": 2.5,
     "opening_hours": "10:00-21:00",
     "rating": 4.7,
-    "age_range": [3, 10],
-    "price_range": [40, 60],
-    "tags": ["亲子友好", "适合 5-10 岁", "学习成长", "安静聊天", "室内", "低强度"],
-    "suitable_for": ["家庭日常"],
-    "capacity": { "daily_quota": 100, "available_slots": 30 }
+    "age_range": [
+      3,
+      10
+    ],
+    "price_range": [
+      40,
+      60
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "学习成长",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": 60
   },
   {
     "id": "P005",
     "name": "江畔老人公园",
     "type": "城市公园",
-    "location": { "name": "运河边" },
+    "location": {
+      "name": "运河边"
+    },
     "distance_km": 2.0,
     "opening_hours": "06:00-21:00",
     "rating": 4.5,
-    "tags": ["适合老人", "无台阶", "可休息", "户外", "低强度"],
-    "suitable_for": ["老人伴助", "家庭日常"],
-    "capacity": { "daily_quota": null, "available_slots": 9999 }
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": 60
   },
   {
     "id": "P006",
     "name": "怡心老年茶艺馆",
     "type": "茶馆",
-    "location": { "name": "南山路" },
+    "location": {
+      "name": "南山路"
+    },
     "distance_km": 2.8,
     "opening_hours": "09:00-22:00",
     "rating": 4.3,
-    "price_range": [40, 80],
-    "tags": ["适合老人", "无台阶", "可休息", "安静聊天", "室内"],
-    "suitable_for": ["老人伴助"],
-    "capacity": { "daily_quota": 80, "available_slots": 0 }
+    "price_range": [
+      40,
+      80
+    ],
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P007",
     "name": "国韵戏曲文化园",
     "type": "戏曲园",
-    "location": { "name": "中山北路" },
+    "location": {
+      "name": "中山北路"
+    },
     "distance_km": 4.6,
     "opening_hours": "10:00-21:00",
     "rating": 4.6,
-    "tags": ["适合老人", "无台阶", "可休息", "学习成长", "室内"],
-    "suitable_for": ["老人伴助"],
-    "capacity": { "daily_quota": 200, "available_slots": 60 }
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P008",
     "name": "云上私人画廊",
     "type": "画廊",
-    "location": { "name": "玉皇山路" },
+    "location": {
+      "name": "玉皇山路"
+    },
     "distance_km": 3.5,
     "opening_hours": "11:00-20:00",
     "rating": 4.4,
-    "price_range": [50, 80],
-    "tags": ["看展", "安静聊天", "亲密情侣", "拍照友好", "室内"],
-    "suitable_for": ["情侣亲密", "独处放空"],
-    "capacity": { "daily_quota": 100, "available_slots": 50 }
+    "price_range": [
+      50,
+      80
+    ],
+    "tags": [
+      "看展",
+      "安静聊天",
+      "亲密情侣",
+      "拍照友好",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": 60
   },
   {
     "id": "P009",
     "name": "城市公共图书馆",
     "type": "图书馆",
-    "location": { "name": "钱江新城" },
+    "location": {
+      "name": "钱江新城"
+    },
     "distance_km": 4.0,
     "opening_hours": "09:00-21:00",
     "rating": 4.7,
-    "tags": ["独处舒缓", "安静聊天", "学习成长", "可休息", "室内"],
-    "suitable_for": ["独处放空"],
-    "capacity": { "daily_quota": null, "available_slots": 9999 }
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "学习成长",
+      "可休息",
+      "室内"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P010",
     "name": "舒愈 SPA 养身馆",
     "type": "SPA",
-    "location": { "name": "西溪银泰" },
+    "location": {
+      "name": "西溪银泰"
+    },
     "distance_km": 2.3,
     "opening_hours": "11:00-23:00",
     "rating": 4.5,
-    "price_range": [200, 400],
-    "tags": ["独处舒缓", "可休息", "室内", "低强度"],
-    "suitable_for": ["独处放空"],
-    "capacity": { "daily_quota": 30, "available_slots": 0 }
+    "price_range": [
+      200,
+      400
+    ],
+    "tags": [
+      "独处舒缓",
+      "可休息",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P011",
     "name": "晨光网红独立书店",
     "type": "书店",
-    "location": { "name": "南宋御街" },
+    "location": {
+      "name": "南宋御街"
+    },
     "distance_km": 4.8,
     "opening_hours": "10:00-22:00",
     "rating": 4.6,
-    "tags": ["独处舒缓", "安静聊天", "网红打卡", "拍照友好", "学习成长", "室内"],
-    "suitable_for": ["独处放空", "闺蜜聊天"],
-    "capacity": { "daily_quota": 150, "available_slots": 70 }
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "网红打卡",
+      "拍照友好",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 150,
+      "available_slots": 70
+    },
+    "suggested_duration_minutes": 75
   },
   {
     "id": "P012",
     "name": "花漾网红咖啡花园",
     "type": "咖啡馆",
-    "location": { "name": "良渚文化村" },
+    "location": {
+      "name": "良渚文化村"
+    },
     "distance_km": 4.3,
     "opening_hours": "10:00-22:00",
     "rating": 4.6,
-    "price_range": [60, 100],
-    "tags": ["网红打卡", "拍照友好", "安静聊天", "户外", "低强度"],
-    "suitable_for": ["闺蜜聊天", "朋友热闹", "情侣亲密"],
-    "capacity": { "daily_quota": 200, "available_slots": 90 }
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "网红打卡",
+      "拍照友好",
+      "安静聊天",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "朋友热闹",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 90
+    },
+    "suggested_duration_minutes": 60
   },
   {
     "id": "P013",
     "name": "极速密室逃脱",
     "type": "密室",
-    "location": { "name": "湖滨银泰 in77" },
+    "location": {
+      "name": "湖滨银泰 in77"
+    },
     "distance_km": 4.7,
     "opening_hours": "11:00-23:00",
     "rating": 4.5,
-    "price_range": [120, 180],
-    "tags": ["热闹", "社交", "拍照友好", "室内", "高强度"],
-    "suitable_for": ["朋友热闹"],
-    "capacity": { "daily_quota": 60, "available_slots": 0 }
+    "price_range": [
+      120,
+      180
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内",
+      "高强度"
+    ],
+    "suitable_for": [
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P014",
     "name": "联机桌游主题馆",
     "type": "桌游馆",
-    "location": { "name": "嘉里中心" },
+    "location": {
+      "name": "嘉里中心"
+    },
     "distance_km": 4.4,
     "opening_hours": "12:00-24:00",
     "rating": 4.4,
-    "price_range": [60, 100],
-    "tags": ["热闹", "社交", "拍照友好", "室内"],
-    "suitable_for": ["朋友热闹"],
-    "capacity": { "daily_quota": 120, "available_slots": 50 }
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 120,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P015",
     "name": "南宋御街 city walk 街区",
     "type": "街区漫步",
-    "location": { "name": "上城区" },
+    "location": {
+      "name": "上城区"
+    },
     "distance_km": 4.9,
     "opening_hours": "09:00-22:00",
     "rating": 4.5,
-    "tags": ["网红打卡", "拍照友好", "户外", "低强度"],
-    "suitable_for": ["朋友热闹", "闺蜜聊天", "情侣亲密"],
-    "capacity": { "daily_quota": null, "available_slots": 9999 }
+    "tags": [
+      "网红打卡",
+      "拍照友好",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P016",
     "name": "云岚商务雅集茶室",
     "type": "商务茶室",
-    "location": { "name": "钱江新城万象城" },
+    "location": {
+      "name": "钱江新城万象城"
+    },
     "distance_km": 4.5,
     "opening_hours": "10:00-22:00",
     "rating": 4.6,
-    "price_range": [200, 400],
-    "tags": ["商务体面", "礼仪感", "安静聊天", "室内"],
-    "suitable_for": ["商务接待", "纪念日仪式感"],
-    "capacity": { "daily_quota": 40, "available_slots": 18 }
+    "price_range": [
+      200,
+      400
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "纪念日仪式感"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P017",
     "name": "童趣海洋亲子馆",
     "type": "亲子游乐场",
-    "location": { "name": "西溪天街" },
+    "location": {
+      "name": "西溪天街"
+    },
     "distance_km": 2.7,
     "opening_hours": "09:00-19:00",
     "rating": 4.5,
-    "age_range": [3, 12],
-    "price_range": [80, 120],
-    "tags": ["亲子友好", "适合 5-10 岁", "拍照友好", "室内", "低强度"],
-    "suitable_for": ["家庭日常"],
-    "capacity": { "daily_quota": 200, "available_slots": 60 }
+    "age_range": [
+      3,
+      12
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P018",
     "name": "西湖游船码头",
     "type": "城市观光",
-    "location": { "name": "断桥" },
+    "location": {
+      "name": "断桥"
+    },
     "distance_km": 4.7,
     "opening_hours": "08:00-20:00",
     "rating": 4.7,
-    "price_range": [70, 130],
-    "tags": ["户外", "拍照友好", "网红打卡", "可休息"],
-    "suitable_for": ["情侣亲密", "闺蜜聊天", "朋友热闹", "家庭日常"],
-    "capacity": { "daily_quota": 500, "available_slots": 220 }
+    "price_range": [
+      70,
+      130
+    ],
+    "tags": [
+      "户外",
+      "拍照友好",
+      "网红打卡",
+      "可休息"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "朋友热闹",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 500,
+      "available_slots": 220
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P019",
     "name": "玉皇山陶艺工坊",
     "type": "DIY 工坊",
-    "location": { "name": "玉皇山南麓" },
+    "location": {
+      "name": "玉皇山南麓"
+    },
     "distance_km": 4.4,
     "opening_hours": "10:00-21:00",
     "rating": 4.5,
-    "price_range": [120, 180],
-    "tags": ["学习成长", "亲密情侣", "拍照友好", "室内", "低强度"],
-    "suitable_for": ["情侣亲密", "闺蜜聊天", "家庭日常"],
-    "capacity": { "daily_quota": 60, "available_slots": 28 }
+    "price_range": [
+      120,
+      180
+    ],
+    "tags": [
+      "学习成长",
+      "亲密情侣",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P020",
     "name": "运河文化夜跑步道",
     "type": "运动步道",
-    "location": { "name": "运河南端" },
+    "location": {
+      "name": "运河南端"
+    },
     "distance_km": 1.8,
     "opening_hours": "00:00-23:59",
     "rating": 4.4,
-    "tags": ["户外", "低强度", "可休息", "适合老人", "无台阶"],
-    "suitable_for": ["独处放空", "老人伴助", "家庭日常"],
-    "capacity": { "daily_quota": null, "available_slots": 9999 }
+    "tags": [
+      "户外",
+      "低强度",
+      "可休息",
+      "适合老人",
+      "无台阶"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "老人伴助",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": 45
   },
   {
     "id": "P_SOLD",
     "name": "热门草莓音乐节限定场",
     "type": "演出",
-    "location": { "name": "黄龙体育中心" },
+    "location": {
+      "name": "黄龙体育中心"
+    },
     "distance_km": 4.6,
     "opening_hours": "14:00-22:00",
     "rating": 4.8,
-    "price_range": [380, 880],
-    "tags": ["热闹", "网红打卡", "拍照友好", "户外", "高强度"],
-    "suitable_for": ["朋友热闹", "情侣亲密", "闺蜜聊天"],
-    "capacity": { "daily_quota": 5000, "available_slots": 0 }
+    "price_range": [
+      380,
+      880
+    ],
+    "tags": [
+      "热闹",
+      "网红打卡",
+      "拍照友好",
+      "户外",
+      "高强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 5000,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": 150
   },
   {
     "id": "P021",
     "name": "礼遇花园 · 家宴庆典广场",
     "type": "庆典花园",
-    "location": { "name": "钱江世纪城" },
+    "location": {
+      "name": "钱江世纪城"
+    },
     "distance_km": 4.6,
     "opening_hours": "09:00-22:00",
     "rating": 4.7,
-    "price_range": [60, 120],
-    "tags": ["礼仪感", "拍照友好", "适合老人", "无台阶", "可休息", "户外"],
-    "suitable_for": ["纪念日仪式感", "老人伴助"],
-    "capacity": { "daily_quota": 100, "available_slots": 50 }
+    "price_range": [
+      60,
+      120
+    ],
+    "tags": [
+      "礼仪感",
+      "拍照友好",
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "户外"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": 60
   },
   {
     "id": "P022",
     "name": "毛球先生猫咖",
     "type": "猫咖",
-    "location": { "name": "西溪银泰" },
+    "location": {
+      "name": "西溪银泰"
+    },
     "distance_km": 2.4,
     "opening_hours": "11:00-22:00",
     "rating": 4.7,
-    "price_range": [60, 100],
-    "tags": ["亲密情侣", "拍照友好", "网红打卡", "安静聊天", "室内", "低强度"],
-    "suitable_for": ["闺蜜聊天", "情侣亲密", "独处放空"],
-    "capacity": { "daily_quota": 80, "available_slots": 30 }
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "亲密情侣",
+      "拍照友好",
+      "网红打卡",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "情侣亲密",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": 75
   },
   {
     "id": "P023",
     "name": "二两猫舍 · 治愈系猫咖",
     "type": "猫咖",
-    "location": { "name": "南宋御街" },
+    "location": {
+      "name": "南宋御街"
+    },
     "distance_km": 4.6,
     "opening_hours": "12:00-23:00",
     "rating": 4.6,
-    "price_range": [80, 120],
-    "tags": ["独处舒缓", "安静聊天", "拍照友好", "网红打卡", "室内", "低强度"],
-    "suitable_for": ["独处放空", "闺蜜聊天", "情侣亲密"],
-    "capacity": { "daily_quota": 60, "available_slots": 22 }
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "拍照友好",
+      "网红打卡",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 22
+    },
+    "suggested_duration_minutes": 75
   },
   {
     "id": "P024",
     "name": "悬念剧场 · 沉浸式剧本杀",
     "type": "剧本杀",
-    "location": { "name": "湖滨银泰 in77" },
+    "location": {
+      "name": "湖滨银泰 in77"
+    },
     "distance_km": 4.7,
     "opening_hours": "13:00-23:30",
     "rating": 4.6,
-    "price_range": [120, 220],
-    "tags": ["热闹", "社交", "拍照友好", "室内", "低强度"],
-    "suitable_for": ["朋友热闹", "同学重聚"],
-    "capacity": { "daily_quota": 50, "available_slots": 20 }
+    "price_range": [
+      120,
+      220
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 50,
+      "available_slots": 20
+    },
+    "suggested_duration_minutes": 150
   },
   {
     "id": "P025",
     "name": "故事会 · 推理剧本杀馆",
     "type": "剧本杀",
-    "location": { "name": "嘉里中心" },
+    "location": {
+      "name": "嘉里中心"
+    },
     "distance_km": 4.4,
     "opening_hours": "13:00-24:00",
     "rating": 4.5,
-    "price_range": [128, 188],
-    "tags": ["热闹", "社交", "学习成长", "室内"],
-    "suitable_for": ["朋友热闹", "同学重聚"],
-    "capacity": { "daily_quota": 60, "available_slots": 28 }
+    "price_range": [
+      128,
+      188
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": 150
   },
   {
     "id": "P026",
     "name": "麦霸欢唱 KTV · 旗舰店",
     "type": "KTV",
-    "location": { "name": "西溪银泰" },
+    "location": {
+      "name": "西溪银泰"
+    },
     "distance_km": 2.5,
     "opening_hours": "12:00-02:00",
     "rating": 4.4,
-    "price_range": [80, 200],
-    "tags": ["热闹", "社交", "有包间", "室内"],
-    "suitable_for": ["朋友热闹", "同学重聚"],
-    "capacity": { "daily_quota": 60, "available_slots": 25 }
+    "price_range": [
+      80,
+      200
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "有包间",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 25
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P027",
     "name": "星光量贩式 KTV",
     "type": "KTV",
-    "location": { "name": "钱江新城万象城" },
+    "location": {
+      "name": "钱江新城万象城"
+    },
     "distance_km": 4.5,
     "opening_hours": "12:00-02:00",
     "rating": 4.3,
-    "price_range": [100, 280],
-    "tags": ["热闹", "社交", "有包间", "室内"],
-    "suitable_for": ["朋友热闹", "同学重聚"],
-    "capacity": { "daily_quota": 80, "available_slots": 35 }
+    "price_range": [
+      100,
+      280
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "有包间",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P028",
     "name": "万达 IMAX 电影院",
     "type": "电影院",
-    "location": { "name": "西溪天街" },
+    "location": {
+      "name": "西溪天街"
+    },
     "distance_km": 2.6,
     "opening_hours": "09:30-24:00",
     "rating": 4.6,
-    "price_range": [50, 120],
-    "tags": ["亲密情侣", "拍照友好", "室内", "低强度"],
-    "suitable_for": ["情侣亲密", "朋友热闹", "家庭日常"],
-    "capacity": { "daily_quota": 600, "available_slots": 280 }
+    "price_range": [
+      50,
+      120
+    ],
+    "tags": [
+      "亲密情侣",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 600,
+      "available_slots": 280
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P029",
     "name": "时代广场 杜比影院",
     "type": "电影院",
-    "location": { "name": "湖滨银泰 in77" },
+    "location": {
+      "name": "湖滨银泰 in77"
+    },
     "distance_km": 4.7,
     "opening_hours": "09:30-24:00",
     "rating": 4.7,
-    "price_range": [60, 150],
-    "tags": ["亲密情侣", "礼仪感", "室内", "低强度"],
-    "suitable_for": ["情侣亲密", "朋友热闹", "纪念日仪式感"],
-    "capacity": { "daily_quota": 400, "available_slots": 180 }
+    "price_range": [
+      60,
+      150
+    ],
+    "tags": [
+      "亲密情侣",
+      "礼仪感",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹",
+      "纪念日仪式感"
+    ],
+    "capacity": {
+      "daily_quota": 400,
+      "available_slots": 180
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P030",
     "name": "嫩白美甲 · 闺蜜下午局",
     "type": "美甲",
-    "location": { "name": "西溪银泰" },
+    "location": {
+      "name": "西溪银泰"
+    },
     "distance_km": 2.3,
     "opening_hours": "10:00-21:30",
     "rating": 4.7,
-    "price_range": [120, 280],
-    "tags": ["拍照友好", "网红打卡", "独处舒缓", "室内", "低强度"],
-    "suitable_for": ["闺蜜聊天", "独处放空"],
-    "capacity": { "daily_quota": 30, "available_slots": 12 }
+    "price_range": [
+      120,
+      280
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "独处舒缓",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P031",
     "name": "晨星瑜伽馆",
     "type": "瑜伽馆",
-    "location": { "name": "钱江新城" },
+    "location": {
+      "name": "钱江新城"
+    },
     "distance_km": 4.0,
     "opening_hours": "07:00-22:00",
     "rating": 4.6,
-    "price_range": [80, 180],
-    "tags": ["独处舒缓", "可休息", "室内", "低强度"],
-    "suitable_for": ["独处放空", "闺蜜聊天"],
-    "capacity": { "daily_quota": 40, "available_slots": 18 }
+    "price_range": [
+      80,
+      180
+    ],
+    "tags": [
+      "独处舒缓",
+      "可休息",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": 75
   },
   {
     "id": "P032",
     "name": "硬核燃力健身工坊",
     "type": "健身房",
-    "location": { "name": "西溪天街" },
+    "location": {
+      "name": "西溪天街"
+    },
     "distance_km": 2.6,
     "opening_hours": "06:00-23:00",
     "rating": 4.4,
-    "price_range": [80, 200],
-    "tags": ["高强度", "独处舒缓", "室内"],
-    "suitable_for": ["独处放空"],
-    "capacity": { "daily_quota": 100, "available_slots": 60 }
+    "price_range": [
+      80,
+      200
+    ],
+    "tags": [
+      "高强度",
+      "独处舒缓",
+      "室内"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P033",
     "name": "梦幻奇迹乐园（大型主题）",
     "type": "主题乐园",
-    "location": { "name": "钱江世纪城" },
+    "location": {
+      "name": "钱江世纪城"
+    },
     "distance_km": 4.8,
     "opening_hours": "09:00-21:00",
     "rating": 4.8,
-    "age_range": [3, 18],
-    "price_range": [220, 380],
-    "tags": ["亲子友好", "适合 5-10 岁", "拍照友好", "网红打卡", "户外", "低强度"],
-    "suitable_for": ["家庭日常"],
-    "capacity": { "daily_quota": 2000, "available_slots": 850 }
+    "age_range": [
+      3,
+      18
+    ],
+    "price_range": [
+      220,
+      380
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "拍照友好",
+      "网红打卡",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 2000,
+      "available_slots": 850
+    },
+    "suggested_duration_minutes": 180
   },
   {
     "id": "P034",
     "name": "腾跃蹦床公园",
     "type": "室内运动馆",
-    "location": { "name": "西溪银泰" },
+    "location": {
+      "name": "西溪银泰"
+    },
     "distance_km": 2.5,
     "opening_hours": "10:00-22:30",
     "rating": 4.5,
-    "age_range": [6, 35],
-    "price_range": [80, 138],
-    "tags": ["高强度", "热闹", "社交", "室内"],
-    "suitable_for": ["朋友热闹", "家庭日常", "同学重聚"],
-    "capacity": { "daily_quota": 200, "available_slots": 90 }
+    "age_range": [
+      6,
+      35
+    ],
+    "price_range": [
+      80,
+      138
+    ],
+    "tags": [
+      "高强度",
+      "热闹",
+      "社交",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "家庭日常",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 90
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P035",
     "name": "Vertical 攀岩馆",
     "type": "室内运动馆",
-    "location": { "name": "城西银泰" },
+    "location": {
+      "name": "城西银泰"
+    },
     "distance_km": 3.3,
     "opening_hours": "11:00-22:30",
     "rating": 4.6,
-    "age_range": [10, 45],
-    "price_range": [100, 160],
-    "tags": ["高强度", "社交", "室内"],
-    "suitable_for": ["朋友热闹", "独处放空"],
-    "capacity": { "daily_quota": 80, "available_slots": 40 }
+    "age_range": [
+      10,
+      45
+    ],
+    "price_range": [
+      100,
+      160
+    ],
+    "tags": [
+      "高强度",
+      "社交",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 40
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P036",
     "name": "胶片屋 livehouse",
     "type": "livehouse",
-    "location": { "name": "南宋御街" },
+    "location": {
+      "name": "南宋御街"
+    },
     "distance_km": 4.9,
     "opening_hours": "18:00-02:00",
     "rating": 4.6,
-    "price_range": [80, 280],
-    "tags": ["热闹", "亲密情侣", "拍照友好", "网红打卡", "室内"],
-    "suitable_for": ["朋友热闹", "情侣亲密", "闺蜜聊天"],
-    "capacity": { "daily_quota": 200, "available_slots": 80 }
+    "price_range": [
+      80,
+      280
+    ],
+    "tags": [
+      "热闹",
+      "亲密情侣",
+      "拍照友好",
+      "网红打卡",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 80
+    },
+    "suggested_duration_minutes": 120
   },
   {
     "id": "P037",
     "name": "微醺时刻 精酿酒馆",
     "type": "酒吧",
-    "location": { "name": "湖滨银泰 in77" },
+    "location": {
+      "name": "湖滨银泰 in77"
+    },
     "distance_km": 4.7,
     "opening_hours": "17:00-02:00",
     "rating": 4.5,
-    "price_range": [80, 180],
-    "tags": ["热闹", "亲密情侣", "安静聊天", "室内"],
-    "suitable_for": ["情侣亲密", "朋友热闹"],
-    "capacity": { "daily_quota": 100, "available_slots": 45 }
+    "price_range": [
+      80,
+      180
+    ],
+    "tags": [
+      "热闹",
+      "亲密情侣",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 45
+    },
+    "suggested_duration_minutes": 90
   },
   {
     "id": "P038",
     "name": "麦香烘焙体验工坊",
     "type": "烘焙工坊",
-    "location": { "name": "西溪天街" },
+    "location": {
+      "name": "西溪天街"
+    },
     "distance_km": 2.5,
     "opening_hours": "10:00-21:00",
     "rating": 4.7,
-    "age_range": [6, 60],
-    "price_range": [120, 200],
-    "tags": ["拍照友好", "网红打卡", "学习成长", "亲子友好", "室内", "低强度"],
-    "suitable_for": ["闺蜜聊天", "家庭日常", "情侣亲密"],
-    "capacity": { "daily_quota": 60, "available_slots": 25 }
+    "age_range": [
+      6,
+      60
+    ],
+    "price_range": [
+      120,
+      200
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "学习成长",
+      "亲子友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "家庭日常",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 25
+    },
+    "suggested_duration_minutes": 90
   }
 ]

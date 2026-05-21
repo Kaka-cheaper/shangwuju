@@ -30,11 +30,25 @@ _DESC = (
 def _persona_to_user_profile(persona, *, override_user_id: str | None = None) -> UserProfile:
     """把 Persona 投影成 Tool 接口的 UserProfile（向后兼容）。
 
+    优先从 user_profiles.json 取完整数据（含 lat/lng 坐标）；
+    若 user_profiles.json 无该用户，退化为 persona 字段拼装。
+
     override_user_id 用于 demo_user 兼容：保留请求方传的 user_id 不漂移，
     仅把 home/budget 从 persona 取（W1 既有测试断言 user_id == "demo_user"）。
     """
+    # 尝试从多用户 profile 取完整数据
+    from data.loader import load_user_profiles
+    profiles = load_user_profiles()
+    uid = override_user_id or persona.user_id
+    if persona.user_id in profiles:
+        profile = profiles[persona.user_id]
+        # 用 override_user_id 覆盖（兼容 demo_user 别名）
+        if uid != profile.user_id:
+            return profile.model_copy(update={"user_id": uid})
+        return profile
+
     return UserProfile(
-        user_id=override_user_id or persona.user_id,
+        user_id=uid,
         home_location=Location(name=persona.home_location or "（未设置）"),
         default_budget=persona.default_budget,
         transport_preference="taxi",

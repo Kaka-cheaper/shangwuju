@@ -1,0 +1,62 @@
+{
+  "demo_user": {
+    "user_id": "demo_user",
+    "home_location": {
+      "name": "西溪诚园（用户家）",
+      "lat": 30.275,
+      "lng": 120.075
+    },
+    "default_budget": 300.0,
+    "transport_preference": "taxi"
+  },
+  "u_dad": {
+    "user_id": "u_dad",
+    "home_location": {
+      "name": "嘉绿苑",
+      "lat": 30.272,
+      "lng": 120.098
+    },
+    "default_budget": 280.0,
+    "transport_preference": "taxi"
+  },
+  "u_biz": {
+    "user_id": "u_biz",
+    "home_location": {
+      "name": "钱江新城",
+      "lat": 30.245,
+      "lng": 120.212
+    },
+    "default_budget": 800.0,
+    "transport_preference": "taxi"
+  },
+  "u_grandma": {
+    "user_id": "u_grandma",
+    "home_location": {
+      "name": "西湖区文一路",
+      "lat": 30.278,
+      "lng": 120.112
+    },
+    "default_budget": 200.0,
+    "transport_preference": "bus"
+  },
+  "u_solo": {
+    "user_id": "u_solo",
+    "home_location": {
+      "name": "城西银泰",
+      "lat": 30.268,
+      "lng": 120.088
+    },
+    "default_budget": 150.0,
+    "transport_preference": "walking"
+  },
+  "u_couple": {
+    "user_id": "u_couple",
+    "home_location": {
+      "name": "湖滨银泰",
+      "lat": 30.252,
+      "lng": 120.165
+    },
+    "default_budget": 400.0,
+    "transport_preference": "taxi"
+  }
+}

@@ -68,8 +68,25 @@ def load_routes() -> list[Route]:
 
 @lru_cache(maxsize=1)
 def load_user_profile() -> UserProfile:
-    """加载默认用户画像（demo_user）。"""
+    """加载默认用户画像（demo_user）。兼容旧单对象格式。"""
     return UserProfile.model_validate(_load_json("user_profile.json"))
+
+
+@lru_cache(maxsize=1)
+def load_user_profiles() -> dict[str, UserProfile]:
+    """加载所有用户画像（多用户字典）。
+
+    返回 {user_id: UserProfile} 映射。
+    若 user_profiles.json 不存在，退化为单用户兼容。
+    """
+    path = _mock_dir() / "user_profiles.json"
+    if not path.exists():
+        # 兼容：只有旧 user_profile.json
+        profile = load_user_profile()
+        return {profile.user_id: profile}
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+    return {uid: UserProfile.model_validate(v) for uid, v in data.items()}
 
 
 def reset_cache() -> None:

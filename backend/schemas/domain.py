@@ -75,6 +75,10 @@ class Poi(BaseModel):
         description="适用 social_context 的子集，如 [家庭日常, 老人伴助]",
     )
     capacity: PoiCapacity = Field(default_factory=PoiCapacity)
+    suggested_duration_minutes: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="推荐游玩时长（分钟）；用于行程时间轴拼装",
+    )
 
 
 # ============================================================
@@ -135,6 +139,14 @@ class Restaurant(BaseModel):
     suitable_for: list[str] = Field(
         default_factory=list,
         description="适用 social_context 的子集",
+    )
+    signature_dishes: list[str] = Field(
+        default_factory=list,
+        description="招牌菜 2-3 道，用于行程文案",
+    )
+    recommendation_reason: Optional[str] = Field(
+        default=None,
+        description="推荐理由，一句话说明为什么选这家",
     )
 
 
