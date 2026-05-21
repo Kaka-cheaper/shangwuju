@@ -549,3 +549,34 @@
   2. 用户的报错信号「等一下，有的改动没提交，你先看一下文件，不只看 git」是关键——意味着工作树 ≠ git 视角
   3. **写新文件用 fs_write 之前**，先 `file_search` 或 `list_directory` 确认是否已存在；存在就用 `str_replace` 而不是 `fs_write`（fs_write 会无脑覆盖）
 - **优先级**：P3（流程纪律；不影响代码功能但浪费时间且差点丢了 commit 1cdd40c 的工作）
+
+
+### [P2] 2026-05-21 状态图标对所有条目都套加载动画 = 看起来一直没完成
+
+- **现象**：ChatDock peek 态的 thoughts 列表里，每条 thought 前面都套了 `Loader2 + animate-spin`。规划早已完成（`streaming === false`、行程卡片已出来），但用户截图显示「正在理解你的需求…… / 好的，让我帮你规划一下。 / 出 plan 第 1 次 / 蓝图 5 段 / 方案验证通过」5 条全部在转——视觉上 = 系统卡死。
+- **根因**：`thoughts.slice(-5).map((t) => <Icons.thinking className="animate-spin" />)`——把"加载中"语义图标对 *所有* 条目复用。每条 thought 实际上是已经完成的事件（agent_thought 推完即落定），但前端没用 `streaming` 状态区分"最新一条仍可能在跑"和"已完成的历史条目"。
+- **修复**：渲染时按 `idx === arr.length - 1 && streaming` 判断"是否最新且仍在跑"——只有这一条才转 spinner，其他都换成静态 1px 圆点。
+- **防再犯**：
+  - 凡是 SSE 时间线类组件（trace / thought / chitchat 等），状态图标必须区分「正在进行的最后一条」与「已完成的历史条目」
+  - 默认状态图标应该是终态（成功/失败/完成）——加载动画是例外，必须显式条件守卫
+  - PR 自检：grep `animate-spin` 并搜上下文是否有 `streaming` / `inProgress` 这种条件
+- **优先级**：P2（不挂 demo，但视觉上 = 系统卡死，评委误以为前端没跑通）
+
+
+### [P1] 2026-05-21 反馈关键词漏中文数字 + LLM router 无上下文 = 短反馈被误判（同类 bug 第三次复发）
+
+- **现象**：用户截图复现——Turn 1 跑出 5 段 itinerary，Turn 2 输入「一个小时以内」期望 refine duration 到 [1,1]，实际 router 把它判成 PLANNING/ambiguous → 走 chitchat 推暖心气泡 + 选场景按钮。看起来"上下文丢了"。
+- **根因（两层）**：
+  1. 启发式 `_looks_like_feedback` 关键词列表 + 正则 `\d+\s*(公里|km|...|小时)` 只匹配阿拉伯数字。「一个小时」是中文数字，整条规则全漏。
+  2. LLM router classify_input 只看 6 个字「一个小时以内」，没有上一轮 itinerary 的上下文 → 单凭这 6 字无法判反馈，输出 PLANNING/ambiguous。
+- **附加坏味道**：`_FEEDBACK_KEYWORDS` 在 `agent/v2/orchestrator.py` 和 `agent/graph/nodes/router.py` 维护两份相同副本——任一改了另一处就漏。
+- **修复（多层防御 + 单一来源）**：
+  1. 新建 `agent/feedback_detector.py`（SoT），合并两份关键词；正则补「中文数字（一/二/两/三/.../半）+ 单位」 + 短句「以内/以下/之内」强信号
+  2. LangGraph `router_node` 加 Layer 3 弱信号兜底：has_itinerary + 输入 < 15 字 + LLM 判 ambiguous/chitchat → 改判 feedback
+  3. 两个调用方改 `from agent.feedback_detector import looks_like_feedback`，删本地副本
+- **防再犯**：
+  - 启发式关键词列表只能有一份（SoT），跨模块维护必出 bug
+  - 任何"短输入 + 上下文判定"类场景：不能让 LLM 单挑——LLM 看不到 conversation state 就无法做正确判断；要么前置上下文喂进 prompt，要么后置启发式兜底
+  - 中文项目的关键词正则必须同时覆盖中文数字（一二三 / 半 / 两）+ 阿拉伯数字
+  - 写新规则时配 28 条覆盖正/反例的单测（中文数字 / 关键词 / 「以内」/ 长输入兜底）
+- **优先级**：P1（直接影响 demo 反馈环；同类 bug 已是第三次：问题 11 / 13 / 30）

@@ -4382,3 +4382,110 @@ pnpm build:      Exit Code 0
 - Task 2（store previousItinerary）+ Task 7（ComparisonView）：依赖 refine 路径，可单独做
 - Task 6（PosterGenerator）：需 npm install html2canvas
 - Task 8（MapOverlay）：需 npm install @amap/amap-jsapi-loader + 高德 key
+
+
+---
+
+## 问题30：反馈「一个小时以内」被误判为新需求 / 闲聊（LangGraph 路径 router 启发式漏洞）
+
+**用户原问**：「为什么看起来反馈没有触发？上下文好像没了？」（截图显示 Agent 回复"明白，时间大概一小时内"暖心气泡 + 选场景按钮）
+
+**复现场景**：
+
+```
+Turn 1: "今天下午想和老婆孩子出去玩几个小时，别离家太远..."
+  → planning 路径 → 产生 5 段 itinerary（14:00-19:00）
+
+Turn 2: "一个小时以内"
+  → 期望：feedback 路径，把 duration_hours 改成 [1,1]
+  → 实际：router 把它判成 PLANNING/ambiguous → 走 chitchat 推暖心气泡
+  → 用户体验：Agent 把它当新需求，上下文丢了
+```
+
+**根因（写诊断脚本 debug_feedback_routing.py 验证）**：
+
+```
+| 检查项 | 修复前 |
+|--------|--------|
+| state.itinerary 跨 turn 持久化（LangGraph InMemorySaver） | ✅ 存在（5 stages） |
+| 启发式 _looks_like_feedback("一个小时以内") | ❌ False |
+| LLM router 对"一个小时以内"分类（无上下文） | InputKind.PLANNING |
+```
+
+两层失守：
+1. **启发式关键词漏**：「一个小时」是中文数字，旧正则只匹配 `\d+\s*(公里|km|...|小时)` 要阿拉伯数字
+2. **LLM router 无上下文**：单看 6 个字「一个小时以内」无法判断这是反馈还是新需求
+
+**附加发现**：
+- `_FEEDBACK_KEYWORDS` 在 `agent/v2/orchestrator.py` 和 `agent/graph/nodes/router.py` 维护**两份相同副本**——隐患
+
+**解决方案（多层防御）**：
+
+新建 `backend/agent/feedback_detector.py` 作为唯一来源（SoT），合并两份重复的关键词列表：
+
+1. **关键词命中**（合并旧两份）
+2. **阿拉伯数字 + 单位**（旧正则）
+3. **中文数字 + 单位**（新增）：`[一二两三四五六七八九十半]\s*个?\s*(小时|h|分钟|min|公里|km|...)` 覆盖「一个小时 / 半小时 / 三公里 / 两小时」
+4. **短句 + 「以内/以下/之内」**（新增）：< 15 字含这些词 → 强反馈信号
+
+LangGraph router_node 增加 **Layer 3 弱信号兜底**：
+
+```python
+# 已有 itinerary + 输入 < 15 字 + LLM 判 ambiguous/chitchat
+# → 改判 feedback（用户的短输入有上下文，必是反馈）
+if (
+    has_itinerary
+    and len(user_input.strip()) < 15
+    and route_kind in ("ambiguous", "chitchat")
+):
+    return {"route_kind": "feedback", ...}
+```
+
+排除 `route_kind == "planning"` 的兜底——LLM 明确判 planning 时尊重它（用户可能确实在已有方案基础上发起新需求）。
+
+`agent/v2/orchestrator.py` 和 `agent/graph/nodes/router.py` 都改为 import `agent.feedback_detector.looks_like_feedback`，删除两份重复关键词。
+
+**验证证据**：
+
+诊断脚本前后对比：
+
+```
+修复前 Turn 2:
+  _looks_like_feedback("一个小时以内", 有 itinerary) → False
+  router 判定 = InputKind.PLANNING
+  访问节点：router → intent → ... → planner → assemble → ils_replan → narrate
+  （走了完整 planning 流程，refiner 没被调用）
+
+修复后 Turn 2:
+  _looks_like_feedback("一个小时以内", 有 itinerary) → ✅ True
+  router 判定 = feedback
+  访问节点：router → ✅refiner → planner → assemble → ... → narrate
+```
+
+后端测试：
+
+```
+pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_detector 测试）
+```
+
+**修改的代码文件**：
+
+新建：
+- `backend/agent/feedback_detector.py`（115 行：looks_like_feedback + 关键词 + 中文数字正则 + 「以内/以下/之内」短句）
+- `backend/tests/test_feedback_detector.py`（127 行：28 条单测覆盖关键词/阿拉伯/中文数字/「以内」/反例/边界）
+
+修改：
+- `backend/agent/graph/nodes/router.py`（_looks_like_feedback 改用共享模块；router_node 加 Layer 3 弱信号兜底）
+- `backend/agent/v2/orchestrator.py`（删 _FEEDBACK_KEYWORDS / re 副本；改 import 共享模块）
+
+**应当达成的效果**：
+
+- 「一个小时以内 / 半小时 / 三公里 / 两小时」等中文数字反馈被识别为 feedback 路径
+- 短输入（< 15 字）+ 已有方案 + LLM 判模糊 → 兜底路由到 feedback（无需让 LLM 看完整上下文）
+- 两份重复的 _FEEDBACK_KEYWORDS 合并为单一 SoT（防止同步漏改）
+- 28 条新单测固化覆盖（中文数字 / 「以内」/ 关键词 / 反例 / 长输入边界）
+
+**潜在升级 pitfalls**：
+
+- 「关键词列表在多文件维护两份」是经典反模式
+- 「LLM 无上下文判短反馈」需要 router 层兜底而非靠 LLM
