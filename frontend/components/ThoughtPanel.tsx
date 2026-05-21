@@ -35,31 +35,56 @@ import { cn, FAILURE_REASON_LABEL } from "@/lib/utils";
 // ============================================================
 
 type TimelineItem =
-  | { kind: "thought"; seq: number; text: string; timestamp_ms: number | null }
+  | {
+      kind: "thought";
+      seq: number;
+      text: string; // 用户向显示文案（已经从 user_text || text 解出）
+      timestamp_ms: number | null;
+    }
   | { kind: "replan"; seq: number; reason: string; fromTool: string };
 
+/**
+ * 选取展示文本：优先 user_text，其次回退到 text。
+ * user_text === null 表示后端显式隐藏该 thought，前端不展示。
+ */
+function pickDisplayText(t: {
+  text: string;
+  user_text: string | null | undefined;
+}): string | null {
+  // null 显式隐藏；undefined 表示后端未注入（兼容旧路径，回退 text）
+  if (t.user_text === null) return null;
+  if (t.user_text !== undefined && t.user_text !== "") return t.user_text;
+  return t.text;
+}
+
 function buildTimeline(
-  thoughts: ReadonlyArray<{ seq: number; text: string; timestamp_ms: number | null }>,
+  thoughts: ReadonlyArray<{
+    seq: number;
+    text: string;
+    user_text: string | null | undefined;
+    timestamp_ms: number | null;
+  }>,
   replans: ReadonlyArray<{ seq: number; reason: string; fromTool: string }>,
 ): TimelineItem[] {
-  const merged: TimelineItem[] = [
-    ...thoughts.map(
-      (t): TimelineItem => ({
-        kind: "thought",
-        seq: t.seq,
-        text: t.text,
-        timestamp_ms: t.timestamp_ms,
-      }),
-    ),
-    ...replans.map(
-      (r): TimelineItem => ({
-        kind: "replan",
-        seq: r.seq,
-        reason: r.reason,
-        fromTool: r.fromTool,
-      }),
-    ),
-  ];
+  const merged: TimelineItem[] = [];
+  for (const t of thoughts) {
+    const display = pickDisplayText(t);
+    if (display === null) continue; // 后端隐藏
+    merged.push({
+      kind: "thought",
+      seq: t.seq,
+      text: display,
+      timestamp_ms: t.timestamp_ms,
+    });
+  }
+  for (const r of replans) {
+    merged.push({
+      kind: "replan",
+      seq: r.seq,
+      reason: r.reason,
+      fromTool: r.fromTool,
+    });
+  }
   // 按 seq 升序（SSE 单次会话内单调递增）
   merged.sort((a, b) => a.seq - b.seq);
   return merged;
@@ -110,13 +135,23 @@ export default function ThoughtPanel() {
     [thoughts, replans],
   );
 
-  // R4 #8：thoughts 为空 + 不在 streaming 时不渲染（不显示空面板占位）
-  if (thoughts.length === 0 && !streaming) {
+  // 仅可见 thought（user_text 非 null）参与摘要 + 总条数计算
+  const visibleThoughts = useMemo(
+    () => timeline.filter((t) => t.kind === "thought"),
+    [timeline],
+  );
+
+  // R4 #8：可见 thoughts 为空 + 不在 streaming 时不渲染（不显示空面板占位）
+  if (visibleThoughts.length === 0 && !streaming) {
     return null;
   }
 
-  const latestThought = thoughts[thoughts.length - 1];
-  const summary = latestThought ? truncate(latestThought.text, 50) : "等待 Agent 开始思考……";
+  const latestVisible = visibleThoughts[visibleThoughts.length - 1] as
+    | (TimelineItem & { kind: "thought" })
+    | undefined;
+  const summary = latestVisible
+    ? truncate(latestVisible.text, 50)
+    : "等待 Agent 开始思考……";
   const replanCount = replans.length;
 
   return (
@@ -143,7 +178,7 @@ export default function ThoughtPanel() {
           Agent 在想什么
         </span>
         <span className="text-[10px] mono text-ink-500 shrink-0 tabular-nums">
-          {thoughts.length}
+          {visibleThoughts.length}
           {replanCount > 0 && (
             <>
               <span className="mx-1 text-ink-400">·</span>

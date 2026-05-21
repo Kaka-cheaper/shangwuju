@@ -120,7 +120,7 @@ export interface ChatState {
   intent: IntentExtraction | null;
   toolCalls: ToolCallRecord[];
   replans: ReplanRecord[];
-  thoughts: { seq: number; text: string; timestamp_ms: number | null }[];
+  thoughts: { seq: number; text: string; user_text: string | null | undefined; timestamp_ms: number | null }[];
 
   // 输出
   itinerary: Itinerary | null;
@@ -711,7 +711,12 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
       set((s) => ({
         thoughts: [
           ...s.thoughts,
-          { seq: ev.seq, text: p.text, timestamp_ms: ev.timestamp_ms ?? null },
+          {
+            seq: ev.seq,
+            text: p.text,
+            user_text: p.user_text,
+            timestamp_ms: ev.timestamp_ms ?? null,
+          },
         ],
       }));
       break;
@@ -738,6 +743,9 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
             text: p.feedback_text
               ? `开始根据你的反馈调整：「${p.feedback_text}」`
               : "开始重新规划...",
+            user_text: p.feedback_text
+              ? `收到反馈：「${p.feedback_text}」，正在重新调整……`
+              : "正在重新调整……",
             timestamp_ms: ev.timestamp_ms ?? null,
           },
         ],

@@ -351,38 +351,54 @@ export default function ChatDock() {
               {/* intent 摘要（仅在拖到中等以上） */}
               {showIntent && intent && <IntentSummary intent={intent} />}
 
-              {/* agent_thought 打字流 */}
-              {thoughts.length > 0 && (
-                <div className="space-y-1.5">
-                  {thoughts.slice(-5).map((t, idx, arr) => {
-                    // 只有最新一条且 streaming 中才显示旋转图标，
-                    // 已完成的 thoughts 显示静态点（避免规划完后所有条目还在一直转）
-                    const isLatest = idx === arr.length - 1;
-                    const inProgress = streaming && isLatest;
-                    return (
-                      <div
-                        key={t.seq}
-                        className="flex items-start gap-1.5 text-xs text-ink-500 px-1 italic animate-fade-in-up"
-                      >
-                        {inProgress ? (
-                          <Icons.thinking
-                            className="w-3 h-3 mt-0.5 text-brand-400 shrink-0 animate-spin"
-                            strokeWidth={2}
-                          />
-                        ) : (
-                          <span
-                            className="w-3 h-3 mt-0.5 shrink-0 flex items-center justify-center"
-                            aria-hidden
-                          >
-                            <span className="w-1 h-1 rounded-full bg-ink-500/60" />
-                          </span>
-                        )}
-                        <span>{t.text}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              {/* agent_thought 打字流（仅展示 user_text 非 null 的条目） */}
+              {(() => {
+                // 过滤 + 取展示文本：user_text === null 隐藏；undefined fallback 到 text
+                const visible = thoughts
+                  .map((t) => ({
+                    seq: t.seq,
+                    display:
+                      t.user_text === null
+                        ? null
+                        : t.user_text !== undefined && t.user_text !== ""
+                          ? t.user_text
+                          : t.text,
+                  }))
+                  .filter((t): t is { seq: number; display: string } => t.display !== null);
+                if (visible.length === 0) return null;
+                const tail = visible.slice(-5);
+                return (
+                  <div className="space-y-1.5">
+                    {tail.map((t, idx, arr) => {
+                      // 只有最新一条且 streaming 中才显示旋转图标，
+                      // 已完成的 thoughts 显示静态点（避免规划完后所有条目还在一直转）
+                      const isLatest = idx === arr.length - 1;
+                      const inProgress = streaming && isLatest;
+                      return (
+                        <div
+                          key={t.seq}
+                          className="flex items-start gap-1.5 text-xs text-ink-500 px-1 italic animate-fade-in-up"
+                        >
+                          {inProgress ? (
+                            <Icons.thinking
+                              className="w-3 h-3 mt-0.5 text-brand-400 shrink-0 animate-spin"
+                              strokeWidth={2}
+                            />
+                          ) : (
+                            <span
+                              className="w-3 h-3 mt-0.5 shrink-0 flex items-center justify-center"
+                              aria-hidden
+                            >
+                              <span className="w-1 h-1 rounded-full bg-ink-500/60" />
+                            </span>
+                          )}
+                          <span>{t.display}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
 
               {streamError && (
                 <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">

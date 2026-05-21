@@ -404,7 +404,7 @@ function dispatchPlanningEvent(event: SseEvent): void {
     case "agent_thought": {
       const p = event.payload as any;
       store.setState((s: any) => ({
-        thoughts: [...s.thoughts, { seq: event.seq, text: p.text, timestamp_ms: event.timestamp_ms ?? null }],
+        thoughts: [...s.thoughts, { seq: event.seq, text: p.text, user_text: p.user_text, timestamp_ms: event.timestamp_ms ?? null }],
       }));
       break;
     }

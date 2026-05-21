@@ -58,7 +58,10 @@ class SseEvent(BaseModel):
     - TOOL_CALL_START payload = {"tool": str, "input": dict}
     - TOOL_CALL_END   payload = {"tool": str, "output": dict, "duration_ms": int}
     - REPLAN_TRIGGERED payload = {"reason": FailureReason.value, "from_tool": str}
-    - AGENT_THOUGHT   payload = {"text": str}
+    - AGENT_THOUGHT   payload = {"text": str, "user_text": str | None}
+        - text：技术向原文（保留供 trace / 测试 / 调试 / 日志）
+        - user_text：用户向友好文案（前端 ThoughtPanel/ChatDock 优先展示）
+        - user_text == None 表示该 thought 仅供后端 trace，前端应隐藏
     - ITINERARY_READY payload = Itinerary.model_dump()
     - REFINEMENT_START payload = {"feedback_text": str}
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
