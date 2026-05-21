@@ -195,7 +195,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=["*"],  # Demo 模式：允许所有来源（含 WebSocket）
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1951,6 +1951,8 @@ async def ws_collab(websocket: WebSocket, room_id: str):
     room = manager.get_room(room_id)
 
     if room is None:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": f"房间不存在：{room_id}"})
         await websocket.close(code=4004, reason="房间不存在")
         return
 
