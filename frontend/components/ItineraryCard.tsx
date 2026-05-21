@@ -12,6 +12,7 @@ import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
 import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
+import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
 
 /** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（黄昏深色主题）。 */
@@ -345,6 +346,8 @@ export default function ItineraryCard() {
             </button>
           </div>
         )}
+        {/* R6 语音播报：itinerary 存在时即可用（不限于已确认） */}
+        <TtsPlayer />
         {/* 邀请同行人按钮（行程出来后、未下单时显示） */}
         {!hasOrders && !cancelled && itinerary && !collabMode && (
           <button

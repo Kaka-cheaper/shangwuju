@@ -22,6 +22,7 @@ import PreferencesPanel from "./PreferencesPanel";
 import QuickScenarios from "./QuickScenarios";
 import ShareModal from "./ShareModal";
 import ToastStack from "./ToastStack";
+import ThoughtPanel from "./ThoughtPanel";
 import ToolTracePanel from "./ToolTracePanel";
 import UserSwitcher from "./UserSwitcher";
 
@@ -179,6 +180,7 @@ export default function HomeView() {
           <section className="md:col-span-7 lg:col-span-4">
             <ConstraintFeed />
             <ToolTracePanel />
+            <ThoughtPanel />
           </section>
 
           <aside className="md:col-span-5 lg:col-span-3">
