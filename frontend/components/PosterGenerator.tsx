@@ -22,7 +22,15 @@
  */
 
 import { forwardRef, useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, Download, X, Loader2, RefreshCw } from "lucide-react";
+import {
+  Image as ImageIcon,
+  Download,
+  X,
+  Loader2,
+  RefreshCw,
+  Copy,
+  Check,
+} from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -169,33 +177,36 @@ export default function PosterGenerator() {
 
   return (
     <>
-      {/* 触发按钮（替代/隐藏 generated 后） */}
-      {!previewUrl && (
-        <button
-          type="button"
-          onClick={generate}
-          disabled={generating}
-          className={cn(
-            "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
-            "bg-white/[0.06] text-ink-700 border border-white/[0.08]",
-            "hover:bg-white/[0.1] hover:text-ink-900",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
-          )}
-          title="把行程渲染成竖版海报图，可保存转发"
-        >
-          {generating ? (
-            <>
-              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2.5} />
-              <span>生成中…</span>
-            </>
-          ) : (
-            <>
-              <ImageIcon className="w-3 h-3" strokeWidth={2} />
-              <span>生成海报</span>
-            </>
-          )}
-        </button>
-      )}
+      {/* 触发按钮（独立挂载于 ItineraryCard 操作按钮区） */}
+      <button
+        type="button"
+        onClick={generate}
+        disabled={generating}
+        className={cn(
+          "mt-2 w-full py-1.5 rounded-lg",
+          "bg-white/[0.04] hover:bg-white/[0.08]",
+          "border border-white/[0.08] hover:border-white/[0.16]",
+          "text-ink-700 hover:text-ink-900 text-xs",
+          "transition-all flex items-center justify-center gap-1.5",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+        )}
+        title="把行程渲染成竖版海报图，可保存转发到微信群"
+      >
+        {generating ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" strokeWidth={2} />
+            <span>生成海报中…</span>
+          </>
+        ) : (
+          <>
+            <ImageIcon
+              className="w-3.5 h-3.5 text-brand-400"
+              strokeWidth={2}
+            />
+            <span>一键生成海报</span>
+          </>
+        )}
+      </button>
 
       {/* 隐藏海报模板（off-screen 截图源） */}
       <div
@@ -210,17 +221,18 @@ export default function PosterGenerator() {
         <PosterTemplate ref={templateRef} itinerary={itinerary} />
       </div>
 
-      {/* 就地内联预览（替代旧的全屏 Modal） */}
+      {/* 双栏 Modal 预览（Canva 风：左海报 + 右操作） */}
       {previewUrl && (
-        <InlinePreview
+        <PreviewModal
           imageUrl={previewUrl}
+          itinerary={itinerary}
           onDownload={download}
           onRegenerate={() => {
             closePreview();
-            // 立即触发重新生成，让用户立刻看到刷新动作
             void generate();
           }}
           onClose={closePreview}
+          pushToast={pushToast}
         />
       )}
     </>
@@ -228,85 +240,204 @@ export default function PosterGenerator() {
 }
 
 // ============================================================
-// 内联预览（替代全屏 Modal）—— 「卡片内一段」而非 popup
+// 双栏 Modal 预览（Canva 风）
+//   左栏：海报缩略图（自适应 Modal 高度）
+//   右栏：标题 + 三按钮（保存 / 重做 / 复制文字）
 // ============================================================
 
-function InlinePreview({
+function PreviewModal({
   imageUrl,
+  itinerary,
   onDownload,
   onRegenerate,
   onClose,
+  pushToast,
 }: {
   imageUrl: string;
+  itinerary: Itinerary;
   onDownload: () => void;
   onRegenerate: () => void;
   onClose: () => void;
+  pushToast: (t: { kind: "info" | "success" | "warn"; text: string }) => void;
 }) {
+  const [textCopied, setTextCopied] = useState(false);
+
+  // ESC 关闭
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // 锁定背景滚动
+  useEffect(() => {
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, []);
+
+  const copyText = async () => {
+    const ok = await copyToClipboard(buildTextFallback(itinerary));
+    if (ok) {
+      setTextCopied(true);
+      pushToast({ kind: "success", text: "文字版已复制到剪贴板" });
+      setTimeout(() => setTextCopied(false), 1800);
+    } else {
+      pushToast({ kind: "warn", text: "复制失败" });
+    }
+  };
+
   return (
-    <div className="mt-2 rounded-md border border-brand-500/20 bg-gradient-to-br from-brand-500/[0.04] to-accent-500/[0.04] p-2.5 animate-collapse-in">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <ImageIcon
-            className="w-3 h-3 text-brand-400"
-            strokeWidth={2}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+      style={{ background: "rgba(0,0,0,0.78)", backdropFilter: "blur(12px)" }}
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="行程海报预览"
+    >
+      <div
+        className={cn(
+          "relative bg-[#0c0c12] rounded-2xl border border-white/[0.08]",
+          "shadow-2xl shadow-black/50",
+          "w-full max-w-3xl",
+          "flex flex-col sm:flex-row",
+          "max-h-[92vh]",
+          "overflow-hidden",
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* 关闭按钮 */}
+        <button
+          type="button"
+          onClick={onClose}
+          className={cn(
+            "absolute top-3 right-3 z-10",
+            "w-7 h-7 rounded-full",
+            "bg-white/[0.06] hover:bg-white/[0.12]",
+            "border border-white/[0.08]",
+            "text-ink-500 hover:text-ink-900",
+            "flex items-center justify-center transition-colors",
+          )}
+          aria-label="关闭预览"
+        >
+          <X className="w-3.5 h-3.5" strokeWidth={2.25} />
+        </button>
+
+        {/* 左栏：海报展示 */}
+        <div
+          className={cn(
+            "flex-shrink-0 flex items-center justify-center",
+            "p-6 sm:p-8",
+            "bg-gradient-to-br from-brand-500/[0.06] to-accent-500/[0.04]",
+            "sm:w-[320px]",
+          )}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imageUrl}
+            alt="行程海报"
+            className={cn(
+              "max-h-[60vh] sm:max-h-[78vh] w-auto rounded-lg",
+              "shadow-2xl shadow-black/40",
+              "ring-1 ring-white/[0.08]",
+              "block",
+            )}
+            style={{ maxWidth: "100%" }}
           />
-          <span className="text-[11px] font-medium text-ink-800 tracking-tight">
-            海报预览
-          </span>
-          <span className="text-[10px] text-ink-500">点击可保存</span>
         </div>
-        <div className="flex items-center gap-1">
+
+        {/* 右栏：标题 + 操作 */}
+        <div className="flex-1 p-5 sm:p-6 flex flex-col gap-4 min-w-0">
+          <div>
+            <div className="text-[10px] tracking-wider uppercase text-brand-400 mb-1 flex items-center gap-1">
+              <ImageIcon className="w-3 h-3" strokeWidth={2} />
+              <span>海报已生成</span>
+            </div>
+            <h3 className="text-base sm:text-lg font-semibold text-ink-900 tracking-tight leading-snug">
+              转发给同行人
+            </h3>
+            <p className="mt-1.5 text-[12px] text-ink-500 leading-relaxed">
+              微信群里转发一张图，比一段文字更直观。点
+              <span className="text-brand-400 mx-0.5">保存</span>
+              下载到本地后即可分享。
+            </p>
+          </div>
+
+          {/* 主操作 */}
           <button
             type="button"
-            onClick={onRegenerate}
-            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded text-ink-500 hover:text-ink-900 hover:bg-white/[0.08] transition-colors"
-            title="重新生成"
+            onClick={onDownload}
+            className={cn(
+              "w-full py-2.5 rounded-lg font-medium text-sm",
+              "bg-gradient-to-r from-brand-500 to-accent-500 text-white",
+              "hover:from-brand-400 hover:to-accent-400",
+              "shadow-lg shadow-brand-500/20",
+              "transition-all flex items-center justify-center gap-2",
+            )}
           >
-            <RefreshCw className="w-2.5 h-2.5" strokeWidth={2} />
-            <span>重做</span>
+            <Download className="w-4 h-4" strokeWidth={2.25} />
+            <span>保存到本地</span>
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-0.5 rounded text-ink-500 hover:text-ink-900 hover:bg-white/[0.08] transition-colors"
-            title="收起"
-            aria-label="收起预览"
+
+          {/* 副操作 */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onRegenerate}
+              className={cn(
+                "flex-1 py-1.5 rounded-md text-[12px]",
+                "bg-white/[0.04] hover:bg-white/[0.08]",
+                "border border-white/[0.08] hover:border-white/[0.16]",
+                "text-ink-700 hover:text-ink-900",
+                "transition-colors flex items-center justify-center gap-1.5",
+              )}
+            >
+              <RefreshCw className="w-3 h-3" strokeWidth={2} />
+              <span>重做</span>
+            </button>
+            <button
+              type="button"
+              onClick={copyText}
+              className={cn(
+                "flex-1 py-1.5 rounded-md text-[12px]",
+                textCopied
+                  ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-300"
+                  : "bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/[0.16] text-ink-700 hover:text-ink-900",
+                "transition-colors flex items-center justify-center gap-1.5",
+              )}
+            >
+              {textCopied ? (
+                <>
+                  <Check className="w-3 h-3" strokeWidth={2.5} />
+                  <span>文字已复制</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" strokeWidth={2} />
+                  <span>改用文字版</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 小提示 */}
+          <div
+            className={cn(
+              "mt-auto rounded-md px-3 py-2 text-[11px] leading-relaxed",
+              "bg-white/[0.02] border border-white/[0.04]",
+              "text-ink-500",
+            )}
           >
-            <X className="w-3 h-3" strokeWidth={2} />
-          </button>
+            <span className="text-ink-700">提示：</span>
+            移动端长按图片也可保存；按 Esc 或点击空白处关闭。
+          </div>
         </div>
       </div>
-
-      {/* 海报图片（点击下载） */}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imageUrl}
-        alt="行程海报"
-        onClick={onDownload}
-        className={cn(
-          "w-full max-w-[280px] mx-auto rounded-md cursor-pointer",
-          "shadow-lg shadow-black/20",
-          "ring-1 ring-white/[0.06]",
-          "hover:ring-2 hover:ring-brand-400/40 transition-all",
-          "block",
-        )}
-        title="点击保存到本地"
-      />
-
-      <button
-        type="button"
-        onClick={onDownload}
-        className={cn(
-          "mt-2 w-full py-1.5 rounded-md text-xs font-medium transition-all",
-          "bg-gradient-to-r from-brand-500 to-accent-500 text-white",
-          "hover:from-brand-400 hover:to-accent-400",
-          "flex items-center justify-center gap-1.5",
-          "shadow shadow-brand-500/20",
-        )}
-      >
-        <Download className="w-3 h-3" strokeWidth={2.5} />
-        <span>保存到本地</span>
-      </button>
     </div>
   );
 }

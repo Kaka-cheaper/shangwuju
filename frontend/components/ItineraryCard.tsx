@@ -357,8 +357,9 @@ export default function ItineraryCard() {
             </button>
           </div>
         )}
-        {/* R6 语音播报：itinerary 存在时即可用（不限于已确认） */}
+        {/* R6 语音播报 + R5 海报生成：行程的多模态输出（itinerary 存在时即可用） */}
         <TtsPlayer />
+        <PosterGenerator />
         {/* 邀请同行人按钮（行程出来后、未下单时显示） */}
         {!hasOrders && !cancelled && itinerary && !collabMode && (
           <button
@@ -509,31 +510,27 @@ function ShareMessage({ text }: { text: string }) {
             转发文案
           </span>
         </div>
-        <div className="flex items-center gap-1.5">
-          {/* T6/R5: 一键生成海报（图片版分享） */}
-          <PosterGenerator />
-          <button
-            onClick={copy}
-            className={cn(
-              "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
-              copied
-                ? "bg-emerald-500 text-white"
-                : "bg-white/[0.06] text-ink-700 border border-white/[0.08] hover:bg-white/[0.1] hover:text-ink-900",
-            )}
-          >
-            {copied ? (
-              <>
-                <Icons.success className="w-3 h-3" strokeWidth={2.5} />
-                <span>已复制</span>
-              </>
-            ) : (
-              <>
-                <Icons.copy className="w-3 h-3" strokeWidth={2} />
-                <span>复制</span>
-              </>
-            )}
-          </button>
-        </div>
+        <button
+          onClick={copy}
+          className={cn(
+            "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
+            copied
+              ? "bg-emerald-500 text-white"
+              : "bg-white/[0.06] text-ink-700 border border-white/[0.08] hover:bg-white/[0.1] hover:text-ink-900",
+          )}
+        >
+          {copied ? (
+            <>
+              <Icons.success className="w-3 h-3" strokeWidth={2.5} />
+              <span>已复制</span>
+            </>
+          ) : (
+            <>
+              <Icons.copy className="w-3 h-3" strokeWidth={2} />
+              <span>复制</span>
+            </>
+          )}
+        </button>
       </div>
       <div className="text-[13px] leading-relaxed text-ink-800 whitespace-pre-wrap tracking-tight">
         {text}
