@@ -508,15 +508,18 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             )
         else:
             # graph 自带 InMemorySaver，thread_id=session_id；不再走 ConversationStore
-            # 包装：拦截 itinerary_ready 事件同步到 _SESSION_STORE（协作房间创建时需要）
+            # 包装：拦截事件同步到 _SESSION_STORE（协作房间创建时需要行程+规划事件历史）
             async def _graph_stream_with_session_sync():
                 intent_data = None
+                events_history: list[dict[str, Any]] = []
                 async for ev in run_graph_stream(
                     user_input=req.message,
                     session_id=req.session_id,
                     user_id=user_id,
                     scenario_id=req.scenario_id,
                 ):
+                    # 收集所有事件到历史（协作房间新成员回放用）
+                    events_history.append(ev.model_dump())
                     # 拦截 intent_parsed 和 itinerary_ready 同步到 _SESSION_STORE
                     if ev.type == SseEventType.INTENT_PARSED:
                         intent_data = ev.payload
@@ -525,8 +528,12 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
                             "intent": intent_data,
                             "itinerary": ev.payload,
                             "user_id": user_id,
+                            "planning_events": events_history,
                         }
                     yield ev
+                # 流结束后确保 session 有事件历史（即使没有 itinerary_ready）
+                if req.session_id in _SESSION_STORE:
+                    _SESSION_STORE[req.session_id]["planning_events"] = events_history
 
             inner = _graph_stream_with_session_sync()
             return EventSourceResponse(
@@ -556,15 +563,17 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             )
         else:
             # 构造 ReAct 流式生成器
-            # 包装：拦截 itinerary_ready 同步到 _SESSION_STORE（协作房间创建时需要）
+            # 包装：拦截事件同步到 _SESSION_STORE（协作房间创建时需要行程+规划事件历史）
             async def _react_stream_with_session_sync():
                 intent_data = None
+                events_history: list[dict[str, Any]] = []
                 async for ev in run_react_turn(
                     session_id=req.session_id,
                     user_id=user_id,
                     message=req.message,
                     mode=mode,
                 ):
+                    events_history.append(ev.model_dump())
                     if ev.type == SseEventType.INTENT_PARSED:
                         intent_data = ev.payload
                     elif ev.type == SseEventType.ITINERARY_READY:
@@ -572,8 +581,11 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
                             "intent": intent_data,
                             "itinerary": ev.payload,
                             "user_id": user_id,
+                            "planning_events": events_history,
                         }
                     yield ev
+                if req.session_id in _SESSION_STORE:
+                    _SESSION_STORE[req.session_id]["planning_events"] = events_history
 
             inner = _react_stream_with_session_sync()
             return EventSourceResponse(
@@ -1898,6 +1910,8 @@ class CreateRoomRequest(BaseModel):
     nickname: str = Field(default="发起人", max_length=32)
     # 可选：把当前 session 的行程带入房间作为初始方案
     session_id: Optional[str] = Field(default=None, max_length=128)
+    # 可选：把当前规划过程事件历史带入（新成员加入时回放 ToolTracePanel）
+    planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
 
 
 class CreateRoomResponse(BaseModel):
@@ -1936,12 +1950,20 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
             cached = _SESSION_STORE[req.session_id]
             room.current_intent_dict = cached.get("intent")
             room.current_itinerary_dict = cached.get("itinerary")
+            # 带入规划事件历史（新成员加入时回放 ToolTracePanel）
+            planning_events = cached.get("planning_events")
+            if planning_events:
+                room.planning_events_history = list(planning_events)
 
     # 构造分享 URL（用请求的 host 拼）
     host = request.headers.get("host", "localhost:3000")
     scheme = "https" if "https" in str(request.url) else "http"
     # 前端路由：/room/[id]
     share_url = f"{scheme}://{host.replace(':8000', ':3000')}/room/{room.room_id}"
+
+    # 如果前端传了规划事件历史，存入房间
+    if req.planning_events:
+        room.planning_events_history = list(req.planning_events)
 
     return CreateRoomResponse(
         room_id=room.room_id,
