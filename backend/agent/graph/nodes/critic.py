@@ -25,12 +25,25 @@ def critic_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     itinerary = state.get("itinerary")
 
-    if intent is None or itinerary is None:
-        # 没东西可验，直接 has_critical=False 让流程继续（rule fallback）
+    if intent is None:
+        # 没 intent 无法验，直接放行（不应该走到这里）
         return {
             "violations": [],
             "has_critical": False,
             "critic_feedback_text": None,
+        }
+
+    if itinerary is None:
+        # itinerary 为空 = plan 阶段失败（候选为空 / blueprint 生成失败）
+        # 这是 critical 违规：必须触发 replan 让 ILS 兜底或 give_up
+        return {
+            "violations": [],
+            "has_critical": True,
+            "critic_feedback_text": (
+                "行程为空（itinerary=None）：plan 阶段未能生成有效蓝图。"
+                "可能原因：候选 POI/餐厅为空（约束过严或 mock 数据不覆盖）。"
+                "请放宽约束重试，或切换到 ILS 算法兜底。"
+            ),
         }
 
     violations = validate_itinerary(itinerary, intent)
