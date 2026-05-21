@@ -1981,8 +1981,11 @@ async def ws_collab(websocket: WebSocket, room_id: str):
 
     if room is None:
         await websocket.accept()
-        await websocket.send_json({"type": "error", "message": f"房间不存在：{room_id}"})
-        await websocket.close(code=4004, reason="房间不存在")
+        try:
+            await websocket.send_json({"type": "error", "message": f"房间不存在：{room_id}"})
+            await websocket.close(code=4004, reason="房间不存在")
+        except Exception:  # noqa: BLE001
+            pass
         return
 
     # 解析 query 参数
