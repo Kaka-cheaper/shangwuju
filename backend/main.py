@@ -508,12 +508,27 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             )
         else:
             # graph 自带 InMemorySaver，thread_id=session_id；不再走 ConversationStore
-            inner = run_graph_stream(
-                user_input=req.message,
-                session_id=req.session_id,
-                user_id=user_id,
-                scenario_id=req.scenario_id,
-            )
+            # 包装：拦截 itinerary_ready 事件同步到 _SESSION_STORE（协作房间创建时需要）
+            async def _graph_stream_with_session_sync():
+                intent_data = None
+                async for ev in run_graph_stream(
+                    user_input=req.message,
+                    session_id=req.session_id,
+                    user_id=user_id,
+                    scenario_id=req.scenario_id,
+                ):
+                    # 拦截 intent_parsed 和 itinerary_ready 同步到 _SESSION_STORE
+                    if ev.type == SseEventType.INTENT_PARSED:
+                        intent_data = ev.payload
+                    elif ev.type == SseEventType.ITINERARY_READY:
+                        _SESSION_STORE[req.session_id] = {
+                            "intent": intent_data,
+                            "itinerary": ev.payload,
+                            "user_id": user_id,
+                        }
+                    yield ev
+
+            inner = _graph_stream_with_session_sync()
             return EventSourceResponse(
                 _safe_stream(inner),
                 media_type="text/event-stream",
@@ -541,12 +556,26 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             )
         else:
             # 构造 ReAct 流式生成器
-            inner = run_react_turn(
-                session_id=req.session_id,
-                user_id=user_id,
-                message=req.message,
-                mode=mode,
-            )
+            # 包装：拦截 itinerary_ready 同步到 _SESSION_STORE（协作房间创建时需要）
+            async def _react_stream_with_session_sync():
+                intent_data = None
+                async for ev in run_react_turn(
+                    session_id=req.session_id,
+                    user_id=user_id,
+                    message=req.message,
+                    mode=mode,
+                ):
+                    if ev.type == SseEventType.INTENT_PARSED:
+                        intent_data = ev.payload
+                    elif ev.type == SseEventType.ITINERARY_READY:
+                        _SESSION_STORE[req.session_id] = {
+                            "intent": intent_data,
+                            "itinerary": ev.payload,
+                            "user_id": user_id,
+                        }
+                    yield ev
+
+            inner = _react_stream_with_session_sync()
             return EventSourceResponse(
                 _safe_stream(inner),
                 media_type="text/event-stream",
