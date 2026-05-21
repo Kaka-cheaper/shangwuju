@@ -24,7 +24,7 @@
  *   - 实际网络分享（用户保存到本地后自行转发）
  */
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Download, X, Loader2 } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
@@ -235,238 +235,235 @@ export default function PosterGenerator() {
 
 // ============================================================
 // 海报模板（375×667 竖版，2x 输出 = 750×1334）
+// 使用 forwardRef（React 18 兼容，让父组件 templateRef.current 拿到 root div）
 // ============================================================
 
-const PosterTemplate = function PosterTemplate({
-  ref,
-  itinerary,
-}: {
-  ref: React.RefObject<HTMLDivElement>;
-  itinerary: Itinerary;
-}) {
-  // 最多 8 段
-  const maxStages = 8;
-  const stages = itinerary.stages.slice(0, maxStages);
-  const overflow = Math.max(0, itinerary.stages.length - maxStages);
-  // summary 最多 60 字符
-  const summary =
-    (itinerary.summary || "本次行程").length <= 60
-      ? itinerary.summary || "本次行程"
-      : (itinerary.summary || "").slice(0, 57) + "……";
-  const totalH = (itinerary.total_minutes / 60).toFixed(1);
-  const date = new Date();
-  const dateStr = `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
+  function PosterTemplate({ itinerary }, ref) {
+    // 最多 8 段
+    const maxStages = 8;
+    const stages = itinerary.stages.slice(0, maxStages);
+    const overflow = Math.max(0, itinerary.stages.length - maxStages);
+    // summary 最多 60 字符
+    const summary =
+      (itinerary.summary || "本次行程").length <= 60
+        ? itinerary.summary || "本次行程"
+        : (itinerary.summary || "").slice(0, 57) + "……";
+    const totalH = (itinerary.total_minutes / 60).toFixed(1);
+    const date = new Date();
+    const dateStr = `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
 
-  return (
-    <div
-      ref={ref}
-      style={{
-        width: "375px",
-        minHeight: "667px",
-        padding: "32px 24px",
-        background:
-          "linear-gradient(160deg, #1a1a2e 0%, #16213e 45%, #0f3460 100%)",
-        color: "#f5f5f7",
-        fontFamily:
-          'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
-        display: "flex",
-        flexDirection: "column",
-        gap: "20px",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
-      {/* 顶部装饰 */}
+    return (
       <div
+        ref={ref}
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "4px",
+          width: "375px",
+          minHeight: "667px",
+          padding: "32px 24px",
           background:
-            "linear-gradient(90deg, #fb923c 0%, #ec4899 50%, #8b5cf6 100%)",
-        }}
-      />
-
-      {/* Header */}
-      <div>
-        <div
-          style={{
-            fontSize: "11px",
-            color: "#fb923c",
-            letterSpacing: "2px",
-            textTransform: "uppercase",
-            marginBottom: "6px",
-          }}
-        >
-          晌午局 · Half-Day Plan
-        </div>
-        <div
-          style={{
-            fontSize: "13px",
-            color: "#94a3b8",
-            marginBottom: "12px",
-          }}
-        >
-          {dateStr}
-        </div>
-        <div
-          style={{
-            fontSize: "18px",
-            fontWeight: 600,
-            lineHeight: "1.4",
-            color: "#f5f5f7",
-            letterSpacing: "-0.2px",
-          }}
-        >
-          {summary}
-        </div>
-        <div
-          style={{
-            fontSize: "12px",
-            color: "#fb923c",
-            marginTop: "8px",
-            fontFamily: "ui-monospace, SFMono-Regular, monospace",
-          }}
-        >
-          总时长 {totalH} 小时
-        </div>
-      </div>
-
-      {/* 时间轴 */}
-      <div
-        style={{
-          flex: 1,
+            "linear-gradient(160deg, #1a1a2e 0%, #16213e 45%, #0f3460 100%)",
+          color: "#f5f5f7",
+          fontFamily:
+            'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
           display: "flex",
           flexDirection: "column",
-          gap: "12px",
-          paddingTop: "8px",
+          gap: "20px",
+          position: "relative",
+          overflow: "hidden",
         }}
       >
-        {stages.map((stage, idx) => (
-          <div
-            key={idx}
-            style={{
-              display: "flex",
-              gap: "12px",
-              alignItems: "flex-start",
-            }}
-          >
-            {/* 时间列 */}
-            <div
-              style={{
-                minWidth: "44px",
-                fontFamily: "ui-monospace, SFMono-Regular, monospace",
-                fontSize: "11px",
-                color: "#cbd5e1",
-                textAlign: "right",
-                paddingTop: "2px",
-              }}
-            >
-              <div>{stage.start}</div>
-              <div style={{ color: "#64748b" }}>{stage.end}</div>
-            </div>
-            {/* 时间点 */}
-            <div
-              style={{
-                width: "8px",
-                height: "8px",
-                borderRadius: "50%",
-                marginTop: "6px",
-                background: "linear-gradient(135deg, #fb923c, #ec4899)",
-                flexShrink: 0,
-                boxShadow: "0 0 0 2px rgba(251,146,60,0.2)",
-              }}
-            />
-            {/* 内容 */}
-            <div style={{ flex: 1, paddingTop: "2px", minWidth: 0 }}>
-              <div
-                style={{
-                  display: "inline-block",
-                  fontSize: "10px",
-                  padding: "1px 6px",
-                  borderRadius: "3px",
-                  background: "rgba(251,146,60,0.12)",
-                  color: "#fb923c",
-                  marginBottom: "4px",
-                }}
-              >
-                {stage.kind}
-              </div>
-              <div
-                style={{
-                  fontSize: "13px",
-                  fontWeight: 500,
-                  color: "#f5f5f7",
-                  lineHeight: "1.4",
-                }}
-              >
-                {stage.title}
-              </div>
-            </div>
-          </div>
-        ))}
+        {/* 顶部装饰 */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "4px",
+            background:
+              "linear-gradient(90deg, #fb923c 0%, #ec4899 50%, #8b5cf6 100%)",
+          }}
+        />
 
-        {overflow > 0 && (
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#94a3b8",
-              fontStyle: "italic",
-              paddingLeft: "68px",
-              paddingTop: "4px",
-            }}
-          >
-            等 {overflow} 个地点……
-          </div>
-        )}
-      </div>
-
-      {/* 底部品牌 */}
-      <div
-        style={{
-          paddingTop: "16px",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-        }}
-      >
+        {/* Header */}
         <div>
           <div
             style={{
-              fontSize: "16px",
-              fontWeight: 700,
+              fontSize: "11px",
               color: "#fb923c",
-              letterSpacing: "-0.3px",
+              letterSpacing: "2px",
+              textTransform: "uppercase",
+              marginBottom: "6px",
             }}
           >
-            晌午局
+            晌午局 · Half-Day Plan
           </div>
           <div
             style={{
-              fontSize: "11px",
+              fontSize: "13px",
               color: "#94a3b8",
-              marginTop: "2px",
+              marginBottom: "12px",
             }}
           >
-            半日出行管家
+            {dateStr}
+          </div>
+          <div
+            style={{
+              fontSize: "18px",
+              fontWeight: 600,
+              lineHeight: "1.4",
+              color: "#f5f5f7",
+              letterSpacing: "-0.2px",
+            }}
+          >
+            {summary}
+          </div>
+          <div
+            style={{
+              fontSize: "12px",
+              color: "#fb923c",
+              marginTop: "8px",
+              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+            }}
+          >
+            总时长 {totalH} 小时
           </div>
         </div>
+
+        {/* 时间轴 */}
         <div
           style={{
-            fontSize: "10px",
-            color: "#64748b",
-            fontFamily: "ui-monospace, SFMono-Regular, monospace",
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            paddingTop: "8px",
           }}
         >
-          AI Generated
+          {stages.map((stage, idx) => (
+            <div
+              key={idx}
+              style={{
+                display: "flex",
+                gap: "12px",
+                alignItems: "flex-start",
+              }}
+            >
+              {/* 时间列 */}
+              <div
+                style={{
+                  minWidth: "44px",
+                  fontFamily: "ui-monospace, SFMono-Regular, monospace",
+                  fontSize: "11px",
+                  color: "#cbd5e1",
+                  textAlign: "right",
+                  paddingTop: "2px",
+                }}
+              >
+                <div>{stage.start}</div>
+                <div style={{ color: "#64748b" }}>{stage.end}</div>
+              </div>
+              {/* 时间点 */}
+              <div
+                style={{
+                  width: "8px",
+                  height: "8px",
+                  borderRadius: "50%",
+                  marginTop: "6px",
+                  background: "linear-gradient(135deg, #fb923c, #ec4899)",
+                  flexShrink: 0,
+                  boxShadow: "0 0 0 2px rgba(251,146,60,0.2)",
+                }}
+              />
+              {/* 内容 */}
+              <div style={{ flex: 1, paddingTop: "2px", minWidth: 0 }}>
+                <div
+                  style={{
+                    display: "inline-block",
+                    fontSize: "10px",
+                    padding: "1px 6px",
+                    borderRadius: "3px",
+                    background: "rgba(251,146,60,0.12)",
+                    color: "#fb923c",
+                    marginBottom: "4px",
+                  }}
+                >
+                  {stage.kind}
+                </div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: 500,
+                    color: "#f5f5f7",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  {stage.title}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {overflow > 0 && (
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#94a3b8",
+                fontStyle: "italic",
+                paddingLeft: "68px",
+                paddingTop: "4px",
+              }}
+            >
+              等 {overflow} 个地点……
+            </div>
+          )}
+        </div>
+
+        {/* 底部品牌 */}
+        <div
+          style={{
+            paddingTop: "16px",
+            borderTop: "1px solid rgba(255,255,255,0.08)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: "16px",
+                fontWeight: 700,
+                color: "#fb923c",
+                letterSpacing: "-0.3px",
+              }}
+            >
+              晌午局
+            </div>
+            <div
+              style={{
+                fontSize: "11px",
+                color: "#94a3b8",
+                marginTop: "2px",
+              }}
+            >
+              半日出行管家
+            </div>
+          </div>
+          <div
+            style={{
+              fontSize: "10px",
+              color: "#64748b",
+              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+            }}
+          >
+            AI Generated
+          </div>
         </div>
       </div>
-    </div>
-  );
-};
+    );
+  },
+);
 
 // ============================================================
 // 预览 Modal
