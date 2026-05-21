@@ -674,22 +674,11 @@ def _to_sse(event: SseEvent) -> dict[str, Any]:
 async def _safe_stream(
     inner: AsyncIterator[SseEvent],
 ) -> AsyncIterator[dict[str, Any]]:
-    """把内部 SseEvent 流转成 sse-starlette dict 流；中途异常 → stream_error + done。
-
-    顺路对 AGENT_THOUGHT 事件注入 user_text 字段（用户向友好文案）。
-    text 字段保留原文供后端 trace / 测试 / 日志使用。
-    """
-    from agent.thought_humanizer import attach_user_text
-
+    """把内部 SseEvent 流转成 sse-starlette dict 流；中途异常 → stream_error + done。"""
     last_seq = -1
     try:
         async for ev in inner:
             last_seq = ev.seq
-            # 给 AGENT_THOUGHT 注入 user_text（前端优先展示该字段）
-            if ev.type == SseEventType.AGENT_THOUGHT:
-                ev = ev.model_copy(
-                    update={"payload": attach_user_text(dict(ev.payload))}
-                )
             yield _to_sse(ev)
     except asyncio.CancelledError:
         # 客户端断开：静默退出，不再推事件

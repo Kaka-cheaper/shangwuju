@@ -377,7 +377,7 @@ export default function ItineraryCard() {
               }
               // thoughts
               for (const th of state.thoughts) {
-                planningEvents.push({ type: "agent_thought", seq: th.seq, payload: { text: th.text, user_text: th.user_text }, timestamp_ms: Date.now() });
+                planningEvents.push({ type: "agent_thought", seq: th.seq, payload: { text: th.text }, timestamp_ms: Date.now() });
               }
               const newRoomId = await createRoom(userId, "发起人", sessionId, planningEvents, state.messages as any);
               if (newRoomId) {

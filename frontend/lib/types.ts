@@ -56,14 +56,7 @@ export interface ReplanTriggeredPayload {
 }
 
 export interface AgentThoughtPayload {
-  /** 技术向原文（trace / 调试 / 日志）。 */
   text: string;
-  /**
-   * 用户向友好文案（前端 ThoughtPanel/ChatDock 优先展示）。
-   * - null 表示该 thought 仅供后端 trace，前端应隐藏
-   * - undefined 表示后端未注入（兼容旧路径，前端 fallback 到 text）
-   */
-  user_text?: string | null;
 }
 
 export interface RefinementStartPayload {
