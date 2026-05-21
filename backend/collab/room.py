@@ -65,6 +65,8 @@ class Room:
     planning_events_history: list[dict[str, Any]] = field(default_factory=list)
     # 对话历史（用于新成员加入时同步 ChatPanel）
     chat_messages: list[dict[str, Any]] = field(default_factory=list)
+    # LLM 上下文历史（ModelMessage 格式，重规划时喂给 LLM 保持完整上下文）
+    llm_context_messages: list[Any] = field(default_factory=list)
     planning_task: Optional[asyncio.Task] = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     created_at: float = field(default_factory=time.time)
@@ -324,10 +326,14 @@ class RoomManager:
         2. 如果有 current_intent → 用 refiner 合并约束
         3. 如果没有 current_intent → 用第一条约束作为初始输入走 planner
         4. 规划事件逐条广播给所有成员
+        5. 维护 llm_context_messages：每次约束和规划结果都追加到上下文
         """
         try:
             # 合并约束为 feedback 文本
             merged_feedback = self._merge_constraints_text(room)
+
+            # 追加约束到 LLM 上下文（让 LLM 知道"用户们说了什么"）
+            self._append_to_llm_context(room, role="user", content=merged_feedback)
 
             # 决定走哪条路径
             if room.current_intent_dict is not None:
@@ -350,17 +356,29 @@ class RoomManager:
                 })
 
     async def _replan_with_refiner(self, room: Room, feedback: str) -> None:
-        """用 refiner 合并约束后重新规划。"""
+        """用 refiner 合并约束后重新规划，带完整 LLM 上下文。"""
         from schemas.intent import IntentExtraction
         from agent.refiner import refine_intent
 
         # 还原 intent
         intent = IntentExtraction.model_validate(room.current_intent_dict)
 
-        # refiner 合并
-        result = refine_intent(intent, feedback)
+        # 构建带上下文的 feedback（让 refiner 的 LLM 看到协作历史）
+        context_summary = self._build_llm_context_summary(room)
+        enriched_feedback = f"{context_summary}\n\n【本次约束】{feedback}" if context_summary else feedback
+
+        # refiner 合并（传入带上下文的 feedback）
+        result = refine_intent(intent, enriched_feedback)
         refined_intent = result.refined_intent
         room.current_intent_dict = refined_intent.model_dump()
+
+        # 追加 refiner 结果到 LLM 上下文
+        self._append_to_llm_context(
+            room, role="assistant",
+            content=f"已合并约束：{'; '.join(result.changed_fields or ['无变更'])}。"
+                    f"调整后意图：距离{refined_intent.distance_max_km}km，"
+                    f"饮食约束{list(refined_intent.dietary_constraints)}。"
+        )
 
         # 广播 refinement 结果
         await self._broadcast_planning_event(room, {
@@ -378,7 +396,7 @@ class RoomManager:
         await self._run_planner_and_broadcast(room, refined_intent)
 
     async def _plan_fresh(self, room: Room, user_input: str) -> None:
-        """无基线时走完整规划路径。"""
+        """无基线时走完整规划路径，带 LLM 上下文。"""
         # 尝试用 LangGraph 或 ReAct agent
         try:
             from agent.graph.sse_adapter import run_graph_stream
@@ -398,6 +416,9 @@ class RoomManager:
                 # 捕获 itinerary_ready 和 intent_parsed
                 if event.type.value == "itinerary_ready":
                     room.current_itinerary_dict = event.payload
+                    # 追加规划结果到 LLM 上下文
+                    summary = event.payload.get("summary", "行程已生成")
+                    self._append_to_llm_context(room, role="assistant", content=f"已规划行程：{summary}")
                 elif event.type.value == "intent_parsed":
                     room.current_intent_dict = event.payload
 
@@ -408,7 +429,7 @@ class RoomManager:
     async def _run_planner_and_broadcast(
         self, room: Room, intent: Any
     ) -> None:
-        """用 intent 跑规划并广播事件。"""
+        """用 intent 跑规划并广播事件，维护 LLM 上下文。"""
         from schemas.intent import IntentExtraction
         from schemas.sse import SseEvent, SseEventType
 
@@ -438,6 +459,8 @@ class RoomManager:
                 await self._broadcast_planning_event(room, event.model_dump())
                 if event.type.value == "itinerary_ready":
                     room.current_itinerary_dict = event.payload
+                    summary = event.payload.get("summary", "行程已生成")
+                    self._append_to_llm_context(room, role="assistant", content=f"已重新规划行程：{summary}")
                 # 检查是否被取消
                 await asyncio.sleep(0)  # yield control
 
@@ -545,6 +568,43 @@ class RoomManager:
             nickname = room.members.get(c.user_id, Member(user_id=c.user_id, nickname=c.user_id, role="participant")).nickname
             parts.append(f"{nickname}说：{c.text}")
         return "；".join(parts)
+
+    def _append_to_llm_context(
+        self, room: Room, *, role: str, content: str
+    ) -> None:
+        """追加一条消息到房间的 LLM 上下文历史。
+
+        格式兼容 Pydantic AI 的 ModelMessage 序列化：
+        - role="user" → 用户/参与者的约束输入
+        - role="assistant" → Agent 的规划结果摘要
+        - role="system" → 系统级上下文（如"以下是多人协作场景"）
+
+        上下文窗口控制：保留最近 20 条消息（约 4000 token），
+        超出时从头部裁剪（保留最新的上下文）。
+        """
+        MAX_CONTEXT_MESSAGES = 20
+        room.llm_context_messages.append({
+            "role": role,
+            "content": content,
+            "timestamp": time.time(),
+        })
+        # 裁剪：保留最近 N 条
+        if len(room.llm_context_messages) > MAX_CONTEXT_MESSAGES:
+            room.llm_context_messages = room.llm_context_messages[-MAX_CONTEXT_MESSAGES:]
+
+    def _build_llm_context_summary(self, room: Room) -> str:
+        """把 LLM 上下文历史构建为一段摘要文本（可喂给 refiner 或 planner 的 system prompt）。
+
+        用途：当 refiner/planner 不直接支持 message_history 参数时，
+        把上下文压缩为一段"协作背景"文本拼到 feedback 前面。
+        """
+        if not room.llm_context_messages:
+            return ""
+        parts = ["【协作上下文】"]
+        for msg in room.llm_context_messages[-10:]:  # 最近 10 条
+            role_label = {"user": "参与者", "assistant": "Agent", "system": "系统"}.get(msg["role"], msg["role"])
+            parts.append(f"  {role_label}：{msg['content']}")
+        return "\n".join(parts)
 
     def _get_stage_title(self, room: Room, stage_index: int) -> str:
         """从当前行程中取某段的标题。"""

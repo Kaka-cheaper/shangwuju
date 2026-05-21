@@ -1965,6 +1965,22 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
     # 带入规划事件历史（前端传入，优先级高于后端 _SESSION_STORE 里的）
     if req.planning_events:
         room.planning_events_history = list(req.planning_events)
+    # 初始化 LLM 上下文：把初始行程摘要写入，让后续重规划时 LLM 知道"之前规划了什么"
+    if room.current_itinerary_dict:
+        summary = room.current_itinerary_dict.get("summary", "已有行程")
+        room.llm_context_messages.append({
+            "role": "assistant",
+            "content": f"初始行程方案：{summary}",
+            "timestamp": time.time(),
+        })
+    if room.current_intent_dict:
+        raw_input = room.current_intent_dict.get("raw_input", "")
+        if raw_input:
+            room.llm_context_messages.insert(0, {
+                "role": "user",
+                "content": f"发起人原始需求：{raw_input}",
+                "timestamp": time.time(),
+            })
 
     # 构造分享 URL（用请求的 host 拼）
     host = request.headers.get("host", "localhost:3000")
