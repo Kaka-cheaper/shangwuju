@@ -120,7 +120,7 @@ export interface ChatState {
   intent: IntentExtraction | null;
   toolCalls: ToolCallRecord[];
   replans: ReplanRecord[];
-  thoughts: { seq: number; text: string }[];
+  thoughts: { seq: number; text: string; timestamp_ms: number | null }[];
 
   // 输出
   itinerary: Itinerary | null;
@@ -709,7 +709,10 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     case "agent_thought": {
       const p = ev.payload as unknown as AgentThoughtPayload;
       set((s) => ({
-        thoughts: [...s.thoughts, { seq: ev.seq, text: p.text }],
+        thoughts: [
+          ...s.thoughts,
+          { seq: ev.seq, text: p.text, timestamp_ms: ev.timestamp_ms ?? null },
+        ],
       }));
       break;
     }
@@ -735,6 +738,7 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
             text: p.feedback_text
               ? `开始根据你的反馈调整：「${p.feedback_text}」`
               : "开始重新规划...",
+            timestamp_ms: ev.timestamp_ms ?? null,
           },
         ],
       }));

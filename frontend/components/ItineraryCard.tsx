@@ -49,6 +49,83 @@ export default function ItineraryCard() {
     if (!has) prevHadItinerary.current = false;
   }, [itinerary]);
 
+  // ============================================================
+  // 时间轴 stagger 动画（R1）：stages 逐段"长出来"
+  //   - itinerary 从 null → 非 null：从 0 开始递增显示
+  //   - stages.length >= 3：间隔 400ms；<= 2：间隔 200ms
+  //   - 用户可点「跳过动画」立即显示全部
+  //   - animating 期间禁用确认/反馈/取消按钮（防止半成品交互）
+  //   - streaming 变 false 时强制兜底（防止 abort 卡住）
+  // ============================================================
+  const [visibleCount, setVisibleCount] = useState(0);
+  const [animating, setAnimating] = useState(false);
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!itinerary) {
+      setVisibleCount(0);
+      setAnimating(false);
+      return;
+    }
+    const stages = itinerary.stages;
+    if (stages.length === 0) {
+      setVisibleCount(0);
+      setAnimating(false);
+      return;
+    }
+
+    // 重启动画：从 0 开始
+    setAnimating(true);
+    setVisibleCount(0);
+    const delay = stages.length <= 2 ? 200 : 400;
+    let idx = 0;
+
+    const tick = () => {
+      idx += 1;
+      setVisibleCount(idx);
+      if (idx >= stages.length) {
+        setAnimating(false);
+        animTimerRef.current = null;
+      } else {
+        animTimerRef.current = setTimeout(tick, delay);
+      }
+    };
+    animTimerRef.current = setTimeout(tick, delay);
+
+    return () => {
+      if (animTimerRef.current) {
+        clearTimeout(animTimerRef.current);
+        animTimerRef.current = null;
+      }
+    };
+  }, [itinerary]);
+
+  // 跳过动画：清 timer + 立即全显
+  const skipAnimation = () => {
+    if (animTimerRef.current) {
+      clearTimeout(animTimerRef.current);
+      animTimerRef.current = null;
+    }
+    if (itinerary) setVisibleCount(itinerary.stages.length);
+    setAnimating(false);
+  };
+
+  // streaming 变 false 时兜底（abort 等异常场景下防止 animating 卡住）
+  useEffect(() => {
+    if (!streaming && animating) {
+      // 给 React 一次重新调度机会：如果是正常完成会被 stagger 自然结束；
+      // 如果是 abort，强制兜底
+      const timer = setTimeout(() => {
+        if (!animTimerRef.current && itinerary) {
+          setVisibleCount(itinerary.stages.length);
+          setAnimating(false);
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [streaming, animating, itinerary]);
+
   if (!itinerary && !streaming) {
     return (
       <div className="card px-4 py-8 flex flex-col items-center gap-2.5 text-ink-500">
@@ -77,7 +154,8 @@ export default function ItineraryCard() {
 
   const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
-  const canAct = !streaming && !hasOrders && !cancelled;
+  // R1: animating 期间也禁用按钮（避免用户在动画进行中点确认）
+  const canAct = !streaming && !hasOrders && !cancelled && !animating;
 
   return (
     <div className={cn("card animate-fade-in", spotlight && "spotlight-once")}>
@@ -120,6 +198,21 @@ export default function ItineraryCard() {
       {/* 方案 C：「为你考虑了什么」小标签行（intent 命中可视化） */}
       {intent && <IntentChips intent={intent} />}
 
+      {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
+      {animating && (
+        <div className="px-4 pt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={skipAnimation}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] text-[10px] text-ink-500 hover:text-ink-800 transition-colors"
+            title="跳过逐段动画，立即显示完整行程"
+          >
+            <span>跳过动画</span>
+            <span aria-hidden>⏭</span>
+          </button>
+        </div>
+      )}
+
       {/* Timeline */}
       <ol className="relative px-4 py-4 space-y-3.5">
         {/* 时间轴竖线（暖橙→紫渐变） */}
@@ -131,40 +224,44 @@ export default function ItineraryCard() {
               "linear-gradient(180deg, rgba(251,146,60,0.6) 0%, rgba(236,72,153,0.4) 50%, rgba(139,92,246,0.2) 100%)",
           }}
         />
-        {itinerary.stages.map((stage, idx) => (
-          <li
-            key={idx}
-            className="relative flex items-start gap-3 animate-fade-in-up"
-          >
-            <div className="flex flex-col items-center min-w-[44px] z-10">
-              <div className="text-[10px] text-ink-500 mono">{stage.start}</div>
-              {/* 暖橙→莓粉时间点 */}
-              <div
-                className="my-1 w-2 h-2 rounded-full ring-[3px] ring-[#08080d]"
-                style={{
-                  background:
-                    "linear-gradient(135deg, #fb923c 0%, #ec4899 100%)",
-                  boxShadow:
-                    "0 0 0 1px rgba(255,255,255,0.16), 0 0 8px rgba(249,115,22,0.6)",
-                }}
-              />
-              <div className="text-[10px] text-ink-500 mono">{stage.end}</div>
-            </div>
-            <div className="flex-1 pt-0.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span className="chip">{stage.kind}</span>
-                <span className="text-sm font-medium text-ink-900 tracking-tight">
-                  {stage.title}
-                </span>
+        {itinerary.stages.map((stage, idx) => {
+          // R1: stagger 控制——idx 超出 visibleCount 时不渲染（保留时间轴竖线高度感由间隔自然成）
+          if (idx >= visibleCount) return null;
+          return (
+            <li
+              key={idx}
+              className="relative flex items-start gap-3 animate-fade-in-up"
+            >
+              <div className="flex flex-col items-center min-w-[44px] z-10">
+                <div className="text-[10px] text-ink-500 mono">{stage.start}</div>
+                {/* 暖橙→莓粉时间点 */}
+                <div
+                  className="my-1 w-2 h-2 rounded-full ring-[3px] ring-[#08080d]"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #fb923c 0%, #ec4899 100%)",
+                    boxShadow:
+                      "0 0 0 1px rgba(255,255,255,0.16), 0 0 8px rgba(249,115,22,0.6)",
+                  }}
+                />
+                <div className="text-[10px] text-ink-500 mono">{stage.end}</div>
               </div>
-              {stage.note && (
-                <div className="mt-1 text-xs text-ink-600 leading-relaxed">
-                  {stage.note}
+              <div className="flex-1 pt-0.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="chip">{stage.kind}</span>
+                  <span className="text-sm font-medium text-ink-900 tracking-tight">
+                    {stage.title}
+                  </span>
                 </div>
-              )}
-            </div>
-          </li>
-        ))}
+                {stage.note && (
+                  <div className="mt-1 text-xs text-ink-600 leading-relaxed">
+                    {stage.note}
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ol>
 
       {/* 已为你预留：暗色 emerald 玻璃 */}
