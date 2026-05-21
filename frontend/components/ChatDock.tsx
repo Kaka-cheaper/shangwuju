@@ -31,6 +31,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
+import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -187,7 +188,25 @@ export default function ChatDock() {
 
   const submit = () => {
     if (!draft.trim()) return;
-    sendMessage(draft);
+    // 协作模式下走 WS 通道（所有人同步看到）
+    const { collabMode, sendConstraint } = useCollabStore.getState();
+    if (collabMode) {
+      sendConstraint(draft.trim());
+      // 本地也追加一条用户消息到 messages（WS 广播会同步给其他人）
+      useChatStore.setState((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: `u-${Date.now()}`,
+            role: "user" as const,
+            text: draft.trim(),
+            createdAt: Date.now(),
+          },
+        ],
+      }));
+    } else {
+      sendMessage(draft);
+    }
     setDraft("");
   };
 

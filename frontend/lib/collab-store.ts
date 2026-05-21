@@ -240,18 +240,37 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
     }
 
     case "constraint_added": {
+      const constraintUserId = msg.user_id as string;
+      const constraintNickname = msg.nickname as string;
+      const constraintText = msg.text as string;
       set((s) => ({
         constraints: [
           ...s.constraints,
           {
-            user_id: msg.user_id as string,
-            nickname: msg.nickname as string,
-            text: msg.text as string,
+            user_id: constraintUserId,
+            nickname: constraintNickname,
+            text: constraintText,
             source: (msg.source as "text" | "vote_dislike") || "text",
             timestamp: (msg.timestamp as number) || Date.now() / 1000,
           },
         ],
       }));
+      // 同步到主 store 的 messages（让所有窗口的 ChatPanel 显示这条约束）
+      // 只有非自己发的才追加（自己发的在 ChatDock.submit 里已经追加了）
+      const myId = get().myUserId;
+      if (constraintUserId !== myId) {
+        useChatStore.setState((s: any) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: `collab-${Date.now()}`,
+              role: "user",
+              text: `${constraintNickname}：${constraintText}`,
+              createdAt: Date.now(),
+            },
+          ],
+        }));
+      }
       break;
     }
 
