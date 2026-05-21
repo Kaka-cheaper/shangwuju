@@ -404,7 +404,8 @@ class RoomManager:
             get_compiled_graph()
 
             user_id = room.owner_id
-            session_id = f"collab_{room.room_id}"
+            # 每次重规划用新的 session_id，避免 LangGraph checkpoint 恢复旧 state
+            session_id = f"collab_{room.room_id}_{int(time.time() * 1000)}"
 
             async for event in run_graph_stream(
                 user_input=user_input,
@@ -447,7 +448,7 @@ class RoomManager:
             from agent.graph.build import get_compiled_graph
             get_compiled_graph()
 
-            session_id = f"collab_{room.room_id}"
+            session_id = f"collab_{room.room_id}_{int(time.time() * 1000)}"
             # 构造用户输入（从 intent 的 raw_input 取）
             raw_input = intent.raw_input if hasattr(intent, "raw_input") else "重新规划"
 

@@ -61,6 +61,13 @@ from agent.graph.nodes.router import route_after_router, router_node
 from agent.graph.state import AgentState
 
 
+def _route_after_ils(state: AgentState) -> str:
+    """ils_replan 后：有 itinerary → critic 验证；没有 → 直接 narrate（不循环）。"""
+    if state.get("itinerary") is not None and state.get("replan_strategy") != "give_up":
+        return "critic"
+    return "narrate"
+
+
 # ============================================================
 # 模块级单例（首次 build 后缓存）
 # ============================================================
@@ -156,8 +163,15 @@ def build_graph(*, with_checkpointer: bool = True) -> Any:
         },
     )
 
-    # ils_replan → critic（再验一次）
-    g.add_edge("ils_replan", "critic")
+    # ils_replan → 条件分支：成功走 critic 验证，失败走 narrate（不再循环）
+    g.add_conditional_edges(
+        "ils_replan",
+        _route_after_ils,
+        {
+            "critic": "critic",
+            "narrate": "narrate",
+        },
+    )
 
     # narrate → END（v1：interrupt 在 main.py 的 SSE 适配层暴露三按钮，不在 graph 内）
     # 三按钮的 confirm / refine / cancel 由前端再次发起 /chat/turn 触发新的 graph 执行：

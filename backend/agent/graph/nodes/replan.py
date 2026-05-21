@@ -58,44 +58,60 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
     """转 hybrid ILS 算法兜底。复用 plan_hybrid + rule_assembler。
 
     成功 → 写回 itinerary，has_critical=False
-    失败 → has_critical 仍 True，让流程降级（最终走 narrate 出当前方案，不阻塞 demo）
+    失败 → 走 rule planner 兜底；仍失败 → give_up（has_critical=False 让流程走 narrate）
     """
     intent = state.get("intent")
     if intent is None:
         return {"replan_strategy": "give_up", "has_critical": False}
 
+    # ---- 先尝试 ILS（仅 5 段完整场景适用）----
+    ils_success = False
     try:
-        # 延迟 import 防循环依赖
-        from agent.planner import _assemble_itinerary as rule_assembler
+        from agent.segment_decider import FULL_SEGMENTS, decide_segments
         from agent.planner_hybrid import plan_hybrid
-    except ImportError:
-        return {"replan_strategy": "give_up", "has_critical": False}
 
-    client = get_llm_client()
-
-    # plan_hybrid 内部跑 ILS + critic；返回 HybridResult
-    try:
-        result = plan_hybrid(
-            intent,
-            client=client,
-            tracer=None,  # graph 自有追踪（trace_span / sse_adapter）
-            rule_assembler=_RULE_ASSEMBLER_ADAPTER,
-        )
+        segments = decide_segments(intent)
+        if segments == FULL_SEGMENTS:
+            # 5 段场景：走 ILS
+            from agent.planner import _assemble_itinerary as rule_assembler
+            client = get_llm_client()
+            result = plan_hybrid(
+                intent,
+                client=client,
+                tracer=None,
+                rule_assembler=_RULE_ASSEMBLER_ADAPTER,
+            )
+            if result.success and result.itinerary is not None:
+                return {
+                    "itinerary": result.itinerary,
+                    "has_critical": False,
+                    "violations": [],
+                    "critic_feedback_text": None,
+                }
+        # 削段场景：ILS 不适用，跳到 rule planner 兜底
     except Exception:  # noqa: BLE001
-        return {"replan_strategy": "give_up", "has_critical": False}
+        pass
 
-    if result.success and result.itinerary is not None:
-        return {
-            "itinerary": result.itinerary,
-            "has_critical": False,
-            "violations": [],
-            "critic_feedback_text": None,
-        }
+    # ---- ILS 失败或不适用 → rule planner 兜底 ----
+    try:
+        from agent.planner import plan_itinerary
+        from agent.trace import Tracer
 
-    return {
-        "replan_strategy": "give_up",
-        "has_critical": False,  # 不再阻塞，让流程继续到 narrate
-    }
+        tracer = Tracer()
+        rule_result = plan_itinerary(intent, tracer=tracer)
+        if rule_result.success and rule_result.itinerary is not None:
+            return {
+                "itinerary": rule_result.itinerary,
+                "has_critical": False,
+                "violations": [],
+                "critic_feedback_text": None,
+                "replan_strategy": "give_up",  # 标记已用完所有策略
+            }
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ---- 全部失败 → give_up，不再循环 ----
+    return {"replan_strategy": "give_up", "has_critical": False}
 
 
 def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optional[Any]:
