@@ -3,42 +3,39 @@
 /**
  * PosterGenerator —— 一键生成行程海报（spec R5）。
  *
- * 设计动机：
- *   评委评分项「多模态输出」加分项。用户转发到微信群的不是文字，而是一张
- *   好看的竖版海报图。
- *   纯前端 html2canvas 截图，无后端改动。
+ * 设计变更（2026-05-21 重做）：
+ *   - 库：html2canvas → modern-screenshot（渲染质量更高，中文字体不变形）
+ *   - 风格：「小红书」暖色卡片（白底 / 渐变 chip / 圆角 / 大字标题）
+ *   - 呈现：去掉全屏 Modal，改「就地内联预览」——
+ *     生成完直接在 ShareMessage 下方展开 section，配收起按钮
  *
  * 工作流：
- *   1. 点击「生成海报」按钮
- *   2. 渲染隐藏 DOM 海报模板（off-screen，竖版 375×667 / 2x 输出）
- *   3. html2canvas 截图 → blob → Object URL
- *   4. 弹出预览 Modal + 下载按钮
- *   5. 5 秒超时 → 错误提示 + 重试 / 复制文字版降级
+ *   1. 点击「生成海报」
+ *   2. 渲染 PosterTemplate 到隐藏 DOM（off-screen）
+ *   3. modern-screenshot 截图 → blob → Object URL
+ *   4. 在 ShareMessage 下方就地展开预览卡片 + 「保存」/「重做」/「收起」按钮
  *
- * 触发条件：store.itinerary 非空（unchecked，按钮不渲染）
- *
- * 位置：ItineraryCard 的 ShareMessage 区域旁（"复制" 按钮的右侧）。
- *
- * 不负责：
- *   - 文字版转发（已有 ShareMessage 组件）
- *   - 实际网络分享（用户保存到本地后自行转发）
+ * 状态：
+ *   - generating：生成中
+ *   - previewUrl：预览图就绪
+ *   - 失败 → toast + 复制文字版兜底
  */
 
 import { forwardRef, useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, Download, X, Loader2 } from "lucide-react";
+import { Image as ImageIcon, Download, X, Loader2, RefreshCw } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import type { Itinerary } from "@/lib/types";
 
 // ============================================================
-// 海报渲染超时（防 html2canvas 卡死）
+// 海报渲染超时
 // ============================================================
 
 const POSTER_RENDER_TIMEOUT_MS = 5000;
 
 // ============================================================
-// 文字版降级：复用 ShareMessage 已有逻辑（这里独立实现）
+// 文字版降级（与 ShareMessage 复制按钮等价的兜底）
 // ============================================================
 
 function buildTextFallback(itinerary: Itinerary): string {
@@ -57,7 +54,6 @@ async function copyToClipboard(text: string): Promise<boolean> {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // execCommand 兜底
     const ta = document.createElement("textarea");
     ta.value = text;
     document.body.appendChild(ta);
@@ -73,7 +69,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 // ============================================================
-// 主组件
+// 主组件：触发按钮 + 内联预览
 // ============================================================
 
 export default function PosterGenerator() {
@@ -85,12 +81,13 @@ export default function PosterGenerator() {
   const [previewBlob, setPreviewBlob] = useState<Blob | null>(null);
   const templateRef = useRef<HTMLDivElement>(null);
 
-  // 卸载时释放 Object URL（防内存泄漏）
-  // 用 ref 存当前 url 让 cleanup 取到最新值，避免 effect 依赖 previewUrl 导致频繁重跑
+  // 用 ref 跟踪当前 url 让 cleanup 取最新值
   const previewUrlRef = useRef<string | null>(null);
   useEffect(() => {
     previewUrlRef.current = previewUrl;
   }, [previewUrl]);
+
+  // 卸载时释放 Object URL
   useEffect(() => {
     return () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -111,33 +108,24 @@ export default function PosterGenerator() {
     setGenerating(true);
 
     try {
-      // 动态 import html2canvas（避免 SSR 阶段加载 + 减小首屏 bundle）
-      const html2canvasModule = await import("html2canvas");
-      const html2canvas = html2canvasModule.default;
+      // 动态 import modern-screenshot（避免 SSR + 减小首屏 bundle）
+      const { domToBlob } = await import("modern-screenshot");
 
-      // Promise.race 防卡死
-      const canvas = await Promise.race([
-        html2canvas(templateRef.current, {
-          scale: 2, // 2x 输出（750×1334 物理像素）
-          useCORS: true,
-          backgroundColor: null,
-          logging: false,
+      const blob = await Promise.race([
+        domToBlob(templateRef.current, {
+          scale: 2, // 2x 输出
+          quality: 0.95,
+          backgroundColor: "#fffaf2",
         }),
         new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("render_timeout")),
-            POSTER_RENDER_TIMEOUT_MS,
-          ),
+          setTimeout(() => reject(new Error("render_timeout")), POSTER_RENDER_TIMEOUT_MS),
         ),
       ]);
 
-      const blob: Blob | null = await new Promise((resolve) => {
-        canvas.toBlob((b) => resolve(b), "image/png");
-      });
+      if (!blob) throw new Error("blob_null");
 
-      if (!blob) {
-        throw new Error("toBlob_returned_null");
-      }
+      // 释放旧 url
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
 
       const url = URL.createObjectURL(blob);
       setPreviewUrl(url);
@@ -149,7 +137,6 @@ export default function PosterGenerator() {
         kind: "warn",
         text: isTimeout ? "海报生成超时，已复制文字版" : "海报生成失败，已复制文字版",
       });
-      // 降级：复制文字版
       const fallback = buildTextFallback(itinerary);
       const ok = await copyToClipboard(fallback);
       if (!ok) {
@@ -175,40 +162,42 @@ export default function PosterGenerator() {
   };
 
   const closePreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
     setPreviewUrl(null);
     setPreviewBlob(null);
   };
 
   return (
     <>
-      {/* 触发按钮：复制按钮旁边 */}
-      <button
-        type="button"
-        onClick={generate}
-        disabled={generating}
-        className={cn(
-          "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
-          "bg-white/[0.06] text-ink-700 border border-white/[0.08]",
-          "hover:bg-white/[0.1] hover:text-ink-900",
-          "disabled:opacity-50 disabled:cursor-not-allowed",
-        )}
-        title="把行程渲染成竖版海报图，可保存转发"
-      >
-        {generating ? (
-          <>
-            <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2.5} />
-            <span>生成中…</span>
-          </>
-        ) : (
-          <>
-            <ImageIcon className="w-3 h-3" strokeWidth={2} />
-            <span>生成海报</span>
-          </>
-        )}
-      </button>
+      {/* 触发按钮（替代/隐藏 generated 后） */}
+      {!previewUrl && (
+        <button
+          type="button"
+          onClick={generate}
+          disabled={generating}
+          className={cn(
+            "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
+            "bg-white/[0.06] text-ink-700 border border-white/[0.08]",
+            "hover:bg-white/[0.1] hover:text-ink-900",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
+          )}
+          title="把行程渲染成竖版海报图，可保存转发"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2.5} />
+              <span>生成中…</span>
+            </>
+          ) : (
+            <>
+              <ImageIcon className="w-3 h-3" strokeWidth={2} />
+              <span>生成海报</span>
+            </>
+          )}
+        </button>
+      )}
 
-      {/* 隐藏海报模板（off-screen，html2canvas 截图源） */}
+      {/* 隐藏海报模板（off-screen 截图源） */}
       <div
         aria-hidden
         style={{
@@ -221,11 +210,16 @@ export default function PosterGenerator() {
         <PosterTemplate ref={templateRef} itinerary={itinerary} />
       </div>
 
-      {/* 预览 Modal */}
+      {/* 就地内联预览（替代旧的全屏 Modal） */}
       {previewUrl && (
-        <PreviewModal
+        <InlinePreview
           imageUrl={previewUrl}
           onDownload={download}
+          onRegenerate={() => {
+            closePreview();
+            // 立即触发重新生成，让用户立刻看到刷新动作
+            void generate();
+          }}
           onClose={closePreview}
         />
       )}
@@ -234,110 +228,230 @@ export default function PosterGenerator() {
 }
 
 // ============================================================
-// 海报模板（375×667 竖版，2x 输出 = 750×1334）
-// 使用 forwardRef（React 18 兼容，让父组件 templateRef.current 拿到 root div）
+// 内联预览（替代全屏 Modal）—— 「卡片内一段」而非 popup
+// ============================================================
+
+function InlinePreview({
+  imageUrl,
+  onDownload,
+  onRegenerate,
+  onClose,
+}: {
+  imageUrl: string;
+  onDownload: () => void;
+  onRegenerate: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-brand-500/20 bg-gradient-to-br from-brand-500/[0.04] to-accent-500/[0.04] p-2.5 animate-collapse-in">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <ImageIcon
+            className="w-3 h-3 text-brand-400"
+            strokeWidth={2}
+          />
+          <span className="text-[11px] font-medium text-ink-800 tracking-tight">
+            海报预览
+          </span>
+          <span className="text-[10px] text-ink-500">点击可保存</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded text-ink-500 hover:text-ink-900 hover:bg-white/[0.08] transition-colors"
+            title="重新生成"
+          >
+            <RefreshCw className="w-2.5 h-2.5" strokeWidth={2} />
+            <span>重做</span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-0.5 rounded text-ink-500 hover:text-ink-900 hover:bg-white/[0.08] transition-colors"
+            title="收起"
+            aria-label="收起预览"
+          >
+            <X className="w-3 h-3" strokeWidth={2} />
+          </button>
+        </div>
+      </div>
+
+      {/* 海报图片（点击下载） */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageUrl}
+        alt="行程海报"
+        onClick={onDownload}
+        className={cn(
+          "w-full max-w-[280px] mx-auto rounded-md cursor-pointer",
+          "shadow-lg shadow-black/20",
+          "ring-1 ring-white/[0.06]",
+          "hover:ring-2 hover:ring-brand-400/40 transition-all",
+          "block",
+        )}
+        title="点击保存到本地"
+      />
+
+      <button
+        type="button"
+        onClick={onDownload}
+        className={cn(
+          "mt-2 w-full py-1.5 rounded-md text-xs font-medium transition-all",
+          "bg-gradient-to-r from-brand-500 to-accent-500 text-white",
+          "hover:from-brand-400 hover:to-accent-400",
+          "flex items-center justify-center gap-1.5",
+          "shadow shadow-brand-500/20",
+        )}
+      >
+        <Download className="w-3 h-3" strokeWidth={2.5} />
+        <span>保存到本地</span>
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// 海报模板：小红书风格暖色卡片
+// 设计要点：
+//   - 米白底（#fffaf2 暖色调，比纯白柔和）
+//   - 大字标题（28px 黑色加粗）
+//   - 圆形彩色 chip（kind 标签 → 渐变橙粉）
+//   - 时间轴用「卡片排列」而非细线（更小红书）
+//   - 顶部留出 15-20% 给品牌区
+//   - 底部「晌午局」品牌 + 二维码占位（可后续接真实小程序码）
 // ============================================================
 
 const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
   function PosterTemplate({ itinerary }, ref) {
-    // 最多 8 段
     const maxStages = 8;
     const stages = itinerary.stages.slice(0, maxStages);
     const overflow = Math.max(0, itinerary.stages.length - maxStages);
-    // summary 最多 60 字符
     const summary =
-      (itinerary.summary || "本次行程").length <= 60
+      (itinerary.summary || "本次行程").length <= 50
         ? itinerary.summary || "本次行程"
-        : (itinerary.summary || "").slice(0, 57) + "……";
+        : (itinerary.summary || "").slice(0, 47) + "…";
     const totalH = (itinerary.total_minutes / 60).toFixed(1);
     const date = new Date();
-    const dateStr = `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+    const dateStr = `${date.getMonth() + 1}.${String(date.getDate()).padStart(2, "0")}`;
 
     return (
       <div
         ref={ref}
         style={{
-          width: "375px",
-          minHeight: "667px",
-          padding: "32px 24px",
-          background:
-            "linear-gradient(160deg, #1a1a2e 0%, #16213e 45%, #0f3460 100%)",
-          color: "#f5f5f7",
+          width: "390px",
+          // 不固定 height，让内容自然撑开（小红书海报常见做法，比例 4:5 / 3:4 都常见）
+          padding: "28px 24px 24px",
+          background: "#fffaf2",
+          color: "#1f1f1f",
           fontFamily:
-            'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+            '"PingFang SC", "Microsoft YaHei", "HarmonyOS Sans SC", system-ui, -apple-system, sans-serif',
           display: "flex",
           flexDirection: "column",
           gap: "20px",
           position: "relative",
-          overflow: "hidden",
+          // 模拟纸张柔光（生成图片时透明度 fallback）
+          boxShadow: "inset 0 0 80px rgba(251, 146, 60, 0.04)",
         }}
       >
-        {/* 顶部装饰 */}
+        {/* 头部：品牌标 + 日期 */}
         <div
           style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: "4px",
-            background:
-              "linear-gradient(90deg, #fb923c 0%, #ec4899 50%, #8b5cf6 100%)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
           }}
-        />
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div
+              style={{
+                width: "26px",
+                height: "26px",
+                borderRadius: "8px",
+                background: "linear-gradient(135deg, #fb923c 0%, #ec4899 100%)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "white",
+                fontSize: "13px",
+                fontWeight: 800,
+                letterSpacing: "-0.5px",
+              }}
+            >
+              晌
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span style={{ fontSize: "13px", fontWeight: 700, color: "#1f1f1f" }}>
+                晌午局
+              </span>
+              <span style={{ fontSize: "10px", color: "#8a8a8a", marginTop: "1px" }}>
+                半日出行管家
+              </span>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: "11px",
+              color: "#8a8a8a",
+              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+              letterSpacing: "0.5px",
+            }}
+          >
+            {dateStr}
+          </span>
+        </div>
 
-        {/* Header */}
+        {/* 主标题区 */}
         <div>
           <div
             style={{
               fontSize: "11px",
               color: "#fb923c",
-              letterSpacing: "2px",
-              textTransform: "uppercase",
-              marginBottom: "6px",
-            }}
-          >
-            晌午局 · Half-Day Plan
-          </div>
-          <div
-            style={{
-              fontSize: "13px",
-              color: "#94a3b8",
-              marginBottom: "12px",
-            }}
-          >
-            {dateStr}
-          </div>
-          <div
-            style={{
-              fontSize: "18px",
               fontWeight: 600,
-              lineHeight: "1.4",
-              color: "#f5f5f7",
-              letterSpacing: "-0.2px",
+              letterSpacing: "1px",
+              marginBottom: "10px",
+            }}
+          >
+            ✦ 今日下午
+          </div>
+          <div
+            style={{
+              fontSize: "22px",
+              fontWeight: 800,
+              lineHeight: "1.35",
+              color: "#1f1f1f",
+              letterSpacing: "-0.5px",
+              marginBottom: "8px",
             }}
           >
             {summary}
           </div>
           <div
             style={{
-              fontSize: "12px",
-              color: "#fb923c",
-              marginTop: "8px",
-              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "4px 10px",
+              borderRadius: "999px",
+              background: "rgba(251, 146, 60, 0.1)",
+              fontSize: "11px",
+              color: "#c2410c",
+              fontWeight: 600,
             }}
           >
-            总时长 {totalH} 小时
+            <span style={{ fontFamily: "ui-monospace, monospace" }}>
+              {totalH}
+            </span>
+            <span>小时安排</span>
           </div>
         </div>
 
-        {/* 时间轴 */}
+        {/* 时间轴：卡片堆叠（小红书风） */}
         <div
           style={{
-            flex: 1,
             display: "flex",
             flexDirection: "column",
-            gap: "12px",
-            paddingTop: "8px",
+            gap: "10px",
           }}
         >
           {stages.map((stage, idx) => (
@@ -346,60 +460,98 @@ const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
               style={{
                 display: "flex",
                 gap: "12px",
-                alignItems: "flex-start",
+                padding: "12px 14px",
+                background: "#ffffff",
+                borderRadius: "12px",
+                boxShadow:
+                  "0 1px 0 rgba(0,0,0,0.04), 0 4px 12px -4px rgba(251,146,60,0.08)",
+                border: "1px solid rgba(251, 146, 60, 0.08)",
               }}
             >
-              {/* 时间列 */}
+              {/* 序号 + 时间 */}
               <div
                 style={{
-                  minWidth: "44px",
-                  fontFamily: "ui-monospace, SFMono-Regular, monospace",
-                  fontSize: "11px",
-                  color: "#cbd5e1",
-                  textAlign: "right",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "6px",
                   paddingTop: "2px",
+                  minWidth: "44px",
                 }}
               >
-                <div>{stage.start}</div>
-                <div style={{ color: "#64748b" }}>{stage.end}</div>
+                <div
+                  style={{
+                    width: "22px",
+                    height: "22px",
+                    borderRadius: "50%",
+                    background:
+                      "linear-gradient(135deg, #fb923c 0%, #ec4899 100%)",
+                    color: "white",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "ui-monospace, monospace",
+                  }}
+                >
+                  {idx + 1}
+                </div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "#525252",
+                    fontFamily: "ui-monospace, monospace",
+                    textAlign: "center",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  <div>{stage.start}</div>
+                  <div style={{ color: "#a3a3a3" }}>{stage.end}</div>
+                </div>
               </div>
-              {/* 时间点 */}
-              <div
-                style={{
-                  width: "8px",
-                  height: "8px",
-                  borderRadius: "50%",
-                  marginTop: "6px",
-                  background: "linear-gradient(135deg, #fb923c, #ec4899)",
-                  flexShrink: 0,
-                  boxShadow: "0 0 0 2px rgba(251,146,60,0.2)",
-                }}
-              />
-              {/* 内容 */}
-              <div style={{ flex: 1, paddingTop: "2px", minWidth: 0 }}>
+
+              {/* 内容区 */}
+              <div style={{ flex: 1, minWidth: 0, paddingTop: "1px" }}>
                 <div
                   style={{
                     display: "inline-block",
                     fontSize: "10px",
-                    padding: "1px 6px",
-                    borderRadius: "3px",
-                    background: "rgba(251,146,60,0.12)",
-                    color: "#fb923c",
-                    marginBottom: "4px",
+                    padding: "2px 8px",
+                    borderRadius: "999px",
+                    background: "rgba(236, 72, 153, 0.08)",
+                    color: "#be185d",
+                    fontWeight: 600,
+                    marginBottom: "6px",
                   }}
                 >
                   {stage.kind}
                 </div>
                 <div
                   style={{
-                    fontSize: "13px",
-                    fontWeight: 500,
-                    color: "#f5f5f7",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    color: "#1f1f1f",
                     lineHeight: "1.4",
+                    letterSpacing: "-0.2px",
                   }}
                 >
                   {stage.title}
                 </div>
+                {stage.note && (
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      color: "#737373",
+                      marginTop: "4px",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    {stage.note.length <= 36
+                      ? stage.note
+                      : stage.note.slice(0, 33) + "…"}
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -408,136 +560,48 @@ const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
             <div
               style={{
                 fontSize: "11px",
-                color: "#94a3b8",
+                color: "#a3a3a3",
+                textAlign: "center",
                 fontStyle: "italic",
-                paddingLeft: "68px",
-                paddingTop: "4px",
+                padding: "4px",
               }}
             >
-              等 {overflow} 个地点……
+              · · · 等 {overflow} 个地点 · · ·
             </div>
           )}
         </div>
 
-        {/* 底部品牌 */}
+        {/* 底部品牌条 + 装饰点 */}
         <div
           style={{
             paddingTop: "16px",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
+            borderTop: "1px dashed rgba(251, 146, 60, 0.2)",
             display: "flex",
             justifyContent: "space-between",
-            alignItems: "flex-end",
+            alignItems: "center",
           }}
         >
-          <div>
-            <div
-              style={{
-                fontSize: "16px",
-                fontWeight: 700,
-                color: "#fb923c",
-                letterSpacing: "-0.3px",
-              }}
-            >
-              晌午局
-            </div>
-            <div
-              style={{
-                fontSize: "11px",
-                color: "#94a3b8",
-                marginTop: "2px",
-              }}
-            >
-              半日出行管家
-            </div>
+          <div
+            style={{
+              fontSize: "11px",
+              color: "#737373",
+              letterSpacing: "0.3px",
+            }}
+          >
+            <span style={{ color: "#fb923c", fontWeight: 600 }}>AI</span> 帮你串好行程
           </div>
           <div
             style={{
               fontSize: "10px",
-              color: "#64748b",
-              fontFamily: "ui-monospace, SFMono-Regular, monospace",
+              color: "#a3a3a3",
+              fontFamily: "ui-monospace, monospace",
+              letterSpacing: "1px",
             }}
           >
-            AI Generated
+            shangwuju.app
           </div>
         </div>
       </div>
     );
   },
 );
-
-// ============================================================
-// 预览 Modal
-// ============================================================
-
-function PreviewModal({
-  imageUrl,
-  onDownload,
-  onClose,
-}: {
-  imageUrl: string;
-  onDownload: () => void;
-  onClose: () => void;
-}) {
-  // ESC 关闭
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4 animate-fade-in"
-      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(8px)" }}
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="行程海报预览"
-    >
-      <div
-        className="relative bg-[#08080d] rounded-xl border border-white/[0.08] p-4 max-w-md w-full"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-[12px] font-medium text-ink-900 tracking-tight">
-            预览海报
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded hover:bg-white/[0.08] text-ink-500 hover:text-ink-900"
-            aria-label="关闭"
-          >
-            <X className="w-3.5 h-3.5" strokeWidth={2} />
-          </button>
-        </div>
-
-        <div className="rounded-lg overflow-hidden border border-white/[0.08] mb-3 max-h-[70vh] overflow-y-auto">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={imageUrl}
-            alt="行程海报"
-            className="w-full h-auto block"
-            style={{ display: "block" }}
-          />
-        </div>
-
-        <button
-          type="button"
-          onClick={onDownload}
-          className={cn(
-            "w-full py-2 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2",
-            "bg-gradient-to-r from-brand-500 to-accent-500 text-white",
-            "hover:from-brand-400 hover:to-accent-400",
-            "shadow-lg shadow-brand-500/20",
-          )}
-        >
-          <Download className="w-4 h-4" strokeWidth={2.25} />
-          <span>保存到本地</span>
-        </button>
-      </div>
-    </div>
-  );
-}
