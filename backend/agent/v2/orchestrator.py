@@ -23,9 +23,9 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Optional
 
+from agent.feedback_detector import looks_like_feedback
 from agent.v2.conversation import (
     ConversationState,
     ConversationStore,
@@ -39,41 +39,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Turn 决策：判断这次输入是「新需求」还是「对上次的反馈」
 # ============================================================
-
-
-# 反馈类关键词（轻量启发式；后续可替换成 LLM 分类）
-_FEEDBACK_KEYWORDS = [
-    "太远", "近一点", "近点", "别走太远", "别太远", "再近",
-    "不要", "去掉", "换一个", "换", "改一下", "再想想",
-    "不喜欢", "不太行", "不行", "不合适",
-    "便宜", "贵", "再贵点", "更高级",
-    "公里以内", "km以内", "公里内", "km内",
-    "改成", "改为", "调到", "缩短", "延长",
-    "时间", "早点", "晚点", "提前", "推迟",
-]
-
-
-def looks_like_feedback(message: str) -> bool:
-    """轻量判断这条消息是不是「对已有方案的反馈」。
-
-    判断条件：
-    - 含反馈关键词
-    - 或形如"X 公里以内 / X 小时" 等明显的"调整指令"
-
-    误判风险：
-    - 新需求里也可能含"不要"（如"不要太累"）→ 调用方需结合 ConversationState
-      是否有 itinerary_snapshot 一起判断（无 itinerary 即不可能是反馈）
-    """
-    if not message:
-        return False
-    txt = message.strip()
-    for kw in _FEEDBACK_KEYWORDS:
-        if kw in txt:
-            return True
-    # "X 公里" / "X 小时" 一类的纯调整指令
-    if re.search(r"\d+\s*(公里|km|千米|小时|h)", txt, re.IGNORECASE):
-        return True
-    return False
+# looks_like_feedback 已迁移到 agent.feedback_detector 作为 SoT
+# 本模块继续 re-export 是为兼容旧引用
 
 
 def decide_turn_kind(
