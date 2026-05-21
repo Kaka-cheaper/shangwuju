@@ -1853,3 +1853,137 @@ async def _routed_stream_real(
         req, mode=mode, user_id=user_id, starting_seq=2
     ):
         yield ev
+
+
+# ============================================================
+# 多人实时协作：WebSocket + 房间管理
+# ============================================================
+
+from fastapi import WebSocket, WebSocketDisconnect
+from collab import get_room_manager
+
+
+class CreateRoomRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    user_id: str = Field(..., min_length=1, max_length=64)
+    nickname: str = Field(default="发起人", max_length=32)
+    # 可选：把当前 session 的行程带入房间作为初始方案
+    session_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class CreateRoomResponse(BaseModel):
+    room_id: str
+    share_url: str
+    owner_id: str
+
+
+@app.post("/room/create")
+async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomResponse:
+    """创建协作房间。
+
+    如果提供 session_id 且该 session 有已规划的行程，
+    会把行程和意图带入房间作为初始方案（参与者加入即可看到）。
+    """
+    manager = get_room_manager()
+    room = manager.create_room(owner_id=req.user_id, nickname=req.nickname)
+
+    # 如果有现有 session 的行程，带入房间
+    if req.session_id and req.session_id in _SESSION_STORE:
+        cached = _SESSION_STORE[req.session_id]
+        room.current_intent_dict = cached.get("intent")
+        room.current_itinerary_dict = cached.get("itinerary")
+
+    # 构造分享 URL（用请求的 host 拼）
+    host = request.headers.get("host", "localhost:3000")
+    scheme = "https" if "https" in str(request.url) else "http"
+    # 前端路由：/room/[id]
+    share_url = f"{scheme}://{host.replace(':8000', ':3000')}/room/{room.room_id}"
+
+    return CreateRoomResponse(
+        room_id=room.room_id,
+        share_url=share_url,
+        owner_id=req.user_id,
+    )
+
+
+@app.get("/room/{room_id}/state")
+async def get_room_state(room_id: str) -> dict[str, Any]:
+    """获取房间当前状态（HTTP 拉取，用于 SSR 或 WS 连接前预加载）。"""
+    manager = get_room_manager()
+    room = manager.get_room(room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail=f"房间不存在：{room_id}")
+    return room.get_state_snapshot()
+
+
+@app.websocket("/ws/{room_id}")
+async def ws_collab(websocket: WebSocket, room_id: str):
+    """多人协作 WebSocket 端点。
+
+    连接参数（query string）：
+    - user_id: 用户 ID（必填）
+    - nickname: 昵称（可选，默认用 user_id）
+
+    上行消息格式：
+    - {"type": "constraint", "text": "不要辣的"}
+    - {"type": "vote", "stage_index": 3, "action": "dislike"}
+    - {"type": "vote", "stage_index": 1, "action": "like"}
+    - {"type": "confirm"}
+
+    下行消息格式：见设计文档 §2 WebSocket 协议设计。
+    """
+    manager = get_room_manager()
+    room = manager.get_room(room_id)
+
+    if room is None:
+        await websocket.close(code=4004, reason="房间不存在")
+        return
+
+    # 解析 query 参数
+    user_id = websocket.query_params.get("user_id", "anonymous")
+    nickname = websocket.query_params.get("nickname", user_id)
+
+    await websocket.accept()
+
+    # 加入房间
+    await manager.join(room, user_id, nickname, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get("type", "")
+
+            if msg_type == "constraint":
+                text = data.get("text", "").strip()
+                if text:
+                    await manager.add_constraint(room, user_id, text, source="text")
+
+            elif msg_type == "vote":
+                stage_index = data.get("stage_index")
+                action = data.get("action", "")
+                if isinstance(stage_index, int) and action in ("like", "dislike"):
+                    await manager.update_vote(room, user_id, stage_index, action)
+
+            elif msg_type == "confirm":
+                # 仅 owner 可确认
+                if user_id != room.owner_id:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "只有发起人可以确认下单",
+                    })
+                    continue
+                # 触发确认流程（复用现有 confirm 逻辑）
+                if room.current_itinerary_dict:
+                    await manager.broadcast(room, {
+                        "type": "confirmed",
+                        "itinerary": room.current_itinerary_dict,
+                        "confirmed_by": user_id,
+                    })
+
+            elif msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+
+    except WebSocketDisconnect:
+        await manager.leave(room, user_id)
+    except Exception:  # noqa: BLE001
+        await manager.leave(room, user_id)
