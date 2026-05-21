@@ -1910,6 +1910,10 @@ class CreateRoomRequest(BaseModel):
     nickname: str = Field(default="发起人", max_length=32)
     # 可选：把当前 session 的行程带入房间作为初始方案
     session_id: Optional[str] = Field(default=None, max_length=128)
+    # 可选：前端对话历史（参与者加入时同步显示）
+    chat_messages: Optional[list[dict[str, Any]]] = Field(default=None)
+    # 可选：前端规划事件历史（参与者加入时回放 ToolTracePanel）
+    planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
     # 可选：把当前规划过程事件历史带入（新成员加入时回放 ToolTracePanel）
     planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
 
@@ -1954,6 +1958,13 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
             planning_events = cached.get("planning_events")
             if planning_events:
                 room.planning_events_history = list(planning_events)
+
+    # 带入对话历史（前端传入）
+    if req.chat_messages:
+        room.chat_messages = list(req.chat_messages)
+    # 带入规划事件历史（前端传入，优先级高于后端 _SESSION_STORE 里的）
+    if req.planning_events:
+        room.planning_events_history = list(req.planning_events)
 
     # 构造分享 URL（用请求的 host 拼）
     host = request.headers.get("host", "localhost:3000")

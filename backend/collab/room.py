@@ -61,6 +61,10 @@ class Room:
     votes: dict[int, dict[str, str]] = field(default_factory=dict)  # stage_idx → {user_id: "like"|"dislike"}
     current_intent_dict: Optional[dict[str, Any]] = None
     current_itinerary_dict: Optional[dict[str, Any]] = None
+    # 规划过程事件历史（用于新成员加入时同步 ToolTracePanel）
+    planning_events_history: list[dict[str, Any]] = field(default_factory=list)
+    # 对话历史（用于新成员加入时同步 ChatPanel）
+    chat_messages: list[dict[str, Any]] = field(default_factory=list)
     planning_task: Optional[asyncio.Task] = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     created_at: float = field(default_factory=time.time)
@@ -103,6 +107,8 @@ class Room:
             "itinerary": self.current_itinerary_dict,
             "intent": self.current_intent_dict,
             "locked_stages": list(self.locked_stages),
+            "planning_events": self.planning_events_history,
+            "chat_messages": self.chat_messages,
         }
 
 
@@ -295,6 +301,9 @@ class RoomManager:
         self, room: Room, *, trigger_user: str, trigger_reason: str
     ) -> None:
         """合并约束池 → 重新规划 → 广播规划事件。"""
+        # 清空旧的规划事件历史（新一轮规划开始）
+        room.planning_events_history.clear()
+
         await self.broadcast(room, {
             "type": "planning_started",
             "trigger": trigger_reason,
@@ -333,15 +342,12 @@ class RoomManager:
             # 被新约束中断，正常退出
             raise
         except Exception as e:  # noqa: BLE001
-            await self.broadcast(room, {
-                "type": "planning_event",
-                "event": {
+            await self._broadcast_planning_event(room, {
                     "type": "stream_error",
                     "seq": 0,
                     "payload": {"reason": "planning_failed", "detail": str(e)[:200]},
                     "timestamp_ms": int(time.time() * 1000),
-                },
-            })
+                })
 
     async def _replan_with_refiner(self, room: Room, feedback: str) -> None:
         """用 refiner 合并约束后重新规划。"""
@@ -357,9 +363,7 @@ class RoomManager:
         room.current_intent_dict = refined_intent.model_dump()
 
         # 广播 refinement 结果
-        await self.broadcast(room, {
-            "type": "planning_event",
-            "event": {
+        await self._broadcast_planning_event(room, {
                 "type": "refinement_done",
                 "seq": 0,
                 "payload": {
@@ -368,8 +372,7 @@ class RoomManager:
                     "refiner_note": result.refiner_note,
                 },
                 "timestamp_ms": int(time.time() * 1000),
-            },
-        })
+            })
 
         # 用 refined intent 重新规划
         await self._run_planner_and_broadcast(room, refined_intent)
@@ -391,10 +394,7 @@ class RoomManager:
                 user_id=user_id,
             ):
                 # 广播每条规划事件
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": event.model_dump(),
-                })
+                await self._broadcast_planning_event(room, event.model_dump())
                 # 捕获 itinerary_ready 和 intent_parsed
                 if event.type.value == "itinerary_ready":
                     room.current_itinerary_dict = event.payload
@@ -413,15 +413,12 @@ class RoomManager:
         from schemas.sse import SseEvent, SseEventType
 
         # 广播 intent_parsed
-        await self.broadcast(room, {
-            "type": "planning_event",
-            "event": {
+        await self._broadcast_planning_event(room, {
                 "type": "intent_parsed",
                 "seq": 0,
                 "payload": intent.model_dump() if hasattr(intent, "model_dump") else intent,
                 "timestamp_ms": int(time.time() * 1000),
-            },
-        })
+            })
 
         # 尝试 LangGraph
         try:
@@ -438,10 +435,7 @@ class RoomManager:
                 session_id=session_id,
                 user_id=room.owner_id,
             ):
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": event.model_dump(),
-                })
+                await self._broadcast_planning_event(room, event.model_dump())
                 if event.type.value == "itinerary_ready":
                     room.current_itinerary_dict = event.payload
                 # 检查是否被取消
@@ -462,38 +456,29 @@ class RoomManager:
 
             # 广播 tracer 事件
             for record in tracer.records:
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": {
+                await self._broadcast_planning_event(room, {
                         "type": record.type,
                         "seq": 0,
                         "payload": record.payload or {},
                         "timestamp_ms": int(record.timestamp * 1000),
-                    },
-                })
+                    })
                 await asyncio.sleep(0.05)  # 模拟流式节奏
 
             if result.success and result.itinerary:
                 room.current_itinerary_dict = result.itinerary.model_dump()
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": {
+                await self._broadcast_planning_event(room, {
                         "type": "itinerary_ready",
                         "seq": 0,
                         "payload": result.itinerary.model_dump(),
                         "timestamp_ms": int(time.time() * 1000),
-                    },
-                })
+                    })
         except Exception as e:  # noqa: BLE001
-            await self.broadcast(room, {
-                "type": "planning_event",
-                "event": {
+            await self._broadcast_planning_event(room, {
                     "type": "stream_error",
                     "seq": 0,
                     "payload": {"reason": "rule_planner_failed", "detail": str(e)[:200]},
                     "timestamp_ms": int(time.time() * 1000),
-                },
-            })
+                })
 
     async def _run_rule_planner_and_broadcast(self, room: Room, user_input: str) -> None:
         """无 LangGraph 时用 rule planner 兜底（需要先解析 intent）。"""
@@ -505,64 +490,49 @@ class RoomManager:
             intent = parse_intent(user_input)
             room.current_intent_dict = intent.model_dump()
 
-            await self.broadcast(room, {
-                "type": "planning_event",
-                "event": {
+            await self._broadcast_planning_event(room, {
                     "type": "intent_parsed",
                     "seq": 0,
                     "payload": intent.model_dump(),
                     "timestamp_ms": int(time.time() * 1000),
-                },
-            })
+                })
 
             tracer = Tracer()
             result = plan_itinerary(intent, tracer=tracer)
 
             for record in tracer.records:
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": {
+                await self._broadcast_planning_event(room, {
                         "type": record.type,
                         "seq": 0,
                         "payload": record.payload or {},
                         "timestamp_ms": int(record.timestamp * 1000),
-                    },
-                })
+                    })
                 await asyncio.sleep(0.05)
 
             if result.success and result.itinerary:
                 room.current_itinerary_dict = result.itinerary.model_dump()
-                await self.broadcast(room, {
-                    "type": "planning_event",
-                    "event": {
+                await self._broadcast_planning_event(room, {
                         "type": "itinerary_ready",
                         "seq": 0,
                         "payload": result.itinerary.model_dump(),
                         "timestamp_ms": int(time.time() * 1000),
-                    },
-                })
+                    })
 
             # 广播 done
-            await self.broadcast(room, {
-                "type": "planning_event",
-                "event": {
+            await self._broadcast_planning_event(room, {
                     "type": "done",
                     "seq": 0,
                     "payload": {},
                     "timestamp_ms": int(time.time() * 1000),
-                },
-            })
+                })
 
         except Exception as e:  # noqa: BLE001
-            await self.broadcast(room, {
-                "type": "planning_event",
-                "event": {
+            await self._broadcast_planning_event(room, {
                     "type": "stream_error",
                     "seq": 0,
                     "payload": {"reason": "fresh_plan_failed", "detail": str(e)[:200]},
                     "timestamp_ms": int(time.time() * 1000),
-                },
-            })
+                })
 
     def _merge_constraints_text(self, room: Room) -> str:
         """把约束池合并为一段 feedback 文本（喂给 refiner）。"""
@@ -597,6 +567,12 @@ class RoomManager:
             await ws.send_json(message)
         except Exception:  # noqa: BLE001
             pass
+
+    async def _broadcast_planning_event(self, room: Room, event: dict[str, Any]) -> None:
+        """广播规划事件并存入历史（新成员加入时可回放）。"""
+        msg = {"type": "planning_event", "event": event}
+        room.planning_events_history.append(event)
+        await self.broadcast(room, msg)
 
 
 # ============================================================

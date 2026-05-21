@@ -61,7 +61,7 @@ export interface CollabState {
   sendConstraint: (text: string) => void;
   sendVote: (stageIndex: number, action: VoteAction) => void;
   sendConfirm: () => void;
-  createRoom: (userId: string, nickname: string, sessionId?: string) => Promise<string | null>;
+  createRoom: (userId: string, nickname: string, sessionId?: string, planningEvents?: Record<string, unknown>[], chatMessages?: Record<string, unknown>[]) => Promise<string | null>;
 }
 
 const initialCollabState: Omit<
@@ -145,7 +145,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     }
   },
 
-  createRoom: async (userId, nickname, sessionId?) => {
+  createRoom: async (userId, nickname, sessionId?, planningEvents?, chatMessages?) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
       const resp = await fetch(`${API_BASE}/room/create`, {
@@ -155,6 +155,8 @@ export const useCollabStore = create<CollabState>((set, get) => ({
           user_id: userId,
           nickname,
           session_id: sessionId || null,
+          planning_events: planningEvents || null,
+          chat_messages: chatMessages || null,
         }),
       });
       if (!resp.ok) return null;
@@ -195,6 +197,20 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
       }
       if (msg.intent) {
         useChatStore.setState({ intent: msg.intent as any });
+      }
+      // 回放规划事件历史（让新加入者看到 ToolTracePanel）
+      const events = (msg.planning_events as SseEvent[]) || [];
+      if (events.length > 0) {
+        // 清空主 store 的中间过程再回放
+        useChatStore.setState({ toolCalls: [], replans: [], thoughts: [] });
+        for (const event of events) {
+          dispatchPlanningEvent(event);
+        }
+      }
+      // 同步对话历史（让新加入者看到 ChatPanel）
+      const chatMsgs = (msg.chat_messages as any[]) || [];
+      if (chatMsgs.length > 0) {
+        useChatStore.setState({ messages: chatMsgs });
       }
       break;
     }
