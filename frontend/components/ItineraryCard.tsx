@@ -3,13 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
+import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type { IntentExtraction } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
+import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
+import VoteButtons from "./VoteButtons";
 
 /** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（黄昏深色主题）。 */
 export default function ItineraryCard() {
@@ -18,6 +21,14 @@ export default function ItineraryCard() {
   const narration = useChatStore((s) => s.narration);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
+
+  // 协作模式
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const createRoom = useCollabStore((s) => s.createRoom);
+  const joinRoom = useCollabStore((s) => s.joinRoom);
+  const roomId = useCollabStore((s) => s.roomId);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const confirm = useChatStore((s) => s.confirm);
   const cancel = useChatStore((s) => s.cancel);
@@ -237,6 +248,36 @@ export default function ItineraryCard() {
             </button>
           </div>
         )}
+        {/* 邀请同行人按钮（行程出来后、未下单时显示） */}
+        {!hasOrders && !cancelled && itinerary && !collabMode && (
+          <button
+            className="mt-2 w-full py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            disabled={creatingRoom || streaming}
+            onClick={async () => {
+              setCreatingRoom(true);
+              const sessionId = useChatStore.getState().sessionId;
+              const userId = useChatStore.getState().currentUserId || "demo_user";
+              const newRoomId = await createRoom(userId, "发起人", sessionId);
+              if (newRoomId) {
+                // 自动加入房间
+                joinRoom(newRoomId, userId, "发起人");
+                setShareModalOpen(true);
+              }
+              setCreatingRoom(false);
+            }}
+          >
+            {creatingRoom ? "创建中…" : "👥 邀请同行人一起决定"}
+          </button>
+        )}
+        {/* 协作模式下显示分享按钮 */}
+        {collabMode && roomId && (
+          <button
+            className="mt-2 w-full py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-ink-500 text-xs transition-all flex items-center justify-center gap-1.5"
+            onClick={() => setShareModalOpen(true)}
+          >
+            🔗 分享链接给同行人
+          </button>
+        )}
         {hasOrders && (
           <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-400">
             <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
@@ -254,6 +295,13 @@ export default function ItineraryCard() {
         open={refineOpen}
         onClose={() => setRefineOpen(false)}
       />
+      {roomId && (
+        <ShareModal
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          roomId={roomId}
+        />
+      )}
     </div>
   );
 }
