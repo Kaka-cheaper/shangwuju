@@ -816,6 +816,44 @@ schema 自检 6 + Phase0.5 8 + W1 真 Tool 39 + W2 6 + 8 场景 17 = 70 全过
 
 **用户反馈**：（待填）
 
+---
+
+## 问题 23：要求探索项目并重点理解后端
+
+**时间**：2026-05-21
+
+**用户问题**：用户要求探索当前项目，确保对项目有完整理解，主要探索后端。
+
+**处理过程**：
+
+- 按 `AGENTS.md` 入口规则读取 `docs/00-overview/progress.md` 与 `docs/03-implementation/pitfalls.md`。
+- 扫描后端目录、依赖、FastAPI 入口、LangGraph 主链路、ReAct fallback、规则 planner、Tool 注册层、Mock 数据层、persona/memory、测试与验证脚本。
+- 确认当前主后端路径为 `/chat/turn`：`USE_LANGGRAPH=1` 时走 LangGraph Plan-and-Execute；否则默认 `USE_REACT_AGENT=1` 走 ReAct；再 fallback 到旧 router/planner/refine 路径。
+- 确认 Mock 数据规模：39 个 POI、45 家餐厅、205 条路线、5 个 persona；售罄 POI 5 个，餐厅不可订时段 6 个。
+- 发现 `backend/exp_log.txt` 当前按 UTF-8 读取会乱码，疑似编码保存/读取不一致，未在本次修改。
+- 验证 `uv run pytest -q`：267 passed。
+- 验证脚本初次在 Windows GBK 控制台下因 `✓` 输出触发 `UnicodeEncodeError`；设置 `PYTHONIOENCODING=utf-8` 后 `verify_schemas` 6/6、`verify_phase0_5` 8/8、`verify_repository` 5/5、`verify_tool_provider` 5/5 均通过。
+
+**结论**：本次为只读探索 + 验证，无业务代码改动；后端理解已整理给用户。
+
+---
+
+## 问题 24：评估 ILS 算法是否必要以及产品化取舍
+
+**时间**：2026-05-21
+
+**用户问题**：用户询问当前项目里的 ILS（用户写作 isl）算法到底需不需要、业界怎么做，并强调虽然是 Hackathon 作品但希望尽量向真正产品靠拢。
+
+**处理过程**：
+
+- 阅读 `backend/agent/planner_hybrid.py`、`backend/agent/graph/nodes/replan.py`、`backend/scripts/experiment_critic_value.py`、`backend/tests/test_planner_hybrid.py`。
+- 确认当前 ILS 不是主路径：LangGraph 主链路先走 LLM blueprint + critic backprompt，第三次重排才进 `ils_replan_node`，再调用 `planner_hybrid.plan_hybrid`。
+- 确认当前 ILS 搜索空间较窄：`POI × Restaurant × dining_slot`，只适配完整 5 段；削段/只吃饭/独处/反序等场景会主动 fallback 到 rule planner。
+- 对照外部资料：LangGraph / LangChain 推荐 plan-and-execute、routing、evaluator-optimizer；旅游路线规划研究和产品实践普遍是 LLM 负责语言理解与解释，空间/时间/约束优化交给搜索、优化器或地图服务。ILS 是可选的元启发式，不是必需的产品架构件。
+- 结论建议：保留 ILS 作为 fallback 和“产品化可扩展性”展示，不把它作为核心卖点；产品化路线应抽象成 `OptimizationEngine`，短期用 greedy/rule，中期可接 OR-Tools/地图 waypoint optimization，复杂多点多约束时再让 ILS/局部搜索发挥作用。
+
+**结论**：不建议删除 ILS；也不建议继续把 ILS 当主创新。它当前的合理位置是“优化器候选实现 / 兜底层”，主叙事应是 LangGraph Plan-and-Execute + LLM 语义理解 + deterministic constraint validation/optimization。
+
 
 ---
 
@@ -4110,3 +4148,165 @@ ESC
 ✓ 商业演进路径文档化：InMemorySaver → SqliteSaver → PostgresSaver
 
 **用户反馈**：（待填）
+
+---
+
+## 问题：丰富 Mock 数据字段（多用户 profile + POI 推荐时长 + 餐厅招牌菜）
+
+**用户原问**：Mock 数据和接口是否应该尽可能健全？按推荐全量修改。
+
+**解决方案**：
+
+按三个优先级全量修改 Mock 数据，提升"业务真实感"：
+
+1. **多用户 profile**（`mock_data/user_profiles.json`）：
+   - 新建 6 用户字典结构（demo_user / u_dad / u_biz / u_grandma / u_solo / u_couple）
+   - 每个用户有独立的 home_location（含 lat/lng 坐标）、default_budget、transport_preference
+   - `get_user_profile` Tool 优先从 user_profiles.json 取完整数据，persona 切换时 home/budget/交通偏好全部联动
+   - 保留旧 user_profile.json 兼容
+
+2. **POI 加 `suggested_duration_minutes`**：
+   - 按 34 种 POI 类型给默认推荐时长（亲子乐园 120min / 展览 75min / 咖啡馆 60min / 密室 90min / 主题乐园 180min 等）
+   - schema `Poi` 模型新增 `Optional[NonNegativeInt]` 字段
+
+3. **餐厅加 `signature_dishes` + `recommendation_reason`**：
+   - 45 家餐厅全部手写招牌菜（2-3 道）和推荐理由（一句话）
+   - schema `Restaurant` 模型新增两个字段
+   - 让 narration 可以说"推荐轻语沙拉的低卡牛油果碗，有专门的儿童餐区"
+
+**修改的代码文件**：
+- `mock_data/user_profiles.json`（新建，6 用户）
+- `mock_data/user_profile.json`（保留兼容）
+- `mock_data/pois.json`（39 个 POI 加 suggested_duration_minutes）
+- `mock_data/restaurants.json`（45 家餐厅加 signature_dishes + recommendation_reason）
+- `backend/schemas/domain.py`（Poi 加 suggested_duration_minutes / Restaurant 加 signature_dishes + recommendation_reason）
+- `backend/data/loader.py`（新增 load_user_profiles 多用户加载）
+- `backend/tools/get_user_profile.py`（优先从 user_profiles.json 取完整数据）
+- `backend/scripts/enrich_mock_data.py`（一次性丰富化脚本）
+
+**应当达成的效果**：
+- persona 切换时不仅 tag 不同，连起点坐标、预算、交通偏好都不同——评委能直观感受"个性化"
+- 行程时长基于 POI 本身特性（展览 1h / 乐园 2h），而非固定比例分配
+- narration 可引用招牌菜和推荐理由，让行程文案更有说服力
+- 49 项现有测试全部通过，无破坏性变更
+
+---
+
+## 问题：实现多人实时协作功能（WebSocket 房间 + 约束合并 + 投票重规划）
+
+**用户原问**：实现实时协作/多人决策——分享链接+投票，约束合并必须实时，踩即触发重规划，中断即重规划。
+
+**解决方案**：
+
+设计并实现完整的多人实时协作系统：
+
+**后端**（`backend/collab/room.py` + `main.py` 新增端点）：
+- Room 数据模型：成员管理、约束池、投票状态、规划任务引用
+- RoomManager 单例：创建/加入/离开/广播
+- WebSocket Hub：连接管理 + JSON 消息分发
+- 约束合并：复用现有 `refiner.refine_intent()` 把约束文本当 feedback 合并
+- 规划中断：`asyncio.Task.cancel()` 中断当前规划 → 合并约束 → 重新规划
+- 投票翻译：踩 → 自动生成"换掉第 N 段"约束 → 触发重规划；赞 → 锁定段
+- 三层 fallback：LangGraph → ReAct → Rule Planner
+- 新增端点：`POST /room/create`、`GET /room/{id}/state`、`WS /ws/{room_id}`
+
+**前端**（6 个新文件 + 1 个修改）：
+- `lib/ws.ts`：WebSocket 客户端（自动重连 3 次 + 心跳保活）
+- `lib/collab-store.ts`：协作 Zustand store（房间状态 + WS 消息分发 → 主 store）
+- `components/CollabBar.tsx`：顶部协作状态条（成员头像 + 规划状态）
+- `components/VoteButtons.tsx`：行程每段的赞/踩按钮
+- `components/ShareModal.tsx`：分享弹窗（链接 + 二维码）
+- `components/ConstraintFeed.tsx`：约束流面板
+- `app/room/[id]/page.tsx`：参与者入口页
+- `components/HomeView.tsx`：集成 CollabBar + ConstraintFeed + ShareModal
+
+**关键设计决策**：
+- 中断即重规划（不用防抖窗口）
+- WebSocket 双向通道（不是 SSE 轮询）
+- 链接 + 二维码 + session 参数三入口
+- 发起人 + 参与者权限模型（仅 owner 可确认下单）
+- 踩即触发重规划，赞即锁定段
+- WS 下行的 planning_event 复用现有 SseEvent 格式，前端 ToolTracePanel/ItineraryCard 零改动
+
+**修改的代码文件**：
+- `backend/collab/__init__.py`（新建）
+- `backend/collab/room.py`（新建，~400 行）
+- `backend/main.py`（追加 WS 端点 + HTTP 房间端点）
+- `backend/scripts/verify_collab.py`（新建，验证脚本）
+- `frontend/lib/ws.ts`（新建）
+- `frontend/lib/collab-store.ts`（新建）
+- `frontend/components/CollabBar.tsx`（新建）
+- `frontend/components/VoteButtons.tsx`（新建）
+- `frontend/components/ShareModal.tsx`（新建）
+- `frontend/components/ConstraintFeed.tsx`（新建）
+- `frontend/app/room/[id]/page.tsx`（新建）
+- `frontend/components/HomeView.tsx`（修改，集成协作组件）
+
+**应当达成的效果**：
+- 两台设备可通过分享链接/二维码加入同一房间
+- 任何人提约束 → 全员实时看到 → 当前规划被中断 → 合并约束重新规划
+- 任何人踩某段 → 等同于提约束"换掉这段" → 触发重规划
+- 赞某段 → 该段在重规划时被锁定保留
+- 仅发起人可确认下单
+- 49 项现有测试全部通过，TypeScript 零错误
+
+
+---
+
+## 问题27：前端体验创新 P0 落地（R1 时间轴 stagger 动画 + R4 store thoughts 类型扩展）
+
+**用户原问**：开始（按 `.kiro/specs/frontend-experience-innovation/` 三件套 spec 实施）
+
+**解决方案**：
+
+按 spec tasks.md 的 Wave 1，先做 P0 优先级的两个任务：
+
+1. **Task 1（R4 前置依赖）**：扩展 store thoughts 类型补 timestamp_ms
+   - `frontend/lib/store.ts`：thoughts 类型从 `{seq, text}` 改为 `{seq, text, timestamp_ms: number | null}`
+   - handleEvent 两处写入（agent_thought + refinement_start 分支）都补 `timestamp_ms: ev.timestamp_ms ?? null`
+   - `frontend/lib/collab-store.ts`：协作模式同步事件也补 timestamp_ms
+   - 给后续 Task 4 的 ThoughtPanel 提供"相对时间戳"显示能力
+
+2. **Task 3（R1 时间轴 stagger 动画）**：ItineraryCard 内部增强
+   - 新增 state：visibleCount / animating / animTimerRef
+   - 新增 useEffect：监听 itinerary 变化，stages.length≥3 用 400ms 间隔，≤2 用 200ms 间隔
+   - 新增 skipAnimation()：清 timer + 立即全显
+   - 时间轴顶部新增「跳过动画 ⏭」按钮（仅 animating 时显示）
+   - 修改 canAct 条件加 `!animating`：动画期间禁用确认/反馈/取消
+   - 修改 timeline `<ol>` 渲染：`idx >= visibleCount` 时不渲染 `<li>`
+   - streaming 变 false 时兜底 setAnimating(false) 防 abort 卡住
+   - stages 为空数组时直接清零不动画
+
+**实现纪律**：
+- 不新建独立组件（按 spec 设计文档：R1 是增强而非新建）
+- 不改后端
+- 严格 owner 边界：仅改前端 3 个文件 + 本次 spec 三件套
+
+**验证证据**：
+```
+pnpm typecheck:  Exit Code 0
+pnpm lint:       Exit Code 0（仅 ShareModal.tsx 旧警告，与本次无关）
+pnpm test --run: 30/30 全过（vitest）
+pnpm build:      Exit Code 0，首页 First Load JS 125 kB
+```
+
+**修改的代码文件**：
+
+修改：
+- `frontend/components/ItineraryCard.tsx`（+127 -36 行：stagger state + useEffect + 跳过按钮 + canAct 条件）
+- `frontend/lib/store.ts`（thoughts 类型 + 两处 timestamp_ms 补全）
+- `frontend/lib/collab-store.ts`（协作端 thoughts 补 timestamp_ms）
+
+新建（spec 三件套）：
+- `.kiro/specs/frontend-experience-innovation/.config.kiro`
+- `.kiro/specs/frontend-experience-innovation/requirements.md`
+- `.kiro/specs/frontend-experience-innovation/design.md`
+- `.kiro/specs/frontend-experience-innovation/tasks.md`
+
+**应当达成的效果**：
+
+- 行程出来时不再"一次性弹出"，stages 按 400ms 间隔逐段"长出来"——给评委视觉冲击
+- 用户嫌动画慢可点跳过；动画期间按钮 disable 防止半成品交互
+- abort/reset 等异常路径下 animating 不会卡住
+- 后续 Task 4（ThoughtPanel）可直接消费 timestamp_ms 显示"3 秒前"的相对时间
+- spec 三件套（requirements/design/tasks）通过 Kiro 格式校验、可作为后续 wave 的执行依据
