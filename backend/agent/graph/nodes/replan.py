@@ -117,19 +117,17 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
 def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optional[Any]:
     """planner_hybrid.plan_hybrid 期待的 rule_assembler 签名（intent, CandidatePlan, tracer）。
 
-    现在 ils_replan 兜底直接复用 rule planner 的 _assemble_itinerary 同结构 helper。
-    candidate 来自 planner_hybrid.CandidatePlan（含 main_poi / restaurant / dining_time）。
+    适配 CandidatePlan 的可选字段（main_poi / restaurant 可能为 None）。
     """
     try:
-        from agent.planner import _assemble_itinerary
+        from agent.planner import plan_itinerary
+        from agent.trace import Tracer
 
-        return _assemble_itinerary(
-            intent=intent,
-            main_poi=candidate.main_poi,
-            chosen_restaurant=candidate.restaurant,
-            dining_time=candidate.dining_time,
-            backup_pois=candidate.backup_pois,
-            tracer=tracer,
-        )
+        # 直接用 rule planner 跑完整流程（它内部会根据 segment_decider 决定段集合）
+        t = tracer if isinstance(tracer, Tracer) else Tracer()
+        result = plan_itinerary(intent, tracer=t)
+        if result.success and result.itinerary:
+            return result.itinerary
+        return None
     except Exception:  # noqa: BLE001
         return None

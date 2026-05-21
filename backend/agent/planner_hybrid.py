@@ -100,11 +100,17 @@ ILS_SEED = _env_int("PLANNER_ILS_SEED", 20260517)
 
 @dataclass
 class CandidatePlan:
-    """ILS 搜索空间内的一个点。"""
+    """ILS 搜索空间内的一个点。
 
-    main_poi: Poi
-    restaurant: Restaurant
-    dining_time: str
+    支持三种场景：
+    - 完整（主活动+用餐）：main_poi + restaurant + dining_time 都有值
+    - 仅主活动：main_poi 有值，restaurant=None，dining_time=""
+    - 仅用餐：restaurant + dining_time 有值，main_poi=None
+    """
+
+    main_poi: Optional[Poi] = None
+    restaurant: Optional[Restaurant] = None
+    dining_time: str = ""
     backup_pois: list[Poi] = field(default_factory=list)
     # 计算缓存
     utility: float = 0.0
@@ -150,27 +156,11 @@ def plan_hybrid(
     tracer = tracer or Tracer()
     rng = random.Random(ILS_SEED)
 
-    # ---- 步骤 0：决定段集合（pitfalls P1-2026-05-17）----
+    # ---- 步骤 0：决定段集合 ----
     from .segment_decider import FULL_SEGMENTS, decide_segments
     segments = decide_segments(intent)
-    if segments != FULL_SEGMENTS:
-        # 削段场景直接交还 rule（hybrid 的 ILS 假设 POI×餐厅 笛卡尔积）
-        weights = get_planning_weights(intent, client=client)
-        tracer.emit(
-            "agent_thought",
-            {
-                "text": (
-                    f"段决策：本次仅需 {sorted(segments)}，"
-                    "hybrid ILS 不适用，已转交规则 planner（仍走 segments-aware 拼装）"
-                ),
-            },
-        )
-        return HybridResult(
-            success=False,
-            failure_reason=FailureReason.UPSTREAM_FAILURE,
-            failure_detail="segments_reduced_fallback_to_rule",
-            weights=weights,
-        )
+    needs_poi = "主活动" in segments
+    needs_dining = "用餐" in segments
 
     # ---- 步骤 1：LLM 出权重 ----
     weights = get_planning_weights(intent, client=client)
@@ -178,32 +168,48 @@ def plan_hybrid(
         "agent_thought",
         {
             "text": (
-                f"目标函数权重（{weights.source}）：{weights.summary()}；"
-                f"理由：{weights.rationale or '(无)'}"
+                f"ILS 段决策：{sorted(segments)}（POI={'需要' if needs_poi else '跳过'}"
+                f"，餐厅={'需要' if needs_dining else '跳过'}）；"
+                f"权重（{weights.source}）：{weights.summary()}"
             ),
         },
     )
 
-    # ---- 步骤 2：候选生成 ----
-    pois = _query_pois(intent, tracer)
-    if not pois:
+    # ---- 步骤 2：候选生成（按需搜索）----
+    pois: list[Poi] = []
+    restaurants: list[Restaurant] = []
+
+    if needs_poi:
+        pois = _query_pois(intent, tracer)
+        if not pois:
+            return HybridResult(
+                success=False,
+                failure_reason=FailureReason.EMPTY_CANDIDATES,
+                failure_detail="ILS 阶段：POI 候选为空",
+                weights=weights,
+            )
+
+    if needs_dining:
+        restaurants = _query_restaurants(intent, tracer)
+        if not restaurants:
+            return HybridResult(
+                success=False,
+                failure_reason=FailureReason.EMPTY_CANDIDATES,
+                failure_detail="ILS 阶段：餐厅候选为空",
+                weights=weights,
+            )
+
+    # 至少要有一个维度的候选
+    if not pois and not restaurants:
         return HybridResult(
             success=False,
             failure_reason=FailureReason.EMPTY_CANDIDATES,
-            failure_detail="ILS 阶段：POI 候选为空",
-            weights=weights,
-        )
-    restaurants = _query_restaurants(intent, tracer)
-    if not restaurants:
-        return HybridResult(
-            success=False,
-            failure_reason=FailureReason.EMPTY_CANDIDATES,
-            failure_detail="ILS 阶段：餐厅候选为空",
+            failure_detail="ILS 阶段：POI 和餐厅候选均为空",
             weights=weights,
         )
 
-    poi_top = pois[:CANDIDATE_TOP_K]
-    rest_top = restaurants[:CANDIDATE_TOP_K]
+    poi_top = pois[:CANDIDATE_TOP_K] if pois else []
+    rest_top = restaurants[:CANDIDATE_TOP_K] if restaurants else []
 
     # ---- 步骤 3：贪心初始解（utility 最高的 POI×餐厅×17:00）----
     initial = _greedy_init(poi_top, rest_top, intent, weights, tracer)
@@ -388,54 +394,67 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
 # ============================================================
 
 def _utility(
-    poi: Poi,
-    rest: Restaurant,
-    dining_time: str,  # noqa: ARG001 — 当前仅用于扰动多样性
+    poi: Optional[Poi],
+    rest: Optional[Restaurant],
+    dining_time: str,
     intent: IntentExtraction,
     w: PlanningWeights,
 ) -> tuple[float, str | None]:
-    """加权效用函数。
+    """加权效用函数（适配可选维度）。
 
     四维度归一化到 [0, 1] 后按权重求和。
     返回 (score, fail_detail)；fail_detail 非 None 表示该候选已物理不可行。
     """
     # ---- comfort：标签匹配 + 评分 + 年龄适配 ----
-    poi_tag_hit = len(set(poi.tags) & set(intent.physical_constraints))
-    rest_tag_hit = len(set(rest.tags) & set(intent.dietary_constraints))
-    rating_score = (poi.rating + rest.rating) / 10.0  # 各 [0, 1]，平均后 [0, 1]
+    poi_tag_hit = len(set(poi.tags) & set(intent.physical_constraints)) if poi else 0
+    rest_tag_hit = len(set(rest.tags) & set(intent.dietary_constraints)) if rest else 0
+
+    poi_rating = poi.rating if poi else 0
+    rest_rating = rest.rating if rest else 0
+    rating_count = (1 if poi else 0) + (1 if rest else 0)
+    rating_score = (poi_rating + rest_rating) / (rating_count * 5.0) if rating_count else 0.5
+
     age_penalty = 1.0
-    if intent.companions and poi.age_range:
+    if poi and intent.companions and poi.age_range:
         ages = [c.age for c in intent.companions if c.age is not None]
         if ages:
             lo, hi = poi.age_range
             if not all(lo <= a <= hi for a in ages):
                 age_penalty = 0.4
+
+    phys_denom = max(1, len(intent.physical_constraints) or 1)
+    diet_denom = max(1, len(intent.dietary_constraints) or 1)
     comfort = (
         0.5 * rating_score
-        + 0.25 * min(1.0, poi_tag_hit / max(1, len(intent.physical_constraints) or 1))
-        + 0.25 * min(1.0, rest_tag_hit / max(1, len(intent.dietary_constraints) or 1))
+        + 0.25 * min(1.0, poi_tag_hit / phys_denom)
+        + 0.25 * min(1.0, rest_tag_hit / diet_denom)
     ) * age_penalty
 
     # ---- time：距离短 / 总耗时短的代理（距离指数衰减）----
-    avg_dist = (poi.distance_km + rest.distance_km) / 2.0
-    # 距离 ≤ 3 km 满分，5 km 0.5，>=10 km 趋零
+    distances = []
+    if poi:
+        distances.append(poi.distance_km)
+    if rest:
+        distances.append(rest.distance_km)
+    avg_dist = sum(distances) / len(distances) if distances else 3.0
     time_score = math.exp(-max(0, avg_dist - 3) ** 2 / 8)
 
     # ---- cost：人均成本越低越好 ----
-    party = max(1, sum(c.count for c in intent.companions) or 1)
-    poi_unit = (poi.price_range[0] if poi.price_range else 0) or 0
-    cost_per_person = float(poi_unit) + float(rest.avg_price)
-    # 200 元 / 人以下满分，500 元 0.5，>=1000 趋零
+    poi_unit = (poi.price_range[0] if poi and poi.price_range else 0) or 0
+    rest_price = rest.avg_price if rest else 0
+    cost_per_person = float(poi_unit) + float(rest_price)
     cost_score = math.exp(-max(0, cost_per_person - 200) ** 2 / 90000)
 
     # ---- smoothness：POI 与餐厅距离（同区为佳）+ social_context 命中 ----
-    inter_distance = abs(poi.distance_km - rest.distance_km)  # km；越小越好
+    if poi and rest:
+        inter_distance = abs(poi.distance_km - rest.distance_km)
+    else:
+        inter_distance = 0
     smooth_distance = math.exp(-inter_distance ** 2 / 4)
-    ctx_match = (
-        0.5
-        + 0.25 * (intent.social_context in poi.suitable_for)
-        + 0.25 * (intent.social_context in rest.suitable_for)
-    )
+
+    poi_ctx_match = (intent.social_context in poi.suitable_for) if poi else 0
+    rest_ctx_match = (intent.social_context in rest.suitable_for) if rest else 0
+    ctx_match = 0.5 + 0.25 * poi_ctx_match + 0.25 * rest_ctx_match
     smoothness = 0.5 * smooth_distance + 0.5 * ctx_match
 
     score = (
@@ -445,21 +464,23 @@ def _utility(
         + w.smoothness * smoothness
     )
 
-    # 物理可行性快检（避免选明显不适合的）
+    # 物理可行性快检
     fail = None
-    if poi.distance_km > intent.distance_max_km + 1.0:
-        fail = f"POI {poi.id} 距离 {poi.distance_km:g}km 超 intent.distance_max_km {intent.distance_max_km:g}km"
-    elif rest.distance_km > intent.distance_max_km + 1.0:
-        fail = f"餐厅 {rest.id} 距离 {rest.distance_km:g}km 超 intent.distance_max_km {intent.distance_max_km:g}km"
-    elif party >= 6 and not rest.capacity.six and not rest.capacity.eight:
-        fail = f"餐厅 {rest.id} 桌型不支持 {party} 人"
+    if poi and poi.distance_km > intent.distance_max_km + 1.0:
+        fail = f"POI {poi.id} 距离 {poi.distance_km:g}km 超限"
+    elif rest and rest.distance_km > intent.distance_max_km + 1.0:
+        fail = f"餐厅 {rest.id} 距离 {rest.distance_km:g}km 超限"
+    elif rest:
+        party = max(1, sum(c.count for c in intent.companions) or 1)
+        if party >= 6 and not rest.capacity.six and not rest.capacity.eight:
+            fail = f"餐厅 {rest.id} 桌型不支持 {party} 人"
 
     return score, fail
 
 
 def _make_candidate(
-    poi: Poi,
-    rest: Restaurant,
+    poi: Optional[Poi],
+    rest: Optional[Restaurant],
     dining_time: str,
     intent: IntentExtraction,
     w: PlanningWeights,
@@ -488,16 +509,43 @@ def _greedy_init(
     w: PlanningWeights,
     tracer: Tracer,  # noqa: ARG001
 ) -> Optional[CandidatePlan]:
-    """从 top-K 笛卡尔积中取 utility 最高且 feasible 的作为初始解。"""
+    """从候选中取 utility 最高且 feasible 的作为初始解。
+
+    适配三种场景：
+    - pois + rests 都有 → POI×餐厅×时段 笛卡尔积
+    - 只有 pois → POI 单维度
+    - 只有 rests → 餐厅×时段
+    """
     best: Optional[CandidatePlan] = None
-    for poi in pois:
+
+    if pois and rests:
+        # 完整场景：POI × 餐厅 × 时段
+        for poi in pois:
+            for rest in rests:
+                for slot in DINING_SLOTS:
+                    cand = _make_candidate(poi, rest, slot, intent, w, pois)
+                    if not cand.feasible:
+                        continue
+                    if best is None or cand.utility > best.utility:
+                        best = cand
+    elif pois:
+        # 仅主活动：POI 单维度
+        for poi in pois:
+            cand = _make_candidate(poi, None, "", intent, w, pois)
+            if not cand.feasible:
+                continue
+            if best is None or cand.utility > best.utility:
+                best = cand
+    elif rests:
+        # 仅用餐：餐厅 × 时段
         for rest in rests:
             for slot in DINING_SLOTS:
-                cand = _make_candidate(poi, rest, slot, intent, w, pois)
+                cand = _make_candidate(None, rest, slot, intent, w, [])
                 if not cand.feasible:
                     continue
                 if best is None or cand.utility > best.utility:
                     best = cand
+
     return best
 
 
@@ -507,22 +555,42 @@ def _perturb(
     rests: list[Restaurant],
     rng: random.Random,
 ) -> CandidatePlan:
-    """随机扰动当前解：换 POI / 换餐厅 / 移时段 三选一。"""
-    op = rng.choice(("swap_poi", "swap_rest", "shift_time"))
+    """随机扰动当前解：按可用维度选择扰动操作。
+
+    - 有 POI + 有餐厅 → 三选一（换 POI / 换餐厅 / 移时段）
+    - 只有 POI → 换 POI
+    - 只有餐厅 → 二选一（换餐厅 / 移时段）
+    """
+    ops: list[str] = []
+    if pois and len(pois) > 1 and current.main_poi is not None:
+        ops.append("swap_poi")
+    if rests and len(rests) > 1 and current.restaurant is not None:
+        ops.append("swap_rest")
+    if rests and current.dining_time:
+        ops.append("shift_time")
+    # 兜底：如果没有可扰动的维度，直接返回原解
+    if not ops:
+        return current
+
+    op = rng.choice(ops)
     new = CandidatePlan(
         main_poi=current.main_poi,
         restaurant=current.restaurant,
         dining_time=current.dining_time,
         backup_pois=current.backup_pois,
     )
-    if op == "swap_poi" and len(pois) > 1:
-        new.main_poi = rng.choice([p for p in pois if p.id != current.main_poi.id])
-    elif op == "swap_rest" and len(rests) > 1:
-        new.restaurant = rng.choice([r for r in rests if r.id != current.restaurant.id])
-    else:
-        new.dining_time = rng.choice(
-            [s for s in DINING_SLOTS if s != current.dining_time]
-        )
+    if op == "swap_poi" and pois:
+        candidates = [p for p in pois if current.main_poi is None or p.id != current.main_poi.id]
+        if candidates:
+            new.main_poi = rng.choice(candidates)
+    elif op == "swap_rest" and rests:
+        candidates = [r for r in rests if current.restaurant is None or r.id != current.restaurant.id]
+        if candidates:
+            new.restaurant = rng.choice(candidates)
+    elif op == "shift_time":
+        candidates = [s for s in DINING_SLOTS if s != current.dining_time]
+        if candidates:
+            new.dining_time = rng.choice(candidates)
     return new
 
 
@@ -533,31 +601,34 @@ def _local_search(
     intent: IntentExtraction,
     w: PlanningWeights,
 ) -> CandidatePlan:
-    """在 seed 邻域内贪心改进：枚举每维度的所有候选，选 utility 最高的。"""
+    """在 seed 邻域内贪心改进：枚举每个可用维度的所有候选，选 utility 最高的。"""
     best = _make_candidate(
         seed.main_poi, seed.restaurant, seed.dining_time, intent, w, pois
     )
-    # 枚举 POI 维度
-    for poi in pois:
-        cand = _make_candidate(
-            poi, seed.restaurant, seed.dining_time, intent, w, pois
-        )
-        if cand.feasible and cand.utility > best.utility:
-            best = cand
-    # 枚举餐厅维度
-    for rest in rests:
-        cand = _make_candidate(
-            best.main_poi, rest, best.dining_time, intent, w, pois
-        )
-        if cand.feasible and cand.utility > best.utility:
-            best = cand
-    # 枚举时段维度
-    for slot in DINING_SLOTS:
-        cand = _make_candidate(
-            best.main_poi, best.restaurant, slot, intent, w, pois
-        )
-        if cand.feasible and cand.utility > best.utility:
-            best = cand
+    # 枚举 POI 维度（如果有）
+    if pois and seed.main_poi is not None:
+        for poi in pois:
+            cand = _make_candidate(
+                poi, seed.restaurant, seed.dining_time, intent, w, pois
+            )
+            if cand.feasible and cand.utility > best.utility:
+                best = cand
+    # 枚举餐厅维度（如果有）
+    if rests and seed.restaurant is not None:
+        for rest in rests:
+            cand = _make_candidate(
+                best.main_poi, rest, best.dining_time, intent, w, pois
+            )
+            if cand.feasible and cand.utility > best.utility:
+                best = cand
+    # 枚举时段维度（如果有餐厅）
+    if seed.dining_time:
+        for slot in DINING_SLOTS:
+            cand = _make_candidate(
+                best.main_poi, best.restaurant, slot, intent, w, pois
+            )
+            if cand.feasible and cand.utility > best.utility:
+                best = cand
     return best
 
 
