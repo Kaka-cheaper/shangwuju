@@ -4310,3 +4310,75 @@ pnpm build:      Exit Code 0，首页 First Load JS 125 kB
 - abort/reset 等异常路径下 animating 不会卡住
 - 后续 Task 4（ThoughtPanel）可直接消费 timestamp_ms 显示"3 秒前"的相对时间
 - spec 三件套（requirements/design/tasks）通过 Kiro 格式校验、可作为后续 wave 的执行依据
+
+
+---
+
+## 问题28：前端体验创新 P0/P1 续接（R4 ThoughtPanel + R6 TtsPlayer）
+
+**用户原问**：继续（按 spec tasks.md Wave 1，做 Task 4 + Task 5）
+
+**解决方案**：
+
+延续问题 27 的 P0 路线，落地两个独立组件：
+
+1. **Task 4（R4 ThoughtPanel）**：Agent 思考过程可视化
+   - 新建 `frontend/components/ThoughtPanel.tsx`
+   - 从 store 订阅 `thoughts`（已含 timestamp_ms）+ `replans` + `streaming`
+   - `buildTimeline()` 合并 thoughts + replans 按 seq 升序排列
+   - 折叠态：脑图标 + 标题 + 总条数 + 重规划数（amber）+ streaming 时脉冲点 + 最新摘要（前 50 字符）
+   - 展开态：完整时间线，每条带相对时间戳（每 10s 刷新一次，避免高频 rerender）
+   - replan 渲染为 amber 分隔线（含 reason 中文 + fromTool）
+   - thoughts 为空且 !streaming 时 return null（不显示空面板占位）
+   - 在 HomeView 中间栏挂载，位于 ToolTracePanel 下方
+
+2. **Task 5（R6 TtsPlayer）**：行程语音播报
+   - 新建 `frontend/components/TtsPlayer.tsx`
+   - 纯 Web Speech API（speechSynthesis），无外部依赖
+   - SSR 兼容：`useEffect` 内探测 `window.speechSynthesis` 能力，避免 hydration mismatch
+   - 浏览器不支持 / itinerary 为 null 时 return null（静默隐藏）
+   - 状态机 idle → playing → paused → playing → idle，onend/onerror 回到 idle
+   - 摘要文本：「[summary]。本次行程：[start] 去[title]（[kind]），然后……」，500 字符截断
+   - itinerary 变化（refine 后）时自动 cancel 当前播报，重置 idle
+   - 组件卸载时也 cancel，防止语音继续
+   - idle 态：单按钮「🎤 语音播报行程」
+   - playing/paused 态：波形动画 + 状态文字 + 暂停/继续 + 停止 三按钮
+   - 在 ItineraryCard 操作按钮 div 之后、邀请同行人按钮之前挂载
+
+**实现纪律**：
+- 不改后端
+- 严格 owner 边界：仅前端 4 个文件（2 新建 + 2 修改）
+- 复用现有 Lucide icons（Brain / Mic / Pause / Play / Square / TriangleAlert / ChevronDown / Loader2）
+
+**验证证据**：
+```
+pnpm typecheck:  Exit Code 0
+pnpm test --run: 30/30 全过（vitest）
+pnpm build:      Exit Code 0
+              首页 First Load JS 125kB → 127kB（+2kB 增量）
+              产物：path / / / room/[id] 共 4 路由
+```
+
+**修改的代码文件**：
+
+新建：
+- `frontend/components/ThoughtPanel.tsx`（272 行）
+- `frontend/components/TtsPlayer.tsx`（222 行）
+
+修改：
+- `frontend/components/HomeView.tsx`（加 ThoughtPanel import + 挂载，2 行新增）
+- `frontend/components/ItineraryCard.tsx`（加 TtsPlayer import + 挂载，3 行新增）
+
+**应当达成的效果**：
+
+- 评委能看到 Agent 的语义级决策过程（"Agent 在想什么"），不只是 Tool 调用日志
+- replan 在思考时间线上显式可视化为 amber 分隔线，区分前后两轮
+- 行程出炉后用户可一键听语音播报（中文 zh-CN，rate 1.0）
+- 多模态输出方向（评分项加分）首次落地：文字 + 语音
+- 后续 Task 6（PosterGenerator）完成后，海报+语音双多模态完整
+
+**未做（按 spec tasks.md，留给后续 wave）**：
+
+- Task 2（store previousItinerary）+ Task 7（ComparisonView）：依赖 refine 路径，可单独做
+- Task 6（PosterGenerator）：需 npm install html2canvas
+- Task 8（MapOverlay）：需 npm install @amap/amap-jsapi-loader + 高德 key
