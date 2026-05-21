@@ -12,6 +12,7 @@ import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
 import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
+import ComparisonView from "./ComparisonView";
 import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
 
@@ -31,6 +32,7 @@ export default function ItineraryCard() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
+  const previousItinerary = useChatStore((s) => s.previousItinerary);
   const confirm = useChatStore((s) => s.confirm);
   const cancel = useChatStore((s) => s.cancel);
 
@@ -178,6 +180,14 @@ export default function ItineraryCard() {
           {itinerary.summary}
         </div>
       </div>
+
+      {/* T7/R3: Refine 前后对比视图（仅在有 lastRefinement + previousItinerary 时显示） */}
+      {lastRefinement && previousItinerary && itinerary && (
+        <ComparisonView
+          oldItinerary={previousItinerary}
+          newItinerary={itinerary}
+        />
+      )}
 
       {/* Refinement summary banner */}
       {lastRefinement && lastRefinement.changedFields.length > 0 && (

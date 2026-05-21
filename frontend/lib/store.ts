@@ -124,6 +124,13 @@ export interface ChatState {
 
   // 输出
   itinerary: Itinerary | null;
+  /**
+   * 上一次的 itinerary 快照（refine/feedback 前保存）。
+   * 用于「Refine 前后对比视图」（spec R3）。
+   * - null 表示首次规划或会话重置后
+   * - 非 null 表示上一次有方案，本次拿到新方案后可对比展示
+   */
+  previousItinerary: Itinerary | null;
   /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
   narration: { text: string; stage: "stream" | "confirm" } | null;
   /** 用户已主动取消（和 reset 不同：不清空 trace，仅冻结按钮）。 */
@@ -197,6 +204,7 @@ const initialState: Omit<
   replans: [],
   thoughts: [],
   itinerary: null,
+  previousItinerary: null,
   cancelled: false,
   lastRefinement: null,
   chitchatReplies: [],
@@ -249,6 +257,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController?.abort();
     abortController = new AbortController();
 
+    // T2/R3: 在清空 itinerary 前保存快照（用于 ComparisonView）
+    // 不预判 fresh vs feedback——总是保存，UI 层结合 lastRefinement 判定是否展示对比
+    const currentItinerary = get().itinerary;
+    const previousSnapshot = currentItinerary
+      ? structuredClone(currentItinerary)
+      : null;
+
     // 重置中间过程，但保留 messages 历史与 chitchatReplies 气泡
     // （聊天历史不应被新输入清空——只有用户主动 reset 才清）
     set((s) => ({
@@ -259,6 +274,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replans: [],
       thoughts: [],
       itinerary: null,
+      previousItinerary: previousSnapshot,
       narration: null,
       cancelled: false,
       lastRefinement: null,
@@ -379,6 +395,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController?.abort();
     abortController = new AbortController();
 
+    // T2/R3: 保存快照供 ComparisonView 使用
+    const currentItinerary = get().itinerary;
+    const previousSnapshot = currentItinerary
+      ? structuredClone(currentItinerary)
+      : null;
+
     // refine 时只清掉 trace / itinerary（保留 intent，新一轮 refinement_done 会覆盖）
     set((s) => ({
       streaming: true,
@@ -387,6 +409,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       replans: [],
       thoughts: [],
       itinerary: null,
+      previousItinerary: previousSnapshot,
       narration: null,
       cancelled: false,
       lastRefinement: null,
