@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
+import { useCollabStore } from "@/lib/collab-store";
 import {
   generateSessionId,
   getUserIdFromCookie,
@@ -11,12 +12,15 @@ import {
 import { cn } from "@/lib/utils";
 
 import ChatDock from "./ChatDock";
+import CollabBar from "./CollabBar";
 import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
+import ConstraintFeed from "./ConstraintFeed";
 import ItineraryCard from "./ItineraryCard";
 import PlannerModeBadge from "./PlannerModeBadge";
 import PreferencesPanel from "./PreferencesPanel";
 import QuickScenarios from "./QuickScenarios";
+import ShareModal from "./ShareModal";
 import ToastStack from "./ToastStack";
 import ToolTracePanel from "./ToolTracePanel";
 import UserSwitcher from "./UserSwitcher";
@@ -32,6 +36,13 @@ export default function HomeView() {
 
   // 顶栏滚动下沉：scrolled=true 时加深背景 + 暖色发光底线
   const [scrolled, setScrolled] = useState(false);
+
+  // 协作模式
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const roomId = useCollabStore((s) => s.roomId);
+  const createRoom = useCollabStore((s) => s.createRoom);
+  const joinRoom = useCollabStore((s) => s.joinRoom);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
@@ -150,6 +161,9 @@ export default function HomeView() {
         </div>
       </header>
 
+      {/* 协作状态条 */}
+      <CollabBar />
+
       <main
         className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6"
         style={{ paddingBottom: "calc(112px + env(safe-area-inset-bottom, 0px) + 16px)" }}
@@ -163,6 +177,7 @@ export default function HomeView() {
           </section>
 
           <section className="md:col-span-7 lg:col-span-4">
+            <ConstraintFeed />
             <ToolTracePanel />
           </section>
 
@@ -182,6 +197,13 @@ export default function HomeView() {
       <CommandPalette />
       <Confetti />
       <ChatDock />
+      {roomId && (
+        <ShareModal
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          roomId={roomId}
+        />
+      )}
     </div>
   );
 }
