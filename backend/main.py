@@ -234,6 +234,92 @@ def health() -> dict[str, str]:
     }
 
 
+@app.get("/ready")
+async def ready() -> dict[str, Any]:
+    """就绪检查（Kubernetes / FC / docker compose 用）。
+
+    与 /health 的区别：
+    - /health 是「我活着吗」（进程跑了就 OK）→ liveness probe
+    - /ready  是「我能接流量吗」（依赖都通 + 配置都对）→ readiness probe
+
+    探活清单：
+    - LLM 配置（base_url / key 至少有一项可用，stub 视为可用）
+    - Redis 可达（仅当 SESSION_STORE=redis 或 REDIS_URL 配了才探，
+      InMemory 模式下默认 always ready）
+    - mock 数据可加载（防镜像漏 copy mock_data 卷）
+
+    任何子项失败 → HTTP 503 Service Unavailable，前端 / FC 健康检查会重试。
+    """
+    checks: dict[str, dict[str, Any]] = {}
+    overall_ok = True
+
+    # 1. LLM 配置
+    llm_provider_env = (os.getenv("LLM_PROVIDER") or "").strip().lower()
+    if llm_provider_env == "stub":
+        checks["llm"] = {"ok": True, "provider": "stub"}
+    else:
+        try:
+            from agent.llm_client import _resolve_creds
+
+            _, _, _, provider_display = _resolve_creds(None)
+            checks["llm"] = {"ok": True, "provider": provider_display}
+        except Exception as e:  # noqa: BLE001
+            checks["llm"] = {"ok": False, "error": str(e)[:200]}
+            overall_ok = False
+
+    # 2. Redis（仅 SESSION_STORE=redis 或显式配 REDIS_URL 时探）
+    redis_url = os.getenv("REDIS_URL")
+    session_store = (os.getenv("SESSION_STORE") or "memory").strip().lower()
+    if session_store == "redis" or redis_url:
+        try:
+            # 懒导入避免单测路径加载 redis-py
+            import redis.asyncio as redis_async  # type: ignore[import-not-found]
+
+            client = redis_async.from_url(
+                redis_url or "redis://localhost:6379/0",
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            )
+            pong = await client.ping()
+            await client.aclose()
+            checks["redis"] = {"ok": bool(pong), "url": redis_url or "redis://localhost:6379/0"}
+            if not pong:
+                overall_ok = False
+        except Exception as e:  # noqa: BLE001
+            checks["redis"] = {"ok": False, "error": str(e)[:200]}
+            overall_ok = False
+    else:
+        checks["redis"] = {"ok": True, "skipped": "session_store=memory"}
+
+    # 3. mock 数据可加载（POI/餐厅）
+    try:
+        from data.loader import load_pois, load_restaurants
+
+        pois_count = len(load_pois())
+        rests_count = len(load_restaurants())
+        checks["mock_data"] = {
+            "ok": pois_count > 0 and rests_count > 0,
+            "pois": pois_count,
+            "restaurants": rests_count,
+        }
+        if pois_count == 0 or rests_count == 0:
+            overall_ok = False
+    except Exception as e:  # noqa: BLE001
+        checks["mock_data"] = {"ok": False, "error": str(e)[:200]}
+        overall_ok = False
+
+    body = {
+        "status": "ready" if overall_ok else "not_ready",
+        "version": VERSION,
+        "checks": checks,
+    }
+    if not overall_ok:
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(body, status_code=503)
+    return body
+
+
 @app.get("/scenarios")
 def scenarios() -> dict[str, list[dict[str, str]]]:
     return {"scenarios": SCENARIOS}
