@@ -72,6 +72,16 @@ class SearchPoisInput(BaseModel):
     preferred_types: list[str] = Field(
         default_factory=list, description="如 [展览, 美术馆]"
     )
+    user_lat: Optional[float] = Field(
+        default=None,
+        description=(
+            "用户当前位置纬度。提供时走 NearbySearchProvider 实时算距离；"
+            "缺省时回退到 mock 数据预填的 distance_km 字段（向后兼容）。"
+        ),
+    )
+    user_lng: Optional[float] = Field(
+        default=None, description="用户当前位置经度，与 user_lat 配套"
+    )
     limit: NonNegativeInt = Field(default=10, le=50)
 
 
@@ -95,6 +105,16 @@ class SearchRestaurantsInput(BaseModel):
         description="同行 ≥4 人时按桌型过滤",
     )
     require_private_room: bool = Field(default=False)
+    user_lat: Optional[float] = Field(
+        default=None,
+        description=(
+            "用户当前位置纬度。提供时走 NearbySearchProvider 实时算距离；"
+            "缺省时回退到 mock 数据预填的 distance_km 字段（向后兼容）。"
+        ),
+    )
+    user_lng: Optional[float] = Field(
+        default=None, description="用户当前位置经度，与 user_lat 配套"
+    )
     limit: NonNegativeInt = Field(default=10, le=50)
 
 

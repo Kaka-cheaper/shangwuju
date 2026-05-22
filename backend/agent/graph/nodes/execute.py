@@ -31,7 +31,8 @@ def search_pois_worker(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     if intent is None:
         return {"pois": []}
-    pois = search_pois_for_intent(intent)
+    user_id = state.get("user_id") or "demo_user"
+    pois = search_pois_for_intent(intent, user_id=user_id)
     return {"pois": pois}
 
 
@@ -39,7 +40,8 @@ def search_restaurants_worker(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     if intent is None:
         return {"restaurants": []}
-    rests = search_restaurants_for_intent(intent)
+    user_id = state.get("user_id") or "demo_user"
+    rests = search_restaurants_for_intent(intent, user_id=user_id)
     return {"restaurants": rests}
 
 

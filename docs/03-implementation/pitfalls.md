@@ -638,3 +638,55 @@
   - mock fallback 不要返"看起来合理的常量"（如固定 15min）；要么返失败让上层显式处理，要么用算法估算
   - 真接入美团 POI 时，POI 接口直接返坐标 → 本架构形态不变（schema-level 兼容）
 - **优先级**：P1（直接影响 demo 视觉真实性——评委一眼能看出地图和文案对不上）
+
+
+### [P2] 2026-05-22 MapOverlay useEffect 依赖错位致 marker 闪烁/丢失
+
+- **现象**：用户截图——LangGraph 完整规划好的 5 段行程，地图加载出来了但**一个 marker 都没有**。控制台没报错，stage 文案显示正确（含「主活动 · 悦读亲子绘本馆」「用餐 · 健康轻食」等正常名字）。
+- **根因**：
+  - 第 1 个 useEffect 依赖 `[itinerary]`，每次 itinerary 引用变（如新一次规划 / refine）都会跑 cleanup 销毁地图（`map.destroy()`）+ 重建
+  - 第 2 个 useEffect 依赖 `[mapReady, itinerary, visibleCount]`，地图重建时 `mapReady` 短暂为 false，等到 `setMapReady(true)` 触发后第 2 个 useEffect 才有机会跑
+  - 但**重建期间** `markersRef.current = []` 已被清空；新地图 ready 时 `visibleCount` 还在 stagger 动画中（每 200/400ms +1），第 2 个 useEffect 跑时 `targetCount=0` → 不加 marker
+  - stagger 跑完 visibleCount 终于 = stages.length 时第 2 个 useEffect 又跑一次，应该补 marker，**但有时 cleanup 还没跑完 mapRef.current 已是 null**（cleanup 是 React 18 异步的）
+  - 结果：marker 偶发不出，无报错（catch 吞了 setMap 异常）
+- **解法（2026-05-22 落地）**：
+  - 第 1 个 useEffect 依赖改 `[]`：地图只在组件 mount 时建一次，unmount 时销毁；不再随 itinerary 重建
+  - 新增第 2 个 useEffect（`[itinerary, mapReady]`）：itinerary 引用变化时主动清空 markersRef + routeOverlaysRef，把清理职责从原 cleanup 函数上拉出来显式做
+  - 原第 3 个 useEffect 不变，只做增量加 marker / 路线
+- **附加修复**：sse_adapter.py 的 assemble 节点产出后，检查「有 poi_id/restaurant_id 但没 lat/lng」的 stage 数；若 >0 emit agent_thought 警告（评委能看到 LLM 抽风兜底）
+- **相关文件**：
+  - `frontend/components/MapOverlay.tsx`（重写第 1/2 useEffect）
+  - `backend/agent/graph/sse_adapter.py`（assemble 分支加 miss_coord 检测）
+- **防再犯**：
+  - **任何「外部状态变化触发组件大规模 re-init」的 useEffect**（如重建地图 / WebSocket / 长连接），第一选择是依赖 `[]` 仅 mount/unmount 跑；外部状态变化用单独的副作用 useEffect 处理
+  - 如果必须随依赖变化 cleanup + 重建，要测「快速变 prop」场景（防 cleanup 与 setup 时序错位）
+- **优先级**：P2（不挂 demo，但视觉看似没规划成功——关键演示页面）
+
+
+### [P2] 2026-05-22 mock 数据 + Tool 距离过滤无视用户位置（架构链路缺陷）
+
+- **现象**：评委可能问「用户输入「我在钱江新城下午想吃个饭」，系统怎么知道附近有什么？」当前回答是「demo_user 家在西溪诚园写死，所有距离都按这家算」——能跑但不真实。
+- **根因（链路缺陷而非 bug）**：
+  - mock_data/pois.json / restaurants.json 的 `distance_km` 字段是「家→POI」预先手填（每条 POI 只有一个 distance 值）
+  - search_pois / search_restaurants 直接查这个字段过滤 → 等于把「家」写死
+  - 真接入高德 / 美团时附近搜索是「以用户位置为中心 max_km 半径」的语义，与字段化的 distance_km 不匹配
+  - 没留好「附近搜索」这层抽象，未来真接入要改 Tool 实现 + schema
+- **解法（2026-05-22 重构）**：
+  1. 新建 `backend/data/nearby_provider.py`：`NearbySearchProvider` Protocol（`search_pois_nearby` / `search_restaurants_nearby`），`MockNearbyProvider` 用 haversine 实时算距离 + 重写 distance_km 字段；`GaodeNearbyProvider` / `MeituanNearbyProvider` stub 含「真接入步骤」锚点
+  2. `SearchPoisInput` / `SearchRestaurantsInput` 加可选 `user_lat` / `user_lng` 字段
+  3. `search_pois` / `search_restaurants` Tool 内部：提供 user_lat/user_lng 时走 NearbyProvider；缺省时回退到 mock 字段（向后兼容，所有现有测试不破）
+  4. `agent/tools/search_adapter.py` 加 `_resolve_user_coords()`：从 user_profile 取 home_location 的 lat/lng
+  5. LangGraph `execute` worker 把 user_id 传下去
+  6. env 加 `NEARBY_PROVIDER=mock|gaode|meituan`，默认 mock
+- **相关文件**：
+  - `backend/data/nearby_provider.py`（新建）
+  - `backend/schemas/tools.py`（SearchPoisInput / SearchRestaurantsInput 加 user_lat/user_lng）
+  - `backend/tools/search_pois.py` / `backend/tools/search_restaurants.py`（接通 NearbyProvider）
+  - `backend/agent/tools/search_adapter.py`（注入 user 坐标）
+  - `backend/agent/graph/nodes/execute.py`（worker 传 user_id）
+  - `backend/.env.example`（加 NEARBY_PROVIDER 段）
+  - `docs/06-business/01-数据源切换路径.md`（一键部署叙事）
+- **防再犯**：
+  - 任何「假装能切换数据源」的项目，必须在 mock 阶段就把切换语义（query 模式）抽象出来，不能等真接入时才补抽象层
+  - mock 数据字段（如 distance_km）是辅助而非主战场：算法应该有计算逻辑（haversine），mock 字段只在算法不可用时兜底
+- **优先级**：P2（不影响 demo 跑通，但这是评委评分项「商业可行性」+ 「一键部署」的关键演示点）

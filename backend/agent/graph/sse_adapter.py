@@ -262,6 +262,28 @@ async def run_graph_stream(
                 elif node_name == "assemble":
                     itin = node_diff.get("itinerary")
                     if itin is not None:
+                        # 抽风兜底：如果有目标段但没坐标，推一条 agent_thought 警示
+                        # （poi_id / restaurant_id 非空但 lat/lng 为空 → 多半是 LLM 抽风
+                        # 把不存在的 id 写到 blueprint，assemble 时找不到对应 mock 数据）
+                        miss_coord_count = sum(
+                            1
+                            for s in itin.stages
+                            if (s.poi_id or s.restaurant_id)
+                            and (s.lat is None or s.lng is None)
+                        )
+                        if miss_coord_count > 0:
+                            yield _ev(
+                                seq,
+                                SseEventType.AGENT_THOUGHT,
+                                {
+                                    "text": (
+                                        f"⚠ 有 {miss_coord_count} 段未能定位坐标"
+                                        f"（mock 数据可能未覆盖该 id），"
+                                        f"地图上对应段不会标注。"
+                                    ),
+                                },
+                            )
+                            seq += 1
                         yield _ev(
                             seq,
                             SseEventType.ITINERARY_READY,

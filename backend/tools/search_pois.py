@@ -34,9 +34,21 @@ _DESC = (
     output_model=SearchPoisOutput,
 )
 def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
+    # 候选源：提供 user_lat/user_lng 时走 NearbySearchProvider 实时算距离；
+    # 缺省时回退到 mock 数据本身（distance_km 字段已预填，向后兼容）
+    if inp.user_lat is not None and inp.user_lng is not None:
+        from data.nearby_provider import get_nearby_provider
+
+        provider = get_nearby_provider()
+        source_pois = provider.search_pois_nearby(
+            inp.user_lat, inp.user_lng, inp.distance_max_km
+        )
+    else:
+        source_pois = list(load_pois())
+
     candidates = []
-    for poi in load_pois():
-        # 距离过滤
+    for poi in source_pois:
+        # 距离过滤（NearbyProvider 已按 max_km 过滤；这里兜底防 mock fallback 路径）
         if poi.distance_km > inp.distance_max_km:
             continue
         # 物理约束：必须 *全部* 命中（亲子友好+适合 5-10 岁）

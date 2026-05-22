@@ -74,6 +74,20 @@ function buildStageCoords(itinerary: Itinerary): StageWithCoord[] {
       displayName: stage.address || stage.title,
     });
   });
+  // 临时诊断：地图 marker 不出来 → 看是不是所有 stage 都没 lat/lng
+  if (typeof window !== "undefined") {
+    // eslint-disable-next-line no-console
+    console.debug(
+      "[MapOverlay] stages 总数=",
+      itinerary.stages.length,
+      "有坐标的=",
+      out.length,
+      "missing-coord-stages=",
+      itinerary.stages
+        .filter((s) => s.lat == null || s.lng == null)
+        .map((s) => ({ kind: s.kind, title: s.title, poi_id: s.poi_id, restaurant_id: s.restaurant_id })),
+    );
+  }
   return out;
 }
 
@@ -102,10 +116,10 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   const [mapReady, setMapReady] = useState(false);
 
   // ============================================================
-  // 加载高德 SDK + 初始化地图
+  // 加载高德 SDK + 初始化地图（仅挂载一次，不随 itinerary 变化重建）
   // ============================================================
   useEffect(() => {
-    if (!itinerary || !AMAP_KEY || !containerRef.current) return;
+    if (!AMAP_KEY || !containerRef.current) return;
 
     let canceled = false;
 
@@ -164,7 +178,37 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       routeOverlaysRef.current = [];
       setMapReady(false);
     };
-  }, [itinerary]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ============================================================
+  // itinerary 变化时清空 markers/routes，让下一个 useEffect 重新增量加
+  // ============================================================
+  const lastItineraryRef = useRef<Itinerary | null>(null);
+  useEffect(() => {
+    if (!mapReady) return;
+    if (lastItineraryRef.current !== itinerary) {
+      // itinerary 引用变了 → 旧 marker/route 全清
+      markersRef.current.forEach((m) => {
+        try {
+          m.setMap(null);
+        } catch {
+          // 忽略
+        }
+      });
+      markersRef.current = [];
+      routeOverlaysRef.current.forEach((ov) => {
+        try {
+          ov.setMap?.(null);
+          ov.clear?.();
+        } catch {
+          // 忽略
+        }
+      });
+      routeOverlaysRef.current = [];
+      lastItineraryRef.current = itinerary;
+    }
+  }, [itinerary, mapReady]);
 
   // ============================================================
   // 配合 visibleCount 逐段标注 + 真实路线规划

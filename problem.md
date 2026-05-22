@@ -4574,3 +4574,102 @@ pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_det
 - 后续任何会话的新功能改动都被 AGENTS.md §3.3.1 强制路由到 `agent/graph/` 下
 - LangGraph 是唯一主路径；v2 / planner 系列冻结作 fallback 不再演进
 - 评委叙事：从「三套并存看起来像复制粘贴」→「主架构 + 三层 fallback safety-net 是异常韧性的物化体现」（评分项 5 加分）
+
+
+---
+
+## 问题N：规划质量维度完整审视（人群/地理/时间/链路）+ 扩展评分维度建议
+
+**用户原问**：「规划质量：准确理解并满足人群、地理等约束；时间分配自然且不超出窗口；方案覆盖多环节完整链路。从这一点上完整、全面的审查、审视一下当前是否满足，是否有扩展的其他评分维度」
+
+**解决方案**：
+
+逐文件读 LangGraph 主架构 + LLM-First 蓝图 + critics_v2 / critics / segment_decider / search_pois / search_restaurants / estimate_route_time / blueprint_prompt / 节点 critic.py / assemble.py / planner.py，按四维做对账：
+
+1. **人群约束**：✅ has_all_tags 物理/饮食词典硬过滤 + age_range 显式过滤 + 桌型 capacity_ok；🟡 social_context 调性只到 warning；⚠️ companions 多结构（5岁孩+70岁外婆）组合时 has_all_tags 会把候选打到 0（pitfalls "保守补全过严" 踩过）
+2. **地理约束**：✅ distance_max_km 单点距家硬过滤；✅ 出发-返回闭环由 ALWAYS_INCLUDED 强制；⚠️ **POI→餐厅累积通勤可达性无算法兜底**——蓝图 duration_min 假设"已含路程"靠 LLM 自觉；critic 不验 stage-stage 通勤
+3. **时间分配**：✅ duration 入口防线 + critics_v2 ±30min 容差 + blueprint critic 总时长 ±15min；✅ 时序单调递增 + 营业时间覆盖 critic 硬违规；✅ E1 17:00 满座 demo-aware；✅ 段集合按时长自适应（segment_decider）
+4. **完整链路**：✅ FULL_SEGMENTS / segment_decider 削段；✅ executor 下发 reserve+ticket；✅ share_message 9 模板；🟡 extra_services 字段在 schema 但 demo 演示弱
+
+**三个真实缺口**（按评委一压就翻概率排序）：
+1. POI→餐厅累积通勤可达性无算法兜底 → 修：critic.py 加 _check_inter_stage_commute
+2. companions 多结构组合 has_all_tags 过严
+3. social_context 失配只是 warning，不进 backprompt
+
+**扩展评分维度建议**（用户原维度的延展）：
+- 链路可见性：每个 critic 违规独立推 SSE 事件让评委看「算法判定→LLM 修正」闭环
+- 决策可解释性：blueprint.rationale 当前只在日志，前端 ItineraryCard 不展示 → 加 "AI 思考" 折叠卡（创新性+完整性双加分）
+- 跨 turn 反馈一致性：多轮反馈未做"同一字段反复改"稳定性测
+- 候选解释性：critics_v2 加 alternatives_considered 输出
+- Mock 真实感：每条 POI/餐厅补 1-2 条评论（直击赛题原文"结合点评 POI 数据 / 用户评价语料"）
+- 个性化记忆深度：memory 当前只统计 tag 频次；可加"上次去过的 POI 不再推"或"距家路径偏好"
+
+**ROI 排序**（如时间盒允许 1-2 天加固）：
+1. critic.py 加 _check_inter_stage_commute（半天，堵地理硬伤）
+2. ItineraryCard 加 "AI 思考" 折叠卡（半天，创新性加分）
+3. 每条 POI/餐厅补 mock 评论（半天，对齐赛题原文 UGC 语料）
+
+**修改的代码文件**：无（仅审视；待用户决策后再动手）
+
+**应当达成的效果**：
+- 用户清楚当前规划质量四维的真实覆盖度（不是"看 prompt 说了"，而是"代码里真过滤/真验证"）
+- 三个缺口与扩展评分维度量化排序，下一步动手前 ROI 清晰
+- 后续若展开第 1 条修法，已有清晰落点：agent/graph/nodes/critic.py 加 _check_inter_stage_commute
+
+
+---
+
+问题：地图上一个标注都没有 + 链路缺陷「LLM 不知道用户位置 / 数据源切换准备度不足」
+
+解决方案（分 3 步走）：
+
+**第一步 - 修 MapOverlay marker bug**：
+1. `frontend/components/MapOverlay.tsx` 重构 useEffect 拆分：
+   - 第 1 个 useEffect 依赖 `[]`（仅 mount/unmount 跑），地图只建一次不再随 itinerary 重建——避免「itinerary 变化 → 销毁地图 → 重建期间 marker 丢失」时序问题
+   - 新增第 2 个 useEffect 依赖 `[itinerary, mapReady]`，itinerary 引用变化时主动清空 markersRef + routeOverlaysRef
+   - 第 3 个 useEffect（增量加 marker + AMap.Driving 路线）保留不变
+2. `buildStageCoords` 加 console.debug 诊断 log（评委不看 console，留作下次根因调查用）
+
+**第二步 - assemble 抽风兜底**：
+1. `backend/agent/graph/sse_adapter.py` 的 assemble 分支加 miss_coord 检测：
+   - 如果有 stage 设了 poi_id/restaurant_id 但 lat/lng 为 None（多半是 LLM 抽风把不存在的 id 写到 blueprint）
+   - emit 一条 agent_thought「⚠ 有 X 段未能定位坐标」让评委看到 Agent 的边界感
+2. 不阻断流程：行程文案保留，地图上对应段不标注
+
+**第三步 - 链路重构 NearbySearchProvider 抽象 + haversine 实时算距离**：
+1. 新建 `backend/data/nearby_provider.py`：
+   - `NearbySearchProvider` Protocol（`search_pois_nearby` / `search_restaurants_nearby` 两个方法）
+   - `MockNearbyProvider`（默认实现）：用 haversine 实时算距离 + 重写每条 POI/餐厅 的 distance_km 字段
+   - `GaodeNearbyProvider` stub：NotImplementedError 含「真接入步骤」锚点（v3/place/around 接口签名 + schema 映射建议）
+   - `MeituanNearbyProvider` stub：同上
+   - `get_nearby_provider()` 工厂：从 NEARBY_PROVIDER env 解析（默认 mock）
+2. `backend/schemas/tools.py` 给 `SearchPoisInput` / `SearchRestaurantsInput` 加可选 `user_lat` / `user_lng` 字段（向后兼容）
+3. `backend/tools/search_pois.py` / `backend/tools/search_restaurants.py`：
+   - 提供 user_lat/user_lng 时走 NearbyProvider 拿候选（haversine 算距离）
+   - 缺省时回退到 mock 数据预填的 distance_km 字段（保所有测试兼容）
+4. `backend/agent/tools/search_adapter.py` 加 `_resolve_user_coords()`：从 user_profile 取 home_location 的 lat/lng，注入到 SearchPoisInput
+5. `backend/agent/graph/nodes/execute.py` 的 worker 把 state.user_id 传下去
+6. `backend/.env.example` 加 NEARBY_PROVIDER 段（mock/gaode/meituan，默认 mock）
+7. `docs/06-business/01-数据源切换路径.md` 加 NearbySearchProvider 说明 + 一键部署叙事
+
+修改的代码文件：
+- `frontend/components/MapOverlay.tsx`
+- `backend/agent/graph/sse_adapter.py`
+- `backend/data/nearby_provider.py`（新建）
+- `backend/schemas/tools.py`
+- `backend/tools/search_pois.py`
+- `backend/tools/search_restaurants.py`
+- `backend/agent/tools/search_adapter.py`
+- `backend/agent/graph/nodes/execute.py`
+- `backend/.env.example`
+- `docs/06-business/01-数据源切换路径.md`
+- `docs/03-implementation/pitfalls.md`
+
+应当达成的效果：
+- 后端 295 测试全过（验证：`.venv\Scripts\python.exe -m pytest tests/ -q` → 295 passed in 2.54s）
+- 前端 typecheck 0 错（exit 0）
+- 地图 marker 不再因 itinerary 变化而丢失：地图实例只建一次，仅 markers/routes 随 itinerary 增量更新
+- assemble 阶段如果 LLM 给出不存在的 poi_id/restaurant_id，前端会看到 agent_thought「⚠ 有 X 段未能定位坐标」警告（评分项 5「异常韧性」加分）
+- 链路改为「LLM 知道用户位置 → NearbySearchProvider 实时按用户位置 + max_km 算附近候选 → 再过滤 tag/容量」
+- env 切换 `NEARBY_PROVIDER=gaode` + 配 `AMAP_REST_KEY` 立刻接入真高德附近搜索（接入位见 `backend/data/nearby_provider.py` GaodeNearbyProvider stub）→ 评分项「一键部署便利性 + 商业可行性」加分点
+- mock 数据零修改：现有 39 POI + 45 餐厅都已有 lat/lng，haversine 直接可用

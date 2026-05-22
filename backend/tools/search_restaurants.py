@@ -47,8 +47,20 @@ def _capacity_ok(cap: RestaurantCapacity, party: int) -> bool:
     output_model=SearchRestaurantsOutput,
 )
 def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
+    # 候选源：提供 user_lat/user_lng 时走 NearbySearchProvider 实时算距离；
+    # 缺省时回退到 mock 数据本身的 distance_km 字段（向后兼容）
+    if inp.user_lat is not None and inp.user_lng is not None:
+        from data.nearby_provider import get_nearby_provider
+
+        provider = get_nearby_provider()
+        source_rests = provider.search_restaurants_nearby(
+            inp.user_lat, inp.user_lng, inp.distance_max_km
+        )
+    else:
+        source_rests = list(load_restaurants())
+
     candidates = []
-    for r in load_restaurants():
+    for r in source_rests:
         if r.distance_km > inp.distance_max_km:
             continue
         # 饮食约束：必须全部命中（低脂 + 健康轻食 + 有儿童餐 等）
