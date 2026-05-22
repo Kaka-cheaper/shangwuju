@@ -4,10 +4,14 @@
 每个 worker 负责调一个工具，结果合并到 State。
 
 并行实现：
-- search_pois_worker        → state["pois"]
-- search_restaurants_worker → state["restaurants"]
+- search_pois_worker        → state["pois"] / state["pois_relaxed_tags"]
+- search_restaurants_worker → state["restaurants"] / state["restaurants_relaxed_tags"]
 - get_user_profile_worker    → state["user_profile"]
 - estimate_routes_worker     → state["routes"]（先粗估常用 home→候选 POI 距离）
+
+为什么 relaxed_tags 分两个 key（pois_*/restaurants_*）：
+- LangGraph 默认 reduce 是覆盖，多 worker 同写一个 key 会冲突
+- 业务上 POI / 餐厅的放宽路径是独立信号，分开存便于前端区分展示
 
 注意：
 - 路线估算要等 POI 已选定后才能精确估，这里先粗估「home → top-K POI / top-K 餐厅」
@@ -30,19 +34,19 @@ from agent.tools.search_adapter import (
 def search_pois_worker(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     if intent is None:
-        return {"pois": []}
+        return {"pois": [], "pois_relaxed_tags": []}
     user_id = state.get("user_id") or "demo_user"
-    pois = search_pois_for_intent(intent, user_id=user_id)
-    return {"pois": pois}
+    pois, relaxed = search_pois_for_intent(intent, user_id=user_id)
+    return {"pois": pois, "pois_relaxed_tags": relaxed}
 
 
 def search_restaurants_worker(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     if intent is None:
-        return {"restaurants": []}
+        return {"restaurants": [], "restaurants_relaxed_tags": []}
     user_id = state.get("user_id") or "demo_user"
-    rests = search_restaurants_for_intent(intent, user_id=user_id)
-    return {"restaurants": rests}
+    rests, relaxed = search_restaurants_for_intent(intent, user_id=user_id)
+    return {"restaurants": rests, "restaurants_relaxed_tags": relaxed}
 
 
 def get_user_profile_worker(state: AgentState) -> dict[str, Any]:

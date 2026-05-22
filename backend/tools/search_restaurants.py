@@ -9,6 +9,10 @@
 - require_private_room=True → 餐厅必须有包间
 
 座位时段可用性 *不在* 本 Tool 里判断——交给 check_restaurant_availability。
+
+Step 6：tag relaxation
+- dietary_constraints 全命中打到空集时自动渐进放宽
+- 物理硬约束（低脂 / 不辣 / 有儿童餐 等）最后才被丢
 """
 
 from __future__ import annotations
@@ -19,7 +23,7 @@ from schemas.errors import FailureReason
 from schemas.tools import SearchRestaurantsInput, SearchRestaurantsOutput
 
 from .registry import register_tool
-from ._helpers import has_all_tags, has_any_tag
+from ._helpers import has_any_tag, relax_tag_search
 
 
 _DESC = (
@@ -59,26 +63,32 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
     else:
         source_rests = list(load_restaurants())
 
-    candidates = []
-    for r in source_rests:
+    # 第一道：与 dietary tag 无关的硬过滤
+    def _non_tag_filter(r):
         if r.distance_km > inp.distance_max_km:
-            continue
-        # 饮食约束：必须全部命中（低脂 + 健康轻食 + 有儿童餐 等）
-        if not has_all_tags(r.tags, inp.dietary_constraints):
-            continue
+            return False
         # 体验偏好：命中任一即可
         if inp.experience_tags and not has_any_tag(r.tags, inp.experience_tags):
-            continue
+            return False
         if inp.social_context and inp.social_context not in r.suitable_for:
-            continue
+            return False
         # 桌型
         if inp.capacity_requirement and not _capacity_ok(
             r.capacity, inp.capacity_requirement
         ):
-            continue
+            return False
         if inp.require_private_room and not r.capacity.private_room:
-            continue
-        candidates.append(r)
+            return False
+        return True
+
+    # 第二道：dietary tag 渐进放宽（多 tag 复合饮食约束兜底）
+    candidates, relaxed_tags = relax_tag_search(
+        list(inp.dietary_constraints),
+        source_rests,
+        extract_tags=lambda r: r.tags,
+        additional_filter=_non_tag_filter,
+        max_relax_levels=3,
+    )
 
     candidates.sort(key=lambda x: x.rating, reverse=True)
     candidates = candidates[: inp.limit]
@@ -88,5 +98,10 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
             success=False,
             reason=FailureReason.EMPTY_CANDIDATES,
             candidates=[],
+            relaxed_tags=relaxed_tags,
         )
-    return SearchRestaurantsOutput(success=True, candidates=candidates)
+    return SearchRestaurantsOutput(
+        success=True,
+        candidates=candidates,
+        relaxed_tags=relaxed_tags,
+    )

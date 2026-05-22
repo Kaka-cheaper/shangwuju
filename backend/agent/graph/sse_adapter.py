@@ -179,6 +179,14 @@ async def run_graph_stream(
                         out_summary["count"] = len(node_diff["restaurants"])
                     elif "user_profile" in node_diff:
                         out_summary["found"] = node_diff["user_profile"] is not None
+                    # Step 6：tag relaxation 透传（split per worker key）
+                    relaxed = (
+                        node_diff.get("pois_relaxed_tags")
+                        or node_diff.get("restaurants_relaxed_tags")
+                        or []
+                    )
+                    if relaxed:
+                        out_summary["relaxed_tags"] = list(relaxed)
                     yield _ev(
                         seq,
                         SseEventType.TOOL_CALL_END,

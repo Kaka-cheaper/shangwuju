@@ -87,6 +87,14 @@ class SearchPoisInput(BaseModel):
 
 class SearchPoisOutput(ToolOutputBase):
     candidates: list[Poi] = Field(default_factory=list)
+    relaxed_tags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Tag relaxation 实际放弃的 physical_constraints tag 列表（按丢弃顺序）。"
+            "空 = 严格匹配通过；非空 = 候选源在严格 tag 下打到 0，按软优先级"
+            "渐进放宽得到候选。LLM 应在 rationale 中解释这一点。"
+        ),
+    )
 
 
 # ============================================================
@@ -120,6 +128,13 @@ class SearchRestaurantsInput(BaseModel):
 
 class SearchRestaurantsOutput(ToolOutputBase):
     candidates: list[Restaurant] = Field(default_factory=list)
+    relaxed_tags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Tag relaxation 实际放弃的 dietary_constraints tag 列表（按丢弃顺序）。"
+            "空 = 严格匹配；非空 = 严格 tag 下打到 0，按软优先级渐进放宽得到候选。"
+        ),
+    )
 
 
 # ============================================================

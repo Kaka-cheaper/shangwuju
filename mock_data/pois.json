@@ -1285,5 +1285,174 @@
       "available_slots": 25
     },
     "suggested_duration_minutes": 90
+  },
+  {
+    "id": "P040",
+    "name": "无障碍亲子博物馆 · 三代同堂友好馆",
+    "type": "复合体验馆",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.282,
+      "lng": 120.105
+    },
+    "distance_km": 3.0,
+    "opening_hours": "09:30-17:30",
+    "rating": 4.7,
+    "age_range": [
+      3,
+      80
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "学习成长",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": 100,
+    "reviews": [
+      {
+        "text": "带 5 岁孩 + 70 岁外婆一起去刚刚好，全程电梯无台阶，外婆全程不累。亲子互动区适合小孩，老人安静区有老电影看。三代同堂的难得选择。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": ["亲子友好", "适合老人", "无台阶", "可休息"],
+        "visited_at": "2026-04-20",
+        "helpful_count": 38
+      },
+      {
+        "text": "孩子玩了 1.5 小时还想接着玩，奶奶在外面长椅上休息也很惬意。整体动线设计真的为多代家庭考虑。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": ["亲子友好", "适合老人", "无台阶"],
+        "visited_at": "2026-03-30",
+        "helpful_count": 21
+      }
+    ]
+  },
+  {
+    "id": "P041",
+    "name": "亲子商务双轨体验中心",
+    "type": "复合空间",
+    "location": {
+      "name": "城东 city center",
+      "lat": 30.262,
+      "lng": 120.215
+    },
+    "distance_km": 4.6,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "age_range": [
+      3,
+      60
+    ],
+    "price_range": [
+      150,
+      300
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "高人均",
+      "商务体面",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "周末带客户 + 客户家小孩一起，环境分区很贴心：成人有商务洽谈区，孩子有专属游玩区，互不打扰。客户最后说这才是真有诚意的接待。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": ["亲子友好", "商务体面", "高人均"],
+        "visited_at": "2026-05-02",
+        "helpful_count": 19
+      },
+      {
+        "text": "外地朋友带孩子来杭州出差，找这种又能谈事又不让孩子哭闹的地方真的难。这家算是少有的兼顾。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": ["亲子友好", "商务体面"],
+        "visited_at": "2026-04-12",
+        "helpful_count": 12
+      }
+    ]
+  },
+  {
+    "id": "P042",
+    "name": "静谧拍照阁 · 闺蜜下午茶私享空间",
+    "type": "私享空间",
+    "location": {
+      "name": "钱江新城",
+      "lat": 30.245,
+      "lng": 120.205
+    },
+    "distance_km": 4.4,
+    "opening_hours": "11:00-22:00",
+    "rating": 4.8,
+    "age_range": [
+      18,
+      60
+    ],
+    "price_range": [
+      120,
+      220
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 50,
+      "available_slots": 20
+    },
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "和闺蜜约这种地方真是绝配——拍照位每个角度都能出片，但同时音量又不会被外面影响，能安心聊心事。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": ["拍照友好", "安静聊天", "网红打卡"],
+        "visited_at": "2026-04-25",
+        "helpful_count": 27
+      },
+      {
+        "text": "通常网红店都吵到不行，这家居然兼顾了出片和聊天的安静感。是闺蜜下午茶的优选。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": ["拍照友好", "安静聊天"],
+        "visited_at": "2026-03-18",
+        "helpful_count": 14
+      }
+    ]
   }
 ]

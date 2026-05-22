@@ -203,5 +203,17 @@
   { "from_location": "R042", "to_location": "home", "walking_minutes": 41, "taxi_minutes": 11, "bus_minutes": 28 },
   { "from_location": "R043", "to_location": "home", "walking_minutes": 53, "taxi_minutes": 14, "bus_minutes": 36 },
   { "from_location": "R044", "to_location": "home", "walking_minutes": 56, "taxi_minutes": 14, "bus_minutes": 38 },
-  { "from_location": "R045", "to_location": "home", "walking_minutes": 50, "taxi_minutes": 13, "bus_minutes": 34 }
+  { "from_location": "R045", "to_location": "home", "walking_minutes": 50, "taxi_minutes": 13, "bus_minutes": 34 },
+  { "from_location": "home", "to_location": "P040", "walking_minutes": 36, "taxi_minutes": 9, "bus_minutes": 24 },
+  { "from_location": "home", "to_location": "P041", "walking_minutes": 52, "taxi_minutes": 13, "bus_minutes": 35 },
+  { "from_location": "home", "to_location": "P042", "walking_minutes": 50, "taxi_minutes": 12, "bus_minutes": 33 },
+  { "from_location": "P040", "to_location": "home", "walking_minutes": 36, "taxi_minutes": 9, "bus_minutes": 24 },
+  { "from_location": "P041", "to_location": "home", "walking_minutes": 52, "taxi_minutes": 13, "bus_minutes": 35 },
+  { "from_location": "P042", "to_location": "home", "walking_minutes": 50, "taxi_minutes": 12, "bus_minutes": 33 },
+  { "from_location": "P040", "to_location": "R001", "walking_minutes": 12, "taxi_minutes": 5, "bus_minutes": 9 },
+  { "from_location": "P040", "to_location": "R007", "walking_minutes": 32, "taxi_minutes": 9, "bus_minutes": 22 },
+  { "from_location": "P041", "to_location": "R008", "walking_minutes": 6, "taxi_minutes": 3, "bus_minutes": 5 },
+  { "from_location": "P041", "to_location": "R001", "walking_minutes": 36, "taxi_minutes": 9, "bus_minutes": 25 },
+  { "from_location": "P042", "to_location": "R009", "walking_minutes": 12, "taxi_minutes": 5, "bus_minutes": 9 },
+  { "from_location": "P042", "to_location": "R013", "walking_minutes": 18, "taxi_minutes": 7, "bus_minutes": 13 }
 ]

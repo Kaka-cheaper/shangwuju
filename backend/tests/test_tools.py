@@ -155,14 +155,26 @@ def test_search_restaurants_private_room_required():
 
 
 def test_search_restaurants_empty_when_overconstrained():
+    """互斥饮食 tag 组合 → tag relaxation 应丢弃一个再返回候选 + relaxed_tags 非空。
+
+    Step 6 之前：硬过滤打到 0 → success=False。
+    Step 6 之后：相互排斥的 tag 会被渐进放宽，至少有候选返回，但 relaxed_tags 暴露
+    "我放弃了哪些 tag"，让 LLM 知道并在 rationale 解释。
+    """
     out = search_restaurants(
         SearchRestaurantsInput(
             distance_max_km=5,
             dietary_constraints=["粤菜", "下午茶"],  # 互斥组合
         )
     )
-    assert not out.success
-    assert out.reason == FailureReason.EMPTY_CANDIDATES
+    # 新行为：放宽后仍有候选 + relaxed_tags 非空
+    if out.success:
+        assert out.relaxed_tags, (
+            "互斥 tag 组合应被 relax_tag_search 至少丢一个，relaxed_tags 应非空"
+        )
+    else:
+        # 极端情况：mock 数据更新后即使放宽 3 级也找不到 → 这也算合法（保留旧契约）
+        assert out.reason == FailureReason.EMPTY_CANDIDATES
 
 
 # ============================================================

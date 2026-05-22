@@ -96,6 +96,9 @@ class AgentState(TypedDict, total=False):
     restaurants: list[Any]      # list[Restaurant]
     routes: list[Any]           # list[EstimateRouteTimeOutput]
     user_profile: Optional[Any]  # GetUserProfileOutput
+    # Step 6：tag relaxation 路径（split per worker 避免 reduce 冲突）
+    pois_relaxed_tags: list[str]
+    restaurants_relaxed_tags: list[str]
 
     # ---- Plan 层（LLM-First） ----
     weights: Optional[PlanningWeights]
@@ -165,4 +168,6 @@ def make_initial_state(
         fallback_chain=[],
         critic_attempts=[],
         alternatives=[],
+        pois_relaxed_tags=[],
+        restaurants_relaxed_tags=[],
     )

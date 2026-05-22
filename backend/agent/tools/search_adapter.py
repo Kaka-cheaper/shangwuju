@@ -53,10 +53,12 @@ def search_pois_for_intent(
     *,
     limit: int = 5,
     user_id: Optional[str] = None,
-) -> list[Poi]:
-    """按 intent 调 search_pois，返回候选；失败返 []。
+) -> tuple[list[Poi], list[str]]:
+    """按 intent 调 search_pois，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
     user_id 提供时从 user_profile 取 home_location 作 NearbyProvider 的查询基准。
+    Step 6：tag relaxation 透出 relaxed_tags 让上层（execute_worker / sse_adapter）
+    把放宽路径透传给前端 / LLM。
     """
     age_in_party = sorted(
         {c.age for c in intent.companions if c.age is not None}
@@ -74,8 +76,12 @@ def search_pois_for_intent(
     )
     out = invoke_tool("search_pois", inp.model_dump())
     if not out or not getattr(out, "success", False):
-        return []
-    candidates = (out.output or {}).get("candidates") or []
+        # 即使失败仍尝试取 relaxed_tags（让上层知道哪些被放过）
+        relaxed = (out.output or {}).get("relaxed_tags") if out else []
+        return [], list(relaxed or [])
+    output_dict = out.output or {}
+    candidates = output_dict.get("candidates") or []
+    relaxed = output_dict.get("relaxed_tags") or []
     # output 是 dict, candidates 内可能是 dict 也可能是 Poi 对象
     result: list[Poi] = []
     for c in candidates:
@@ -86,7 +92,7 @@ def search_pois_for_intent(
                 result.append(Poi.model_validate(c))
             except Exception:  # noqa: BLE001
                 continue
-    return result
+    return result, list(relaxed)
 
 
 def search_restaurants_for_intent(
@@ -94,8 +100,8 @@ def search_restaurants_for_intent(
     *,
     limit: int = 5,
     user_id: Optional[str] = None,
-) -> list[Restaurant]:
-    """按 intent 调 search_restaurants，返回候选；失败返 []。
+) -> tuple[list[Restaurant], list[str]]:
+    """按 intent 调 search_restaurants，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
     user_id 提供时从 user_profile 取 home_location 作 NearbyProvider 的查询基准。
     """
@@ -105,15 +111,18 @@ def search_restaurants_for_intent(
         distance_max_km=intent.distance_max_km or 5.0,
         dietary_constraints=list(intent.dietary_constraints),
         social_context=intent.social_context,
-        capacity_requirement=str(party_size) if party_size in (2, 4, 6, 8) else None,
+        capacity_requirement=party_size if party_size in (2, 4, 6, 8) else None,
         user_lat=user_lat,
         user_lng=user_lng,
         limit=limit,
     )
     out = invoke_tool("search_restaurants", inp.model_dump())
     if not out or not getattr(out, "success", False):
-        return []
-    candidates = (out.output or {}).get("candidates") or []
+        relaxed = (out.output or {}).get("relaxed_tags") if out else []
+        return [], list(relaxed or [])
+    output_dict = out.output or {}
+    candidates = output_dict.get("candidates") or []
+    relaxed = output_dict.get("relaxed_tags") or []
     result: list[Restaurant] = []
     for c in candidates:
         if isinstance(c, Restaurant):
@@ -123,7 +132,7 @@ def search_restaurants_for_intent(
                 result.append(Restaurant.model_validate(c))
             except Exception:  # noqa: BLE001
                 continue
-    return result
+    return result, list(relaxed)
 
 
 def get_user_profile_for_user(user_id: str) -> Optional[GetUserProfileOutput]:

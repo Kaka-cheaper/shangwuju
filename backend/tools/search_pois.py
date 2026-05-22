@@ -8,6 +8,11 @@
 本 Tool 只查询不预约，「售罄」状态体现在 capacity.available_slots=0，但
 **仍可作为候选返回**——是否触发售罄异常由调用方在 buy_ticket 阶段判断。
 这与 search_restaurants 同理：查询类 Tool 返回候选清单，可用性由专用 Tool 校验。
+
+Step 6：tag relaxation
+- physical_constraints 全命中打到空集时自动渐进放宽（_helpers.relax_tag_search）
+- 放宽后的 tag 列表写入 output.relaxed_tags，让 LLM 知道实际过滤路径
+- 物理硬约束（亲子友好 / 适合老人 / 无台阶）最后才被丢
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from schemas.errors import FailureReason
 from schemas.tools import SearchPoisInput, SearchPoisOutput
 
 from .registry import register_tool
-from ._helpers import has_all_tags, has_any_tag
+from ._helpers import has_any_tag, relax_tag_search
 
 
 _DESC = (
@@ -46,29 +51,34 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
     else:
         source_pois = list(load_pois())
 
-    candidates = []
-    for poi in source_pois:
-        # 距离过滤（NearbyProvider 已按 max_km 过滤；这里兜底防 mock fallback 路径）
+    # 第一道：与 tag 无关的硬过滤（距离 / experience_tag / social_context / type / age）
+    def _non_tag_filter(poi):
         if poi.distance_km > inp.distance_max_km:
-            continue
-        # 物理约束：必须 *全部* 命中（亲子友好+适合 5-10 岁）
-        if not has_all_tags(poi.tags, inp.physical_constraints):
-            continue
+            return False
         # 体验偏好：命中任意一个即可（"网红打卡"或"安静聊天"任一即过）
         if inp.experience_tags and not has_any_tag(poi.tags, inp.experience_tags):
-            continue
+            return False
         # social_context：若指定，POI 必须在 suitable_for 中声明可适配
         if inp.social_context and inp.social_context not in poi.suitable_for:
-            continue
+            return False
         # 偏好类型：若指定，POI.type 必须命中其一
         if inp.preferred_types and poi.type not in inp.preferred_types:
-            continue
+            return False
         # 同行年龄：若指定且 POI 给了 age_range，则全员必须落在区间
         if inp.age_in_party and poi.age_range:
             lo, hi = poi.age_range[0], poi.age_range[1]
             if not all(lo <= age <= hi for age in inp.age_in_party):
-                continue
-        candidates.append(poi)
+                return False
+        return True
+
+    # 第二道：物理 tag 渐进放宽（祖孙三代等多 tag 复合场景兜底）
+    candidates, relaxed_tags = relax_tag_search(
+        list(inp.physical_constraints),
+        source_pois,
+        extract_tags=lambda p: p.tags,
+        additional_filter=_non_tag_filter,
+        max_relax_levels=3,
+    )
 
     # 按 rating 倒序，取 limit
     candidates.sort(key=lambda p: p.rating, reverse=True)
@@ -79,5 +89,10 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
             success=False,
             reason=FailureReason.EMPTY_CANDIDATES,
             candidates=[],
+            relaxed_tags=relaxed_tags,
         )
-    return SearchPoisOutput(success=True, candidates=candidates)
+    return SearchPoisOutput(
+        success=True,
+        candidates=candidates,
+        relaxed_tags=relaxed_tags,
+    )
