@@ -137,6 +137,10 @@ export interface ItineraryStage {
   title: string;
   poi_id?: string | null;
   restaurant_id?: string | null;
+  // 后端 assemble 时直接注入坐标，前端 MapOverlay 不再二次查询
+  lat?: number | null;
+  lng?: number | null;
+  address?: string | null;
   note?: string | null;
 }
 

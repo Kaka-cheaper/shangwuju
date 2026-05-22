@@ -7,20 +7,18 @@
  *   - 评委要看「这个方案能直接接入美团生态」——用高德（不是 Leaflet）
  *   - 行程地点在地图上实时标注，配合 R1 stagger 动画逐段亮起
  *
- * 数据流：
- *   1. 启动时拉 GET /poi-locations 缓存坐标字典
- *   2. itinerary 出现时取 stages 对应坐标
- *   3. 配合外部传入的 visibleCount（来自 ItineraryCard 的 R1 stagger）
- *      逐段标注 + 路线延伸；visibleCount 增加时只新增标注，不重建地图
+ * 数据流（重构后，2026-05-22）：
+ *   - itinerary.stages 已带 lat/lng/address（后端 assemble 时注入）
+ *   - 不再调 /poi-locations 二次查询
+ *   - 真接入美团 POI 时，POI 接口直接返坐标 → 数据形态不变
  *
- * 高德能力预留：
- *   - 当前用 Polyline 直连模拟路线 → 切换 AMap.Driving 真实路线规划只需替换一行
- *   - 当前用 mock 坐标 → 切换 AMap.PlaceSearch 真实 POI 搜索只需替换数据源
+ * 高德能力：
+ *   - 标注（Marker）+ 真实路线规划（Driving）+ InfoWindow 详情
+ *   - Driving 失败时 fallback 到直连 Polyline，保证 Demo 不挂
  *
  * 降级：
  *   - 没 NEXT_PUBLIC_AMAP_KEY → 渲染文字列表
  *   - 高德 SDK 加载失败 → 渲染文字列表
- *   - 坐标字典拉取失败 → 渲染文字列表
  *   - 当前 stage 无坐标 → 在文字列表中标注「位置待定」
  */
 
@@ -28,11 +26,6 @@ import { useEffect, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
-import {
-  lookupCoord,
-  loadPoiLocations,
-  type PoiLocationsResponse,
-} from "@/lib/poi-locations";
 import type { Itinerary, ItineraryStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -44,21 +37,19 @@ const AMAP_SERVICE_HOST = `${
 }/_AMapService`;
 const AMAP_VERSION = "2.0";
 
-// 加载所需高德插件
+// 加载所需高德插件（含真实驾车路线规划 Driving）
 const AMAP_PLUGINS = [
   "AMap.Marker",
   "AMap.Polyline",
   "AMap.InfoWindow",
-  // 预留：切换真实路线规划时启用
-  // "AMap.Driving",
-  // "AMap.Walking",
+  "AMap.Driving",
 ];
 
 // 杭州市中心兜底（map 无标注点时的中心位置）
 const FALLBACK_CENTER: [number, number] = [120.155, 30.255]; // [lng, lat]
 
 // ============================================================
-// Stage with coord（合成类型）
+// 类型与工具
 // ============================================================
 
 interface StageWithCoord {
@@ -70,21 +61,17 @@ interface StageWithCoord {
   displayName: string;
 }
 
-function buildStageCoords(
-  itinerary: Itinerary,
-  data: PoiLocationsResponse,
-): StageWithCoord[] {
+function buildStageCoords(itinerary: Itinerary): StageWithCoord[] {
   const out: StageWithCoord[] = [];
   itinerary.stages.forEach((stage, idx) => {
-    const coord = lookupCoord(stage, data);
-    if (!coord) return;
+    if (stage.lat == null || stage.lng == null) return;
     out.push({
       idx,
       stage,
-      lat: coord.lat,
-      lng: coord.lng,
+      lat: stage.lat,
+      lng: stage.lng,
       type: stage.poi_id ? "poi" : "restaurant",
-      displayName: coord.name || stage.title,
+      displayName: stage.address || stage.title,
     });
   });
   return out;
@@ -107,31 +94,15 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   const mapRef = useRef<any>(null);
   const AMapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  const polylineRef = useRef<any>(null);
+  // routeOverlaysRef：存所有路线段（每段可能是 Driving 渲染的多 polyline 或 fallback 直连 polyline）
+  const routeOverlaysRef = useRef<any[]>([]);
 
   // 状态
-  const [poiLocations, setPoiLocations] = useState<PoiLocationsResponse | null>(
-    null,
-  );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
   // ============================================================
-  // 1. 拉坐标字典：组件 mount 时 + itinerary 出现时（如果之前失败）
-  // ============================================================
-  useEffect(() => {
-    let mounted = true;
-    // 即使之前失败过（cache=null + inflight=null），itinerary 变化时重试
-    loadPoiLocations().then((data) => {
-      if (mounted) setPoiLocations(data);
-    });
-    return () => {
-      mounted = false;
-    };
-  }, [itinerary]);
-
-  // ============================================================
-  // 2. 加载高德 SDK + 初始化地图
+  // 加载高德 SDK + 初始化地图
   // ============================================================
   useEffect(() => {
     if (!itinerary || !AMAP_KEY || !containerRef.current) return;
@@ -144,8 +115,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         // 浏览器永远看不到 jscode；只能看到 NEXT_PUBLIC_API_BASE 这个公开 URL
         // 见 https://lbs.amap.com/api/jsapi-v2/guide/abc/load
         if (typeof window !== "undefined") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (window as any)._AMapSecurityConfig = {
+          (window as { _AMapSecurityConfig?: unknown })._AMapSecurityConfig = {
             serviceHost: AMAP_SERVICE_HOST,
           };
         }
@@ -176,17 +146,12 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         if (canceled) return;
         const msg = e instanceof Error ? e.message : String(e);
         console.warn("[MapOverlay] 高德 SDK 加载失败:", msg);
-        // 常见错误：
-        //   - "INVALID_USER_KEY"：JS API key 没启用 / key 错了
-        //   - "USERKEY_PLAT_NOMATCH"：key 类型不匹配（用了 Web 服务 key 而不是 JS API key）
-        //   - 网络超时：key 域名白名单设置了限制
         setLoadError(msg);
       }
     })();
 
     return () => {
       canceled = true;
-      // 清理：销毁地图实例
       if (mapRef.current) {
         try {
           mapRef.current.destroy();
@@ -196,32 +161,34 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         mapRef.current = null;
       }
       markersRef.current = [];
-      polylineRef.current = null;
+      routeOverlaysRef.current = [];
       setMapReady(false);
     };
   }, [itinerary]);
 
   // ============================================================
-  // 3. 配合 visibleCount 逐段标注
+  // 配合 visibleCount 逐段标注 + 真实路线规划
   // ============================================================
   useEffect(() => {
     if (!mapReady || !mapRef.current || !AMapRef.current) return;
-    if (!itinerary || !poiLocations) return;
+    if (!itinerary) return;
 
     const AMap = AMapRef.current;
     const map = mapRef.current;
-    const stageCoords = buildStageCoords(itinerary, poiLocations);
+    const stageCoords = buildStageCoords(itinerary);
     if (stageCoords.length === 0) return;
 
     const targetCount =
       visibleCount === -1 ? stageCoords.length : visibleCount;
 
-    // 增量加：当前已有 markersRef.current.length 个标注，目标 targetCount 个
-    while (markersRef.current.length < targetCount && markersRef.current.length < stageCoords.length) {
+    // 增量加 marker
+    while (
+      markersRef.current.length < targetCount &&
+      markersRef.current.length < stageCoords.length
+    ) {
       const i = markersRef.current.length;
       const sc = stageCoords[i];
 
-      // 创建标注
       const marker = new AMap.Marker({
         position: [sc.lng, sc.lat],
         content: buildMarkerHtml(i + 1, sc.type),
@@ -230,7 +197,6 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       });
       marker.setMap(map);
 
-      // InfoWindow（点击展开详情）
       const infoHtml = buildInfoWindowHtml(sc);
       marker.on("click", () => {
         const infoWindow = new AMap.InfoWindow({
@@ -250,27 +216,28 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       if (m) m.setMap(null);
     }
 
-    // 重绘路线（只画 visibleCount 之前的连线）
-    if (polylineRef.current) {
-      polylineRef.current.setMap(null);
-      polylineRef.current = null;
-    }
+    // 重绘路线：清空旧路线，按当前已显示的 marker 间用 AMap.Driving 真实驾车路线
+    routeOverlaysRef.current.forEach((ov) => {
+      try {
+        ov.setMap?.(null);
+        // Driving 的渲染对象有 clear 方法
+        ov.clear?.();
+      } catch {
+        // 忽略
+      }
+    });
+    routeOverlaysRef.current = [];
+
     if (markersRef.current.length >= 2) {
-      const path = stageCoords
-        .slice(0, markersRef.current.length)
-        .map((sc) => [sc.lng, sc.lat]);
-      const polyline = new AMap.Polyline({
-        path,
-        strokeColor: "#fb923c",
-        strokeWeight: 3,
-        strokeStyle: "dashed",
-        strokeOpacity: 0.85,
-        lineJoin: "round",
-        lineCap: "round",
-        // 预留：切换为 AMap.Driving({map}).search(from, to, cb) 自动画真实路线
+      const visibleStages = stageCoords.slice(0, markersRef.current.length);
+
+      // 逐段调 AMap.Driving，失败则 fallback 到直连 Polyline
+      visibleStages.forEach((from, idx) => {
+        if (idx === 0) return;
+        const to = visibleStages[idx];
+        const prev = visibleStages[idx - 1];
+        drawSegment(AMap, map, prev, to, routeOverlaysRef.current);
       });
-      polyline.setMap(map);
-      polylineRef.current = polyline;
     }
 
     // 全部出来后 setFitView 自动调整视野
@@ -279,12 +246,13 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       markersRef.current.length > 0
     ) {
       try {
+        // 包含所有 marker，setFitView 会自动 zoom 到合适范围
         map.setFitView(markersRef.current, false, [40, 40, 40, 40]);
       } catch {
         // 忽略
       }
     }
-  }, [mapReady, itinerary, poiLocations, visibleCount]);
+  }, [mapReady, itinerary, visibleCount]);
 
   // ============================================================
   // 渲染
@@ -292,11 +260,8 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
   if (!itinerary) return null;
 
-  // 无 KEY / 加载失败 / 坐标字典失败 → 降级文字列表
-  if (!AMAP_KEY || loadError || !poiLocations) {
-    return (
-      <FallbackList itinerary={itinerary} poiLocations={poiLocations} />
-    );
+  if (!AMAP_KEY || loadError) {
+    return <FallbackList itinerary={itinerary} />;
   }
 
   return (
@@ -306,7 +271,9 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         <span className="text-[12px] font-medium text-ink-900 tracking-tight">
           行程地图
         </span>
-        <span className="text-[10px] text-ink-500">高德地图 · 点击标注查看详情</span>
+        <span className="text-[10px] text-ink-500">
+          高德地图 · 实时路径规划
+        </span>
       </div>
       <div
         ref={containerRef}
@@ -316,6 +283,80 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       />
     </div>
   );
+}
+
+// ============================================================
+// 路线渲染：优先 AMap.Driving 真实驾车路线；失败 fallback 直连 Polyline
+// ============================================================
+
+function drawSegment(
+  AMap: any,
+  map: any,
+  from: StageWithCoord,
+  to: StageWithCoord,
+  overlayBucket: any[],
+): void {
+  // Driving 实例不能复用（每次 search 会清空之前的路线）→ 每段用一个独立实例
+  let driving: any;
+  try {
+    driving = new AMap.Driving({
+      map,
+      hideMarkers: true, // 我们自己有标注
+      showTraffic: false,
+      autoFitView: false,
+      policy: AMap.DrivingPolicy?.LEAST_TIME ?? 0,
+    });
+  } catch (e) {
+    console.warn("[MapOverlay] Driving 实例化失败，fallback 直连:", e);
+    drawFallbackPolyline(AMap, map, from, to, overlayBucket);
+    return;
+  }
+
+  overlayBucket.push(driving);
+
+  driving.search(
+    [from.lng, from.lat],
+    [to.lng, to.lat],
+    (status: string, _result: any) => {
+      if (status !== "complete") {
+        // 路线规划失败（如距离过近 / API 限流）→ fallback 直连
+        try {
+          driving.clear?.();
+        } catch {
+          // 忽略
+        }
+        drawFallbackPolyline(AMap, map, from, to, overlayBucket);
+      }
+      // status === "complete" 时高德 SDK 自动渲染路线到 map 上
+    },
+  );
+}
+
+function drawFallbackPolyline(
+  AMap: any,
+  map: any,
+  from: StageWithCoord,
+  to: StageWithCoord,
+  overlayBucket: any[],
+): void {
+  try {
+    const polyline = new AMap.Polyline({
+      path: [
+        [from.lng, from.lat],
+        [to.lng, to.lat],
+      ],
+      strokeColor: "#fb923c",
+      strokeWeight: 3,
+      strokeStyle: "dashed",
+      strokeOpacity: 0.7,
+      lineJoin: "round",
+      lineCap: "round",
+    });
+    polyline.setMap(map);
+    overlayBucket.push(polyline);
+  } catch (e) {
+    console.warn("[MapOverlay] fallback polyline 失败:", e);
+  }
 }
 
 // ============================================================
@@ -395,6 +436,11 @@ function buildInfoWindowHtml(sc: StageWithCoord): string {
         font-family: ui-monospace, monospace;
       ">${stage.start} - ${stage.end}</div>
       ${
+        displayName && displayName !== stage.title
+          ? `<div style="font-size:11px;color:#525252;margin-top:4px;">${escapeHtml(displayName)}</div>`
+          : ""
+      }
+      ${
         stage.note
           ? `<div style="
               margin-top: 6px;
@@ -423,25 +469,17 @@ function escapeHtml(s: string): string {
 // 降级：纯文字地点列表
 // ============================================================
 
-function FallbackList({
-  itinerary,
-  poiLocations,
-}: {
-  itinerary: Itinerary;
-  poiLocations: PoiLocationsResponse | null;
-}) {
-  const items = itinerary.stages
-    .map((stage, idx) => {
-      const coord = poiLocations ? lookupCoord(stage, poiLocations) : null;
-      return {
-        idx,
-        title: coord?.name || stage.title,
-        timeRange: `${stage.start}-${stage.end}`,
-        kind: stage.kind,
-        hasCoord: coord != null,
-      };
-    })
-    .filter((x) => x.title);
+function FallbackList({ itinerary }: { itinerary: Itinerary }) {
+  const items = itinerary.stages.map((stage, idx) => {
+    const hasCoord = stage.lat != null && stage.lng != null;
+    return {
+      idx,
+      title: stage.address || stage.title,
+      timeRange: `${stage.start}-${stage.end}`,
+      kind: stage.kind,
+      hasCoord,
+    };
+  });
 
   if (items.length === 0) return null;
 

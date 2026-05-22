@@ -580,3 +580,61 @@
   - 中文项目的关键词正则必须同时覆盖中文数字（一二三 / 半 / 两）+ 阿拉伯数字
   - 写新规则时配 28 条覆盖正/反例的单测（中文数字 / 关键词 / 「以内」/ 长输入兜底）
 - **优先级**：P1（直接影响 demo 反馈环；同类 bug 已是第三次：问题 11 / 13 / 30）
+
+
+### [P2] 2026-05-21 React 18 不支持 ref-as-prop，自定义组件传 ref 必须用 forwardRef
+
+- **现象**：用户点击「生成海报」按钮**没有任何反应**——按钮不变、无 toast、无 console 报错。
+- **根因**：组件源码里写成了 React 19 风格——把 `ref` 当普通函数参数接收：
+  ```tsx
+  // 错误：React 18 下 ref 这个 attribute 会被 React 警告并丢弃
+  const PosterTemplate = function PosterTemplate({
+    ref,  // 这是 undefined，不会拿到父组件的 ref
+    itinerary,
+  }: { ref: React.RefObject<HTMLDivElement>; itinerary: Itinerary }) {
+    return <div ref={ref}>...</div>;
+  };
+  // 父组件：<PosterTemplate ref={templateRef} ... />
+  // → templateRef.current 永远是 null
+  ```
+- **效果链路**：`templateRef.current === null` → `if (generating || !templateRef.current) return;` 早退 → 按钮 click 后看似没事发生（generate 函数没机会跑到 try 块，所以 catch 也不会触发）。
+- **修复**：改用 React 18 的 `forwardRef`：
+  ```tsx
+  const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
+    function PosterTemplate({ itinerary }, ref) {
+      return <div ref={ref}>...</div>;
+    },
+  );
+  ```
+- **防再犯**：
+  - 项目 React 版本 18.x（看 `package.json`），不能用 React 19 的 `ref` 直接当 prop——必须 forwardRef
+  - 调试「按钮无反应」类 bug 时优先怀疑「handler 早退」，第一步在 handler 第一行加 console.log 确认是否被调用
+  - 任何「ref 跨组件传递」如果发现拿到 null 不是预期，先看 React 版本与组件定义方式是否匹配
+- **优先级**：P2（不挂 demo，但完全没反应让评委以为按钮失效）
+
+
+### [P1] 2026-05-22 itinerary stage 缺坐标 → 前端二次查询字典 → 用户视觉错位
+
+- **现象**：用户截图显示「悦读绘本馆」和「轻语沙拉·西溪店」在地图上一西北一东南、视觉距离 7-8km，但卡片文案声称 2.1km；多家 POI 看似围绕家几公里展开，实际全在西溪天街周边一公里内。
+- **根因（4 阶段调查后定位）**：
+  1. 数据层：mock 用「商圈名」当门店地址（`location.name = "西溪天街"`），同一商圈下所有 POI 共享同一商圈坐标 → 商圈级别 1km² 内挤了十家 POI；高德 GeoCode 又对短地名歧义严重（断桥偏 9.7km、西溪银泰偏 15.7km）
+  2. 链路层：`backend/schemas/itinerary.py` 的 `ItineraryStage` 只有 `poi_id` / `restaurant_id`，没坐标 → 前端 `MapOverlay` 必须额外调 GET `/poi-locations` 拉字典做二次查询 → 任何 stage 没找到坐标就降级为「文字列表」（用户看到的就是这个）
+  3. 距离层：`distance_km` 字段是「家→POI」距离，被 critic 当成 stage 间距来用 → 30 段串联时数字根本对不上
+  4. 路线层：`mock_data/routes.json` 是 56 条手工随机数（`taxi_minutes` 在 4-30 之间随便填），命中率低；`_estimate` fallback 是固定 15 分钟，让所有未覆盖路线都「打车 15 分钟」
+- **解法（分 4 层修，2026-05-22 完成）**：
+  1. **坐标精度**：手工坐标表 `_MANUAL_FALLBACK` 升级为最高优先级 + `--force` 模式覆盖错误坐标；重跑 `enrich_mock_coords.py` 让 31 个独立地名 31/31 < 1km
+  2. **schema 直带坐标**：`ItineraryStage` 加 `lat` / `lng` / `address` 三个 Optional 字段；assemble_blueprint.py 与 planner.py 五处 stage 构造统一注入坐标；前端删 `frontend/lib/poi-locations.ts` + 后端删 `/poi-locations` 端点；`MapOverlay` 直接读 `stage.lat/lng`
+  3. **真实路线**：`MapOverlay` 用 `AMap.Driving` 真实驾车路线规划（自带交通拥堵权重）；失败 fallback 直连 Polyline
+  4. **距离时长**：`planner._estimate` routes.json 没命中时改用 haversine + 25km/h 平均车速 + 4 分钟起步耗时；范围限定 [3, 90] 分钟。routes.json 暂保留作为「mock 已校准时段」优先源，但不再是兜底
+- **相关文件**：
+  - `backend/schemas/itinerary.py:33-44`（ItineraryStage 加 lat/lng/address）
+  - `backend/agent/assemble_blueprint.py:108-128`（_resolve_coord_and_address + 注入）
+  - `backend/agent/planner.py:725-815`（_estimate 加 haversine fallback）
+  - `frontend/components/MapOverlay.tsx`（重写：直接读 stage.lat/lng + AMap.Driving）
+  - `frontend/lib/types.ts:84-96`（ItineraryStage 加坐标字段）
+  - `mock_data/pois.json` / `mock_data/restaurants.json`（坐标已校准 31/31 < 1km）
+- **防再犯**：
+  - schema 评审时优先「让数据上游一次性带齐」，避免下游通过字典 / 端点二次查询拼装坐标
+  - mock fallback 不要返"看起来合理的常量"（如固定 15min）；要么返失败让上层显式处理，要么用算法估算
+  - 真接入美团 POI 时，POI 接口直接返坐标 → 本架构形态不变（schema-level 兼容）
+- **优先级**：P1（直接影响 demo 视觉真实性——评委一眼能看出地图和文案对不上）

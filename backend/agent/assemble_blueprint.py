@@ -117,6 +117,31 @@ def _build_summary(blueprint: PlanBlueprint) -> str:
 # 主入口
 # ============================================================
 
+def _resolve_coord_and_address(
+    s: BlueprintStage,
+) -> tuple[float | None, float | None, str | None]:
+    """根据 blueprint stage 的 target_kind/target_id 取 (lat, lng, address)。
+
+    无 target / 找不到 / 该地点没坐标 → 全部返 None。
+    转场/出发/返回这种过程类段一般无 target，前端 MapOverlay 会跳过。
+    """
+    if s.target_kind == BlueprintTargetKind.POI and s.target_id:
+        poi = next((p for p in load_pois() if p.id == s.target_id), None)
+        if poi:
+            loc = poi.location
+            return (loc.lat, loc.lng, loc.name)
+    elif s.target_kind == BlueprintTargetKind.RESTAURANT and s.target_id:
+        rest = next((r for r in load_restaurants() if r.id == s.target_id), None)
+        if rest:
+            loc = rest.location
+            return (loc.lat, loc.lng, loc.name)
+    return (None, None, None)
+
+
+# ============================================================
+# 主入口
+# ============================================================
+
 def assemble_from_blueprint(
     intent: IntentExtraction,  # noqa: ARG001 — 保留参数为未来扩展（如附加文案）
     blueprint: PlanBlueprint,
@@ -124,6 +149,7 @@ def assemble_from_blueprint(
     """蓝图 → Itinerary。
 
     返回的 Itinerary.stages 与 blueprint.stages 一一对应，时间轴严格按蓝图。
+    自动注入 lat/lng/address，前端无需二次查询。
     """
     itinerary_stages: list[ItineraryStage] = []
     for s in blueprint.stages:
@@ -131,6 +157,7 @@ def assemble_from_blueprint(
         restaurant_id = (
             s.target_id if s.target_kind == BlueprintTargetKind.RESTAURANT else None
         )
+        lat, lng, address = _resolve_coord_and_address(s)
         itinerary_stages.append(
             ItineraryStage(
                 kind=s.kind,
@@ -139,6 +166,9 @@ def assemble_from_blueprint(
                 title=_stage_title(s),
                 poi_id=poi_id,
                 restaurant_id=restaurant_id,
+                lat=lat,
+                lng=lng,
+                address=address,
                 note=s.note,
             )
         )

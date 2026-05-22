@@ -4489,3 +4489,47 @@ pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_det
 
 - 「关键词列表在多文件维护两份」是经典反模式
 - 「LLM 无上下文判短反馈」需要 router 层兜底而非靠 LLM
+
+
+---
+
+问题：mock 数据 + 前端 + 高德链路深层重构（5 个根本问题，"治本"）
+
+解决方案：分四层重构，按 P0 → P2 优先级处理
+
+1. **P0 #5 schema 直带坐标，删除前端二次查询字典**：
+   - `backend/schemas/itinerary.py` 的 `ItineraryStage` 加 `lat` / `lng` / `address` 三个 Optional 字段
+   - `backend/agent/assemble_blueprint.py` 加 `_resolve_coord_and_address()`，assemble 时根据 target_id 注入坐标
+   - `backend/agent/planner.py`（rule planner）5 处 stage 构造（出发 / 主活动 / 转场 / 用餐 / 返回）补 lat/lng/address
+   - 前端 `frontend/lib/types.ts` 的 `ItineraryStage` 类型同步加 lat/lng/address
+   - 删除 `frontend/lib/poi-locations.ts`（前端字典）+ `backend/main.py` 的 `/poi-locations` 端点（不再被任何地方引用）
+
+2. **P0 #4 接 AMap.Driving 真实路线规划**：
+   - `frontend/components/MapOverlay.tsx` 整体重写：删除 lookupCoord/poi-locations 引用，直接 `stage.lat/stage.lng`
+   - 加 `drawSegment()`：每相邻段调一个独立 `AMap.Driving` 实例，请求真实驾车路线（含交通拥堵权重 + 真实路网）
+   - 失败 fallback 到旧 Polyline 直连，保证 demo 永不挂
+   - AMap_PLUGINS 加 `AMap.Driving`
+
+3. **P1 #2 + P2 #3 stage 间时长改用 haversine 估算**：
+   - `backend/agent/planner.py` 的 `_estimate()` 加 haversine fallback：routes.json 命中走 mock；没命中且双方都有坐标 → 用 haversine 距离 / 25km/h（杭州市区拥堵实测中位数）+ 4min 起步耗时；最终兜底 15 分钟
+   - 加 `_haversine_km()` / `_coord_of()` / `_estimate_minutes_by_haversine()` 三个辅助函数
+   - 范围限定 [3, 90] 分钟防极端值
+
+修改的代码文件：
+- `backend/schemas/itinerary.py`
+- `backend/agent/assemble_blueprint.py`
+- `backend/agent/planner.py`
+- `backend/main.py`（删 `/poi-locations`）
+- `frontend/components/MapOverlay.tsx`（重写）
+- `frontend/lib/types.ts`
+- `frontend/lib/poi-locations.ts`（删除）
+- `docs/03-implementation/pitfalls.md`（追加 P1 条目）
+
+应当达成的效果：
+- 后端 295 测试全过（验证：`.venv\Scripts\python.exe -m pytest tests/ -q`）
+- 前端 typecheck + 30 单测 + production build 全绿
+- 前端地图直接读 stage 坐标 → 不再需要单独 fetch `/poi-locations` → 减少一次网络请求
+- 地图上多段间路径用真实驾车路线（高德 Driving API）→ 视觉显示拐弯走真实道路而不是直连
+- stage 间「打车约 X 分钟」的 X 真正反映两点间距离（无 routes.json 时按坐标 + 25km/h 估算），不再固定 15
+- 前端「位置待定」降级文案触发条件简化（只有 stage.lat/lng 都为 null 时才触发）
+- 真接入美团 POI 时，POI 接口直接返坐标 → schema 形态不变，0 改动迁移

@@ -27,6 +27,17 @@ class ItineraryStage(BaseModel):
     title: str = Field(..., description="一行说明，如「亲子游玩 · 森林儿童探索乐园」")
     poi_id: Optional[str] = None
     restaurant_id: Optional[str] = None
+    # 直接带坐标，前端 MapOverlay 不再需要二次查询 /poi-locations
+    # 真接入美团 POI 时，POI 接口直接返坐标，schema 形态不变
+    lat: Optional[float] = Field(
+        default=None, description="该段地点纬度（无关联 POI/餐厅时为 null）"
+    )
+    lng: Optional[float] = Field(
+        default=None, description="该段地点经度（无关联 POI/餐厅时为 null）"
+    )
+    address: Optional[str] = Field(
+        default=None, description="详细地址 / 地名（如「西溪天街」），用于地图 InfoWindow"
+    )
     note: Optional[str] = Field(
         default=None,
         description='附加说明，如"已为你预约 17:00 三人位"',

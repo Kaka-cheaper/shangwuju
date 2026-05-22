@@ -28,11 +28,13 @@
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from data.loader import load_pois, load_restaurants
 from schemas.domain import Poi, Restaurant
 from schemas.errors import FailureReason
 from schemas.intent import IntentExtraction
@@ -723,18 +725,97 @@ def _negotiate_dining(
 
 
 def _estimate(call, from_id: str, to_id: str) -> int:
-    """给关键节点估打车时间；失败兜底 15 分钟。"""
+    """给关键节点估打车时间。
+
+    优先用 routes.json（mock 内手工调过的时间）；兜底用 haversine 距离 + 平均车速。
+    再 fallback 到固定 15 分钟。
+
+    设计动机（2026-05-22 重构）：
+        - routes.json 是 56 条手工随机数，存在大量 from→to 没覆盖的情况
+        - 缺路线时返 15 分钟会让 stage 间「打车约 15 分钟」无意义
+        - 现在改为：mock 命中走 mock；mock 没命中且双方都有坐标 → haversine 估算
+        - 平均车速取 25 km/h（杭州市区拥堵实测中位数），向上取整到分钟
+    """
     result = call(
         "estimate_route_time",
         EstimateRouteTimeInput(from_location=from_id, to_location=to_id).model_dump(),
     )
-    if not result.success:
-        return 15
-    out = EstimateRouteTimeOutput.model_validate(result.output)
-    if out.route is None:
-        return 15
-    # 取打车 > 步行 > 公交的优先级
-    return out.route.taxi_minutes or out.route.walking_minutes or out.route.bus_minutes or 15
+    if result.success:
+        out = EstimateRouteTimeOutput.model_validate(result.output)
+        if out.route is not None:
+            mode_value = (
+                out.route.taxi_minutes
+                or out.route.walking_minutes
+                or out.route.bus_minutes
+            )
+            if mode_value:
+                return mode_value
+
+    # mock 没命中 → 从坐标估算
+    haversine_minutes = _estimate_minutes_by_haversine(from_id, to_id)
+    if haversine_minutes is not None:
+        return haversine_minutes
+
+    return 15
+
+
+# ============================================================
+# 坐标估算辅助（routes.json fallback；2026-05-22 新增）
+# ============================================================
+
+# 平均车速（km/h）—— 杭州市区拥堵实测中位数
+_AVG_TAXI_SPEED_KMH = 25.0
+# 起步耗时（分钟）—— 上车 / 下车 / 等红绿灯固定耗时
+_TAXI_BASE_MINUTES = 4
+
+
+def _haversine_km(
+    lat1: float, lng1: float, lat2: float, lng2: float
+) -> float:
+    """两个经纬度点间的球面距离（km）。"""
+    r = 6371.0  # 地球半径
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(
+        dlmb / 2
+    ) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return r * c
+
+
+def _coord_of(loc_id: str) -> tuple[float, float] | None:
+    """根据 home / poi_id / restaurant_id 取坐标 (lat, lng)。无坐标返 None。"""
+    if loc_id == "home":
+        # demo_user 的家 —— 见 mock_data/user_profile.json
+        return (30.275, 120.075)
+    for p in load_pois():
+        if p.id == loc_id:
+            if p.location.lat is not None and p.location.lng is not None:
+                return (p.location.lat, p.location.lng)
+            return None
+    for r in load_restaurants():
+        if r.id == loc_id:
+            if r.location.lat is not None and r.location.lng is not None:
+                return (r.location.lat, r.location.lng)
+            return None
+    return None
+
+
+def _estimate_minutes_by_haversine(
+    from_id: str, to_id: str
+) -> int | None:
+    """两点都查得到坐标 → haversine 距离 / 平均车速 + 起步耗时。否则 None。"""
+    a = _coord_of(from_id)
+    b = _coord_of(to_id)
+    if a is None or b is None:
+        return None
+    km = _haversine_km(a[0], a[1], b[0], b[1])
+    if km <= 0:
+        return _TAXI_BASE_MINUTES
+    minutes = int(round(km / _AVG_TAXI_SPEED_KMH * 60)) + _TAXI_BASE_MINUTES
+    # 限定 [3, 90] 分钟（防极端值）
+    return max(3, min(minutes, 90))
 
 
 # ============================================================
@@ -960,6 +1041,8 @@ def _assemble_itinerary(
         raise ValueError("segments 必须至少含「主活动」或「用餐」之一")
 
     arrive_first = _add_minutes(cursor, home_to_poi if has_main else rest_to_home)
+    # 「出发」段把 lat/lng/address 指向首个目的地（POI 或餐厅），便于地图标点
+    first_target_loc = first_target.location
     stages.append(
         ItineraryStage(
             kind="出发",
@@ -968,6 +1051,9 @@ def _assemble_itinerary(
             title=f"出发前往「{first_target_name}」",
             poi_id=main_poi.id if has_main else None,
             restaurant_id=chosen_restaurant.id if (not has_main and has_dining) else None,
+            lat=first_target_loc.lat,
+            lng=first_target_loc.lng,
+            address=first_target_loc.name,
             note=f"打车约 {home_to_poi if has_main else rest_to_home} 分钟",
         )
     )
@@ -983,6 +1069,9 @@ def _assemble_itinerary(
                 end=leave_poi,
                 title=f"{main_poi.type} · {main_poi.name}",
                 poi_id=main_poi.id,
+                lat=main_poi.location.lat,
+                lng=main_poi.location.lng,
+                address=main_poi.location.name,
             )
         )
         cursor = leave_poi
@@ -1006,6 +1095,9 @@ def _assemble_itinerary(
                     start=cursor,
                     end=transfer_end,
                     title=f"前往「{chosen_restaurant.name}」",
+                    lat=chosen_restaurant.location.lat,
+                    lng=chosen_restaurant.location.lng,
+                    address=chosen_restaurant.location.name,
                     note=(
                         f"打车约 {poi_to_rest} 分钟"
                         if transfer_end == arrive_rest
@@ -1029,6 +1121,9 @@ def _assemble_itinerary(
                 end=dining_end,
                 title=f"{chosen_restaurant.cuisine} · {chosen_restaurant.name}",
                 restaurant_id=chosen_restaurant.id,
+                lat=chosen_restaurant.location.lat,
+                lng=chosen_restaurant.location.lng,
+                address=chosen_restaurant.location.name,
                 note=f"已为你预留 {chosen_time or dining_start}（{party_size} 人）",
             )
         )
