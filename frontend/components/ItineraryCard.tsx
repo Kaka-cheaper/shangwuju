@@ -13,6 +13,7 @@ import RefinementDialog from "./RefinementDialog";
 import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
+import MapOverlay from "./MapOverlay";
 import PosterGenerator from "./PosterGenerator";
 import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
@@ -275,6 +276,11 @@ export default function ItineraryCard() {
           );
         })}
       </ol>
+
+      {/* T8/R2: 高德地图标注（配合 R1 stagger 逐段亮起） */}
+      <div className="px-4 pb-3">
+        <MapOverlay visibleCount={visibleCount} />
+      </div>
 
       {/* 已为你预留：暗色 emerald 玻璃 */}
       {hasOrders && (

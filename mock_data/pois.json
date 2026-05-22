@@ -39,7 +39,9 @@
     "name": "西溪艺术展中心 · 当季特展",
     "type": "展览",
     "location": {
-      "name": "西溪文创园"
+      "name": "西溪文创园",
+      "lat": 30.28018,
+      "lng": 120.140446
     },
     "distance_km": 3.8,
     "opening_hours": "10:00-20:00",
@@ -71,7 +73,9 @@
     "name": "城市儿童博物馆",
     "type": "亲子博物馆",
     "location": {
-      "name": "城西银泰"
+      "name": "城西银泰",
+      "lat": 30.2786,
+      "lng": 120.1145
     },
     "distance_km": 3.2,
     "opening_hours": "09:30-17:30",
@@ -105,7 +109,9 @@
     "name": "悦读亲子绘本馆",
     "type": "儿童阅读馆",
     "location": {
-      "name": "西溪天街"
+      "name": "西溪天街",
+      "lat": 30.293379,
+      "lng": 120.068612
     },
     "distance_km": 2.5,
     "opening_hours": "10:00-21:00",
@@ -140,7 +146,9 @@
     "name": "江畔老人公园",
     "type": "城市公园",
     "location": {
-      "name": "运河边"
+      "name": "运河边",
+      "lat": 30.3092,
+      "lng": 120.1542
     },
     "distance_km": 2.0,
     "opening_hours": "06:00-21:00",
@@ -167,7 +175,9 @@
     "name": "怡心老年茶艺馆",
     "type": "茶馆",
     "location": {
-      "name": "南山路"
+      "name": "南山路",
+      "lat": 30.235702,
+      "lng": 120.157144
     },
     "distance_km": 2.8,
     "opening_hours": "09:00-22:00",
@@ -197,7 +207,9 @@
     "name": "国韵戏曲文化园",
     "type": "戏曲园",
     "location": {
-      "name": "中山北路"
+      "name": "中山北路",
+      "lat": 30.268877,
+      "lng": 120.167215
     },
     "distance_km": 4.6,
     "opening_hours": "10:00-21:00",
@@ -223,7 +235,9 @@
     "name": "云上私人画廊",
     "type": "画廊",
     "location": {
-      "name": "玉皇山路"
+      "name": "玉皇山路",
+      "lat": 30.224799,
+      "lng": 120.15364
     },
     "distance_km": 3.5,
     "opening_hours": "11:00-20:00",
@@ -254,7 +268,9 @@
     "name": "城市公共图书馆",
     "type": "图书馆",
     "location": {
-      "name": "钱江新城"
+      "name": "钱江新城",
+      "lat": 30.250397,
+      "lng": 120.213988
     },
     "distance_km": 4.0,
     "opening_hours": "09:00-21:00",
@@ -280,7 +296,9 @@
     "name": "舒愈 SPA 养身馆",
     "type": "SPA",
     "location": {
-      "name": "西溪银泰"
+      "name": "西溪银泰",
+      "lat": 30.202089,
+      "lng": 120.2216
     },
     "distance_km": 2.3,
     "opening_hours": "11:00-23:00",
@@ -309,7 +327,9 @@
     "name": "晨光网红独立书店",
     "type": "书店",
     "location": {
-      "name": "南宋御街"
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
     },
     "distance_km": 4.8,
     "opening_hours": "10:00-22:00",
@@ -337,7 +357,9 @@
     "name": "花漾网红咖啡花园",
     "type": "咖啡馆",
     "location": {
-      "name": "良渚文化村"
+      "name": "良渚文化村",
+      "lat": 30.358161,
+      "lng": 120.02284
     },
     "distance_km": 4.3,
     "opening_hours": "10:00-22:00",
@@ -369,7 +391,9 @@
     "name": "极速密室逃脱",
     "type": "密室",
     "location": {
-      "name": "湖滨银泰 in77"
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
     },
     "distance_km": 4.7,
     "opening_hours": "11:00-23:00",
@@ -399,7 +423,9 @@
     "name": "联机桌游主题馆",
     "type": "桌游馆",
     "location": {
-      "name": "嘉里中心"
+      "name": "嘉里中心",
+      "lat": 30.259647,
+      "lng": 120.162657
     },
     "distance_km": 4.4,
     "opening_hours": "12:00-24:00",
@@ -428,7 +454,9 @@
     "name": "南宋御街 city walk 街区",
     "type": "街区漫步",
     "location": {
-      "name": "上城区"
+      "name": "上城区",
+      "lat": 30.226543,
+      "lng": 120.19732
     },
     "distance_km": 4.9,
     "opening_hours": "09:00-22:00",
@@ -455,7 +483,9 @@
     "name": "云岚商务雅集茶室",
     "type": "商务茶室",
     "location": {
-      "name": "钱江新城万象城"
+      "name": "钱江新城万象城",
+      "lat": 30.278094,
+      "lng": 120.166294
     },
     "distance_km": 4.5,
     "opening_hours": "10:00-22:00",
@@ -485,7 +515,9 @@
     "name": "童趣海洋亲子馆",
     "type": "亲子游乐场",
     "location": {
-      "name": "西溪天街"
+      "name": "西溪天街",
+      "lat": 30.293379,
+      "lng": 120.068612
     },
     "distance_km": 2.7,
     "opening_hours": "09:00-19:00",
@@ -519,7 +551,9 @@
     "name": "西湖游船码头",
     "type": "城市观光",
     "location": {
-      "name": "断桥"
+      "name": "断桥",
+      "lat": 30.276109,
+      "lng": 120.046268
     },
     "distance_km": 4.7,
     "opening_hours": "08:00-20:00",
@@ -551,7 +585,9 @@
     "name": "玉皇山陶艺工坊",
     "type": "DIY 工坊",
     "location": {
-      "name": "玉皇山南麓"
+      "name": "玉皇山南麓",
+      "lat": 30.214684,
+      "lng": 120.147288
     },
     "distance_km": 4.4,
     "opening_hours": "10:00-21:00",
@@ -583,7 +619,9 @@
     "name": "运河文化夜跑步道",
     "type": "运动步道",
     "location": {
-      "name": "运河南端"
+      "name": "运河南端",
+      "lat": 30.3088,
+      "lng": 120.1535
     },
     "distance_km": 1.8,
     "opening_hours": "00:00-23:59",
@@ -611,7 +649,9 @@
     "name": "热门草莓音乐节限定场",
     "type": "演出",
     "location": {
-      "name": "黄龙体育中心"
+      "name": "黄龙体育中心",
+      "lat": 30.26819,
+      "lng": 120.129899
     },
     "distance_km": 4.6,
     "opening_hours": "14:00-22:00",
@@ -643,7 +683,9 @@
     "name": "礼遇花园 · 家宴庆典广场",
     "type": "庆典花园",
     "location": {
-      "name": "钱江世纪城"
+      "name": "钱江世纪城",
+      "lat": 30.231242,
+      "lng": 120.254158
     },
     "distance_km": 4.6,
     "opening_hours": "09:00-22:00",
@@ -675,7 +717,9 @@
     "name": "毛球先生猫咖",
     "type": "猫咖",
     "location": {
-      "name": "西溪银泰"
+      "name": "西溪银泰",
+      "lat": 30.202089,
+      "lng": 120.2216
     },
     "distance_km": 2.4,
     "opening_hours": "11:00-22:00",
@@ -708,7 +752,9 @@
     "name": "二两猫舍 · 治愈系猫咖",
     "type": "猫咖",
     "location": {
-      "name": "南宋御街"
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
     },
     "distance_km": 4.6,
     "opening_hours": "12:00-23:00",
@@ -741,7 +787,9 @@
     "name": "悬念剧场 · 沉浸式剧本杀",
     "type": "剧本杀",
     "location": {
-      "name": "湖滨银泰 in77"
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
     },
     "distance_km": 4.7,
     "opening_hours": "13:00-23:30",
@@ -772,7 +820,9 @@
     "name": "故事会 · 推理剧本杀馆",
     "type": "剧本杀",
     "location": {
-      "name": "嘉里中心"
+      "name": "嘉里中心",
+      "lat": 30.259647,
+      "lng": 120.162657
     },
     "distance_km": 4.4,
     "opening_hours": "13:00-24:00",
@@ -802,7 +852,9 @@
     "name": "麦霸欢唱 KTV · 旗舰店",
     "type": "KTV",
     "location": {
-      "name": "西溪银泰"
+      "name": "西溪银泰",
+      "lat": 30.202089,
+      "lng": 120.2216
     },
     "distance_km": 2.5,
     "opening_hours": "12:00-02:00",
@@ -832,7 +884,9 @@
     "name": "星光量贩式 KTV",
     "type": "KTV",
     "location": {
-      "name": "钱江新城万象城"
+      "name": "钱江新城万象城",
+      "lat": 30.278094,
+      "lng": 120.166294
     },
     "distance_km": 4.5,
     "opening_hours": "12:00-02:00",
@@ -862,7 +916,9 @@
     "name": "万达 IMAX 电影院",
     "type": "电影院",
     "location": {
-      "name": "西溪天街"
+      "name": "西溪天街",
+      "lat": 30.293379,
+      "lng": 120.068612
     },
     "distance_km": 2.6,
     "opening_hours": "09:30-24:00",
@@ -893,7 +949,9 @@
     "name": "时代广场 杜比影院",
     "type": "电影院",
     "location": {
-      "name": "湖滨银泰 in77"
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
     },
     "distance_km": 4.7,
     "opening_hours": "09:30-24:00",
@@ -924,7 +982,9 @@
     "name": "嫩白美甲 · 闺蜜下午局",
     "type": "美甲",
     "location": {
-      "name": "西溪银泰"
+      "name": "西溪银泰",
+      "lat": 30.202089,
+      "lng": 120.2216
     },
     "distance_km": 2.3,
     "opening_hours": "10:00-21:30",
@@ -955,7 +1015,9 @@
     "name": "晨星瑜伽馆",
     "type": "瑜伽馆",
     "location": {
-      "name": "钱江新城"
+      "name": "钱江新城",
+      "lat": 30.250397,
+      "lng": 120.213988
     },
     "distance_km": 4.0,
     "opening_hours": "07:00-22:00",
@@ -985,7 +1047,9 @@
     "name": "硬核燃力健身工坊",
     "type": "健身房",
     "location": {
-      "name": "西溪天街"
+      "name": "西溪天街",
+      "lat": 30.293379,
+      "lng": 120.068612
     },
     "distance_km": 2.6,
     "opening_hours": "06:00-23:00",
@@ -1013,7 +1077,9 @@
     "name": "梦幻奇迹乐园（大型主题）",
     "type": "主题乐园",
     "location": {
-      "name": "钱江世纪城"
+      "name": "钱江世纪城",
+      "lat": 30.231242,
+      "lng": 120.254158
     },
     "distance_km": 4.8,
     "opening_hours": "09:00-21:00",
@@ -1048,7 +1114,9 @@
     "name": "腾跃蹦床公园",
     "type": "室内运动馆",
     "location": {
-      "name": "西溪银泰"
+      "name": "西溪银泰",
+      "lat": 30.202089,
+      "lng": 120.2216
     },
     "distance_km": 2.5,
     "opening_hours": "10:00-22:30",
@@ -1083,7 +1151,9 @@
     "name": "Vertical 攀岩馆",
     "type": "室内运动馆",
     "location": {
-      "name": "城西银泰"
+      "name": "城西银泰",
+      "lat": 30.2786,
+      "lng": 120.1145
     },
     "distance_km": 3.3,
     "opening_hours": "11:00-22:30",
@@ -1116,7 +1186,9 @@
     "name": "胶片屋 livehouse",
     "type": "livehouse",
     "location": {
-      "name": "南宋御街"
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
     },
     "distance_km": 4.9,
     "opening_hours": "18:00-02:00",
@@ -1148,7 +1220,9 @@
     "name": "微醺时刻 精酿酒馆",
     "type": "酒吧",
     "location": {
-      "name": "湖滨银泰 in77"
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
     },
     "distance_km": 4.7,
     "opening_hours": "17:00-02:00",
@@ -1178,7 +1252,9 @@
     "name": "麦香烘焙体验工坊",
     "type": "烘焙工坊",
     "location": {
-      "name": "西溪天街"
+      "name": "西溪天街",
+      "lat": 30.293379,
+      "lng": 120.068612
     },
     "distance_km": 2.5,
     "opening_hours": "10:00-21:00",

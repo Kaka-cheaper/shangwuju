@@ -237,6 +237,39 @@ def scenarios() -> dict[str, list[dict[str, str]]]:
     return {"scenarios": SCENARIOS}
 
 
+@app.get("/poi-locations")
+def poi_locations() -> dict[str, dict[str, dict[str, Any]]]:
+    """返回所有 POI / 餐厅的坐标字典（前端 MapOverlay 用）。
+
+    设计动机（spec frontend-experience-innovation R2）：
+        - itinerary stage 只有 poi_id / restaurant_id，没有坐标
+        - 前端启动时拉一次本端点 → 缓存到本地 → stage 出现时按 id 查坐标
+        - 比让前端调高德地理编码 API 更稳（高德 JS API key 在前端可见，QPS 限制更紧）
+
+    payload 形态：
+        {
+          "pois":        { "P001": {"name":"森林...","lat":30.27,"lng":120.07}, ... },
+          "restaurants": { "R001": {"name":"轻语沙拉","lat":30.25,"lng":120.10}, ... }
+        }
+
+    缺坐标的条目（lat=null）也会返回，前端可降级到「文字列表」。
+    """
+    from data.loader import load_pois, load_restaurants
+
+    def _entry(item: Any) -> dict[str, Any]:
+        loc = getattr(item, "location", None)
+        return {
+            "name": getattr(item, "name", ""),
+            "location_name": getattr(loc, "name", "") if loc else "",
+            "lat": getattr(loc, "lat", None) if loc else None,
+            "lng": getattr(loc, "lng", None) if loc else None,
+        }
+
+    pois = {p.id: _entry(p) for p in load_pois()}
+    restaurants = {r.id: _entry(r) for r in load_restaurants()}
+    return {"pois": pois, "restaurants": restaurants}
+
+
 # ============================================================
 # Phase 0.7：persona / preferences 端点
 # ============================================================
