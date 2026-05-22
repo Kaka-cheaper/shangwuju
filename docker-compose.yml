@@ -1,0 +1,126 @@
+# 晌午局 一键部署 docker-compose
+#
+# 一句话目标：评委 git clone + docker compose up = 2 分钟跑起来。
+#
+# 服务：
+#   redis     —— 跨进程会话/订单持久（FC 部署必需；本地也开方便联调）
+#   backend   —— FastAPI + LangGraph，端口 8000
+#   frontend  —— Next.js standalone，端口 3000
+#
+# 一键起：
+#   cp backend/.env.example backend/.env  # 然后按需填 LLM key 等
+#   cp frontend/.env.local.example frontend/.env.local  # 同上
+#   docker compose up --build
+#
+# 访问：
+#   http://localhost:3000     前端
+#   http://localhost:8000     后端 API
+#   http://localhost:8000/health  健康检查
+#   http://localhost:8000/ready   就绪检查（探活 Redis + LLM 配置）
+#
+# 真生产建议：
+#   - Redis 改外部托管（阿里云 Redis Tair）
+#   - 后端切 SESSION_STORE=redis
+#   - 前端打到 OSS+CDN 或 Vercel
+#   - 后端 image 推 ACR → FC Custom Container 部署
+
+services:
+  # ============================================================
+  # Redis：会话 / 订单跨进程持久（FC 部署强制依赖）
+  # ============================================================
+  redis:
+    image: redis:7-alpine
+    container_name: shangwujue-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - "256mb"
+      - --maxmemory-policy
+      - "allkeys-lru"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - shangwujue-net
+
+  # ============================================================
+  # Backend：FastAPI + LangGraph
+  # ============================================================
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: shangwujue-backend:dev
+    container_name: shangwujue-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    environment:
+      # 容器内访问 Redis 用 service name
+      REDIS_URL: redis://redis:6379/0
+      # 容器内默认值：让 SSE 心跳 OK
+      PORT: "8000"
+      HOST: "0.0.0.0"
+      # demo 模式默认值（生产用 .env 覆盖）
+      USE_LANGGRAPH: "1"
+      DATA_PROVIDER: "mock"
+      NEARBY_PROVIDER: "mock"
+      LOG_FORMAT: "json"
+      # Logfire token（如配置 → 自动上传 trace；不配 → 仅本地控制台）
+      LOGFIRE_TOKEN: "${LOGFIRE_TOKEN:-}"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - shangwujue-net
+
+  # ============================================================
+  # Frontend：Next.js standalone
+  # ============================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 容器互通用容器名访问 backend
+        NEXT_PUBLIC_API_BASE: "http://localhost:8000"
+        NEXT_PUBLIC_AMAP_KEY: "${NEXT_PUBLIC_AMAP_KEY:-}"
+    image: shangwujue-frontend:dev
+    container_name: shangwujue-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - shangwujue-net
+
+networks:
+  shangwujue-net:
+    name: shangwujue-net
+    driver: bridge
+
+volumes:
+  redis-data:
+    name: shangwujue-redis-data
