@@ -4863,3 +4863,47 @@ input → discovery → planning → execution    （上排，主流程）
 ### 备注
 
 staleness 脚本仍报 4 个 working tree 未提交文件（3 个 .codesee/scripts/*.mjs + backend/tests/fake_tools.py）——这些都是基础设施 / 测试 fixture，不映射任何 feature，无需更新 features.json。
+
+
+---
+
+## 问题：ILS fallback 死循环 + React 同 key 警告
+
+**时间**：2026-05-23
+
+**用户原问**：「为什么错误了，为什么无限循环了」（截图显示 LangGraph "ILS 算法兜底重排中" × 11 次后还在循环；console 报同 key 警告）
+
+### 根因
+
+1. **死循环**：`build.py:_route_after_ils()` 让 ILS 成功后回 critic 验证。ILS 自身不解决 commute_infeasible（pitfall P1-2026-05-22 已记录"LLM 蓝图段间通勤可达性必须算法 critic 兜底"），ILS 内部 TOPTW 没建模段间通勤约束。结果每次 ILS 输出都被 critic 同样违规拒掉 → critic→replan_router→ils_replan 三角循环到 LangGraph 25 步硬限。
+2. **同 key**：`critic.py` 累积 `violation_codes` 时直接 list comprehension，同 attempt 内 commute_infeasible 重复 2 次 → 前端 React `<span key={code}>` 撞车。
+
+### 解决方案（三处协同）
+
+1. `backend/agent/graph/build.py` `_route_after_ils()` → 总走 narrate（不再回 critic 验证）：ILS / rule fallback 是兜底链路，已经尽力，commute 让 narration 文案兜底
+2. `backend/agent/graph/nodes/replan.py` 加 `_MAX_TOTAL_RETRIES=4` 硬上限 + give_up 分支：即使未来 build.py 改回去也兜得住
+3. `backend/agent/graph/nodes/critic.py` 用 `Counter` 去重：相同 code 合并成 `commute_infeasible×2` 形式
+4. `frontend/components/DecisionTraceCard.tsx` key 复合 `${idx}-${codeIdx}-${code}`：防业务字符串撞车
+
+### 修改的代码文件
+
+- `backend/agent/graph/build.py`（`_route_after_ils` 总走 narrate）
+- `backend/agent/graph/nodes/replan.py`（`_MAX_TOTAL_RETRIES=4` + give_up 分支）
+- `backend/agent/graph/nodes/critic.py`（Counter 去重 violation_codes）
+- `frontend/components/DecisionTraceCard.tsx`（React key 复合保险）
+- `docs/03-implementation/pitfalls.md`（追加 P1 条目）
+
+### 应当达成的效果
+
+- LLM 2 次 backprompt 失败 → ILS 1 次兜底（无论成功失败）→ narrate → 用户看到方案
+- 极端情况下 4 次重排都失败 → give_up → narrate（兜底文案 + 当前不完美方案）
+- 前端 console 不再报 same key warning
+- 测试 47 个全过；graph 编译通过
+
+### 关于另外几个无关警告
+
+控制台还有：
+- `[Fast Refresh]` 日志：next dev 正常 HMR
+- `fetch-server-response.ts:111 GET _rsc=r3yhw 加载失败`：next dev 重新生成 RSC 时的瞬时 404（HMR 切版本时常见，不影响功能）
+
+这两个是 Next.js dev 模式正常现象，不需要处理。

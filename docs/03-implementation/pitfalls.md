@@ -762,3 +762,31 @@
   ```
 - **优先级**：P2（不影响 demo 跑通的最终产物，但每次 build 后切回 dev 会触发；评委 demo 现场切换前最好先清一次）
 - **防再犯**：Windows 上避免反复混用 `pnpm build` 与 `pnpm dev`；如果 next.config.mjs 里有 `output: 'standalone'`（用于 Docker），开发态可临时注释掉
+
+
+### [P1] 2026-05-23 ILS fallback 死循环 + 同 violation_code 前端 key 冲突
+
+- **现象**：用户截图显示 LangGraph 跑出 4 步：
+  1. LLM 出 plan 第 1 次 → critic 报 commute_infeasible（出发→主活动只留 0 分钟通勤）→ llm_backprompt
+  2. LLM 出 plan 第 2 次 → critic 又报 commute_infeasible（用餐→返回 0 分钟通勤）→ llm_backprompt
+  3. LLM 出 plan 第 3 次 → critic 仍报 commute_infeasible → ils_fallback
+  4. ILS 兜底 → critic 又拒 → ils_fallback → ILS 又跑 → critic 又拒……日志显示 "ILS 算法兜底重排中…… × 11 次" 前端无限转圈
+  浏览器 console 同时报：`Warning: Encountered two children with the same key, "commute_infeasible"`。
+- **根因**：
+  1. **死循环**：`backend/agent/graph/build.py` 的 `_route_after_ils()` 让 ILS 成功后回 critic 验证。但 ILS 自身不解决 commute_infeasible（pitfall P1-2026-05-22 已经记录："LLM 蓝图段间通勤可达性必须算法 critic 兜底"——ILS 内部用的是 TOPTW 加权效用，对段间通勤约束没建模）。所以 ILS 每次都会被 critic 同样的违规拒掉，形成 critic↔replan_router↔ils_replan 三角循环，直到达到 LangGraph 默认 25 步硬限。
+  2. **死循环硬上限缺失**：`replan_router_node` 只判 `retry_count <= 2 → llm_backprompt; else → ils_fallback`，没有"超过 N 次直接 give_up"的兜底分支。
+  3. **React 同 key**：`critic_node` 累积 `critic_attempts[].violation_codes` 时直接 list comprehension，同一 attempt 内 commute_infeasible 出现 2 次（出发段 + 用餐段各一次）就有两个相同字符串。前端 `DecisionTraceCard` `<span key={code}>` 直接撞车。
+- **解法**（3 处协同）：
+  1. **build.py `_route_after_ils()` 硬性接到 narrate**：ILS 跑完不再回 critic 验证（不是"成功就过 critic、失败才 narrate"，而是"无论成功失败一律 narrate"）。理由：ILS / rule fallback 是兜底链路，已经尽力了；commute 等问题让用户先看到方案，由 narration 文案兜底（"实际通勤可能比预估稍长"）。
+  2. **replan.py 加 `_MAX_TOTAL_RETRIES=4` 硬上限**：超过 4 次重排直接 give_up，三角循环不会进 ils_fallback 第 N 次。即使未来有人改 build.py 把 ILS 接回 critic，这层兜底也兜得住。
+  3. **critic.py 累积时 Counter 去重**：同一 attempt 内重复 violation_code 合并成 `commute_infeasible×2` 形式。前端 React key 也加 `${idx}-${codeIdx}-${code}` 复合保险。
+- **优先级**：P1（直接卡 demo 现场，用户看到的是无限"重新规划"打点没结果）
+- **防再犯**：
+  - 凡是"failed → 走 fallback 链 → fallback 输出再过 critic"的拓扑，必须确保 fallback 能解决该 critic 关心的约束；不能则 fallback 不应回 critic
+  - LangGraph 路径每个可能 loop 的边都要有"硬总上限"兜底（不只是单层 retry 计数）
+  - 前端用 `code` 这种业务字符串当 key 一律要复合 `${idx}` 防同字符串撞车
+- **修改文件**：
+  - `backend/agent/graph/build.py`（`_route_after_ils()` → 总走 narrate）
+  - `backend/agent/graph/nodes/replan.py`（加 `_MAX_TOTAL_RETRIES=4` give_up 分支）
+  - `backend/agent/graph/nodes/critic.py`（Counter 去重 violation_codes）
+  - `frontend/components/DecisionTraceCard.tsx`（key 复合 idx）

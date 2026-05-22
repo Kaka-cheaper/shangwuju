@@ -156,9 +156,9 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                     </div>
                     {a.violation_codes.length > 0 && (
                       <div className="mb-1 flex flex-wrap gap-1">
-                        {a.violation_codes.map((code) => (
+                        {a.violation_codes.map((code, codeIdx) => (
                           <span
-                            key={code}
+                            key={`${idx}-${codeIdx}-${code}`}
                             className="rounded-sm bg-slate-700/50 px-1.5 py-0.5 text-[10px] uppercase text-slate-300"
                           >
                             {code}

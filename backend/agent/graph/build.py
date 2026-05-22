@@ -62,9 +62,19 @@ from agent.graph.state import AgentState
 
 
 def _route_after_ils(state: AgentState) -> str:
-    """ils_replan 后：有 itinerary → critic 验证；没有 → 直接 narrate（不循环）。"""
-    if state.get("itinerary") is not None and state.get("replan_strategy") != "give_up":
-        return "critic"
+    """ils_replan 后总走 narrate，不再回 critic。
+
+    设计原因（防 ILS 死循环 P1，2026-05-23）：
+        ILS 自身不解决 commute_infeasible（蓝图段间通勤可达性约束，详见
+        pitfalls P1-2026-05-22）。如果让 ILS 输出过 critic，遇到 commute
+        违规会再次进 replan_router → ils_fallback → ils_replan，构成死循环。
+        这里硬性接到 narrate：ILS / rule fallback 已经尽力了，让用户先看到
+        方案，commute 问题由 narration 文案兜底（"实际通勤可能比预估稍长"）。
+
+    退化路径：
+        - replan_strategy="give_up" → 也走 narrate（兜底文案）
+        - itinerary=None → 也走 narrate（用户起码看到状态而不是无限转圈）
+    """
     return "narrate"
 
 

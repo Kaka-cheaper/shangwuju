@@ -26,14 +26,24 @@ from agent.graph.state import AgentState, ReplanStrategy
 from agent.llm_client import get_llm_client
 
 
-_MAX_LLM_RETRIES = 2  # 前 2 次违规 → LLM backprompt；第 3 次 → ILS
+_MAX_LLM_RETRIES = 2     # 前 2 次违规 → LLM backprompt；第 3 次 → ILS
+_MAX_TOTAL_RETRIES = 4   # 总重试上限（防 LangGraph 25 步硬限触发前自然停）
 
 
 def replan_router_node(state: AgentState) -> dict[str, Any]:
+    """决定下一次重排策略。
+
+    硬上限（防死循环，P1 2026-05-23）：
+        retry_count > _MAX_TOTAL_RETRIES → give_up，不再尝试。
+        即使 build.py 的 _route_after_ils 已经把 ILS → narrate 切断了循环，
+        这里再加一层兜底：万一未来重新接回 critic，retry_count 也会硬刹停。
+    """
     retry_count = (state.get("retry_count") or 0) + 1
     strategy: ReplanStrategy
 
-    if retry_count <= _MAX_LLM_RETRIES:
+    if retry_count > _MAX_TOTAL_RETRIES:
+        strategy = "give_up"
+    elif retry_count <= _MAX_LLM_RETRIES:
         strategy = "llm_backprompt"
     else:
         strategy = "ils_fallback"
@@ -48,11 +58,17 @@ def replan_router_node(state: AgentState) -> dict[str, Any]:
             to_stage="llm_backprompt",
             reason=f"critic 命中违规，第 {retry_count} 次让 LLM 修正重出蓝图",
         )
-    else:
+    elif strategy == "ils_fallback":
         hop = FallbackHop(
             from_stage="llm_backprompt",
             to_stage="ils",
             reason=f"LLM {_MAX_LLM_RETRIES} 次仍未通过 critic，切 ILS 算法兜底",
+        )
+    else:  # give_up
+        hop = FallbackHop(
+            from_stage="ils",
+            to_stage="give_up",
+            reason=f"重排已达 {_MAX_TOTAL_RETRIES} 次上限，保留当前方案",
         )
     chain.append(hop.model_dump())
 

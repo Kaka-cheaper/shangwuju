@@ -63,10 +63,19 @@ def critic_node(state: AgentState) -> dict[str, Any]:
         prev_attempts[-1] = last
 
     if has_critical:
-        critical_codes = [
+        # 抽 violation code 字符串；同 attempt 内重复 code 合计数（"commute_infeasible×2"）
+        # 避免前端 React 同 key 警告，也让评委一眼看到一个 attempt 里几条违规
+        from collections import Counter
+
+        raw_codes = [
             getattr(getattr(v, "code", None), "value", str(getattr(v, "code", "")))
             for v in violations
             if v.severity == Severity.CRITICAL
+        ]
+        code_counter = Counter(raw_codes)
+        critical_codes = [
+            f"{code}×{n}" if n > 1 else code
+            for code, n in code_counter.items()
         ]
         attempt_dict = CriticAttempt(
             attempt_n=attempt_n,
