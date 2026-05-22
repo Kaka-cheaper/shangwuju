@@ -4750,3 +4750,57 @@ pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_det
 **关键约束遵守**：每步独立 commit；每步先跑 pytest 全量回归；mock 数据扩充不破现有契约；前端只动 types.ts + 1 个新组件 + ItineraryCard 嵌入位（owner 严格）
 
 **用户反馈**：（待用户验证）
+
+
+---
+
+## 问题：完全重构 .codesee/features.json（删旧节点 + 三视图逻辑链清晰）
+
+**时间**：2026-05-23
+
+**用户原问**：「我现在想要完整的理解我的项目。我想先通过 codesee 来了解。但是现在的 features.json 感觉已经过时了，而且有很多杂乱无章、之前的版本。请你完全重构一次 features，确保三个视图都逻辑链清晰。允许你删除节点」
+
+### 重构背景诊断
+
+旧文件状态：
+- 6 个 epics（含独立 graph epic），48 个 features
+- 校验报 10 个错误（cross_feature.kind / epic_flow.kind 用了 v0.1 旧枚举 publishes/subscribes）
+- 30 个警告（v0.1 → v0.2 迁移警告 + step name 含代码标识符）
+- legacy 节点散落各处：f-llm-planner / f-hybrid-planner / f-llm-first-planner / f-blueprint-critics / f-react-unified-agent / f-conversation-repo / f-tool-provider / f-observability —— 这些算法已被 LangGraph 节点直接复用，单独占 feature 反而让三视图混乱
+- 跨 feature 关系堆到 100+ 条，主线被旁路淹没
+
+### 解决方案（重构思路）
+
+**Epics（6 个）**：
+- input：/chat/turn 主入口 + LangGraph router 分流 + 意图解析 + 快捷场景 + persona/memory + feedback_detector
+- discovery：execute 阶段并行 4 worker + 6 个真 Tool（POI / 餐厅 / 检查座位 / 路线 / 用户画像 / 加购）
+- planning：拓扑编织 + plan / assemble / critic / replan / narrate + sse_adapter（**取代旧 graph epic**）
+- execution：三按钮决策 + finalize 下单 + refine 闭环
+- collab：房间 + 约束广播 + 投票（独立小 epic，不混入 input）
+- interface：SSE 客户端 + 行程卡 + ChatDock + 链路面板 + 高德 + 多模态 + 命令面板 + Planner 切换
+
+**删除的 features**：
+- f-llm-planner / f-hybrid-planner / f-llm-first-planner / f-blueprint-critics / f-react-unified-agent / f-critics-v2 / f-conversation-repo / f-tool-provider / f-observability / f-input-router / f-toast-stack / f-share-copy / f-refinement-dialog（合并到 f-refine-loop）/ f-order-extra（v2 不做）/ f-llm-mode-toggle（重复）/ f-graph-* 13 个粒度过细节点（合到 6 个核心节点）
+
+**保留并精简**：33 个 features，每个职责单一、refs 明确、step ≤ 12 条
+
+**cross_feature 与 epic_flow**：
+- 全部用 v0.2 新枚举：triggers / flow（含 mode=async）/ depends_on
+- 把 100+ 条精简到 47 条主线关系，删除冗余的「f-X → f-tool-trace publishes」类对称边
+- epic_flow 8 条：input → discovery → planning → execution；execution → input；collab → input/planning；interface → planning/execution
+
+**校验结果**：0 错误 0 警告（本来 4 警告：1 处 step name 含 user_id 改成「按身份匹配」；2 处 step name 过长改短；1 处 sse_adapter 13 步合并为 8 步，把 6 个细分 map 节点合成 4 个 map_*）
+
+### 修改的代码文件
+
+- `.codesee/features.json`（完全重写：6 epics + 33 features + 47 cross + 8 epic_flow）
+
+### 应当达成的效果
+
+- 校验全绿（0 错误 0 警告）
+- 三视图逻辑链清晰：
+  - **Epic 流**：清晰的 5 阶段主线（input → discovery → planning → execution）+ 旁路（collab / interface 依赖主线）
+  - **Feature 关系**：评委从「快捷输入 / dock 输入」一路看到「确认下单 / 反馈复跑」无断点
+  - **节点内 flow**：每个 feature 内部步骤齐全（接收 → 加工 → 输出 + error 分支），符合 schema 规范
+- 删除所有 legacy/v1 节点，消除「这个 feature 还在跑吗」的歧义
+- 后续 sync 时增量补丁有清晰底盘
