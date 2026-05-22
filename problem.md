@@ -4804,3 +4804,62 @@ pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_det
   - **节点内 flow**：每个 feature 内部步骤齐全（接收 → 加工 → 输出 + error 分支），符合 schema 规范
 - 删除所有 legacy/v1 节点，消除「这个 feature 还在跑吗」的歧义
 - 后续 sync 时增量补丁有清晰底盘
+
+
+---
+
+## 问题：layout.json 与新版 features 对不上需要重写
+
+**时间**：2026-05-23
+
+**用户原问**：「重构之后对应的 layout 是不是有的元素对应不上了，也需要重构？你能不能直接重写 layout 进行语义层面的布局？」
+
+### 诊断
+
+旧 layout.json 包含 100+ 个 feature 坐标，其中大量是已删除的 legacy 节点（`feature:f-llm-planner` / `f-hybrid-planner` / `f-react-unified-agent` / `f-blueprint-critics` / `f-conversation-repo` / `f-tool-provider` / `f-observability` 等）以及已合并的节点（`f-plan-assembly` / `f-user-confirm` / `f-tool-trace` / `f-share-copy` / `f-toast-stack` / `f-input-router` 等）。还残留着早期项目的 `f-register` / `f-login` / `f-checkout` 等无关节点。
+
+### 解决方案（语义化布局）
+
+**Overview（Epic 视图）**：5 阶段主线 + 双侧路
+
+```
+input → discovery → planning → execution    （上排，主流程）
+        ↓                ↓
+       collab          interface              （下排，侧路依赖）
+```
+
+**Features 视图（横向流水）**：
+
+```
+[input(6 个)]   [discovery(6 个)]   [planning(7 个)]   [execution(3 个)]    ← 上排（主线）
+[collab(3 个)]  [interface(8 个)]                                            ← 下排（旁路）
+```
+
+- 每个 epic 内部 features 以 440px 横向 + 260px 纵向网格排列
+- 上下两排相距 820px，避免边交叉
+- input → discovery → planning → execution 的 cross_feature 边可以从左到右一气呵成
+
+**Steps 视图（每个 feature 内部）**：
+
+- 主流程 step 横向 240px 网格（receive → validate → load → ... → return）
+- error 分支统一放下方 200~340px 偏移
+- 并行 worker（如 execute-parallel 的 fanout/collect）形成"扇出-汇聚"形态
+- 多分支决策（如 user-decision 三按钮 / replan 双层策略）形成树形
+
+**校验结果**：features.json 校验全绿；layout.json 不含旧 id；33 个 features 全部有坐标 + 6 个 epics + 主要 features 的 steps 视图（27 个 steps:* 子视图）
+
+### 修改的代码文件
+
+- `.codesee/layout.json`（完全重写，从 1300+ 行减到 320+ 行；删除所有 legacy + 早期无关节点）
+- `.codesee/features.json`（bump manifest.generated_at 到 2026-05-23T01:30:00Z）
+
+### 应当达成的效果
+
+- Overview 视图：5 个主流程 epic 横向排开 + 2 个侧路 epic 在下排，箭头从左到右一气呵成
+- Features 视图：每个 epic 内 feature 网格化排列，cross_feature 边不再绕来绕去
+- Steps 视图：每个 feature 内部步骤按业务流方向排开，error 分支与主流分离不交叉
+- 评委 / 用户打开任意视图都能直接看出「这个项目分 5 阶段 + 2 侧路」的清晰心智模型
+
+### 备注
+
+staleness 脚本仍报 4 个 working tree 未提交文件（3 个 .codesee/scripts/*.mjs + backend/tests/fake_tools.py）——这些都是基础设施 / 测试 fixture，不映射任何 feature，无需更新 features.json。
