@@ -690,3 +690,53 @@
   - 任何「假装能切换数据源」的项目，必须在 mock 阶段就把切换语义（query 模式）抽象出来，不能等真接入时才补抽象层
   - mock 数据字段（如 distance_km）是辅助而非主战场：算法应该有计算逻辑（haversine），mock 字段只在算法不可用时兜底
 - **优先级**：P2（不影响 demo 跑通，但这是评委评分项「商业可行性」+ 「一键部署」的关键演示点）
+
+
+### [P1] 2026-05-22 LLM 蓝图段间通勤可达性必须算法 critic 兜底
+
+- **现象**：LLM 蓝图段时序看着没重叠（`temporal_critic` 不拒），实际 stage[i] 结束 18:00、stage[i+1] 开始 18:15，但两点打车 22 分钟——蓝图通过验收却跑不到。仅靠 prompt 让 LLM "考虑通勤" 不够（LLM 看不到准确分钟数）。
+- **根因（架构级）**：
+  - LLM 蓝图段的 `duration_min` 是粗估「已含路程」靠 LLM 自觉；但 LLM 无候选间距离矩阵
+  - `temporal_critic` 只验「时序单调递增」不验「物理可达性」
+  - 候选预览只给 distance_km（距家），无候选互距
+  - 旧 estimate_route_time Tool 存在但 LangGraph 4 个并行 worker 不调它做 stage-stage 验证
+- **解法**：
+  - `agent/v2/critics_v2.py` 加 `ViolationCode.COMMUTE_INFEASIBLE` + `_check_inter_stage_commute`
+  - 复用 `routes.json` 路线数据（按 `profile.transport_preference` 取 walking/taxi/bus 分钟）
+  - 路线 mock 缺失时 haversine + 路网折算系数 1.3 + 模式速度兜底
+  - 容差 5min，违反时 CRITICAL backprompt 让 LLM 重出
+  - `ItineraryStage` 加 `commute_minutes_required` + `commute_mode` 元数据写回
+  - `blueprint_prompt` 加段间通勤可达硬约束作为 prompt 层先验
+- **相关文件**：`backend/agent/v2/critics_v2.py:165-300` / `backend/schemas/itinerary.py:32-44` / `backend/agent/prompts/blueprint_prompt.py:38-50`
+- **防再犯**：
+  1. **LLM 决主观、算法决客观**——「物理可达性」是客观维度，必须 critic 兜底，不能只靠 prompt
+  2. 任何「相邻段约束」类校验都应该接 critic（不只时序，还有通勤 / 营业时间 / 餐厅时段）
+  3. 算法兜底要给具体修法建议（"建议把 N+1 段开始时间推迟到 HH:MM 之后"），让 LLM backprompt 能直接消化
+  4. 真接入高德 Direction API 时，`find_route` + haversine 兜底 schema 不变即可平滑切换
+- **优先级**：P1（评分项 2 规划链路 25% 的核心硬伤；评委演示一压就翻）
+
+
+### [P2] 2026-05-22 LangGraph 多 worker 同写一个 state key 默认覆盖语义
+
+- **现象**：search_pois_worker + search_restaurants_worker 都返 `{"relaxed_tags": [...]}` → LangGraph 默认 reduce = 覆盖；后写的覆盖先写的；行为不定不可预测。
+- **根因**：LangGraph TypedDict + `Annotated[..., reducer]` 才有合并语义；普通字段就是覆盖。多 worker 并行同 key 写入时序不定 → 哪个 worker 先完成它的值就被另一个覆盖。
+- **解法**：分两个独立 key——`pois_relaxed_tags` + `restaurants_relaxed_tags`。下游 sse_adapter 按 worker 节点名取对应 key。
+- **相关文件**：`backend/agent/graph/nodes/execute.py` / `backend/agent/graph/state.py` / `backend/agent/graph/sse_adapter.py`
+- **防再犯**：
+  1. **多并行 worker 的输出字段必须独立 key**——不要图省事用通用名
+  2. 想要合并语义时显式声明 `Annotated[list, add_messages]` 或自定义 reducer
+  3. 写新 worker 前问"这个字段会和别的 worker 的同名字段冲突吗"
+- **优先级**：P2（不挂 demo，但 SSE 事件偶发数据丢失，调查耗时长）
+
+
+### [P2] 2026-05-22 mock 评论字符串最小长度约束需测试
+
+- **现象**：给 51 实体批量补 UGC 评论时，部分 fallback 模板写得太短（如「闺蜜约饭推荐这里。」9 字）→ pydantic `min_length=10` 拒绝 → mock 加载全炸。
+- **根因**：评论生成器模板库共 9 池（按 social_context 分），每池 3 条模板；写时未对齐 schema 的 `Field(..., min_length=10)`。
+- **解法**：所有模板补长到 ≥30 字（业务上也合理：水帖"很好""不错"是反模式）；增加 `test_review_fields_complete` 测试卡死字段约束。
+- **相关文件**：`backend/scripts/generate_reviews.py` / `backend/schemas/domain.py:Review`
+- **防再犯**：
+  1. **批量生成 mock 数据前先看 schema 的 Field 约束**——min_length / ge / le / Literal 都是潜在炸点
+  2. 写生成器先跑 1 条试运行 → pydantic 校验通过 → 再批量
+  3. 评论字段质量约束（≥30 字）是产品级要求，不是 schema 约束
+- **优先级**：P2（导致评论补全要重跑一次，但脚本 idempotent 可恢复）

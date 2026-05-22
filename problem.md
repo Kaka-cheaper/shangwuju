@@ -4673,3 +4673,80 @@ pytest tests/                  295/295 全过（267 旧 + 28 新增 feedback_det
 - 链路改为「LLM 知道用户位置 → NearbySearchProvider 实时按用户位置 + max_km 算附近候选 → 再过滤 tag/容量」
 - env 切换 `NEARBY_PROVIDER=gaode` + 配 `AMAP_REST_KEY` 立刻接入真高德附近搜索（接入位见 `backend/data/nearby_provider.py` GaodeNearbyProvider stub）→ 评分项「一键部署便利性 + 商业可行性」加分点
 - mock 数据零修改：现有 39 POI + 45 餐厅都已有 lat/lng，haversine 直接可用
+
+
+---
+
+## 问题M：规划质量四维 + 6 项扩展评分维度全面修复（10 步落地）
+
+**用户原问**：「我不考虑时间成本，这也不是一个 demo 产品，而是一个真正的产品，能接入美团直接用的。1) 把三个真实缺口修复，要采用真实的、可上线的、成熟的修复方式 2) 按扩展维度全面审查并修复」
+
+**解决方案**（10 步独立 commit，全程不破现有功能）：
+
+**基础设施层（Step 1-4）**：
+
+1. **commute critic（缺口 1，地理硬伤）**：`agent/v2/critics_v2.py` 加 `ViolationCode.COMMUTE_INFEASIBLE` + `_check_inter_stage_commute`：
+   - 复用 mock routes.json 路线分钟数（按 `profile.transport_preference` 取 walking/taxi/bus）
+   - 路线 mock 缺失时 haversine + 路网折算系数 1.3 + 模式速度（步行 5km/h / taxi 25km/h+5min开销 / bus 18km/h+5min）
+   - `cur.start - prev.end < commute - 5min容差` → CRITICAL，含具体修法建议
+   - `ItineraryStage` 加 `commute_minutes_required` + `commute_mode` 元数据写回
+   - `blueprint_prompt` 加段间通勤可达硬约束（同商圈 5-10min / 跨商圈 15-20min / 远距离 25min+）
+   - 7/7 单测全过，包括 walking 偏好切换 / haversine 兜底 / 同地段 buffer=0 / 缺数据不误伤
+
+2. **critic SSE 事件**：`schemas/sse.py` 加 `CRITIC_VIOLATIONS` / `CRITIC_FIX_ATTEMPT` / `PLAN_FALLBACK` 三个枚举；`sse_adapter.py` critic_node + replan_router 后推；前端 `lib/types.ts` 同步 ViolationCode + ViolationSeverity + PlanFallbackStage 类型
+
+3. **Review schema**：`schemas/domain.py` 加 `Review` 模型（text ≥10 字 / rating 1-5 / age_bucket / tag_evidence / helpful_count）；`Poi.reviews` + `Restaurant.reviews` 默认空列表向后兼容
+
+4. **DecisionTrace schema**：`schemas/decision_trace.py` 含 CriticAttempt / AlternativeCandidate / FallbackHop / DecisionTrace 主体；挂到 `Itinerary.decision_trace`；`AgentState` 加 fallback_chain / critic_attempts / alternatives 累积字段
+
+**业务逻辑层（Step 5-7）**：
+
+5. **social mismatch 升 CRITICAL（缺口 3）**：抽 `agent/v2/social_compat.py` 兼容矩阵（MATCH / ACCEPTABLE / POOR / BLOCKING 四级）；`critics_v2._check_social_context` 改用矩阵：BLOCKING → CRITICAL backprompt（独处+多人 / 家庭+商务 / 老人+喧嚣 / 老人+网红）；保留旧 order detail 多人位检查
+
+6. **tag relaxation（缺口 2）+ 复合 POI**：`tools/_helpers.py` 加 `relax_tag_search` 渐进放宽（高优 tag = 物理硬约束 + 饮食硬约束最后丢，max 3 级）；`SearchPoisOutput` / `SearchRestaurantsOutput` 加 `relaxed_tags` 字段；mock 新增 P040（祖孙三代友好馆）/ P041（亲子商务双轨中心）/ P042（闺蜜安静拍照阁）3 条复合场景 POI 含手工写评论；search_pois / search_restaurants 改用 relax_tag_search；execute worker 写 `pois_relaxed_tags` / `restaurants_relaxed_tags` 分 key 避免 LangGraph reduce 冲突；sse_adapter 透传
+
+7. **visited 记忆 + memory v2**：`schemas/persona.UserMemory` 加 `visited_targets`（list[VisitedRecord] + 30 天 cooldown）+ `preferred_routes`（dict 路径计数）；`data/memory_store.py` 加 `record_visited` / `record_preferred_route`；`SearchPoisInput` / `SearchRestaurantsInput` 加 `exclude_visited_ids`；`search_adapter._resolve_excluded_visited_ids` 自动从 memory 拉取；`main.py` _accumulate_memory_after_confirm 自动 record_visited + record_preferred_route
+
+**LLM/前端集成层（Step 8-9）**：
+
+8. **DecisionTrace 写入 + 前端 AI 思考卡**：`planner_node._build_alternatives` 写 top-2 ~ top-5 候选 + reason_rejected；`critic_node` 累积 critic_attempts + 上一次 attempt 自动标 resolved；`replan_router_node` 写 fallback_chain；`assemble_node` 把 dict 累积字段还原 Pydantic 对象注入 `Itinerary.decision_trace`；前端 `DecisionTraceCard.tsx`（默认折叠 + 4 段：规划思路 / Critic 修正历史 / Fallback 链 / 备选）；`ItineraryCard` 转发文案前嵌入
+
+9. **UGC 评论补全**：`scripts/generate_reviews.py` 程序化生成 168 条评论模板（按 social_context 分 9 池，每池 3 条模板，每条 ≥30 字真实文字）+ P040-P042 手工写 6 条特别详尽的；最终 174 条评论（42 POI 84 条 + 45 餐厅 90 条）；`blueprint_llm._format_review_excerpts` 把 top-2 helpful 评论 60 字截断 + age_bucket + tag_evidence 注入候选预览；`blueprint_prompt` 加 UGC 引用规范（鼓励引用 / 限制 1-2 条 / 禁止虚构）
+
+**集成测试层（Step 10）**：
+
+10. **multi-turn 反馈一致性**：`tests/test_multi_turn_stability.py` 11 项 5+ 轮反馈测——distance 5→3→5→3→5 收敛 / duration 与 distance 不互相干扰 / 中文数字精确小时数 / raw_input 累积反馈历史 / 5 轮无 schema 漂移 / empty feedback 不破坏 / changed_fields 始终 list[str] / 5↔3 不发散；意外发现：refiner 兜底已稳定，无需改主路径
+
+**测试矩阵**：378 项 pytest（增 76 项：commute 7 + sse 5 + social 13 + decision_trace 11 + tag relax 10 + memory v2 12 + decision_trace_integration 6 + reviews 8 + multi_turn 11 + 余下旧测兼容性更新）+ 30 项前端 vitest
+
+**修改的代码文件**：
+
+新建（13 个）：
+- `backend/agent/v2/social_compat.py`（社交兼容矩阵）
+- `backend/schemas/decision_trace.py`（DecisionTrace + 子组件）
+- `backend/scripts/generate_reviews.py`（评论生成器 + 模板库）
+- `backend/tests/{test_critics_v2_commute,test_sse_critic_events,test_decision_trace,test_social_compat,test_tag_relaxation,test_memory_v2,test_decision_trace_integration,test_reviews_ugc,test_multi_turn_stability}.py`（9 份测试套件）
+- `frontend/components/DecisionTraceCard.tsx`（AI 思考卡）
+
+修改（19 个）：
+- 后端 schema：`schemas/{itinerary,domain,sse,persona,tools}.py`
+- 后端 critic / planner：`agent/v2/critics_v2.py`、`agent/blueprint_llm.py`、`agent/prompts/blueprint_prompt.py`
+- 后端 LangGraph：`agent/graph/state.py`、`agent/graph/sse_adapter.py`、`agent/graph/nodes/{planner,critic,replan,assemble,execute}.py`
+- 后端工具：`tools/{_helpers,search_pois,search_restaurants}.py`
+- 后端 adapter / store：`agent/tools/search_adapter.py`、`data/memory_store.py`
+- 后端 main：`main.py`（confirm 后自动 record_visited + record_preferred_route）
+- mock 数据：`mock_data/{pois,restaurants,routes}.json`（+3 复合 POI、+12 路线、+174 评论）
+- 前端：`frontend/lib/types.ts`、`frontend/components/ItineraryCard.tsx`、旧 `tests/test_tools.py`
+
+**应当达成的效果**：
+
+- 评分项 2 规划链路 25%：commute critic 堵地理硬伤 + critic 闭环 SSE 完整可见；LLM-Modulo 教科书级实现可证
+- 评分项 1 场景理解 20%：tag relaxation 让多 tag 复合人群（祖孙三代）有兜底；social_compat 矩阵让"独处+多人/家庭+商务"自动 backprompt
+- 评分项 3 应用效果（用户体验）：DecisionTrace 让 LLM 不再黑盒；评委一展开 AI 思考卡看到「规划思路 + critic 修正 + fallback 链 + 备选」全链路；UGC 评论让 rationale 引用真实用户语料
+- 评分项 4 商业价值：visited / preferred_routes 记忆 + Review schema = 真接入大众点评 / 美团时 schema 零改动；个性化记忆深度直接对齐"长期价值"维度
+- 评分项 5 异常韧性：commute critic + social BLOCKING 升 CRITICAL + 4 级 fallback 全部独立推 SSE 让评委看到「算法判定→LLM 修正」闭环
+- multi-turn 5+ 轮反馈不发散，schema 不漂移——评委连发 5 句反馈也稳
+
+**关键约束遵守**：每步独立 commit；每步先跑 pytest 全量回归；mock 数据扩充不破现有契约；前端只动 types.ts + 1 个新组件 + ItineraryCard 嵌入位（owner 严格）
+
+**用户反馈**：（待用户验证）
