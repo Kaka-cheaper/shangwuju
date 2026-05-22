@@ -1,25 +1,33 @@
-"""agent.v2 —— Pydantic AI 重构版 Agent 编排层。
+"""agent.v2 —— Pydantic AI ReAct 路径（已冻结，仅作 LangGraph fallback）。
 
-为什么有 v2/：
-- 旧 agent/ 是手写编排（intent_parser / router / planner / refiner / narrator 等 18 个 .py，5878 行）
-- v2/ 用 Pydantic AI 框架重写，淘汰大量样板代码
-- 提供原生 message_history 上下文管理（解决「dock 直接反馈无上下文」根因）
-- 增量迁移：每个 Agent 单独定义，旧路径同时保留作 fallback
+⚠️ 冻结声明（2026-05-22）：
+    本子包是 Phase 0.12 的 ReAct 主路径，自 Phase 0.20 LangGraph 上线后
+    降级为 fallback。**不再添加新功能**，所有新功能改动应在 `agent/graph/` 下完成。
 
-设计纪律：
-- v2/ 内部不再写 LLM SDK 调用、retry、围栏剥离等基础设施——全部交给 Pydantic AI
-- 业务逻辑（tools/）继续复用，用 @agent.tool 装饰器接入
-- schema/ Pydantic 模型直接作为 output_type，零适配
-- session_id 升级为 conversation_id，承载真 message_history
+    保留理由：
+    - main.py /chat/turn 的 USE_REACT_AGENT=1 fallback 链（LangGraph 路径异常时启用）
+    - critics_v2 被 LangGraph critic_node 与 react_agent 共用（不要乱动）
+    - tool_provider / observability / conversation 的「商业演进抽象」叙事还在文档/路演引用
+
+    可以做的：
+    - bug fix（不改公共接口）
+    - 删除真死代码（无引用的子模块）
+
+    禁止做的：
+    - 加新 Agent / 新输出类型 / 新 critic 规则
+    - 修改 react_agent.py 行为以匹配 LangGraph 行为（要改去 graph/）
 
 模块职责：
-- model_factory.py    创建 OpenAI 兼容 model（DeepSeek / Qwen / 任何兼容服务）
-- deps.py             AgentDeps（依赖注入：tools / mock data / user_id）
-- conversation.py     ConversationStore（message_history 持久化）
-- intent_agent.py     意图解析 Agent（替代 agent/intent_parser.py）
-- router_agent.py     输入域路由 Agent（替代 agent/router.py）
-- refiner_agent.py    反馈合并 Agent（替代 agent/refiner.py）
-- narrator_agent.py   暖心开场白 Agent（替代 agent/narrator.py）
-- planner_agent.py    主规划 Agent + @tool 装饰所有 backend.tools（替代 agent/planner*.py）
-- orchestrator.py     单一入口编排：router → planner / refiner，message_history 跨 turn 持久
+- model_factory.py    OpenAI 兼容 model 工厂（react_agent 用）
+- deps.py             AgentDeps（依赖注入容器）
+- conversation.py     ConversationRepository 抽象（v0.11 创新点；商业演进路径叙事）
+- output_types.py     ChatResponse / ItineraryResponse / AgentOutput Union
+- tool_provider.py    ToolProvider Protocol + Mock + Gaode/Dianping stub（商业演进叙事）
+- observability.py    structlog 包装 + trace_span（演进叙事）
+- react_agent.py      Pydantic AI 主 Agent（fallback 入口）
+- orchestrator.py     run_react_turn 流式包装 + 跨 turn 持久化 hooks
+- critics_v2.py       Itinerary critic 兜底（被 graph/critic_node 共用）
+
+已删（2026-05-22 冷代码清理）：
+- intent_agent.py / router_agent.py：被 react_agent.py 内部 unified_agent 取代后无引用
 """

@@ -1,5 +1,11 @@
 """agent.planner_hybrid —— A+C 混合规划范式（ILS + Critic + LLM 决策）。
 
+⚠️ 冻结声明（2026-05-22）：
+    本文件是 PLANNER_LLM_STRATEGY=hybrid 的实现，自 LangGraph 主架构上线后**不再演进**。
+    LangGraph 第三次 replan 仍调用 plan_hybrid 作为 ILS 兜底层（参见 graph/nodes/replan.py）。
+
+    所有新功能改动应在 `agent/graph/` 下完成；ILS 算法内部修改可继续在本文件做。
+
 学术依据：
 - A 段（ILS 启发式）：[Vansteenwegen et al. 2009 ILS for TOPTW]、
   [Gunawan et al. 2019 Adjustment ILS for Multi-objective TOPTW]

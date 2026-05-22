@@ -1,5 +1,16 @@
 """agent.planner —— ReAct 规划主循环（Planning）。
 
+⚠️ 冻结声明（2026-05-22）：
+    本文件是 hackathon 早期的 rule-based ReAct 主路径，自 LangGraph 主架构上线后
+    降级为 fallback safety-net（LangGraph 路径异常时启用）。**不再添加新功能**。
+
+    保留理由：
+    - LangGraph replan_node 第 3 次重排兜底 + collab/room.py 兜底
+    - hybrid / blueprint 拼装路径复用 _assemble_itinerary helper（不可移除）
+    - 单元测试 / stub 路径稳定性兜底
+
+    所有新功能改动应在 `agent/graph/` 下完成；本文件仅做 bug fix 与必要的 schema 适配。
+
 职责：
 - 接 IntentExtraction（来自 intent_parser）
 - 通过 invoke_tool 调查询类 Tool（不直接 import 单个 Tool）

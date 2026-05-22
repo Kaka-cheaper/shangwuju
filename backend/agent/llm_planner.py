@@ -1,5 +1,11 @@
 """agent.llm_planner —— LLM Function Calling 自主规划循环（PLANNER_MODE=llm 时启用）。
 
+⚠️ 冻结声明（2026-05-22）：
+    本文件是 PLANNER_LLM_STRATEGY=function_calling 的旧实现，自 LangGraph 主架构上线
+    后**不再演进**。所有新功能改动应在 `agent/graph/` 下完成。
+
+    保留理由：plan_itinerary_with_mode 多策略分发 + 真 LLM 兜底链兼容性。
+
 与 agent.planner.plan_itinerary 的核心差异：
 - planner.py：规则代码写死调用顺序（rule mode，Demo 安全网）
 - llm_planner.py：LLM 看 8 个 Tool spec 自己决定调哪个（评分项 2 加分点）

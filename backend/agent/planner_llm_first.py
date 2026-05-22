@@ -1,5 +1,12 @@
 """agent.planner_llm_first —— LLM-First Planner 主流程（按 problem.md 问题 14 设计）。
 
+⚠️ 冻结声明（2026-05-22）：
+    本文件是 plan_itinerary_with_mode("llm") 的子策略实现，自 LangGraph 主架构上线
+    后**不再演进**。所有新功能改动应在 `agent/graph/` 下完成。
+
+    保留理由：LangGraph blueprint_llm + assemble_blueprint 节点复用了本文件抽象出的
+    PlanBlueprint / Critic backprompt 范式。
+
 完整范式（参考 ItiNera EMNLP 2024 + LLM-Modulo NeurIPS 2024）：
 
 ```
