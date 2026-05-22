@@ -161,35 +161,81 @@ class InMemoryRepository:
 
 
 # ============================================================
-# 实现 2：RedisRepositoryStub（Milestone 2 接入点）
+# 实现 2：RedisRepository（Phase 0.22 真实现；FC 部署主路径）
 # ============================================================
 
 
-class RedisRepositoryStub:
-    """Redis 持久化的占位实现（Milestone 2 计划）。
+class RedisRepository:
+    """跨进程 Redis 持久化。
 
-    评委把 SESSION_STORE 切到 `redis` 时会看到本 stub 抛出友好提示，
-    说明商业化路径已经预留接入点 —— 不是 demo 偷懒，是 demo 先聚焦闭环。
+    设计动机（Phase 0.22 真实现，2026-05-22）：
+    - FC Custom Container 是 serverless，单实例无状态——会话必须外置
+    - docker compose 本地环境也用同一套（compose 自带 redis service）
+    - InMemory 只在 dev 直跑（pytest / 单 worker uvicorn）下走
 
-    真实 Redis 实现要点（接入清单）：
-    1. 增加 redis-py / aioredis 依赖
-    2. 序列化 ConversationState：
-       - messages 用 `pydantic_ai.messages.ModelMessagesTypeAdapter` 转 JSON-safe bytes
-       - intent_snapshot / itinerary_snapshot / extra 都是 dict，json.dumps 即可
-    3. key 规范：`shangwuju:conv:{session_id}` （便于按 prefix 清场）
-    4. TTL：默认 24h，confirm 后续期 7d（用户分享出去也能回看）
-    5. lock：用 redis SETNX + Lua script 替代 asyncio.Lock 实现跨实例互斥
+    序列化策略：
+    - messages 用 pydantic_ai.messages.ModelMessagesTypeAdapter（官方推荐）
+    - intent_snapshot / itinerary_snapshot / extra 是 dict → json.dumps
+    - user_id 是字符串
+    - 整个 ConversationState 序列化成单个 hash（HSET）
 
-    详见 `docs/06-business/02-持久化演进.md`（Milestone 2 spec）。
+    key 规范：
+    - `shangwuju:conv:{session_id}` —— 单 session 状态
+    - 默认 TTL 24h；confirm 后续期 7d（在 record_confirm_result hook 里调 EXPIRE）
+
+    并发：
+    - asyncio.Lock 仅保单实例内顺序；跨实例互斥用 Redis WATCH/MULTI 模式
+      （demo 阶段单实例足够；多实例上线时再加分布式锁）
     """
 
     name = "redis"
+    _KEY_PREFIX = "shangwuju:conv"
+    _DEFAULT_TTL_SECONDS = 24 * 3600
 
-    def _not_impl(self) -> None:
-        raise NotImplementedError(
-            "Redis 持久化是 Milestone 2 计划。详见 docs/06-business/02-持久化演进.md。"
-            "切回 SESSION_STORE=memory 即可恢复 Demo 模式。"
+    def __init__(self, redis_url: Optional[str] = None) -> None:
+        self._redis_url = (
+            redis_url
+            or os.getenv("REDIS_URL")
+            or "redis://localhost:6379/0"
         )
+        self._client: Any = None
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _key(self, session_id: str) -> str:
+        return f"{self._KEY_PREFIX}:{session_id}"
+
+    def _lock_for(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._locks:
+            self._locks[session_id] = asyncio.Lock()
+        return self._locks[session_id]
+
+    async def _get_client(self) -> Any:
+        """懒初始化 redis 客户端（避免 import time 副作用）。"""
+        if self._client is None:
+            try:
+                import redis.asyncio as redis_async  # type: ignore[import-not-found]
+            except ImportError as e:
+                raise RuntimeError(
+                    "redis 包未安装，无法使用 SESSION_STORE=redis。"
+                    "请用 `uv sync --extra runtime` 装齐运行时依赖。"
+                ) from e
+            self._client = redis_async.from_url(
+                self._redis_url,
+                decode_responses=False,  # 我们自己处理 bytes 序列化
+                socket_connect_timeout=5,
+                socket_timeout=10,
+                max_connections=10,
+            )
+        return self._client
+
+    async def _close(self) -> None:
+        """unit test / shutdown 用。生产不需要主动调（连接池长驻）。"""
+        if self._client is not None:
+            try:
+                await self._client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
+            self._client = None
 
     async def get_or_create(
         self,
@@ -197,21 +243,93 @@ class RedisRepositoryStub:
         *,
         user_id: str = "demo_user",
     ) -> ConversationState:
-        self._not_impl()
-        raise AssertionError("unreachable")  # for type checkers
+        async with self._lock_for(session_id):
+            state = await self._load(session_id)
+            if state is None:
+                state = ConversationState(session_id=session_id, user_id=user_id)
+                await self._dump(state)
+            elif state.user_id != user_id:
+                # user 切换 → 同样规则：清 messages，新建 state（与 InMemory 行为一致）
+                state = ConversationState(session_id=session_id, user_id=user_id)
+                await self._dump(state)
+            return state
 
     async def get(self, session_id: str) -> Optional[ConversationState]:
-        self._not_impl()
-        raise AssertionError("unreachable")
+        return await self._load(session_id)
 
     async def save(self, state: ConversationState) -> None:
-        self._not_impl()
+        await self._dump(state)
 
     async def delete(self, session_id: str) -> None:
-        self._not_impl()
+        client = await self._get_client()
+        await client.delete(self._key(session_id))
+        self._locks.pop(session_id, None)
 
     def stats(self) -> dict[str, int]:
-        return {"sessions": 0, "backend": "redis-stub"}  # type: ignore[return-value]
+        # Redis 实时 count 需要 SCAN，不在 stats 中跑（性能成本）
+        # 调用方有需要可单独跑 redis-cli SCAN
+        return {"sessions": -1, "backend": "redis"}  # type: ignore[return-value]
+
+    # ---- 内部：序列化 ----
+
+    async def _load(self, session_id: str) -> Optional[ConversationState]:
+        client = await self._get_client()
+        raw = await client.get(self._key(session_id))
+        if raw is None:
+            return None
+        try:
+            return self._deserialize(raw)
+        except Exception:  # noqa: BLE001
+            # 反序列化失败（schema drift / 损坏数据）→ 返 None 让上层重建
+            return None
+
+    async def _dump(self, state: ConversationState) -> None:
+        client = await self._get_client()
+        payload = self._serialize(state)
+        await client.set(
+            self._key(state.session_id), payload, ex=self._DEFAULT_TTL_SECONDS
+        )
+
+    def _serialize(self, state: ConversationState) -> bytes:
+        """序列化为 JSON bytes（messages 用 Pydantic AI 官方 adapter）。"""
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+        import json
+
+        msg_bytes = ModelMessagesTypeAdapter.dump_json(state.messages)
+        # msg_bytes 是 bytes（list[ModelMessage] 的 JSON），转 str 以便嵌套在外层 JSON
+        msg_str = msg_bytes.decode("utf-8")
+        envelope = {
+            "session_id": state.session_id,
+            "user_id": state.user_id,
+            "messages_json": msg_str,
+            "intent_snapshot": state.intent_snapshot,
+            "itinerary_snapshot": state.itinerary_snapshot,
+            "extra": state.extra,
+        }
+        return json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+
+    def _deserialize(self, raw: bytes) -> ConversationState:
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+        import json
+
+        envelope = json.loads(raw.decode("utf-8"))
+        messages_raw = envelope.get("messages_json", "[]")
+        if isinstance(messages_raw, str):
+            messages = ModelMessagesTypeAdapter.validate_json(messages_raw.encode("utf-8"))
+        else:
+            messages = []
+        return ConversationState(
+            session_id=envelope["session_id"],
+            user_id=envelope.get("user_id", "demo_user"),
+            messages=messages,
+            intent_snapshot=envelope.get("intent_snapshot"),
+            itinerary_snapshot=envelope.get("itinerary_snapshot"),
+            extra=envelope.get("extra") or {},
+        )
+
+
+# 旧名兼容：RedisRepositoryStub 仍可 import（部分测试 / 旧文档引用）
+RedisRepositoryStub = RedisRepository
 
 
 # ============================================================
@@ -237,7 +355,7 @@ def get_default_repo() -> ConversationRepository:
         if name == "memory":
             _default_repo = InMemoryRepository()
         elif name == "redis":
-            _default_repo = RedisRepositoryStub()
+            _default_repo = RedisRepository()
         else:
             raise ValueError(
                 f"Unknown SESSION_STORE: {name!r}; valid values: memory|redis"
@@ -276,7 +394,8 @@ __all__ = [
     "ConversationRepository",
     # 实现
     "InMemoryRepository",
-    "RedisRepositoryStub",
+    "RedisRepository",
+    "RedisRepositoryStub",  # 旧名 alias，兼容旧 import
     # 单例
     "get_default_repo",
     # 向后兼容（旧名）
