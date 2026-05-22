@@ -24,6 +24,11 @@ runtime = [
   "fastapi>=0.110,<1",
   "uvicorn[standard]>=0.29",
   "sse-starlette>=2.1",
+  # Phase 0.22：可观测平台（Pydantic 出品，OpenTelemetry 兼容）
+  # LOGFIRE_TOKEN 配了走云端；不配走本地控制台（demo 安全）
+  "logfire>=2.10",
+  # 真持久化（FC 部署强制依赖；本地 docker compose 一键起 Redis）
+  "redis>=5.0",
 ]
 
 [build-system]

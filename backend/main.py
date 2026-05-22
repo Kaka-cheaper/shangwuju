@@ -195,6 +195,16 @@ app = FastAPI(
     description="本地半日出行管家 Agent 后端（FastAPI + SSE）",
 )
 
+# 可观测平台初始化（Logfire；未配 token 时降级本地控制台输出）
+# 自动 instrument Pydantic AI / OpenAI / httpx / FastAPI
+try:
+    from agent.observability_init import init_observability
+
+    init_observability(app)
+except Exception:  # noqa: BLE001
+    # 初始化失败不阻塞应用启动（demo 安全）
+    pass
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Demo 模式：允许所有来源（含 WebSocket）
