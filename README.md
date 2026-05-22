@@ -34,6 +34,49 @@ ReAct 规划循环（rule mode 或 LLM Function Calling 自主调用）
 | MVP-3 演示         | 阻塞    | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run               |
 ```
 
+## 一键部署
+
+> 评委 / 新同事 git clone 后，**两分钟**跑起来。
+
+```bash
+git clone <repo>
+cd 美团AI\ Hackathon
+
+# 1. 复制配置（按需填 LLM key）
+cp backend/.env.example backend/.env
+cp frontend/.env.local.example frontend/.env.local
+
+# 2. 一键起栈（Redis + 后端 + 前端 三件套）
+docker compose up --build
+
+# 3. 访问
+#    前端：http://localhost:3000
+#    后端：http://localhost:8000/health
+#    就绪：http://localhost:8000/ready  ← 看 LLM/Redis/mock_data 探活
+```
+
+**架构层抽象都已就位，比赛后切真实数据源**：
+
+```
+环境变量切换                          | 默认值（demo） | 真上线值
+--------------------------------------|--------------|-------------------------
+LLM_PROVIDER                          | stub / 真 LLM | deepseek / qwen
+SESSION_STORE                         | memory       | redis（已是真实现，非 stub）
+NEARBY_PROVIDER（附近 POI 搜索）        | mock         | gaode / meituan
+DATA_PROVIDER（数据源）                 | mock         | gaode / dianping
+LOG_FORMAT                            | text         | json
+LOGFIRE_TOKEN                         | （留空）      | lf_xxx（自动上传 trace）
+OAUTH_PROVIDER                        | （留空）      | wechat / google / dingtalk
+```
+
+**生产部署路径**：阿里云函数计算 FC Custom Container + Redis Tair + ACR 镜像仓库。详见 [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md)。
+
+**可观测**：内置 [Logfire](https://logfire.pydantic.dev) 接入位（Pydantic 出品 OTEL 平台），自动 instrument Pydantic AI / OpenAI / FastAPI / httpx；配 `LOGFIRE_TOKEN` 后每次规划完整链路云端可见。
+
+**法务**：[`docs/legal/`](docs/legal/) 已就位用户协议 + 隐私政策占位草案（真上线前需律师审核）。后端 `/legal/terms` `/legal/privacy` 端点直接 serve markdown。
+
+**OAuth**：[`backend/auth/providers.py`](backend/auth/providers.py) 已就位 wechat / google / dingtalk 三个 provider 抽象，每个含「真接入步骤」锚点；GET `/auth/info` 列出当前状态。
+
 **测试矩阵**：155 后端 pytest + 30 前端 vitest + 13 verify_refine + 7 verify_router = 205 项全过
 
 **真 LLM 链路实测**：MimMo (mimo-v2.5-pro) 浏览器端到端跑通——意图解析 / 双 mode / 反馈重规划 / persona 切换 / memory 学习 / 输入域路由全部过线。
