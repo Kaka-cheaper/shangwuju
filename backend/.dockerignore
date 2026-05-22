@@ -1,0 +1,53 @@
+# 后端 Dockerfile 构建上下文白名单（实际是黑名单）
+# 目的：缩小 build context（本地 .venv ~500MB 不要进镜像构建）
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 测试与脚本（运行时不需要）
+tests/
+# scripts 大部分是 verify_*，运行时不需要；保留 enrich_mock_coords 给运维用？暂不保留
+# 真要用 docker exec 进容器跑
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 环境与凭据
+.env
+.env.local
+.env.*.local
+
+# 日志
+*.log
+exp_log.txt
+logs/
+
+# Git
+.git/
+.gitignore
+
+# 临时
+*.tmp
+*.bak
+
+# 文档（运行时不需要）
+README.md
+api_contract.md
+
+# Docker 自身
+Dockerfile
+.dockerignore
