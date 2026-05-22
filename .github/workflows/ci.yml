@@ -1,0 +1,130 @@
+name: CI
+
+# 触发：push 到 main / 任意分支 PR / 手动
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 防 PR 重复触发：新 push 自动取消旧任务
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================
+  # 后端：lint + 单测
+  # ============================================================
+  backend-test:
+    name: Backend · Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ./backend
+    steps:
+      - uses: actions/checkout@v4
+
+      # uv 是 Astral 出品的 Python 包管理（比 pip / poetry 快 10x）
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.5.11"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: uv sync --frozen --extra dev --extra runtime
+
+      - name: Run pytest
+        env:
+          # 单测路径强制 stub LLM；不调真 API
+          LLM_PROVIDER: stub
+          # 单测路径走 InMemory（不需要 Redis）
+          SESSION_STORE: memory
+        run: uv run pytest tests/ -q --tb=short
+
+  # ============================================================
+  # 前端：typecheck + 单测 + production build
+  # ============================================================
+  frontend-test:
+    name: Frontend · Test & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test --run
+
+      - name: Build
+        env:
+          # build-time 公开变量（CI 用占位；真部署在 Vercel/CD 配真值）
+          NEXT_PUBLIC_API_BASE: http://localhost:8000
+          NEXT_PUBLIC_AMAP_KEY: ""
+        run: pnpm build
+
+  # ============================================================
+  # Docker 镜像构建验证（不推 registry，仅验证 Dockerfile 能 build）
+  # ============================================================
+  docker-build:
+    name: Docker · Build Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [backend-test, frontend-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./backend/Dockerfile
+          push: false
+          tags: shangwujue-backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: shangwujue-frontend:ci
+          build-args: |
+            NEXT_PUBLIC_API_BASE=http://localhost:8000
+            NEXT_PUBLIC_AMAP_KEY=
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
