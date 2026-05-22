@@ -1,0 +1,45 @@
+# 前端 Dockerfile 构建上下文白名单（实际是黑名单）
+
+# 依赖与构建产物（Dockerfile 内部会重建）
+node_modules/
+.next/
+out/
+.turbo/
+
+# 测试与开发文件
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+coverage/
+.vitest_cache/
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 环境与凭据
+.env
+.env.local
+.env.*.local
+
+# 日志
+*.log
+
+# Git
+.git/
+.gitignore
+
+# 构建缓存
+.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# 文档
+README.md
+
+# Docker 自身
+Dockerfile
+.dockerignore
+
+# pnpm（构建时不需要 pnpm-workspace.yaml）
+.pnpm-store/
