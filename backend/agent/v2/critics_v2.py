@@ -51,6 +51,7 @@ class ViolationCode(str, Enum):
     TIMELINE_INCONSISTENT = "timeline_inconsistent"
     SOCIAL_CONTEXT_MISMATCH = "social_context_mismatch"
     DIETARY_VIOLATION = "dietary_violation"
+    COMMUTE_INFEASIBLE = "commute_infeasible"
 
 
 class Severity(str, Enum):
@@ -125,6 +126,93 @@ def _safe_load_restaurants():
         return load_restaurants()
     except Exception:
         return []
+
+
+def _safe_load_user_profile(user_id: str = "demo_user"):
+    """容错加载 UserProfile（含 transport_preference / home_location 坐标）。"""
+    try:
+        from data.loader import load_user_profile, load_user_profiles
+        # 优先按 user_id 查多用户字典，找不到回退默认
+        try:
+            profiles = load_user_profiles()
+            if user_id in profiles:
+                return profiles[user_id]
+        except Exception:
+            pass
+        return load_user_profile()
+    except Exception:
+        return None
+
+
+def _safe_find_route(from_loc: str, to_loc: str):
+    """复用 tools._helpers.find_route；找不到返 None。"""
+    try:
+        from tools._helpers import find_route
+        return find_route(from_loc, to_loc)
+    except Exception:
+        return None
+
+
+def _haversine_minutes_estimate(
+    lat1: Optional[float],
+    lng1: Optional[float],
+    lat2: Optional[float],
+    lng2: Optional[float],
+    mode: str,
+) -> Optional[int]:
+    """无 mock 路线时的兜底估算：haversine 直线距离 × 模式速度。
+
+    经验速度（业内通用）：
+    - walking: 5 km/h（市内步行）
+    - taxi   : 25 km/h（含红绿灯 / 拥堵的城市平均）
+    - bus    : 18 km/h（含等车 + 站间停靠）
+    再加固定开销：taxi/bus 5min（找车/等车/上下车），步行 0min
+    返回向上取整分钟数；任意一坐标缺失返 None。
+    """
+    if any(v is None for v in (lat1, lng1, lat2, lng2)):
+        return None
+    try:
+        from data.nearby_provider import haversine_km
+
+        # 直线距离 × 1.3 路网折算系数（业内经验：路网/直线 ≈ 1.3）
+        km = haversine_km(lat1, lng1, lat2, lng2) * 1.3  # type: ignore[arg-type]
+    except Exception:
+        return None
+
+    if mode == "walking":
+        return max(1, int(round(km / 5 * 60)))
+    if mode == "taxi":
+        return max(1, int(round(km / 25 * 60 + 5)))
+    # bus 默认
+    return max(1, int(round(km / 18 * 60 + 5)))
+
+
+def _resolve_stage_location(
+    stage: ItineraryStage,
+    *,
+    home_loc: str = "home",
+) -> tuple[str, Optional[float], Optional[float]]:
+    """从 stage 推断「地点 id 用于 find_route」+ 坐标用于 haversine 兜底。
+
+    - 出发段（首段，title 含「出发」/「家」字样）→ home
+    - 返回段 → home
+    - 有 poi_id → poi_id
+    - 有 restaurant_id → restaurant_id
+    - 都没有 → "" + 当前 stage 的 lat/lng（可能全 None）
+    """
+    kind_norm = (stage.kind or "").replace(" ", "")
+    if "出发" in kind_norm or "返回" in kind_norm or "回家" in kind_norm:
+        # 出发/返回段终点是用户家
+        return home_loc, None, None
+    if stage.poi_id:
+        return stage.poi_id, stage.lat, stage.lng
+    if stage.restaurant_id:
+        return stage.restaurant_id, stage.lat, stage.lng
+    return "", stage.lat, stage.lng
+
+
+# 通勤容差（分钟）：buffer 越短越严
+_COMMUTE_TOLERANCE_MIN = 5
 
 
 # ============================================================
@@ -390,6 +478,146 @@ def _check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return out
 
 
+def _check_inter_stage_commute(
+    itinerary: Itinerary,
+    intent: IntentExtraction,  # noqa: ARG001
+    user_id: str = "demo_user",
+) -> list[Violation]:
+    """C-COMMUTE：相邻段之间的「累积通勤可达性」验证。
+
+    设计依据（见 problem.md 问题 N + pitfalls.md P1-2026-05-22-commute-critic）：
+    LLM 蓝图段时序看着没重叠，但 stage[i] 结束 18:00、stage[i+1] 开始 18:15，
+    实际两点打车 22 分钟 → 物理上到不了。temporal_critic 不会拒，但跑现场会翻车。
+
+    工作流程：
+    1. 取用户 transport_preference（默认 taxi）+ home 坐标作为出发/返回段终点
+    2. 相邻两段 (prev, cur)：
+       - 推断 prev 终点地点（poi_id / restaurant_id / home）+ cur 起点地点
+       - 同地（同 id）→ buffer = 0，跳过
+       - 调 find_route(prev_id, cur_id) 取对应交通方式分钟数
+       - 找不到 mock 路线 → 用 haversine + 路网折算系数兜底
+       - 都失败（无坐标）→ 不报，跳过（critic 不应该因数据缺失误伤）
+    3. 若 cur.start - prev.end < commute - 容差（5min）→ CRITICAL
+       消息含具体数字让 LLM 能修正：要么加 buffer 要么换近的 target
+
+    side effect：把推断出的 commute_minutes 写到 cur.commute_minutes_required +
+    cur.commute_mode（前端时间轴可显示）。
+    """
+    out: list[Violation] = []
+    if len(itinerary.stages) < 2:
+        return out
+
+    profile = _safe_load_user_profile(user_id)
+    transport_pref = "taxi"  # 默认
+    home_lat = home_lng = None
+    if profile is not None:
+        # UserProfile.transport_preference: walking / taxi / bus
+        pref = getattr(profile, "transport_preference", "taxi") or "taxi"
+        if pref in ("walking", "taxi", "bus"):
+            transport_pref = pref
+        if profile.home_location:
+            home_lat = profile.home_location.lat
+            home_lng = profile.home_location.lng
+
+    def commute_minutes(
+        from_id: str, to_id: str,
+        from_lat: Optional[float], from_lng: Optional[float],
+        to_lat: Optional[float], to_lng: Optional[float],
+    ) -> tuple[Optional[int], str]:
+        """返 (分钟数, 来源标记)。来源 = walking/taxi/bus（mock 路线命中）/
+        haversine_estimated（直线兜底）/ unknown（坐标都缺）。"""
+        if from_id and to_id and from_id == to_id:
+            return 0, transport_pref  # 同地
+
+        # 1. 优先查 mock 路线
+        if from_id and to_id:
+            route = _safe_find_route(from_id, to_id)
+            if route is not None:
+                if transport_pref == "walking" and route.walking_minutes is not None:
+                    return route.walking_minutes, "walking"
+                if transport_pref == "bus" and route.bus_minutes is not None:
+                    return route.bus_minutes, "bus"
+                if route.taxi_minutes is not None:
+                    return route.taxi_minutes, "taxi"
+
+        # 2. 兜底：haversine
+        # 出发/返回段一端是 home → 用 home 坐标
+        f_lat = from_lat if from_lat is not None else (home_lat if from_id == "home" else None)
+        f_lng = from_lng if from_lng is not None else (home_lng if from_id == "home" else None)
+        t_lat = to_lat if to_lat is not None else (home_lat if to_id == "home" else None)
+        t_lng = to_lng if to_lng is not None else (home_lng if to_id == "home" else None)
+
+        est = _haversine_minutes_estimate(f_lat, f_lng, t_lat, t_lng, transport_pref)
+        if est is not None:
+            return est, "haversine_estimated"
+
+        return None, "unknown"
+
+    for idx in range(1, len(itinerary.stages)):
+        prev = itinerary.stages[idx - 1]
+        cur = itinerary.stages[idx]
+
+        prev_id, prev_lat, prev_lng = _resolve_stage_location(prev)
+        cur_id, cur_lat, cur_lng = _resolve_stage_location(cur)
+
+        # 出发/返回段坐标用 home
+        if prev_id == "home" and (prev_lat is None or prev_lng is None):
+            prev_lat, prev_lng = home_lat, home_lng
+        if cur_id == "home" and (cur_lat is None or cur_lng is None):
+            cur_lat, cur_lng = home_lat, home_lng
+
+        commute_min, mode = commute_minutes(
+            prev_id, cur_id, prev_lat, prev_lng, cur_lat, cur_lng
+        )
+
+        if commute_min is None:
+            # 无法估算，跳过——critic 不该因数据缺失误伤
+            continue
+
+        prev_end_min = _parse_hhmm(prev.end)
+        cur_start_min = _parse_hhmm(cur.start)
+        if prev_end_min is None or cur_start_min is None:
+            continue  # 时间格式错由 timeline critic 管
+
+        buffer = cur_start_min - prev_end_min  # 段间空隙（min）
+
+        # 写入到 cur 的元数据（即使没违规也写，方便前端展示）
+        try:
+            cur.commute_minutes_required = commute_min
+            cur.commute_mode = mode
+        except Exception:
+            pass  # frozen model 时跳过；不应该发生
+
+        if buffer < commute_min - _COMMUTE_TOLERANCE_MIN:
+            shortage = commute_min - buffer
+            advice = (
+                f"建议把第 {idx + 1} 段开始时间推迟到 "
+                f"{_minutes_to_hhmm(prev_end_min + commute_min)} 之后"
+                f"，或换距离更近的候选（如同商圈内）"
+            )
+            out.append(
+                Violation(
+                    code=ViolationCode.COMMUTE_INFEASIBLE,
+                    severity=Severity.CRITICAL,
+                    message=(
+                        f"第 {idx + 1} 段「{cur.title or cur.kind}」开始于 {cur.start}，"
+                        f"距上一段「{prev.title or prev.kind}」结束（{prev.end}）仅 "
+                        f"{buffer} 分钟空隙，但实际通勤需要 {commute_min} 分钟"
+                        f"（{mode}），缺 {shortage} 分钟。{advice}"
+                    ),
+                    field_path=f"stages[{idx}].start",
+                )
+            )
+
+    return out
+
+
+def _minutes_to_hhmm(total: int) -> str:
+    """工具函数：分钟数 → HH:MM。"""
+    total = max(0, min(total, 24 * 60 - 1))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 def _check_social_context(
     itinerary: Itinerary, intent: IntentExtraction
 ) -> list[Violation]:
@@ -448,23 +676,28 @@ def _check_social_context(
 # ============================================================
 
 def validate_itinerary(
-    itinerary: Itinerary, intent: IntentExtraction
+    itinerary: Itinerary,
+    intent: IntentExtraction,
+    *,
+    user_id: str = "demo_user",
 ) -> list[Violation]:
-    """跑全套 7 类 critic 检查。返回 violations 列表（可能为空）。
+    """跑全套 critic 检查。返回 violations 列表（可能为空）。
 
     顺序约定（先「结构性」后「语义性」）：
     1. STAGES_INCOMPLETE
     2. DURATION_OUT_OF_RANGE
     3. TIMELINE_INCONSISTENT
-    4. DISTANCE_EXCEEDED
-    5. RESTAURANT_FULL_UNRESOLVED（demo-aware）
-    6. DIETARY_VIOLATION
-    7. SOCIAL_CONTEXT_MISMATCH
+    4. COMMUTE_INFEASIBLE（相邻段累积通勤可达性，使用 user_id 解析交通偏好）
+    5. DISTANCE_EXCEEDED
+    6. RESTAURANT_FULL_UNRESOLVED（demo-aware）
+    7. DIETARY_VIOLATION
+    8. SOCIAL_CONTEXT_MISMATCH
     """
     violations: list[Violation] = []
     violations.extend(_check_stages_incomplete(itinerary))
     violations.extend(_check_duration(itinerary, intent))
     violations.extend(_check_timeline(itinerary))
+    violations.extend(_check_inter_stage_commute(itinerary, intent, user_id=user_id))
     violations.extend(_check_distance(itinerary, intent))
     violations.extend(_check_demo_restaurant_full(itinerary))
     violations.extend(_check_dietary(itinerary, intent))

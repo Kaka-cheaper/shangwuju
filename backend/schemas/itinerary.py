@@ -42,6 +42,18 @@ class ItineraryStage(BaseModel):
         default=None,
         description='附加说明，如"已为你预约 17:00 三人位"',
     )
+    commute_minutes_required: Optional[NonNegativeInt] = Field(
+        default=None,
+        description=(
+            "从上一段终点到本段起点所需的实际通勤分钟数（按用户 transport_preference 取值）。"
+            "由 commute critic 写入；前端可在时间轴上显示「打车 13 分钟」气泡。"
+            "首段或上一段无目标点时为 None。"
+        ),
+    )
+    commute_mode: Optional[str] = Field(
+        default=None,
+        description='通勤方式，与 commute_minutes_required 对应：walking / taxi / bus / haversine_estimated。',
+    )
 
 
 class OrderRecord(BaseModel):

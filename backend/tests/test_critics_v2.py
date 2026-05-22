@@ -67,12 +67,20 @@ def _make_legal_itinerary(
     """5 段标准合法行程。
 
     14:00 出发 → 14:30 主活动 → 16:00 转场 → dining_start 用餐 → 19:00 返回
+
+    注意：返回段 start 故意比用餐 end 多 10min buffer，让 commute critic
+    （R001→home taxi=7min）能通过验证。
     """
     # 计算用餐结束时间 = start + 60min
     s_h, s_m = (int(x) for x in dining_start.split(":"))
     end_total = s_h * 60 + s_m + 60
     e_h, e_m = end_total // 60, end_total % 60
     dining_end = f"{e_h:02d}:{e_m:02d}"
+
+    # 返回段加 10min buffer 兼容 commute critic
+    return_start_total = end_total + 10
+    rs_h, rs_m = return_start_total // 60, return_start_total % 60
+    return_start = f"{rs_h:02d}:{rs_m:02d}"
 
     return Itinerary(
         summary="家庭半日方案（测试）",
@@ -93,7 +101,7 @@ def _make_legal_itinerary(
                 title="健康轻食",
                 restaurant_id=restaurant_id,
             ),
-            ItineraryStage(kind="返回", start=dining_end, end="19:00", title="打车回家"),
+            ItineraryStage(kind="返回", start=return_start, end="19:00", title="打车回家"),
         ],
         orders=[],
         total_minutes=total_minutes,

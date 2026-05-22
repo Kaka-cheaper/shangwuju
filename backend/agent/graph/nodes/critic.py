@@ -46,7 +46,7 @@ def critic_node(state: AgentState) -> dict[str, Any]:
             ),
         }
 
-    violations = validate_itinerary(itinerary, intent)
+    violations = validate_itinerary(itinerary, intent, user_id=state.get("user_id") or "demo_user")
     has_critical = any(v.severity == Severity.CRITICAL for v in violations)
     feedback = format_violations_for_llm(violations) if has_critical else None
 
