@@ -54,11 +54,35 @@ def assemble_node(state: AgentState) -> dict[str, Any]:
         for d in alt_dicts
     ]
 
-    final_strategy = "llm_first"
-    if state.get("replan_strategy"):
-        final_strategy = state["replan_strategy"]
-    elif state.get("retry_count") and (state.get("retry_count") or 0) > 0:
-        final_strategy = "llm_backprompt"
+    # final_strategy 反映「这一刻流程到了哪一步」（assemble 时还在验证）。
+    # 真正定稿值由 narrate 节点决定（critic 通过或 give_up 后定型）。
+    # 判据用 fallback_chain 最后一跳——只增不减、严格反映"已发生的事"，
+    # 不看 retry_count（避免与 ILS 路径混淆）。
+    if fallback_chain:
+        last_hop = fallback_chain[-1]
+        last_to = getattr(last_hop, "to_stage", None) or (
+            last_hop.get("to_stage") if isinstance(last_hop, dict) else None
+        )
+        if last_to == "give_up":
+            final_strategy = "give_up"
+        elif last_to == "ils":
+            final_strategy = "ils"
+        elif last_to == "rule":
+            final_strategy = "rule"
+        elif last_to == "llm_backprompt":
+            final_strategy = "llm_backprompt"
+        else:
+            final_strategy = "llm_first"
+    elif state.get("replan_strategy") in ("llm_backprompt", "ils_fallback", "give_up"):
+        # 兜底：万一 fallback_chain 没累积但 replan_strategy 设了
+        rs = state["replan_strategy"]
+        final_strategy = {
+            "llm_backprompt": "llm_backprompt",
+            "ils_fallback": "ils",
+            "give_up": "give_up",
+        }[rs]
+    else:
+        final_strategy = "llm_first"
 
     trace = DecisionTrace(
         blueprint_rationale=blueprint.rationale or "",

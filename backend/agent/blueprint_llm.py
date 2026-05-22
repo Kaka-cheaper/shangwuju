@@ -115,16 +115,106 @@ def build_candidate_preview(
     pois: list[Poi],
     restaurants: list[Restaurant],
     top_k: int = 5,
+    *,
+    transport_preference: str = "taxi",
 ) -> dict:
-    """打包候选预览给 LLM；只取 top_k 条（按 rating 排序）避免 token 爆炸。"""
+    """打包候选预览给 LLM。
+
+    Args:
+        pois / restaurants: 已搜索到的候选
+        top_k: 每类候选取前几条（按 rating 排序），避免 token 爆炸
+        transport_preference: walking / taxi / bus，决定通勤矩阵走哪一列
+
+    Returns:
+        {
+          "pois": [...],
+          "restaurants": [...],
+          "commute_matrix": [
+            { "from": "home", "to": "P001", "minutes": 13, "mode": "taxi" },
+            ...
+          ],
+          "transport_preference": "taxi"
+        }
+
+    设计动机（pitfall P1-2026-05-23 ILS 死循环根因）：
+      旧版 LLM 只看 distance_km（候选→家直线），靠经验法则猜段间通勤，
+      但 critic 用的是 routes.json 段间真实矩阵——两边数据源不同，LLM 永远算不准。
+      把矩阵直接喂给 LLM，让它从「猜距离」变「查表代入」。
+    """
     pois_sorted = sorted(pois, key=lambda p: p.rating, reverse=True)[:top_k]
     rests_sorted = sorted(
         restaurants, key=lambda r: r.rating, reverse=True
     )[:top_k]
+
     return {
         "pois": [_poi_preview(p) for p in pois_sorted],
         "restaurants": [_restaurant_preview(r) for r in rests_sorted],
+        "commute_matrix": _build_commute_matrix(
+            pois_sorted, rests_sorted, transport_preference
+        ),
+        "transport_preference": transport_preference,
     }
+
+
+def _build_commute_matrix(
+    pois: list[Poi],
+    restaurants: list[Restaurant],
+    transport_pref: str,
+) -> list[dict]:
+    """构造段间通勤矩阵：home ↔ POI / POI ↔ Restaurant / Restaurant → home。
+
+    只列 LLM 真正可能用到的边（top_k 候选两两 + home 双向），避免 token 爆炸。
+    若 routes.json 没记录某条边，用 haversine 兜底（与 critic 保持一致）。
+
+    返回：list[{from, to, minutes, mode}]，按 from+to 字典序排列方便 LLM 查表。
+    """
+    from tools._helpers import find_route
+
+    poi_ids = [p.id for p in pois]
+    rest_ids = [r.id for r in restaurants]
+
+    # 需要的边：home↔POI / home↔Restaurant / POI↔Restaurant 双向
+    edges: list[tuple[str, str]] = []
+    for pid in poi_ids:
+        edges.append(("home", pid))
+        edges.append((pid, "home"))
+    for rid in rest_ids:
+        edges.append(("home", rid))
+        edges.append((rid, "home"))
+    for pid in poi_ids:
+        for rid in rest_ids:
+            edges.append((pid, rid))
+            edges.append((rid, pid))
+
+    seen: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    for fr, to in edges:
+        if (fr, to) in seen or fr == to:
+            continue
+        seen.add((fr, to))
+        route = find_route(fr, to)
+        minutes: int | None = None
+        if route is not None:
+            if transport_pref == "walking" and route.walking_minutes is not None:
+                minutes = route.walking_minutes
+            elif transport_pref == "bus" and route.bus_minutes is not None:
+                minutes = route.bus_minutes
+            elif route.taxi_minutes is not None:
+                minutes = route.taxi_minutes
+        if minutes is None:
+            # routes.json 没有这条边——LLM 看不到不算违规（critic 会兜底）
+            # 这里跳过避免误导 LLM
+            continue
+        out.append(
+            {
+                "from": fr,
+                "to": to,
+                "minutes": minutes,
+                "mode": transport_pref,
+            }
+        )
+    out.sort(key=lambda x: (x["from"], x["to"]))
+    return out
 
 
 # ============================================================
@@ -139,6 +229,7 @@ def generate_blueprint(
     client: LLMClient,
     critic_feedback: list[str] | None = None,
     top_k_preview: int = 5,
+    user_id: str = "demo_user",
 ) -> PlanBlueprint:
     """让 LLM 看候选数据后出蓝图。
 
@@ -148,6 +239,7 @@ def generate_blueprint(
         client: LLM 客户端（必须可调 .chat()）
         critic_feedback: 上一轮 critic 的硬违规消息列表（重生成时传）
         top_k_preview: 候选预览取前几条
+        user_id: 解析交通偏好用（默认 demo_user）
 
     Returns:
         PlanBlueprint
@@ -155,7 +247,25 @@ def generate_blueprint(
     Raises:
         BlueprintGenError: JSON 非法 / 字段缺失 / 蓝图自身字段约束失败
     """
-    preview = build_candidate_preview(pois, restaurants, top_k=top_k_preview)
+    # 解析用户交通偏好（与 critics_v2 保持一致的判定方式）
+    transport_pref = "taxi"
+    try:
+        from data.loader import load_user_profiles
+
+        profiles = load_user_profiles()
+        profile = profiles.get(user_id)
+        if profile is not None:
+            pref = getattr(profile, "transport_preference", "taxi") or "taxi"
+            if pref in ("walking", "taxi", "bus"):
+                transport_pref = pref
+    except Exception:  # noqa: BLE001
+        pass
+
+    preview = build_candidate_preview(
+        pois, restaurants,
+        top_k=top_k_preview,
+        transport_preference=transport_pref,
+    )
     intent_json = intent.model_dump_json()
     candidates_json = json.dumps(preview, ensure_ascii=False, indent=2)
 

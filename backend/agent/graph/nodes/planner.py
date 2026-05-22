@@ -56,6 +56,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
             restaurants,
             client=client,
             critic_feedback=feedback_list,
+            user_id=state.get("user_id") or "demo_user",
         )
     except BlueprintGenError:
         # 蓝图生成失败 → blueprint=None，由 replan_router 决定 fallback

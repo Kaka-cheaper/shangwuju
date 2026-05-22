@@ -4907,3 +4907,92 @@ staleness 脚本仍报 4 个 working tree 未提交文件（3 个 .codesee/scrip
 - `fetch-server-response.ts:111 GET _rsc=r3yhw 加载失败`：next dev 重新生成 RSC 时的瞬时 404（HMR 切版本时常见，不影响功能）
 
 这两个是 Next.js dev 模式正常现象，不需要处理。
+
+
+---
+
+## 问题：AI 思考显示"通过"实际死循环 + 提示词治本而非兜底
+
+**时间**：2026-05-23
+
+**用户原问**：「为什么 AI 思考这个面板中显示通过了，但是实际上一直在循环？而且两次规划都错误了。我觉得根本的修改应该是提示词优化或者说怎么样才能提高 LLM 规划成功的概率。你先分析一下不一致问题，然后再分析一下我提出的建议，因为兜底的始终不完美，不符合 agent 的智能感」
+
+### 一、不一致根因分析（三处分裂）
+
+1. **assemble 节点提前推 ITINERARY_READY**：蓝图拼好就推前端，还没经过 critic 验证。前端拿到中间态。
+2. **trace.final_strategy 判据有歧义**：第 2 次 plan 后 `replan_strategy='llm_backprompt'` 就让前端显示「LLM 修正后通过」chip，但实际 critic 还没放行。
+3. **critic_attempts 永远"进行中"**：循环里 `has_critical=True` 永驻，`resolved` 标记的逻辑只在"下次 has_critical=False 才把上一条标 resolved"，循环中永不触发。
+
+### 二、用户提议分析（提示词治本 > 兜底链路）
+
+**用户完全正确**。深层根因是 **LLM 看的数据 vs critic 用的数据不一致**：
+- LLM 看：候选 `distance_km`（**距家**直线距离）+ prompt 经验法则（5-10min / 15-20min / 25min+）
+- critic 用：`routes.json` 段间真实矩阵（taxi/walking/bus）
+- LLM 在猜，critic 在查表。100% 算不准。
+
+兜底链路（ILS / rule planner）治标不治本，每次触发都是 Agent 智能感打折。
+
+### 三、解决方案（治本：提示词优化）
+
+**1. 候选预览加 `commute_matrix` 字段**（`backend/agent/blueprint_llm.py`）：
+```python
+def build_candidate_preview(pois, restaurants, top_k=5, *, transport_preference="taxi"):
+    return {
+        "pois": [...],
+        "restaurants": [...],
+        "commute_matrix": [
+            {"from": "home", "to": "P040", "minutes": 18, "mode": "taxi"},
+            {"from": "P040", "to": "R024", "minutes": 9, "mode": "taxi"},
+            {"from": "R024", "to": "home", "minutes": 6, "mode": "taxi"},
+            ...
+        ],
+        "transport_preference": "taxi",
+    }
+```
+矩阵从 `routes.json` 直接读，与 critic 同源。
+
+**2. prompt 改强代入式公式**（`backend/agent/prompts/blueprint_prompt.py` 硬约束 7）：
+```
+下一段.start_time = 上一段.end_time + commute_matrix[上一段.target → 下一段.target] + 5min 缓冲
+```
+带具体数字示例（P040→R024=9min 算给 LLM 看），从"经验法则"改"查表代入"。
+
+**3. `generate_blueprint` 透传 `user_id`**：解析 transport_preference，矩阵走对应模式（与 critic 一致）。
+
+### 四、附带修复显示不一致（治表）
+
+**4. SSE 推送时机**（`backend/agent/graph/sse_adapter.py`）：
+- 砍掉 `assemble` 节点的 `ITINERARY_READY`，只在 `narrate` 节点推一次（critic 通过/give_up 才到 narrate，那时是定稿）
+- assemble 改推 `agent_thought` "蓝图已拼成行程草稿，正在验证可行性..."
+
+**5. trace.final_strategy 改用 fallback_chain 判据**（`backend/agent/graph/nodes/assemble.py`）：
+- 只增不减、严格反映"已发生的事"
+- 不再因为 `replan_strategy` 设了某个值就误显"通过"
+
+**6. narrate 节点定稿前更新 trace**（`backend/agent/graph/nodes/narrate.py`）：
+- 把最后一条 `critic_attempt` 标 resolved=True（能走到 narrate 说明 critic 放行了）
+- final_strategy 用同一 fallback_chain 判据
+
+### 修改的代码文件
+
+- `backend/agent/blueprint_llm.py`（`_build_commute_matrix` + `build_candidate_preview` 加 transport_preference + `generate_blueprint` 加 user_id）
+- `backend/agent/prompts/blueprint_prompt.py`（硬约束 7 改写为查表代入公式 + 示例）
+- `backend/agent/graph/nodes/planner.py`（透传 user_id 给 generate_blueprint）
+- `backend/agent/graph/nodes/assemble.py`（final_strategy 改 fallback_chain 判据）
+- `backend/agent/graph/nodes/narrate.py`（定稿前更新 trace + resolved 标记 + return itinerary 让 sse_adapter 拿到）
+- `backend/agent/graph/sse_adapter.py`（assemble 不推 ITINERARY_READY，narrate 推一次）
+- `docs/03-implementation/pitfalls.md`（追加 P1 LLM/critic 数据源不一致 + P2 推送时机错位两条）
+
+### 应当达成的效果
+
+- LLM 第 1 次 plan 就能算对段间通勤 → 直出过 critic（不再 backprompt × 3 次）
+- 前端 chip 显示与后端实际状态严格一致：
+  - critic 还在验证 → chip 不出「通过」
+  - critic 通过 → chip 显示 LLM 直出 / 修正后通过 / ILS 兜底 / 兜底失败
+  - critic_attempts 中能看到清晰的"已修正"标记
+- 兜底链路（ILS / rule）从主路径退到极端兜底，符合 Agent 智能感
+- 378 个测试全过；graph 编译通过
+
+### 备注
+
+`final_strategy` 字段名 + 前端 label「LLM 修正后通过」字面歧义仍在（`final_strategy="llm_backprompt"` 表示"走到了 backprompt 这一步"，不一定真"通过了"）。下次需要重命名为 `path_taken` + label 改成"LLM 修正后通过 critic"以彻底消除歧义。本次先用 fallback_chain 判据收住症状。

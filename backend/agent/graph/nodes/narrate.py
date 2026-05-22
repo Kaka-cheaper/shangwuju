@@ -34,4 +34,28 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         stage="stream",
         use_llm=use_llm,
     )
-    return {"narration": text}
+
+    # 更新 trace.final_strategy 到「定稿状态」（覆盖 assemble 时的中间值）。
+    # 判据用 fallback_chain（与 assemble_node 一致，避免漂移）：
+    if itinerary.decision_trace is not None:
+        chain = itinerary.decision_trace.fallback_chain
+        if chain:
+            last_to = chain[-1].to_stage
+            mapping = {
+                "give_up": "give_up",
+                "ils": "ils",
+                "rule": "rule",
+                "llm_backprompt": "llm_backprompt",
+            }
+            final_strategy = mapping.get(last_to, "llm_first")
+        else:
+            final_strategy = "llm_first"
+        itinerary.decision_trace.final_strategy = final_strategy
+        # 把上一条 critic_attempt（如果存在且未 resolved）标 resolved
+        # ——能走到 narrate 说明 critic 已经放行，最后一次 attempt 的反馈被消化了
+        if itinerary.decision_trace.critic_attempts:
+            last = itinerary.decision_trace.critic_attempts[-1]
+            if not last.resolved:
+                last.resolved = True
+
+    return {"narration": text, "itinerary": itinerary}

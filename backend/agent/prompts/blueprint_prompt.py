@@ -89,11 +89,24 @@ BLUEPRINT_SYSTEM_PROMPT = f"""你是「晌午局」的行程蓝图规划师。
 4. **营业时间**：选 target_id 时其营业 opening_hours 必须覆盖该段的 [start, end]
 5. **raw_input 精确数字**：用户说"只有 N 小时" / "N 个小时" → 蓝图总时长严格 ≤ N 小时+15 分钟容忍
 6. **kind 是中文**，自由文本，但避免使用代码标识符或 ASCII
-7. **段间通勤可达**：相邻两段如果在不同地点（不同 target_id），后段 start 必须 ≥ 前段 end + 通勤时间。
-   候选预览里每条 POI/餐厅都标了 distance_km（距家直线距离）。
-   保守经验：同一商圈（distance_km 相差 < 1km）留 5-10 min；
-   不同商圈（相差 1-3km）留 15-20 min；远距离（相差 > 3km）留 25 min+。
-   用餐段结束后到「返回」段，餐厅离家 distance_km 越大，buffer 留得越多（taxi 经验：每 km 约 2-3 min）。
+7. **段间通勤可达（最关键 · 上一版死循环根因）**
+   候选预览中的 `commute_matrix` 字段是「段间真实通勤分钟数」的精确数据源（与 critic 完全一致）。
+   你必须严格按下面的公式算下一段的 start_time，**禁止凭经验估**：
+
+   ```
+   下一段.start_time = 上一段.end_time + commute_matrix[上一段.target → 下一段.target] + 5min 缓冲
+   ```
+
+   规则：
+   - `target_kind == "none"` 的段（如「出发」「返回」「转场」），其位置等于相邻有 target 的段或 home
+       - 「出发」段的 target = home；「返回」段的 target = home；「转场」段位于前后两段之间，无独立位置
+   - 矩阵里没有的边（极少数 mock 缺失）→ 留 15 分钟保守 buffer
+   - 用户偏好的交通方式由 `transport_preference` 字段标明（taxi / walking / bus），矩阵分钟数已按此换算
+
+   **示例**（候选含 P040 / R024，commute_matrix 给出 P040→R024=9 分钟、R024→home=6 分钟）：
+   - 主活动 P040 14:24~17:00
+   - 用餐 R024 应该 17:00 + 9 + 5 = 17:14 开始（不是 17:00 也不是 17:30 凭感觉）
+   - 返回 home 应该 17:14+60=18:14 + 6 + 5 = 18:25 开始（不是 17:39 凭感觉）
 
 【段集合的灵活性指南】
 - 用户只想吃饭（"只想吃顿饭" / "今晚夜宵"）→ 段可以只有「出发 + 用餐 + 返回」

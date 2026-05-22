@@ -790,3 +790,45 @@
   - `backend/agent/graph/nodes/replan.py`（加 `_MAX_TOTAL_RETRIES=4` give_up 分支）
   - `backend/agent/graph/nodes/critic.py`（Counter 去重 violation_codes）
   - `frontend/components/DecisionTraceCard.tsx`（key 复合 idx）
+
+
+### [P1] 2026-05-23 LLM 看 distance_km 猜段间通勤、critic 查 routes.json 矩阵——数据源不一致是 ILS 死循环根因
+
+- **现象**（pitfall P1-2026-05-23 ILS 死循环的"为什么 LLM 总过不了 critic"侧面）：用户截图显示 LLM 在 backprompt 第 1/2/3 次都被同样的 commute_infeasible 拒，根本不是"LLM 不努力"，而是数据源天然不一致。
+- **根因**：
+  - LLM 看的：候选预览里 POI/餐厅各自的 `distance_km`（**距家直线距离**）+ prompt 里的"经验法则"（同商圈留 5-10min / 跨商圈 15-20min / 远 25min+）
+  - critic 用的：`routes.json` 里 POI↔餐厅的**段间真实通勤分钟数**（taxi/walking/bus 三种模式）
+  - 两边数据源完全不一样。LLM 在猜，critic 在查表。100% 概率算不准。
+  - 例子：P040（距家 4.2km）+ R024（距家 0.64km）→ LLM 按"距离差 3.5km"经验法则猜应留 25 min，但 P040→R024 真实矩阵是 9 min taxi。LLM 算的 buffer 永远偏离 critic 的判定阈值。
+- **解法**（治本）：
+  1. **`build_candidate_preview` 加 `commute_matrix` 字段**：把 `routes.json` 里 home↔候选 + POI↔餐厅 双向矩阵直接喂给 LLM（仅 top_k 候选两两，token 可控；缺失的边跳过让 critic 兜底）。
+  2. **prompt 改强代入式公式**：
+     ```
+     下一段.start_time = 上一段.end_time + commute_matrix[上一段.target → 下一段.target] + 5min 缓冲
+     ```
+     从"经验法则"改"查表代入"，用具体数字示例（P040→R024=9min、R024→home=6min 算给 LLM 看）。
+  3. **`generate_blueprint` 透传 `user_id`**：解析用户 transport_preference（taxi / walking / bus），矩阵分钟数按此换算（与 critic 完全一致）。
+- **优先级**：P1（治本——LLM 第 1 次 plan 应能直出过 critic，不再依赖 backprompt+ILS 兜底链路）
+- **修改文件**：
+  - `backend/agent/blueprint_llm.py`（加 `_build_commute_matrix` + `build_candidate_preview` 接 transport_preference + `generate_blueprint` 接 user_id）
+  - `backend/agent/prompts/blueprint_prompt.py`（硬约束 7 改写为查表公式）
+  - `backend/agent/graph/nodes/planner.py`（透传 user_id）
+- **预期效果**：从「3 次 LLM backprompt + 11 次 ILS 兜底」降到「1 次 LLM 直出过 critic」。Agent 智能感大幅提升，兜底链路只在极端情况触发。
+
+### [P2] 2026-05-23 ITINERARY_READY 推送时机不对导致前端"显示通过、实际循环"
+
+- **现象**：用户截图——AI 思考面板显示「LLM 修正后通过」chip + Critic 修正历史第 1/2 次都标"进行中"，但右栏继续刷"重新规划 critic_hard_violation × 18 次"。前端看似已经成功了，后端还在转。
+- **根因**：
+  1. `assemble_node` 拼好 itinerary 后 SSE 立刻推 `ITINERARY_READY`，但还没经过 critic 验证。前端拿到的是中间态。
+  2. `assemble_node` 写 trace.final_strategy 时按 `replan_strategy` 判定，第 2 次 plan 后 strategy 已是 `llm_backprompt` → 显示「LLM 修正后通过」误导评委。
+  3. 循环里 has_critical 永远 True，所以 `critic_attempts[-1].resolved` 永远卡在 False = "进行中"。
+- **解法**：
+  1. `sse_adapter` 砍掉 assemble 节点的 `ITINERARY_READY` 推送，只在 narrate 节点推一次（critic 通过 / give_up 后才到 narrate，那时 itinerary 是定稿）。assemble 节点改推 `agent_thought` "蓝图已拼成行程草稿，正在验证可行性..."。
+  2. `assemble_node` final_strategy 改用 `fallback_chain[-1].to_stage` 判据（只增不减、严格反映"已发生的事"）。
+  3. `narrate_node` 在出 narration 前更新 trace.final_strategy 到定稿状态 + 把最后一条 critic_attempt 标 resolved（能走到 narrate 说明放行了）。
+- **优先级**：P2（不影响功能正确性，但严重伤害"Agent 行为可见性"评分项 + 评委信任度）
+- **修改文件**：
+  - `backend/agent/graph/sse_adapter.py`（assemble 不推 ITINERARY_READY，narrate 推一次）
+  - `backend/agent/graph/nodes/assemble.py`（final_strategy 改 fallback_chain 判据）
+  - `backend/agent/graph/nodes/narrate.py`（定稿前更新 trace + resolved 标记）
+- **防再犯**：流程中的"最终产物"应只在终态节点推送一次（不要在中间节点试图"边做边推"造成视觉与实际不一致）；trace 状态字段命名应避免歧义（`final_strategy` 容易误解为"最终成功的路径"，实际是"走到了哪个分支"——chip label 仍称"LLM 修正后通过"是有问题的，下次重命名）

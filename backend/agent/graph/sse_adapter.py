@@ -327,12 +327,13 @@ async def run_graph_stream(
                     seq += 1
 
                 # ---- assemble ----
+                # 注：不推 ITINERARY_READY—— assemble 只是中间状态（critic 还要验），
+                # 最终方案由 narrate 节点统一推送（critic 通过或 give_up 后才是定稿）。
+                # 这里只做一次状态提示，让前端 dock 知道蓝图已拼好正在验证。
                 elif node_name == "assemble":
                     itin = node_diff.get("itinerary")
                     if itin is not None:
-                        # 抽风兜底：如果有目标段但没坐标，推一条 agent_thought 警示
-                        # （poi_id / restaurant_id 非空但 lat/lng 为空 → 多半是 LLM 抽风
-                        # 把不存在的 id 写到 blueprint，assemble 时找不到对应 mock 数据）
+                        # 兜底警示：缺坐标段（assemble 找不到对应 mock 数据）
                         miss_coord_count = sum(
                             1
                             for s in itin.stages
@@ -354,15 +355,28 @@ async def run_graph_stream(
                             seq += 1
                         yield _ev(
                             seq,
+                            SseEventType.AGENT_THOUGHT,
+                            {"text": "蓝图已拼成行程草稿，正在验证可行性……"},
+                        )
+                        seq += 1
+
+                # ---- narrate ----
+                # narrate 节点是流程的真正终点：critic 通过 → narrate / replan give_up → narrate。
+                # 只在这里推一次 ITINERARY_READY，让前端拿到的就是定稿（含完整 trace）。
+                elif node_name == "narrate":
+                    text = node_diff.get("narration")
+                    # 从最新 state 取 itinerary 推前端（narrate 自己不改 itinerary）
+                    final_itin = node_diff.get("itinerary") or (
+                        last_state.get("itinerary") if last_state else None
+                    )
+                    if final_itin is not None and not itinerary_emitted:
+                        yield _ev(
+                            seq,
                             SseEventType.ITINERARY_READY,
-                            itin.model_dump(),
+                            final_itin.model_dump() if hasattr(final_itin, "model_dump") else final_itin,
                         )
                         seq += 1
                         itinerary_emitted = True
-
-                # ---- narrate ----
-                elif node_name == "narrate":
-                    text = node_diff.get("narration")
                     if text:
                         yield _ev(
                             seq,
