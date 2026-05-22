@@ -48,6 +48,36 @@ def _resolve_user_coords(user_id: Optional[str]) -> tuple[Optional[float], Optio
         return (None, None)
 
 
+def _resolve_excluded_visited_ids(
+    user_id: Optional[str], *, kind: str
+) -> list[str]:
+    """从 UserMemory 取最近 30 天访问过的 target_id（按 kind 过滤）。
+
+    Args:
+        user_id: 用户 id；空则返空 list
+        kind: 'poi' 或 'restaurant'
+
+    失败兜底返空——不应影响主路径。
+    """
+    if not user_id:
+        return []
+    try:
+        from data.memory_store import get_memory
+
+        memory = get_memory(user_id)
+        if not memory.visited_targets:
+            return []
+        recent_ids = set(memory.recently_visited_ids(within_days=30))
+        # 仅返指定 kind 的
+        return [
+            r.target_id
+            for r in memory.visited_targets
+            if r.target_id in recent_ids and r.target_kind == kind
+        ]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def search_pois_for_intent(
     intent: IntentExtraction,
     *,
@@ -56,7 +86,9 @@ def search_pois_for_intent(
 ) -> tuple[list[Poi], list[str]]:
     """按 intent 调 search_pois，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
-    user_id 提供时从 user_profile 取 home_location 作 NearbyProvider 的查询基准。
+    user_id 提供时：
+    - 从 user_profile 取 home_location 作 NearbyProvider 的查询基准
+    - 从 UserMemory 取最近 30 天访问过的 POI id 排除（Step 7 个性化记忆）
     Step 6：tag relaxation 透出 relaxed_tags 让上层（execute_worker / sse_adapter）
     把放宽路径透传给前端 / LLM。
     """
@@ -64,6 +96,7 @@ def search_pois_for_intent(
         {c.age for c in intent.companions if c.age is not None}
     )
     user_lat, user_lng = _resolve_user_coords(user_id)
+    excluded_ids = _resolve_excluded_visited_ids(user_id, kind="poi")
     inp = SearchPoisInput(
         distance_max_km=intent.distance_max_km or 5.0,
         physical_constraints=list(intent.physical_constraints),
@@ -72,6 +105,7 @@ def search_pois_for_intent(
         age_in_party=list(age_in_party),
         user_lat=user_lat,
         user_lng=user_lng,
+        exclude_visited_ids=excluded_ids,
         limit=limit,
     )
     out = invoke_tool("search_pois", inp.model_dump())
@@ -103,10 +137,13 @@ def search_restaurants_for_intent(
 ) -> tuple[list[Restaurant], list[str]]:
     """按 intent 调 search_restaurants，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
-    user_id 提供时从 user_profile 取 home_location 作 NearbyProvider 的查询基准。
+    user_id 提供时：
+    - 从 user_profile 取 home_location 作 NearbyProvider 的查询基准
+    - 从 UserMemory 取最近 30 天访问过的餐厅 id 排除（Step 7）
     """
     party_size = max(1, sum(c.count for c in intent.companions) + 1)  # +1 自己
     user_lat, user_lng = _resolve_user_coords(user_id)
+    excluded_ids = _resolve_excluded_visited_ids(user_id, kind="restaurant")
     inp = SearchRestaurantsInput(
         distance_max_km=intent.distance_max_km or 5.0,
         dietary_constraints=list(intent.dietary_constraints),
@@ -114,6 +151,7 @@ def search_restaurants_for_intent(
         capacity_requirement=party_size if party_size in (2, 4, 6, 8) else None,
         user_lat=user_lat,
         user_lng=user_lng,
+        exclude_visited_ids=excluded_ids,
         limit=limit,
     )
     out = invoke_tool("search_restaurants", inp.model_dump())

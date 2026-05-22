@@ -526,14 +526,23 @@ def _accumulate_memory_after_confirm(
     cached: dict[str, Any],
     itinerary_dict: dict[str, Any],
 ) -> None:
-    """confirm 后：把 itinerary 命中的 tag 写进 user memory。
+    """confirm 后：把 itinerary 命中的 tag / 访问 id / 路径写进 user memory。
 
     cached 里的 user_id 由 _planner_stream 写入；缺失时跳过累积（不阻塞主流程）。
+
+    Step 7 升级：
+    - record_accepted（既有）
+    - record_visited（新）：把 itinerary 中的 poi_id / restaurant_id 写入访问历史
+    - record_preferred_route（新）：相邻段 (from→to) 计数 +1
     """
     user_id = cached.get("user_id")
     if not user_id:
         return
-    from data.memory_store import record_accepted
+    from data.memory_store import (
+        record_accepted,
+        record_preferred_route,
+        record_visited,
+    )
 
     tags = _collect_itinerary_tags(itinerary_dict)
     intent = cached.get("intent") or {}
@@ -547,6 +556,44 @@ def _accumulate_memory_after_confirm(
     except Exception:  # noqa: BLE001
         # 累积失败不阻塞主流程
         pass
+
+    # Step 7：visited targets
+    visits: list[tuple[str, str]] = []
+    stages = itinerary_dict.get("stages") or []
+    for stage in stages:
+        pid = stage.get("poi_id")
+        if pid:
+            visits.append((pid, "poi"))
+        rid = stage.get("restaurant_id")
+        if rid:
+            visits.append((rid, "restaurant"))
+    if visits:
+        try:
+            record_visited(user_id, visits=visits)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Step 7：preferred routes (相邻段都有 target 时)
+    segments: list[tuple[str, str]] = []
+    prev_loc: str | None = "home"  # 出发段一端是 home
+    for stage in stages:
+        cur_loc: str | None = None
+        if stage.get("poi_id"):
+            cur_loc = stage["poi_id"]
+        elif stage.get("restaurant_id"):
+            cur_loc = stage["restaurant_id"]
+        kind = stage.get("kind", "")
+        if "返回" in kind or "回家" in kind:
+            cur_loc = "home"
+        if prev_loc and cur_loc and prev_loc != cur_loc:
+            segments.append((prev_loc, cur_loc))
+        if cur_loc:
+            prev_loc = cur_loc
+    if segments:
+        try:
+            record_preferred_route(user_id, segments=segments)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _accumulate_memory_after_refine(

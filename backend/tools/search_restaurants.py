@@ -64,7 +64,11 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
         source_rests = list(load_restaurants())
 
     # 第一道：与 dietary tag 无关的硬过滤
+    excluded = set(inp.exclude_visited_ids or [])
+
     def _non_tag_filter(r):
+        if r.id in excluded:
+            return False
         if r.distance_km > inp.distance_max_km:
             return False
         # 体验偏好：命中任一即可

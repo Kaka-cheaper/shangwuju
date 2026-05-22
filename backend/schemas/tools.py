@@ -82,6 +82,14 @@ class SearchPoisInput(BaseModel):
     user_lng: Optional[float] = Field(
         default=None, description="用户当前位置经度，与 user_lat 配套"
     )
+    exclude_visited_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "需要排除的 target_id 列表（来自 UserMemory.recently_visited_ids）。"
+            "Step 7：避免推荐用户最近 30 天访问过的 POI/餐厅。"
+            "调用方负责传入；本 Tool 不查 memory store（保持纯过滤 Tool 职责）。"
+        ),
+    )
     limit: NonNegativeInt = Field(default=10, le=50)
 
 
@@ -122,6 +130,13 @@ class SearchRestaurantsInput(BaseModel):
     )
     user_lng: Optional[float] = Field(
         default=None, description="用户当前位置经度，与 user_lat 配套"
+    )
+    exclude_visited_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "需要排除的餐厅 id 列表（来自 UserMemory.recently_visited_ids）。"
+            "Step 7：避免推荐用户最近 30 天访问过的餐厅。"
+        ),
     )
     limit: NonNegativeInt = Field(default=10, le=50)
 

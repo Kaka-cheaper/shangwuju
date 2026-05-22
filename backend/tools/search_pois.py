@@ -51,8 +51,12 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
     else:
         source_pois = list(load_pois())
 
-    # 第一道：与 tag 无关的硬过滤（距离 / experience_tag / social_context / type / age）
+    # 第一道：与 tag 无关的硬过滤（距离 / experience_tag / social_context / type / age / 已访问）
+    excluded = set(inp.exclude_visited_ids or [])
+
     def _non_tag_filter(poi):
+        if poi.id in excluded:
+            return False
         if poi.distance_km > inp.distance_max_km:
             return False
         # 体验偏好：命中任意一个即可（"网红打卡"或"安静聊天"任一即过）

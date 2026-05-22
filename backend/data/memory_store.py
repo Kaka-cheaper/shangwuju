@@ -216,6 +216,74 @@ def record_rejected(user_id: str, *, tags: list[str]) -> UserMemory:
 
 
 # ============================================================
+# Step 7：visited / preferred_routes 累积
+# ============================================================
+
+def record_visited(
+    user_id: str,
+    *,
+    visits: list[tuple[str, str]],  # [(target_id, target_kind), ...]
+    cooldown_days: int = 30,
+) -> UserMemory:
+    """confirm 后调：把本次 itinerary 中的 POI / 餐厅 id 累计到 visited_targets。
+
+    Args:
+        user_id: 用户 id
+        visits: [(target_id, target_kind), ...]，target_kind ∈ {poi, restaurant}
+        cooldown_days: 冷却期（天）；这段时间内 search 工具会排除该 target
+
+    Returns:
+        更新后的 UserMemory
+    """
+    from schemas.persona import VisitedRecord
+
+    now_ms = int(time.time() * 1000)
+    with _LOCK:
+        memory = _MEMORY_CACHE.get(user_id) or _load_from_disk(user_id) or UserMemory(user_id=user_id)
+        for tid, tkind in visits:
+            if not tid or not tkind:
+                continue
+            memory.visited_targets.append(
+                VisitedRecord(
+                    target_id=tid,
+                    target_kind=tkind,
+                    visited_at_ms=now_ms,
+                    cooldown_days=cooldown_days,
+                )
+            )
+        # 限制单 user 历史最多 200 条（避免无限增长）
+        if len(memory.visited_targets) > 200:
+            memory.visited_targets = memory.visited_targets[-200:]
+        memory.last_updated_ms = now_ms
+        _MEMORY_CACHE[user_id] = memory
+    _save_to_disk(memory)
+    return memory
+
+
+def record_preferred_route(
+    user_id: str, *, segments: list[tuple[str, str]]
+) -> UserMemory:
+    """confirm 后调：相邻段成对录入「(from_id, to_id) → +1」。
+
+    Args:
+        segments: [(from_id, to_id), ...]，按 itinerary 段顺序排
+    """
+    with _LOCK:
+        memory = _MEMORY_CACHE.get(user_id) or _load_from_disk(user_id) or UserMemory(user_id=user_id)
+        for from_id, to_id in segments:
+            if not from_id or not to_id or from_id == to_id:
+                continue
+            key = f"{from_id}|{to_id}"
+            memory.preferred_routes[key] = int(
+                memory.preferred_routes.get(key, 0)
+            ) + 1
+        memory.last_updated_ms = int(time.time() * 1000)
+        _MEMORY_CACHE[user_id] = memory
+    _save_to_disk(memory)
+    return memory
+
+
+# ============================================================
 # 合并视图（intent_parser + 前端面板都用）
 # ============================================================
 
