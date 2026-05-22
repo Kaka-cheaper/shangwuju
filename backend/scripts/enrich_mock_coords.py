@@ -131,12 +131,17 @@ def _geocode_once(
 def geocode(name: str, *, client: httpx.Client) -> tuple[float, float] | None:
     """把单个地名转成 (lat, lng)。失败返 None。
 
-    策略：
-        1. 先尝试原地名（带 city=杭州）+ 限流时指数退避重试 ≤3 次
+    策略（手工坐标优先）：
+        0. 如果 _MANUAL_FALLBACK 里有 → 直接返回（防短地名歧义被 GeoCode 错配）
+        1. 否则尝试原地名（带 city=杭州）+ 限流时指数退避重试 ≤3 次
         2. 若返回结果不在杭州主城区范围 → 加「杭州市」前缀再试
-        3. 仍失败 → 查 _MANUAL_FALLBACK 兜底
-        4. 还失败 → 返 None
+        3. 仍失败 → 返 None
     """
+    # 步骤 0：手工坐标优先级最高（防 GeoCode 短地名歧义）
+    if name in _MANUAL_FALLBACK:
+        lat, lng = _MANUAL_FALLBACK[name]
+        return (lat, lng)
+
     candidates = [name, f"杭州市{name}", f"杭州{name}"]
     for candidate in candidates:
         for attempt in range(MAX_RETRIES_PER_NAME):
@@ -156,27 +161,46 @@ def geocode(name: str, *, client: httpx.Client) -> tuple[float, float] | None:
                 continue
             # None：永久失败，跳到下一个候选
             break
-    # 兜底：手工坐标（高德里查不到 / 命中错的城市）
-    if name in _MANUAL_FALLBACK:
-        lat, lng = _MANUAL_FALLBACK[name]
-        print(f"  ⚠ {name}：高德查不到，用手工兜底坐标 → {lat:.4f}, {lng:.4f}")
-        return (lat, lng)
     print(f"  ✗ {name}：所有候选都失败")
     return None
 
 
 # ============================================================
-# 手工兜底坐标（高德 GeoCode 查不到的地名）
+# 手工兜底坐标（高德 GeoCode 查不到 / 命中错位置的地名）
 # ============================================================
-# 这些地名要么过于模糊（"运河边"），要么高德 POI 库没收录这个商场名。
-# 用人工查的合理近似坐标兜底，与 mock 数据语义保持一致。
+# 这些坐标是本地知识 + 高德地图实际位置手工核对后填入；
+# **优先级高于** 高德 GeoCode 返回值（防止短地名歧义命中错位置，
+# 例如「西溪银泰」高德会命中滨江同名地点而非蒋村西溪银泰城）
 _MANUAL_FALLBACK: dict[str, tuple[float, float]] = {
-    # 城西商圈（黄龙周边）—— 高德里没"城西万象城"独立 POI，用城西银泰广场近邻坐标
-    "城西万象城": (30.2810, 120.1108),
-    "城西银泰": (30.2786, 120.1145),
-    # 大运河沿岸（太模糊）—— 用杭州运河文化广场北侧近邻坐标
-    "运河南端": (30.3088, 120.1535),
-    "运河边": (30.3092, 120.1542),
+    # 西溪片区（30.27-30.29 lat / 120.07-120.09 lng）
+    "西溪天街": (30.288, 120.083),
+    "西溪银泰": (30.273, 120.080),       # 高德误命中滨江
+    "西溪文创园": (30.290, 120.078),     # 高德误命中城西
+    "西溪湿地北门": (30.285, 120.083),
+    # 城西片区（高德里没"城西万象城"独立 POI）
+    "城西万象城": (30.280, 120.108),
+    "城西银泰": (30.280, 120.110),
+    # 西湖片区
+    "断桥": (30.255, 120.144),           # 高德误命中西溪
+    # 钱江新城
+    "钱江新城万象城": (30.247, 120.207),  # 高德误命中武林广场
+    "万象城": (30.247, 120.207),         # 同上
+    "钱江新城": (30.250, 120.207),
+    "钱江世纪城": (30.241, 120.244),
+    # 武林片区
+    "嘉里中心": (30.276, 120.166),       # 高德返回值偏南
+    # 大运河沿岸
+    "运河南端": (30.275, 120.175),       # 高德误判位置（南/北端反了）
+    "运河边": (30.288, 120.176),
+    # 余杭良渚
+    "良渚文化村": (30.395, 120.020),     # 高德返回值偏南 4km
+    # 上城区
+    "上城区": (30.232, 120.169),         # 高德返回值偏东
+    # 玉皇山
+    "玉皇山南": (30.211, 120.155),
+    "玉皇山路": (30.213, 120.149),
+    # 嘉里中心北侧
+    "玉古路": (30.269, 120.118),
 }
 
 
@@ -198,10 +222,16 @@ def collect_unique_locations(*paths: Path) -> set[str]:
     return names
 
 
-def enrich_file(path: Path, coord_map: dict[str, tuple[float, float]]) -> tuple[int, int]:
+def enrich_file(
+    path: Path,
+    coord_map: dict[str, tuple[float, float]],
+    *,
+    force: bool = False,
+) -> tuple[int, int]:
     """给一个 JSON 文件补 lat/lng。返回 (已补全数, 跳过数)。
 
-    跳过规则：location 已有 lat 字段（之前跑过）或地名不在 coord_map（地理编码失败）。
+    Args:
+        force: True 时即使 location 已有 lat/lng 也覆盖（用于修复历史错误坐标）
     """
     with path.open(encoding="utf-8") as f:
         data = json.load(f)
@@ -214,8 +244,12 @@ def enrich_file(path: Path, coord_map: dict[str, tuple[float, float]]) -> tuple[
         if not name:
             skipped += 1
             continue
-        # 已有 lat 不覆盖（idempotent）
-        if loc.get("lat") is not None and loc.get("lng") is not None:
+        # 已有 lat 时：force=False 跳过，force=True 仍覆盖
+        if (
+            not force
+            and loc.get("lat") is not None
+            and loc.get("lng") is not None
+        ):
             skipped += 1
             continue
         coord = coord_map.get(name.strip())
@@ -248,6 +282,10 @@ def main() -> int:
         print(f"✗ mock 文件不存在：{POIS_PATH} / {RESTAURANTS_PATH}")
         return 1
 
+    force = "--force" in sys.argv
+    if force:
+        print("⚠ --force 模式：会覆盖已有的 lat/lng（用于修正历史错误坐标）\n")
+
     print(f"扫描独立地名：")
     names = collect_unique_locations(POIS_PATH, RESTAURANTS_PATH)
     print(f"  共 {len(names)} 个独立 location.name")
@@ -259,19 +297,22 @@ def main() -> int:
             coord = geocode(name, client=client)
             if coord is not None:
                 lat, lng = coord
-                print(f"  [{i:>2}/{len(names)}] {name} → {lat:.4f}, {lng:.4f}")
+                source = "手工" if name in _MANUAL_FALLBACK else "高德"
+                print(f"  [{i:>2}/{len(names)}] {name} → {lat:.4f}, {lng:.4f} ({source})")
                 coord_map[name] = coord
             else:
                 print(f"  [{i:>2}/{len(names)}] {name} → 跳过")
-            time.sleep(REQUEST_INTERVAL_S)
+            # 手工坐标不调网络，不需要限速
+            if name not in _MANUAL_FALLBACK:
+                time.sleep(REQUEST_INTERVAL_S)
 
     print(f"\n地理编码完成：成功 {len(coord_map)} / 失败 {len(names) - len(coord_map)}")
 
-    print(f"\n回写 mock 文件：")
-    e1, s1 = enrich_file(POIS_PATH, coord_map)
+    print(f"\n回写 mock 文件{'（强制覆盖）' if force else ''}：")
+    e1, s1 = enrich_file(POIS_PATH, coord_map, force=force)
     print(f"  pois.json：补全 {e1} 个，跳过 {s1} 个")
-    e2, s2 = enrich_file(RESTAURANTS_PATH, coord_map)
-    print(f"  restaurants.json：补全 {e2} 个，跳过 {s2} 个")
+    e2, s2 = enrich_file(RESTAURANTS_PATH, coord_map, force=force)
+    print(f"  restaurants.json：补全 {e2} 个,跳过 {s2} 个")
 
     print("\n✓ 完成。Mock 数据现已带坐标，可由前端 MapOverlay 直接消费。")
     return 0
