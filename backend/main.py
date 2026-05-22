@@ -35,6 +35,8 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -268,6 +270,99 @@ def poi_locations() -> dict[str, dict[str, dict[str, Any]]]:
     pois = {p.id: _entry(p) for p in load_pois()}
     restaurants = {r.id: _entry(r) for r in load_restaurants()}
     return {"pois": pois, "restaurants": restaurants}
+
+
+# ============================================================
+# 高德 JS API 安全代理（spec frontend-experience-innovation R2）
+# ============================================================
+#
+# 设计动机：
+#   高德 JS API 2.0 强制要求 jscode 安全密钥才能加载地图。
+#   - 直接放前端 NEXT_PUBLIC_AMAP_JS_CODE 会被打包进 bundle 暴露
+#   - 走后端代理：jscode 只存在 backend/.env，前端发给 /_AMapService/xxx
+#     的请求由后端透传到 restapi.amap.com 并注入 jscode
+#
+# 协议（高德官方约定）：
+#   前端：window._AMapSecurityConfig = { serviceHost: "/_AMapService" }
+#   高德 SDK 调用 amap restapi 时，会自动改写 URL 把 host 替换成 serviceHost
+#   即 https://restapi.amap.com/v3/staticmap?xxx
+#       → /_AMapService/v3/staticmap?xxx
+#   本端点接到后转回真实 host 并注入 jscode
+
+_AMAP_UPSTREAM = "https://restapi.amap.com"
+_AMAP_JS_CODE = (os.getenv("AMAP_JS_CODE") or "").strip()
+
+
+@app.api_route(
+    "/_AMapService/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    include_in_schema=False,
+)
+async def amap_proxy(path: str, request: Request) -> Response:
+    """高德 REST API 透传代理 + jscode 注入。
+
+    透传策略：
+        - 保留 query params + 注入 jscode
+        - 保留 body（GET 通常无 body）
+        - 返回内容、Content-Type、status 原样回传
+        - 不缓存（高德侧已有自己的缓存策略）
+    """
+    if not _AMAP_JS_CODE:
+        raise HTTPException(
+            status_code=500,
+            detail="AMAP_JS_CODE not configured in backend/.env",
+        )
+
+    # 拼上游 URL（保留 query string 顺序）
+    target_url = f"{_AMAP_UPSTREAM}/{path}"
+    params = dict(request.query_params)
+    params["jscode"] = _AMAP_JS_CODE
+
+    # 透传必要 header（不带 host / cookie）
+    forward_headers: dict[str, str] = {}
+    for k, v in request.headers.items():
+        kl = k.lower()
+        if kl in ("user-agent", "accept", "accept-language", "content-type"):
+            forward_headers[k] = v
+
+    # 读 body（GET 通常空）
+    body = await request.body() if request.method != "GET" else None
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            upstream_resp = await client.request(
+                method=request.method,
+                url=target_url,
+                params=params,
+                headers=forward_headers,
+                content=body,
+            )
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"AMap upstream error: {type(e).__name__}: {e}",
+        ) from e
+
+    # 把上游响应原样返回（保留 Content-Type 让浏览器正确解析图片 / JSON）
+    resp_headers: dict[str, str] = {}
+    for k, v in upstream_resp.headers.items():
+        kl = k.lower()
+        # 过滤掉会导致代理失败的 header
+        if kl in (
+            "content-encoding",
+            "transfer-encoding",
+            "connection",
+            "content-length",  # FastAPI 会自动重算
+        ):
+            continue
+        resp_headers[k] = v
+
+    return Response(
+        content=upstream_resp.content,
+        status_code=upstream_resp.status_code,
+        headers=resp_headers,
+        media_type=upstream_resp.headers.get("content-type"),
+    )
 
 
 # ============================================================

@@ -37,6 +37,11 @@ import type { Itinerary, ItineraryStage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const AMAP_KEY = process.env.NEXT_PUBLIC_AMAP_KEY ?? "";
+// 后端代理路径——高德 JS API 会把 restapi.amap.com 的请求改写成 ${serviceHost}/xxx
+// 后端在 /_AMapService 注入 jscode 后转发，浏览器永远看不到 jscode
+const AMAP_SERVICE_HOST = `${
+  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000"
+}/_AMapService`;
 const AMAP_VERSION = "2.0";
 
 // 加载所需高德插件
@@ -112,17 +117,18 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   const [mapReady, setMapReady] = useState(false);
 
   // ============================================================
-  // 1. 启动时拉坐标字典
+  // 1. 拉坐标字典：组件 mount 时 + itinerary 出现时（如果之前失败）
   // ============================================================
   useEffect(() => {
     let mounted = true;
+    // 即使之前失败过（cache=null + inflight=null），itinerary 变化时重试
     loadPoiLocations().then((data) => {
       if (mounted) setPoiLocations(data);
     });
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [itinerary]);
 
   // ============================================================
   // 2. 加载高德 SDK + 初始化地图
@@ -134,6 +140,16 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
     (async () => {
       try {
+        // 高德 JS API 2.0 安全配置：走后端代理（serviceHost）注入 jscode
+        // 浏览器永远看不到 jscode；只能看到 NEXT_PUBLIC_API_BASE 这个公开 URL
+        // 见 https://lbs.amap.com/api/jsapi-v2/guide/abc/load
+        if (typeof window !== "undefined") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (window as any)._AMapSecurityConfig = {
+            serviceHost: AMAP_SERVICE_HOST,
+          };
+        }
+
         // 动态 import（SSR 不支持 window）
         const AMapLoaderModule = await import("@amap/amap-jsapi-loader");
         const AMapLoader = AMapLoaderModule.default;
@@ -160,6 +176,10 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         if (canceled) return;
         const msg = e instanceof Error ? e.message : String(e);
         console.warn("[MapOverlay] 高德 SDK 加载失败:", msg);
+        // 常见错误：
+        //   - "INVALID_USER_KEY"：JS API key 没启用 / key 错了
+        //   - "USERKEY_PLAT_NOMATCH"：key 类型不匹配（用了 Web 服务 key 而不是 JS API key）
+        //   - 网络超时：key 域名白名单设置了限制
         setLoadError(msg);
       }
     })();
