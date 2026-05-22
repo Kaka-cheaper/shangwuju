@@ -15,6 +15,10 @@ export const SseEventType = {
   ToolCallStart: "tool_call_start",
   ToolCallEnd: "tool_call_end",
   ReplanTriggered: "replan_triggered",
+  // Step 2：critic 闭环明细
+  CriticViolations: "critic_violations",
+  CriticFixAttempt: "critic_fix_attempt",
+  PlanFallback: "plan_fallback",
   AgentThought: "agent_thought",
   ItineraryReady: "itinerary_ready",
   // 用户反馈 → 重规划（Phase 0.6 /chat/refine 专用）
@@ -53,6 +57,52 @@ export interface ToolCallEndPayload {
 export interface ReplanTriggeredPayload {
   reason: FailureReason;
   from_tool: string;
+}
+
+// ===== Step 2：critic 闭环明细（来自后端 LangGraph 主架构） =====
+
+export type ViolationCode =
+  | "duration_out_of_range"
+  | "distance_exceeded"
+  | "stages_incomplete"
+  | "restaurant_full_unresolved"
+  | "timeline_inconsistent"
+  | "social_context_mismatch"
+  | "dietary_violation"
+  | "commute_infeasible";
+
+export type ViolationSeverity = "critical" | "warning";
+
+export interface CriticViolation {
+  code: ViolationCode;
+  severity: ViolationSeverity;
+  message: string;
+  field_path: string;
+}
+
+export interface CriticViolationsPayload {
+  violations: CriticViolation[];
+  fix_attempt: number;
+}
+
+export interface CriticFixAttemptPayload {
+  attempt: number;
+  feedback_text: string;
+}
+
+/** 4 级 fallback 链：每跳一级推一条 */
+export type PlanFallbackStage =
+  | "llm_first"
+  | "llm_backprompt"
+  | "ils"
+  | "rule"
+  | "error"
+  | "give_up";
+
+export interface PlanFallbackPayload {
+  from: PlanFallbackStage;
+  to: PlanFallbackStage;
+  reason: string;
 }
 
 export interface AgentThoughtPayload {
@@ -142,6 +192,9 @@ export interface ItineraryStage {
   lng?: number | null;
   address?: string | null;
   note?: string | null;
+  // Step 1：commute critic 写入的通勤元数据
+  commute_minutes_required?: number | null;
+  commute_mode?: "walking" | "taxi" | "bus" | "haversine_estimated" | null;
 }
 
 export interface OrderRecord {

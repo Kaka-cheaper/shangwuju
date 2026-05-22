@@ -25,6 +25,15 @@ class SseEventType(str, Enum):
     TOOL_CALL_END = "tool_call_end"
     # 异常重规划被触发
     REPLAN_TRIGGERED = "replan_triggered"
+    # ===== Plan-and-Execute critic 闭环（Step 2 新增） =====
+    # critic 命中 critical 违规；payload 含完整 violations 列表
+    # payload = {"violations": [{"code": str, "severity": str, "message": str, "field_path": str}], "fix_attempt": int}
+    CRITIC_VIOLATIONS = "critic_violations"
+    # LLM backprompt 修正第 N 次尝试；payload = {"attempt": int, "feedback_text": str}
+    CRITIC_FIX_ATTEMPT = "critic_fix_attempt"
+    # plan-and-execute 4 级 fallback 链每跳一级；payload = {"from": str, "to": str, "reason": str}
+    # 取值约定：from/to ∈ {"llm_first", "llm_backprompt", "ils", "rule", "error", "give_up"}
+    PLAN_FALLBACK = "plan_fallback"
     # Agent 思考中间态（可选，用于流式打字效果）
     AGENT_THOUGHT = "agent_thought"
     # 最终方案产出
@@ -58,6 +67,9 @@ class SseEvent(BaseModel):
     - TOOL_CALL_START payload = {"tool": str, "input": dict}
     - TOOL_CALL_END   payload = {"tool": str, "output": dict, "duration_ms": int}
     - REPLAN_TRIGGERED payload = {"reason": FailureReason.value, "from_tool": str}
+    - CRITIC_VIOLATIONS payload = {"violations": [...], "fix_attempt": int}
+    - CRITIC_FIX_ATTEMPT payload = {"attempt": int, "feedback_text": str}
+    - PLAN_FALLBACK    payload = {"from": str, "to": str, "reason": str}
     - AGENT_THOUGHT   payload = {"text": str}
     - ITINERARY_READY payload = Itinerary.model_dump()
     - REFINEMENT_START payload = {"feedback_text": str}

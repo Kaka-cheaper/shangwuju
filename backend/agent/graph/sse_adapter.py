@@ -191,6 +191,20 @@ async def run_graph_stream(
                     weights = node_diff.get("weights")
                     blueprint = node_diff.get("blueprint")
                     attempt = node_diff.get("plan_attempt", 1)
+                    # plan_attempt > 1 说明这是 critic backprompt 重做
+                    if attempt > 1:
+                        # critic_feedback_text 在 state 中而非 diff 中——
+                        # diff 是 planner 节点本次返回的字段，若 planner 不更新它，
+                        # 这里读 None 也无妨；至少把 attempt 信号推出去
+                        yield _ev(
+                            seq,
+                            SseEventType.CRITIC_FIX_ATTEMPT,
+                            {
+                                "attempt": attempt,
+                                "feedback_text": "（详见上一条 critic_violations）",
+                            },
+                        )
+                        seq += 1
                     if weights is not None:
                         yield _ev(
                             seq,
@@ -219,6 +233,38 @@ async def run_graph_stream(
                     has_critical = node_diff.get("has_critical")
                     violations = node_diff.get("violations") or []
                     if has_critical:
+                        # 1. 推 CRITIC_VIOLATIONS 让前端可视化每条违规（红色卡片）
+                        violation_dicts = []
+                        for v in violations:
+                            try:
+                                # critics_v2.Violation 是 Pydantic BaseModel
+                                violation_dicts.append(v.model_dump())
+                            except AttributeError:
+                                # 兜底：手工取属性（防 Violation 类型升级时漂）
+                                violation_dicts.append(
+                                    {
+                                        "code": getattr(getattr(v, "code", None), "value", str(getattr(v, "code", ""))),
+                                        "severity": getattr(getattr(v, "severity", None), "value", str(getattr(v, "severity", ""))),
+                                        "message": getattr(v, "message", str(v)),
+                                        "field_path": getattr(v, "field_path", ""),
+                                    }
+                                )
+                        # 仅推 critical（warning 不进 SSE，避免噪声）
+                        critical_only = [
+                            d for d in violation_dicts
+                            if d.get("severity") == "critical"
+                        ]
+                        attempt = node_diff.get("plan_attempt") or 1
+                        yield _ev(
+                            seq,
+                            SseEventType.CRITIC_VIOLATIONS,
+                            {
+                                "violations": critical_only,
+                                "fix_attempt": attempt,
+                            },
+                        )
+                        seq += 1
+                        # 2. 兼容旧前端：再推一条 REPLAN_TRIGGERED
                         yield _ev(
                             seq,
                             SseEventType.REPLAN_TRIGGERED,
@@ -226,7 +272,7 @@ async def run_graph_stream(
                                 "reason": "critic_hard_violation",
                                 "from_tool": "critics_v2",
                                 "violations": [
-                                    str(v) for v in violations[:3]
+                                    d.get("message", "") for d in critical_only[:3]
                                 ],
                             },
                         )
@@ -242,6 +288,20 @@ async def run_graph_stream(
                 # ---- replan_router ----
                 elif node_name == "replan_router":
                     strategy = node_diff.get("replan_strategy")
+                    # 推 PLAN_FALLBACK 让前端展示降级链路
+                    strategy_to_label = {
+                        "llm_backprompt": ("llm_first", "llm_backprompt", "LLM 修正重出"),
+                        "ils_fallback": ("llm_first", "ils", "LLM 失败，切换 ILS 算法兜底"),
+                        "give_up": ("ils", "rule", "ILS 也失败，回 rule planner 兜底"),
+                    }
+                    if strategy in strategy_to_label:
+                        from_, to_, reason = strategy_to_label[strategy]
+                        yield _ev(
+                            seq,
+                            SseEventType.PLAN_FALLBACK,
+                            {"from": from_, "to": to_, "reason": reason},
+                        )
+                        seq += 1
                     yield _ev(
                         seq,
                         SseEventType.AGENT_THOUGHT,
