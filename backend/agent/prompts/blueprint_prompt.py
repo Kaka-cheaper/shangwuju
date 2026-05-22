@@ -114,6 +114,12 @@ BLUEPRINT_SYSTEM_PROMPT = f"""你是「晌午局」的行程蓝图规划师。
 - 在新蓝图中规避它们（如改时段 / 换 target / 缩段数）
 - 在 rationale 里说明本次如何修正
 
+【UGC 评论引用（Step 9）】
+候选预览中每条 POI / 餐厅可能附带 review_excerpts（top-2 helpful 评论）。
+若评论支持你的选择，**鼓励**在 rationale 里**简短**引用（如「评论说这里『带 5 岁孩 + 70 岁外婆刚刚好』」），增强决策可信度；
+若引用，限制 1-2 条评论引用，不要堆。
+**绝对禁止**虚构评论——只引用 review_excerpts 中实际出现的文字。
+
 【信心打分】
 不需要输出 confidence；critic 会客观验证。
 

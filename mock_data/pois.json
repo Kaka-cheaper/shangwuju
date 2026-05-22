@@ -32,7 +32,29 @@
       "daily_quota": 200,
       "available_slots": 45
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 31
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-19",
+        "helpful_count": 9
+      }
+    ]
   },
   {
     "id": "P002",
@@ -66,7 +88,29 @@
       "daily_quota": 300,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 75
+    "suggested_duration_minutes": 75,
+    "reviews": [
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 32
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 40
+      }
+    ]
   },
   {
     "id": "P003",
@@ -102,7 +146,30 @@
       "daily_quota": 300,
       "available_slots": 80
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-02-09",
+        "helpful_count": 48
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-14",
+        "helpful_count": 49
+      }
+    ]
   },
   {
     "id": "P004",
@@ -139,7 +206,30 @@
       "daily_quota": 100,
       "available_slots": 30
     },
-    "suggested_duration_minutes": 60
+    "suggested_duration_minutes": 60,
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-05-26",
+        "helpful_count": 23
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-01-16",
+        "helpful_count": 12
+      }
+    ]
   },
   {
     "id": "P005",
@@ -168,7 +258,29 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 60
+    "suggested_duration_minutes": 60,
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人"
+        ],
+        "visited_at": "2026-04-19",
+        "helpful_count": 38
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人"
+        ],
+        "visited_at": "2026-04-11",
+        "helpful_count": 19
+      }
+    ]
   },
   {
     "id": "P006",
@@ -200,7 +312,32 @@
       "daily_quota": 80,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "带老人去的，全程电梯无台阶，60+ 长辈走完一圈不累。环境也清静，没有那种年轻人扎堆的喧闹感。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 22
+      },
+      {
+        "text": "70 岁妈妈第一次来表示满意。走道宽敞、休息长椅多，老人累了随时坐下歇会儿。这种贴心设计现在不多见了。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "适合老人",
+          "可休息"
+        ],
+        "visited_at": "2026-02-27",
+        "helpful_count": 37
+      }
+    ]
   },
   {
     "id": "P007",
@@ -228,7 +365,32 @@
       "daily_quota": 200,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "70 岁妈妈第一次来表示满意。走道宽敞、休息长椅多，老人累了随时坐下歇会儿。这种贴心设计现在不多见了。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "适合老人",
+          "可休息"
+        ],
+        "visited_at": "2026-03-10",
+        "helpful_count": 41
+      },
+      {
+        "text": "带老人去的，全程电梯无台阶，60+ 长辈走完一圈不累。环境也清静，没有那种年轻人扎堆的喧闹感。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
+        "visited_at": "2026-04-06",
+        "helpful_count": 40
+      }
+    ]
   },
   {
     "id": "P008",
@@ -261,7 +423,29 @@
       "daily_quota": 100,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 60
+    "suggested_duration_minutes": 60,
+    "reviews": [
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-10",
+        "helpful_count": 49
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-03-17",
+        "helpful_count": 44
+      }
+    ]
   },
   {
     "id": "P009",
@@ -289,7 +473,29 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 39
+      },
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-27",
+        "helpful_count": 34
+      }
+    ]
   },
   {
     "id": "P010",
@@ -320,7 +526,29 @@
       "daily_quota": 30,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-02-23",
+        "helpful_count": 10
+      },
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-01-19",
+        "helpful_count": 16
+      }
+    ]
   },
   {
     "id": "P011",
@@ -350,7 +578,29 @@
       "daily_quota": 150,
       "available_slots": 70
     },
-    "suggested_duration_minutes": 75
+    "suggested_duration_minutes": 75,
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-02-15",
+        "helpful_count": 34
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-28",
+        "helpful_count": 17
+      }
+    ]
   },
   {
     "id": "P012",
@@ -384,7 +634,29 @@
       "daily_quota": 200,
       "available_slots": 90
     },
-    "suggested_duration_minutes": 60
+    "suggested_duration_minutes": 60,
+    "reviews": [
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-26",
+        "helpful_count": 43
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-11",
+        "helpful_count": 36
+      }
+    ]
   },
   {
     "id": "P013",
@@ -416,7 +688,29 @@
       "daily_quota": 60,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-08",
+        "helpful_count": 17
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-01-07",
+        "helpful_count": 42
+      }
+    ]
   },
   {
     "id": "P014",
@@ -447,7 +741,29 @@
       "daily_quota": 120,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-14",
+        "helpful_count": 22
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-03-12",
+        "helpful_count": 37
+      }
+    ]
   },
   {
     "id": "P015",
@@ -476,7 +792,29 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-01-01",
+        "helpful_count": 22
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "网红打卡"
+        ],
+        "visited_at": "2026-05-25",
+        "helpful_count": 6
+      }
+    ]
   },
   {
     "id": "P016",
@@ -508,7 +846,29 @@
       "daily_quota": 40,
       "available_slots": 18
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "结婚纪念日去的，满分回忆。氛围、服务、出片都很赞。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 17
+      },
+      {
+        "text": "正式商务用，客户体验感不错。流程顺畅、不打扰谈话。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 50
+      }
+    ]
   },
   {
     "id": "P017",
@@ -544,7 +904,29 @@
       "daily_quota": 200,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-01-17",
+        "helpful_count": 26
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-05-07",
+        "helpful_count": 40
+      }
+    ]
   },
   {
     "id": "P018",
@@ -578,7 +960,29 @@
       "daily_quota": 500,
       "available_slots": 220
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "户外"
+        ],
+        "visited_at": "2026-03-27",
+        "helpful_count": 42
+      },
+      {
+        "text": "和闺蜜每次约都来这家，能安心聊心事，环境也好出片。下午茶时段一坐就是几个小时。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 31
+      }
+    ]
   },
   {
     "id": "P019",
@@ -612,7 +1016,29 @@
       "daily_quota": 60,
       "available_slots": 28
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-02-03",
+        "helpful_count": 48
+      },
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "学习成长"
+        ],
+        "visited_at": "2026-05-23",
+        "helpful_count": 11
+      }
+    ]
   },
   {
     "id": "P020",
@@ -642,7 +1068,30 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 45
+    "suggested_duration_minutes": 45,
+    "reviews": [
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "户外"
+        ],
+        "visited_at": "2026-01-06",
+        "helpful_count": 26
+      },
+      {
+        "text": "环境安静，没台阶，老人走动方便。是我找了很久才发现的适合带长辈去的地方。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶"
+        ],
+        "visited_at": "2026-05-26",
+        "helpful_count": 40
+      }
+    ]
   },
   {
     "id": "P_SOLD",
@@ -676,7 +1125,29 @@
       "daily_quota": 5000,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 150
+    "suggested_duration_minutes": 150,
+    "reviews": [
+      {
+        "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-01-07",
+        "helpful_count": 50
+      },
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-01-23",
+        "helpful_count": 25
+      }
+    ]
   },
   {
     "id": "P021",
@@ -710,7 +1181,31 @@
       "daily_quota": 100,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 60
+    "suggested_duration_minutes": 60,
+    "reviews": [
+      {
+        "text": "纪念日去的，氛围拉满，对方惊喜满满。细节处理得用心，仪式感到位。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-01",
+        "helpful_count": 48
+      },
+      {
+        "text": "环境安静，没台阶，老人走动方便。是我找了很久才发现的适合带长辈去的地方。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 20
+      }
+    ]
   },
   {
     "id": "P022",
@@ -745,7 +1240,29 @@
       "daily_quota": 80,
       "available_slots": 30
     },
-    "suggested_duration_minutes": 75
+    "suggested_duration_minutes": 75,
+    "reviews": [
+      {
+        "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-02-24",
+        "helpful_count": 20
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-14",
+        "helpful_count": 10
+      }
+    ]
   },
   {
     "id": "P023",
@@ -780,7 +1297,29 @@
       "daily_quota": 60,
       "available_slots": 22
     },
-    "suggested_duration_minutes": 75
+    "suggested_duration_minutes": 75,
+    "reviews": [
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-10",
+        "helpful_count": 48
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-05",
+        "helpful_count": 29
+      }
+    ]
   },
   {
     "id": "P024",
@@ -813,7 +1352,29 @@
       "daily_quota": 50,
       "available_slots": 20
     },
-    "suggested_duration_minutes": 150
+    "suggested_duration_minutes": 150,
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 7
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-25",
+        "helpful_count": 11
+      }
+    ]
   },
   {
     "id": "P025",
@@ -845,7 +1406,29 @@
       "daily_quota": 60,
       "available_slots": 28
     },
-    "suggested_duration_minutes": 150
+    "suggested_duration_minutes": 150,
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-13",
+        "helpful_count": 15
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-22",
+        "helpful_count": 29
+      }
+    ]
   },
   {
     "id": "P026",
@@ -877,7 +1460,29 @@
       "daily_quota": 60,
       "available_slots": 25
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-03",
+        "helpful_count": 31
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-01",
+        "helpful_count": 16
+      }
+    ]
   },
   {
     "id": "P027",
@@ -909,7 +1514,29 @@
       "daily_quota": 80,
       "available_slots": 35
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-12",
+        "helpful_count": 10
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-21",
+        "helpful_count": 27
+      }
+    ]
   },
   {
     "id": "P028",
@@ -942,7 +1569,29 @@
       "daily_quota": 600,
       "available_slots": 280
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-03-15",
+        "helpful_count": 46
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-01-10",
+        "helpful_count": 21
+      }
+    ]
   },
   {
     "id": "P029",
@@ -975,7 +1624,29 @@
       "daily_quota": 400,
       "available_slots": 180
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-11",
+        "helpful_count": 36
+      },
+      {
+        "text": "重要日子的不二之选。环境格调高，能让人感受到节日的特别感。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感"
+        ],
+        "visited_at": "2026-04-24",
+        "helpful_count": 45
+      }
+    ]
   },
   {
     "id": "P030",
@@ -1008,7 +1679,29 @@
       "daily_quota": 30,
       "available_slots": 12
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 27
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-21",
+        "helpful_count": 36
+      }
+    ]
   },
   {
     "id": "P031",
@@ -1040,7 +1733,29 @@
       "daily_quota": 40,
       "available_slots": 18
     },
-    "suggested_duration_minutes": 75
+    "suggested_duration_minutes": 75,
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-05-03",
+        "helpful_count": 17
+      },
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-03-09",
+        "helpful_count": 9
+      }
+    ]
   },
   {
     "id": "P032",
@@ -1070,7 +1785,29 @@
       "daily_quota": 100,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-04-17",
+        "helpful_count": 45
+      },
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 13
+      }
+    ]
   },
   {
     "id": "P033",
@@ -1107,7 +1844,30 @@
       "daily_quota": 2000,
       "available_slots": 850
     },
-    "suggested_duration_minutes": 180
+    "suggested_duration_minutes": 180,
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-05-03",
+        "helpful_count": 8
+      },
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-03-28",
+        "helpful_count": 15
+      }
+    ]
   },
   {
     "id": "P034",
@@ -1144,7 +1904,29 @@
       "daily_quota": 200,
       "available_slots": 90
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-04-19",
+        "helpful_count": 11
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-10",
+        "helpful_count": 41
+      }
+    ]
   },
   {
     "id": "P035",
@@ -1179,7 +1961,29 @@
       "daily_quota": 80,
       "available_slots": 40
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-03-26",
+        "helpful_count": 16
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-05-19",
+        "helpful_count": 27
+      }
+    ]
   },
   {
     "id": "P036",
@@ -1213,7 +2017,29 @@
       "daily_quota": 200,
       "available_slots": 80
     },
-    "suggested_duration_minutes": 120
+    "suggested_duration_minutes": 120,
+    "reviews": [
+      {
+        "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-10",
+        "helpful_count": 20
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-05",
+        "helpful_count": 30
+      }
+    ]
   },
   {
     "id": "P037",
@@ -1245,7 +2071,29 @@
       "daily_quota": 100,
       "available_slots": 45
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "周末约会去的，气氛很赞，有不少角落适合两个人独处。整体格调比较精致。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-21",
+        "helpful_count": 23
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-03-20",
+        "helpful_count": 31
+      }
+    ]
   },
   {
     "id": "P038",
@@ -1284,7 +2132,29 @@
       "daily_quota": 60,
       "available_slots": 25
     },
-    "suggested_duration_minutes": 90
+    "suggested_duration_minutes": 90,
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-11",
+        "helpful_count": 41
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-16",
+        "helpful_count": 41
+      }
+    ]
   },
   {
     "id": "P040",
@@ -1330,7 +2200,12 @@
         "text": "带 5 岁孩 + 70 岁外婆一起去刚刚好，全程电梯无台阶，外婆全程不累。亲子互动区适合小孩，老人安静区有老电影看。三代同堂的难得选择。",
         "rating": 5,
         "user_age_bucket": "80后",
-        "tag_evidence": ["亲子友好", "适合老人", "无台阶", "可休息"],
+        "tag_evidence": [
+          "亲子友好",
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
         "visited_at": "2026-04-20",
         "helpful_count": 38
       },
@@ -1338,7 +2213,11 @@
         "text": "孩子玩了 1.5 小时还想接着玩，奶奶在外面长椅上休息也很惬意。整体动线设计真的为多代家庭考虑。",
         "rating": 5,
         "user_age_bucket": "90后",
-        "tag_evidence": ["亲子友好", "适合老人", "无台阶"],
+        "tag_evidence": [
+          "亲子友好",
+          "适合老人",
+          "无台阶"
+        ],
         "visited_at": "2026-03-30",
         "helpful_count": 21
       }
@@ -1386,7 +2265,11 @@
         "text": "周末带客户 + 客户家小孩一起，环境分区很贴心：成人有商务洽谈区，孩子有专属游玩区，互不打扰。客户最后说这才是真有诚意的接待。",
         "rating": 5,
         "user_age_bucket": "80后",
-        "tag_evidence": ["亲子友好", "商务体面", "高人均"],
+        "tag_evidence": [
+          "亲子友好",
+          "商务体面",
+          "高人均"
+        ],
         "visited_at": "2026-05-02",
         "helpful_count": 19
       },
@@ -1394,7 +2277,10 @@
         "text": "外地朋友带孩子来杭州出差，找这种又能谈事又不让孩子哭闹的地方真的难。这家算是少有的兼顾。",
         "rating": 4.5,
         "user_age_bucket": "90后",
-        "tag_evidence": ["亲子友好", "商务体面"],
+        "tag_evidence": [
+          "亲子友好",
+          "商务体面"
+        ],
         "visited_at": "2026-04-12",
         "helpful_count": 12
       }
@@ -1441,7 +2327,11 @@
         "text": "和闺蜜约这种地方真是绝配——拍照位每个角度都能出片，但同时音量又不会被外面影响，能安心聊心事。",
         "rating": 5,
         "user_age_bucket": "90后",
-        "tag_evidence": ["拍照友好", "安静聊天", "网红打卡"],
+        "tag_evidence": [
+          "拍照友好",
+          "安静聊天",
+          "网红打卡"
+        ],
         "visited_at": "2026-04-25",
         "helpful_count": 27
       },
@@ -1449,7 +2339,10 @@
         "text": "通常网红店都吵到不行，这家居然兼顾了出片和聊天的安静感。是闺蜜下午茶的优选。",
         "rating": 4.5,
         "user_age_bucket": "00后",
-        "tag_evidence": ["拍照友好", "安静聊天"],
+        "tag_evidence": [
+          "拍照友好",
+          "安静聊天"
+        ],
         "visited_at": "2026-03-18",
         "helpful_count": 14
       }

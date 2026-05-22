@@ -66,6 +66,7 @@ def _poi_preview(p: Poi) -> dict:
         "rating": p.rating,
         "age_range": p.age_range,
         "price_range": p.price_range,
+        "review_excerpts": _format_review_excerpts(p.reviews),
     }
 
 
@@ -80,7 +81,34 @@ def _restaurant_preview(r: Restaurant) -> dict:
         "opening_hours": r.opening_hours,
         "avg_price": r.avg_price,
         "rating": r.rating,
+        "review_excerpts": _format_review_excerpts(r.reviews),
     }
+
+
+def _format_review_excerpts(reviews) -> list[dict]:
+    """把 UGC 评论压缩成 LLM 易消费的摘要：top-2 helpful 的评论。
+
+    每条仅给：text 前 60 字 + age_bucket + tag_evidence。
+    用于 LLM 在 rationale 中引用「真实用户怎么说」让评委看到可信度。
+    """
+    if not reviews:
+        return []
+    sorted_revs = sorted(
+        reviews,
+        key=lambda r: getattr(r, "helpful_count", 0),
+        reverse=True,
+    )[:2]
+    out = []
+    for r in sorted_revs:
+        text = getattr(r, "text", "") or ""
+        out.append(
+            {
+                "excerpt": text[:60],
+                "age_bucket": getattr(r, "user_age_bucket", ""),
+                "tag_evidence": list(getattr(r, "tag_evidence", []) or []),
+            }
+        )
+    return out
 
 
 def build_candidate_preview(
