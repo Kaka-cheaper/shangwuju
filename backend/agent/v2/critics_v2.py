@@ -621,52 +621,109 @@ def _minutes_to_hhmm(total: int) -> str:
 def _check_social_context(
     itinerary: Itinerary, intent: IntentExtraction
 ) -> list[Violation]:
-    """轻量启发式：social_context 与方案的明显失配。
+    """social_context 与候选 suitable_for 的兼容性 critic。
 
-    只做两条最不冒犯 LLM 的检查（warning，不 critical）：
-    - 「独处放空」时不应预约 ≥ 2 人位
-    - 「家庭日常」时 stage.title 不应明显包含「商务包间 / 商务接待」字样
+    设计依据：agent/v2/social_compat.py 矩阵（Step 5 升级）。
+    - BLOCKING → CRITICAL（必须 backprompt LLM 重做）
+    - POOR     → WARNING（不打断，仅日志）
+    - MATCH/ACCEPTABLE → 不报
 
-    Demo-friendly：不要写死太多 if，让 LLM 有发挥空间，仅拦最离谱的搭配。
+    旧零碎 if 逻辑（独处+多人位 / 家庭+商务包间）已迁到矩阵。
     """
     out: list[Violation] = []
     sc = intent.social_context or ""
+    if not sc:
+        return out
 
+    try:
+        from agent.v2.social_compat import (
+            CompatLevel,
+            evaluate_poi,
+            evaluate_restaurant,
+        )
+    except ImportError:
+        return out
+
+    pois_by_id = {p.id: p for p in _safe_load_pois()}
+    restaurants_by_id = {r.id: r for r in _safe_load_restaurants()}
+
+    for idx, stage in enumerate(itinerary.stages):
+        # 主活动段查 POI
+        if stage.poi_id and stage.poi_id in pois_by_id:
+            poi = pois_by_id[stage.poi_id]
+            level, reason = evaluate_poi(intent, poi)
+            if level == CompatLevel.BLOCKING:
+                out.append(
+                    Violation(
+                        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
+                        severity=Severity.CRITICAL,
+                        message=(
+                            f"第 {idx + 1} 段「{poi.name}」与场景调性严重不匹配："
+                            f"{reason}。请在候选预览中换其它 social_context 适配的 POI。"
+                        ),
+                        field_path=f"stages[{idx}].poi_id={poi.id}",
+                    )
+                )
+            elif level == CompatLevel.POOR:
+                out.append(
+                    Violation(
+                        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
+                        severity=Severity.WARNING,
+                        message=(
+                            f"第 {idx + 1} 段「{poi.name}」调性偏差："
+                            f"{reason}（仍可接受，但更优候选可考虑换）"
+                        ),
+                        field_path=f"stages[{idx}].poi_id={poi.id}",
+                    )
+                )
+        # 用餐段查餐厅
+        if stage.restaurant_id and stage.restaurant_id in restaurants_by_id:
+            rest = restaurants_by_id[stage.restaurant_id]
+            level, reason = evaluate_restaurant(intent, rest)
+            if level == CompatLevel.BLOCKING:
+                out.append(
+                    Violation(
+                        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
+                        severity=Severity.CRITICAL,
+                        message=(
+                            f"第 {idx + 1} 段餐厅「{rest.name}」与场景调性严重不匹配："
+                            f"{reason}。请在候选预览中换其它 social_context 适配的餐厅。"
+                        ),
+                        field_path=f"stages[{idx}].restaurant_id={rest.id}",
+                    )
+                )
+            elif level == CompatLevel.POOR:
+                out.append(
+                    Violation(
+                        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
+                        severity=Severity.WARNING,
+                        message=(
+                            f"第 {idx + 1} 段餐厅「{rest.name}」调性偏差："
+                            f"{reason}（仍可接受，但更优候选可考虑换）"
+                        ),
+                        field_path=f"stages[{idx}].restaurant_id={rest.id}",
+                    )
+                )
+
+    # 仍保留旧的「order detail 多人位 vs 独处」检查（因 OrderRecord.detail 含人数文本）
     if "独处" in sc:
         for order in itinerary.orders:
             kind = order.kind or ""
             if "餐厅" in kind:
-                # detail 里如果出现「2 人 / 三人 / 四人」等多人字样 → 警告
                 detail = order.detail or ""
                 multi_signals = ["2 人", "三人", "四人", "六人", "≥2"]
                 if any(sig in detail for sig in multi_signals):
                     out.append(
                         Violation(
                             code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                            severity=Severity.WARNING,
+                            severity=Severity.CRITICAL,
                             message=(
                                 f"独处放空场景，但 {order.target_name} 预约 {detail}。"
-                                "请确认是否真的需要多人位"
+                                "请改为单人位，或换符合「独处放空」的餐厅"
                             ),
                             field_path="orders",
                         )
                     )
-
-    if "家庭" in sc:
-        for idx, stage in enumerate(itinerary.stages):
-            title = stage.title or ""
-            if "商务包间" in title or "商务接待" in title:
-                out.append(
-                    Violation(
-                        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.WARNING,
-                        message=(
-                            f"家庭日常场景但第 {idx + 1} 段 title 含「商务」字样：{title}，"
-                            "请确认餐厅/活动是否适合家庭"
-                        ),
-                        field_path=f"stages[{idx}].title",
-                    )
-                )
 
     return out
 
