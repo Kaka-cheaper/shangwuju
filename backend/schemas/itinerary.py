@@ -12,6 +12,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt
 
+from schemas.decision_trace import DecisionTrace
+
 
 class ItineraryStage(BaseModel):
     """行程一段（出发 / 主活动 / 转场 / 用餐 / 附加 / 返回）。"""
@@ -87,4 +89,14 @@ class Itinerary(BaseModel):
     )
     total_minutes: NonNegativeInt = Field(
         ..., description="总耗时（分钟）；用于校验 4-6h 约束"
+    )
+    decision_trace: Optional[DecisionTrace] = Field(
+        default=None,
+        description=(
+            "Agent 决策可解释性元数据（Step 4+7）。"
+            "包含 blueprint rationale / 权重解释 / critic 修正历史 / "
+            "考虑过的备选方案 / fallback 链。"
+            "前端 DecisionTraceCard 默认折叠，点击展开「AI 思考」三段。"
+            "None 或 is_empty() 时前端隐藏卡片。"
+        ),
     )

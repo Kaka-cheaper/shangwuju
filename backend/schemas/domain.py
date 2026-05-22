@@ -6,6 +6,7 @@
 - Restaurant = 餐厅
 - Route = 两点间预估通勤时间
 - UserProfile = 硬编码的用户画像（家位置 / 默认预算 / 交通偏好）
+- Review = UGC 评论（赛题 06 原文要求「结合点评 POI 数据 / 用户评价语料」）
 
 不负责：
 - 持久化、CRUD（Mock 数据是只读快照）。
@@ -25,6 +26,44 @@ class Location(BaseModel):
     name: str = Field(..., description="地名/区域名，如「武林广场」")
     lat: Optional[float] = Field(default=None, description="可选，纬度")
     lng: Optional[float] = Field(default=None, description="可选，经度")
+
+
+# ============================================================
+# Review（UGC 评论）
+# ============================================================
+
+class Review(BaseModel):
+    """单条 UGC 评论。
+
+    用于：
+    - LLM 蓝图 prompt 注入「真实用户怎么说」，让 rationale 可以引用
+    - ItineraryCard 评论 chip 让评委一眼看到「评分背后的语义」
+    - 真接入大众点评 / 美团 UGC 时，schema 形态保持一致
+
+    设计取向（参考赛题 06 原文 + 大众点评 review schema）：
+    - text 中文原文必须 ≥10 字（避免空泛"很好"）
+    - tag_evidence 列出「这条评论支持哪些 tag」，下游 LLM 可直接引用
+    - user_age_bucket 用银发/80后/90后/00后/学生 五档（粒度对齐主流广告投放）
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(..., min_length=10, description="中文评论原文")
+    rating: float = Field(..., ge=1, le=5, description="该评论用户给的评分")
+    user_age_bucket: str = Field(
+        ...,
+        description="用户年龄段：银发 / 80后 / 90后 / 00后 / 学生",
+    )
+    tag_evidence: list[str] = Field(
+        default_factory=list,
+        description="评论文本支持的 tag（如「亲子友好」「适合老人」），下游可引用",
+    )
+    visited_at: Optional[str] = Field(
+        default=None, description='形如 "2026-04-15"；可选'
+    )
+    helpful_count: NonNegativeInt = Field(
+        default=0, description="该评论被多少人标记「有用」（用于 top-N 排序）"
+    )
 
 
 # ============================================================
@@ -78,6 +117,13 @@ class Poi(BaseModel):
     suggested_duration_minutes: Optional[NonNegativeInt] = Field(
         default=None,
         description="推荐游玩时长（分钟）；用于行程时间轴拼装",
+    )
+    reviews: list[Review] = Field(
+        default_factory=list,
+        description=(
+            "UGC 评论列表（赛题 06 原文要求）。空列表向后兼容；"
+            "Step 3 之后所有 Demo POI 应至少 2 条。"
+        ),
     )
 
 
@@ -147,6 +193,13 @@ class Restaurant(BaseModel):
     recommendation_reason: Optional[str] = Field(
         default=None,
         description="推荐理由，一句话说明为什么选这家",
+    )
+    reviews: list[Review] = Field(
+        default_factory=list,
+        description=(
+            "UGC 评论列表（赛题 06 原文要求）。空列表向后兼容；"
+            "Step 3 之后所有 Demo 餐厅应至少 2 条。"
+        ),
     )
 
 

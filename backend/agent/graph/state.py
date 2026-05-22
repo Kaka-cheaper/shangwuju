@@ -114,6 +114,12 @@ class AgentState(TypedDict, total=False):
     retry_count: int
     replan_strategy: Optional[ReplanStrategy]
 
+    # ---- Decision trace（Step 4+7：决策可解释性） ----
+    decision_trace: Optional[Any]  # DecisionTrace；用 Any 避循环 import
+    fallback_chain: list[Any]      # list[FallbackHop]
+    critic_attempts: list[Any]     # list[CriticAttempt]
+    alternatives: list[Any]        # list[AlternativeCandidate]
+
     # ---- 暖语气 ----
     narration: Optional[str]
 
@@ -156,4 +162,7 @@ def make_initial_state(
         retry_count=0,
         orders=[],
         chitchat_chips=[],
+        fallback_chain=[],
+        critic_attempts=[],
+        alternatives=[],
     )
