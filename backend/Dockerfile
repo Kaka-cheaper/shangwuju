@@ -78,6 +78,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # 解决：build context 用仓库根 `docker build -f backend/Dockerfile .`（见 docker-compose.yml）
 COPY backend /app
 COPY mock_data /mock_data
+COPY docs/legal /app/docs/legal
 
 # FC 与本地都用 PORT 环境变量；默认 8000（本地）；FC 会注入 9000
 # FC Custom Container 必须 listen 0.0.0.0:$PORT 否则启动检查失败

@@ -480,6 +480,49 @@ def reset_user_preferences(user_id: str) -> dict[str, Any]:
 # 评委直接 GET /auth/info 看到所有 provider 状态。
 
 
+# ============================================================
+# 法务文本（Phase 0.22；docs/legal/*.md 直读）
+# ============================================================
+
+
+def _read_legal_doc(filename: str) -> str:
+    """读 docs/legal/ 下的 markdown 文件。打包到 docker 时 mock_data 同卷会一起 copy。"""
+    from pathlib import Path
+
+    # 优先项目根 docs/，再 fallback 到 backend 内（docker COPY 后两条都试）
+    candidates = [
+        Path(__file__).parent.parent / "docs" / "legal" / filename,
+        Path("/app/docs/legal") / filename,  # docker 容器内
+        Path("/docs/legal") / filename,  # docker 容器内备选
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    raise HTTPException(
+        status_code=404,
+        detail=f"法务文档 {filename} 未就位（docs/legal/）",
+    )
+
+
+@app.get("/legal/terms")
+def legal_terms() -> Response:
+    """用户协议（占位草案；真上线前需律师审核）。"""
+    content = _read_legal_doc("terms-of-service.md")
+    return Response(content=content, media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/legal/privacy")
+def legal_privacy() -> Response:
+    """隐私政策（占位草案；真上线前需律师审核）。"""
+    content = _read_legal_doc("privacy-policy.md")
+    return Response(content=content, media_type="text/markdown; charset=utf-8")
+
+
+# ============================================================
+# OAuth 端点
+# ============================================================
+
+
 @app.get("/auth/info")
 def auth_info() -> dict[str, Any]:
     """列出所有支持的 OAuth provider 与其当前状态。
