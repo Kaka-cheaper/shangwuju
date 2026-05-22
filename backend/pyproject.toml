@@ -40,7 +40,7 @@ url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["schemas", "scripts", "data", "tools", "agent"]
+packages = ["schemas", "scripts", "data", "tools", "agent", "auth"]
 
 [tool.uv]
 package = true
