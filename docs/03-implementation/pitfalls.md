@@ -740,3 +740,25 @@
   2. 写生成器先跑 1 条试运行 → pydantic 校验通过 → 再批量
   3. 评论字段质量约束（≥30 字）是产品级要求，不是 schema 约束
 - **优先级**：P2（导致评论补全要重跑一次，但脚本 idempotent 可恢复）
+
+
+### [P2] 2026-05-23 Windows 上 pnpm + Next 的 .next/standalone EPERM 锁
+
+- **现象**：执行 `pnpm dev` 报错
+  ```
+  Error: EPERM: operation not permitted, scandir
+    'D:\...\frontend\.next\standalone\node_modules\react'
+  ```
+  next 启动时清理 `.next/standalone` 目录失败，dev server 起不来。
+- **根因**：pnpm 用 symlink 把 `node_modules` 里的 react/react-dom/next 等包链接到 `.next/standalone/node_modules/`。Windows 上：
+  1. PowerShell 的 `Remove-Item -Recurse` 删 symlink 时容易触发权限错误
+  2. 之前 next dev 创建的 symlink 进程退出后没被释放（IDE / 资源管理器 / Defender 扫描时打开过）
+  3. `.next/standalone` 由 `next.config.mjs` 的 `output: 'standalone'` 配置触发生成，开发态本来不该有
+- **解法**：用 cmd 的 `rmdir /s /q .next` 强删（处理 symlink 比 PowerShell 的 Remove-Item 友好），然后重新 `pnpm dev`：
+  ```cmd
+  cd frontend
+  rmdir /s /q .next
+  pnpm dev
+  ```
+- **优先级**：P2（不影响 demo 跑通的最终产物，但每次 build 后切回 dev 会触发；评委 demo 现场切换前最好先清一次）
+- **防再犯**：Windows 上避免反复混用 `pnpm build` 与 `pnpm dev`；如果 next.config.mjs 里有 `output: 'standalone'`（用于 Docker），开发态可临时注释掉
