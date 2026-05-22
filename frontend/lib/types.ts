@@ -211,6 +211,43 @@ export interface Itinerary {
   orders: OrderRecord[];
   share_message?: string | null;
   total_minutes: number;
+  /** Step 4+8：决策可解释性元数据；is_empty() 时前端隐藏卡片 */
+  decision_trace?: DecisionTrace | null;
+}
+
+// ============================================================
+// 决策可解释性（schemas/decision_trace.py，Step 4+8）
+// ============================================================
+
+export interface CriticAttempt {
+  attempt_n: number;
+  violation_codes: string[];
+  feedback_summary: string;
+  resolved: boolean;
+}
+
+export interface AlternativeCandidate {
+  target_kind: string; // poi / restaurant
+  target_id: string;
+  target_name: string;
+  utility_score?: number | null;
+  rank: number;
+  reason_rejected: string;
+}
+
+export interface FallbackHop {
+  from_stage: string;
+  to_stage: string;
+  reason: string;
+}
+
+export interface DecisionTrace {
+  blueprint_rationale: string;
+  weights_explanation: string;
+  critic_attempts: CriticAttempt[];
+  alternatives_considered: AlternativeCandidate[];
+  fallback_chain: FallbackHop[];
+  final_strategy: string;
 }
 
 // ============================================================

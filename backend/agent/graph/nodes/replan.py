@@ -38,9 +38,28 @@ def replan_router_node(state: AgentState) -> dict[str, Any]:
     else:
         strategy = "ils_fallback"
 
+    # Step 8：累积 fallback_chain 一跳
+    from schemas.decision_trace import FallbackHop
+
+    chain = list(state.get("fallback_chain") or [])
+    if strategy == "llm_backprompt":
+        hop = FallbackHop(
+            from_stage="llm_first" if retry_count == 1 else "llm_backprompt",
+            to_stage="llm_backprompt",
+            reason=f"critic 命中违规，第 {retry_count} 次让 LLM 修正重出蓝图",
+        )
+    else:
+        hop = FallbackHop(
+            from_stage="llm_backprompt",
+            to_stage="ils",
+            reason=f"LLM {_MAX_LLM_RETRIES} 次仍未通过 critic，切 ILS 算法兜底",
+        )
+    chain.append(hop.model_dump())
+
     return {
         "retry_count": retry_count,
         "replan_strategy": strategy,
+        "fallback_chain": chain,
     }
 
 
@@ -60,9 +79,13 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
     成功 → 写回 itinerary，has_critical=False
     失败 → 走 rule planner 兜底；仍失败 → give_up（has_critical=False 让流程走 narrate）
     """
+    from schemas.decision_trace import FallbackHop
+
     intent = state.get("intent")
     if intent is None:
         return {"replan_strategy": "give_up", "has_critical": False}
+
+    chain = list(state.get("fallback_chain") or [])
 
     # ---- 先尝试 ILS（仅 5 段完整场景适用）----
     ils_success = False
@@ -93,6 +116,13 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         pass
 
     # ---- ILS 失败或不适用 → rule planner 兜底 ----
+    chain.append(
+        FallbackHop(
+            from_stage="ils",
+            to_stage="rule",
+            reason="ILS 不适用或未给出有效方案，回 rule planner 兜底",
+        ).model_dump()
+    )
     try:
         from agent.planner import plan_itinerary
         from agent.trace import Tracer
@@ -106,12 +136,24 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
                 "violations": [],
                 "critic_feedback_text": None,
                 "replan_strategy": "give_up",  # 标记已用完所有策略
+                "fallback_chain": chain,
             }
     except Exception:  # noqa: BLE001
         pass
 
     # ---- 全部失败 → give_up，不再循环 ----
-    return {"replan_strategy": "give_up", "has_critical": False}
+    chain.append(
+        FallbackHop(
+            from_stage="rule",
+            to_stage="give_up",
+            reason="rule planner 也未能产出方案，停止重试",
+        ).model_dump()
+    )
+    return {
+        "replan_strategy": "give_up",
+        "has_critical": False,
+        "fallback_chain": chain,
+    }
 
 
 def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optional[Any]:

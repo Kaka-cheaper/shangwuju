@@ -17,6 +17,7 @@ import MapOverlay from "./MapOverlay";
 import PosterGenerator from "./PosterGenerator";
 import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
+import DecisionTraceCard from "./DecisionTraceCard";
 
 /** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（黄昏深色主题）。 */
 export default function ItineraryCard() {
@@ -323,6 +324,11 @@ export default function ItineraryCard() {
           <ShareMessage text={itinerary.share_message} />
         </div>
       )}
+
+      {/* AI 思考（决策可解释性，Step 8） */}
+      <div className="px-4 pb-3">
+        <DecisionTraceCard trace={itinerary.decision_trace} />
+      </div>
 
       {/* Action buttons */}
       <div className="px-4 pb-4">

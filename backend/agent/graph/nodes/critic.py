@@ -50,10 +50,37 @@ def critic_node(state: AgentState) -> dict[str, Any]:
     has_critical = any(v.severity == Severity.CRITICAL for v in violations)
     feedback = format_violations_for_llm(violations) if has_critical else None
 
+    # Step 8：累积 critic_attempts 到 trace
+    from schemas.decision_trace import CriticAttempt
+
+    prev_attempts = list(state.get("critic_attempts") or [])
+    attempt_n = len(prev_attempts) + 1
+
+    # 把上一次 attempt 标 resolved（如果它存在）：意思是上一次给 LLM 的反馈被消化了
+    if prev_attempts and not has_critical:
+        last = dict(prev_attempts[-1])
+        last["resolved"] = True
+        prev_attempts[-1] = last
+
+    if has_critical:
+        critical_codes = [
+            getattr(getattr(v, "code", None), "value", str(getattr(v, "code", "")))
+            for v in violations
+            if v.severity == Severity.CRITICAL
+        ]
+        attempt_dict = CriticAttempt(
+            attempt_n=attempt_n,
+            violation_codes=critical_codes,
+            feedback_summary=(feedback or "")[:200],
+            resolved=False,
+        ).model_dump()
+        prev_attempts.append(attempt_dict)
+
     return {
         "violations": violations,
         "has_critical": has_critical,
         "critic_feedback_text": feedback,
+        "critic_attempts": prev_attempts,
     }
 
 
