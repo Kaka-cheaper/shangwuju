@@ -5753,3 +5753,67 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - edge_v1 schema 在 SSE 序列化 + 前端解析 + 时间轴渲染 + 地图 marker 全链路无漂移
 - DecisionTraceCard 不再显示「LLM 修正后通过」误导文案（因为 critic 一次过，根本不走「修正」路径）
 - 任务 17 可以勾掉，整个 itinerary-edge-model-refactor spec 收尾
+
+
+---
+
+## Phase 4 联合审查（对抗审查）
+
+问题：作为 Phase 4 联合审查官，对前 8 个 agent（A-H）的报告 + Phase 3 dependency-graph.md 做对抗审查，输出到 `.kiro/specs/planning-quality-deep-review/reports/synthesis/adversarial-review.md`。要求回答 7 个问题：重复 gap 合并、冲突方案取舍、漏点检查、业界对标抽检（用 web_fetch）、Phase 3 修复优先级挑战、目录重组综合、风险红旗。
+
+解决方案：
+1. 通读 8 份 agent 报告（A-H，~9 万字）+ dependency-graph.md。
+2. 按 7 个问题做交叉对照：
+   - 重复 gap：发现 7 处合并机会（M1 _poi_preview 漏字段在 B/D/E 三方都提；M2 Restaurant.typical_dining_min 在 B/G 两方；M3 年龄分桶在 A/B/G 三方；M4 prompt 范例 165+critic 上限 300+critic 无年龄校验在 D/E 双方；M5 LLM 输入信号缺锚点在 A/D 两方；M6 critic+ILS 双层防御不应合并；M7 narrator 不质疑+summary 强化+WARNING 不可见在 H/F/E 三方）。
+   - 冲突方案：5 处冲突——单段时长决策权（A/E/D 三方案职责重叠，取 D 主防+E 兜底，A 拒）；critic message 是否暴露 expected_range（取弱化版自然语言）；Restaurant 时长决策（B/G/D 必须捆绑改）；fallback 路由策略（F 方案 E 拒，与 pitfalls 死循环修复冲突）；mock 重组 v1/v2 vs 直接升级（取直接升级 + Union 双兼容）。
+   - 漏点：4 个——narrator_prompt 句式同构、演示场景集缺"AI 主动质疑"反例、reviews 文本污染未量化、pitfalls.md 防再犯条款未规划。
+   - 业界对标抽检：用 web_fetch 验证 5 条引用——5/5 URL 真实存在，但 4 处细节存疑（TravelPlanner 87% 通过率溯源不到；ITINERA typical_visit_time 字段名可能虚构；LLM-Modulo critic schema 字段格式可能虚构；Pydantic AI 默认 retries 应为 1 而非 3；OSM accessibility 应为 4 态而非 3 态）。
+   - Phase 3 优先级挑战：19h 必修集大体合理，但 W4.4 / W6.5 / W7.7 必要性存疑，建议砍到 17h；端到端反例验证逻辑（5 岁娃博物馆 2.5h）能被 W1+W2+W3+W4+W7 解决，但有 3 个潜在断点（age 抽取率、mock dict 升级测试影响、narrator LLM 行为不可控）。
+   - 目录重组：综合 8 份建议给出最终结构，narrator.py 归 intent/、不分 mock v1/v2、不动 graph/build.py 拓扑；建议 spec B 延后到 spec A 联调通过后启动。
+   - 风险红旗：5 个——mock dict 升级让 21 个 verify 脚本断言失效；critic backprompt 命中率假设过高；prompt 测试 6-10 条断言会破；narrator LLM 不可控（critic_summary 可能被忽略）；编排冻结纪律破窗（meta_critic 可能引发节点风潮）。
+3. 用 web_fetch 抽查 5 条业界对标（Google Research / TravelPlanner / ITINERA / LLM-Modulo / Pydantic AI），列可信度。
+4. 写到 adversarial-review.md，~6800 字（中文字符 8402），含 8 段（重复合并、冲突取舍、漏点、对标抽检、Phase 3 挑战、目录、风险红旗、总结）。
+5. 给出"有保留地进 Phase 5"结论 + 进 spec 前必须修正的 6 处 + 不进 spec 的事 + spec A/B/C 拆分建议。
+
+修改的代码文件：
+- 新增：.kiro/specs/planning-quality-deep-review/reports/synthesis/adversarial-review.md（联合审查报告）
+
+应当达成的效果：Phase 4 完成对抗审查，发现 7 处重复合并 / 5 处冲突 / 4 个漏点 / 4 条对标存疑 / 5 个风险红旗，给出 Phase 5 spec 可以启动但需先修正 6 处的明确建议。
+
+
+---
+
+## 问题31：5 岁娃博物馆 2.5h 反业界常识 → 全链路深度审查 + 输出 2 份 spec
+
+**时间**：2026-05-23
+
+**用户原问**：「你看看这个规划，有什么问题？我第一个感觉不对劲的地方就是为什么家庭主线吃饭能吃两个半小时？……目前的场景下感觉不太行。那么由此引申出了我的另一个担忧，就是这个问题是规划路径中llm提示词的问题还是哪里的问题？我需要你全面审查一下规划全链路……开多个并行子代理让他们按照每一个子环节的粒度去审查……每一个环节都要让子代理看看业界有没有成熟的模式，有没有成熟的项目可以复用。」+ 后续追问混乱的 agent/ 目录也要做重组方案 + 选方案 A1（同时审业务合理性 + 目录归属，输出 2 份独立 spec）。
+
+**解决方案**：
+
+按用户要求的 5 阶段并行审查方法论执行：
+
+1. **Phase 1 列清单**：编排者写 `REVIEW_MATRIX.md`（25 子环节清单 + 8 agent 任务分配 A 意图层 / B 数据信息源 / C SearchPois Tool / D BlueprintLLM 主防 / E Critic 兜底 / F ILS 算法 / G mock 数据信息密度 / H 编排控制流）。
+2. **Phase 2 八路并行审查**：派 8 个 general-task-execution 子代理同时审，每个 agent 按"现状 + 业界对标 + gap 分级 P0/P1/P2 + 修复方案 + 目录归属建议"写 ~30KB 报告，落地 `reports/agent-{A..H}/report.md`，共 ~9 万字 / ~75 条 gap。
+3. **Phase 3 综合分析**：编排者写 `dependency-graph.md`，识别 5 因联动（mock 信息源 / preview 透传 / prompt 主防 / critic 兜底 / narrator 出口）+ 列 8 wave / 28h 修复路径 / 17h hackathon 必修集 + 目录重组建议。
+4. **Phase 4 对抗审查**：独立审查官写 `adversarial-review.md`（~6800 字），找出 7 处重复合并 / 5 处冲突取舍 / 4 个漏点 / 4 处对标精度存疑 / 5 个风险红旗。关键决策：拒 NodeDecider 升级 / 拒 fallback 按违规类型路由 / 拒 mock_data/v2/ 子目录 / spec A 在前 spec B 在后。
+5. **Phase 5 输出 2 份 spec**：
+   - **spec A `planning-quality-deep-review`**：业务质量主线（10 Requirement / 8 task / 5 wave / 17h+3h 缓冲）。修 mock dict + 按年龄分桶 SuggestedDuration / Restaurant.typical_dining_min / candidate preview 透传 / BlueprintPrompt 范例改 + 分级表 / `_age_aware_duration_critic` 双路径镜像 / ILS overload_penalty / Narrator 主动质疑温度降到 0.5 + few-shot + 模板兜底 / IntentExtraction 加 pace_profile / Refiner 识别"太久"映射 single_session_max_min / 演示场景集 +S9 5 岁娃博物馆反例 / verify_planning_quality.py 端到端 5-10 次 / pitfalls 追加 ≥3 条防再犯。
+   - **spec B `agent-directory-restructure`**：目录重组（5 Requirement / 8 task / 6 批次 / 4h）。把 25 扁平 .py + v2/ + graph/ 三套并存重组为 core/ + intent/ + planning/ + runtime/ + graph/ + legacy/，全部用 smartRelocate 自动迁移 import 路径，分 6 批次每批 pytest 验证，前置硬约束「spec A 联调通过 + demo 验收 + 用户人工确认」后才启动。
+
+**修改的代码文件**：
+
+- 新建 `.kiro/specs/planning-quality-deep-review/REVIEW_MATRIX.md`（25 子环节 + 8 agent 任务分配）
+- 新建 `.kiro/specs/planning-quality-deep-review/reports/agent-{A..H}/report.md`（8 份 ~30KB 审查报告）
+- 新建 `.kiro/specs/planning-quality-deep-review/reports/synthesis/dependency-graph.md`（5 因联动 + 8 wave 修复路径）
+- 新建 `.kiro/specs/planning-quality-deep-review/reports/synthesis/adversarial-review.md`（~6800 字对抗审查）
+- 新建 `.kiro/specs/planning-quality-deep-review/{requirements,design,tasks}.md`（spec A 三件套）
+- 新建 `.kiro/specs/agent-directory-restructure/{requirements,design,tasks}.md`（spec B 三件套）
+
+**应当达成的效果**：
+
+- 用户拿到 2 份独立 spec，可按 spec A 优先 + spec B 延后的时序执行
+- spec A 的 8 task / 17h 工时落地后，「5 岁娃博物馆 2.5h」反例能彻底解决，且能在 demo 现场让评委看到「AI 主动质疑方案」（评分项 1 + 2 高分点）
+- spec B 在 spec A 联调通过后启动，把 agent/ 目录重组为 5 子目录 + legacy/，未来新增功能 / Agent 接入项目时一眼能识别归属
+- 所有审查阶段产物（8 份 agent 报告 + 综合分析 + 对抗审查 + 2 份 spec）落地 `.kiro/specs/` 永久存档，可追溯
+
