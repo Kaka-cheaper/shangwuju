@@ -5910,3 +5910,112 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
   - 用户说「这段太久了」时，refiner 只缩 pace_profile.single_session_max_min（90→63），不会破坏总时长 / 距离
   - 意图解析层在 LLM 抽取时有 4 条 pace_profile 隐含规则可遵循
   - persona.default_pace_profile 在 prompt 里有 prior 注入（u_dad/u_grandma/u_solo/u_couple/u_biz 5 个 mock 都已就位）
+
+
+---
+
+## 问题32：spec planning-quality-deep-review Wave 1-3 落地（schema dict / preview 透传 / age-aware critic）
+
+**时间**：2026-05-23
+
+**用户原问**：「Run all tasks for this spec.」（针对 planning-quality-deep-review spec 的 8 个 task）
+
+**解决方案**：
+
+按 spec tasks.md 5 wave 8 task 顺序执行，先做 Wave 1-3（4 个 task）：
+
+1. **Task 1**：`schemas/domain.py` 加 `SuggestedDuration` 模型（default 必填 + kid_3_6/kid_7_12/senior/multi_gen 可选）；`Poi.suggested_duration_minutes` 升为 `Optional[Union[int, SuggestedDuration]]` 双兼容；`Restaurant` 加 `typical_dining_min`；`schemas/persona.py:Persona` 加 `default_pace_profile` + 新加 `PaceProfile` 模型；写 `scripts/migrate_mock_v2.py` 按 `_AGE_TIER_RULES` 字典批量回填 42 POI + `_CUISINE_DINING_MIN` 回填 45 餐厅 + 5 persona 加 pace_profile（共 92 项升级）；新增 `tests/test_schema_dict_compat.py` 18 项验证。
+
+2. **Task 2**：`backend/utils/duration_helpers.py:get_duration_for_companions` 投影 helper（按 companions 推主导桶）；`agent/blueprint_llm.py:_poi_preview` / `_restaurant_preview` 加字段透传；`schemas/tools.py:SearchPoisOutput` 加 `effective_distance_max_km`；`planner_llm_first._query_pois` 兜底放宽时回写；新增 `tests/test_preview_field_passthrough.py` 8 项。
+
+3. **Task 3**：`agent/prompts/blueprint_prompt.py:BLUEPRINT_SYSTEM_PROMPT` 范例 165→75（kind 主活动→看展）+ 加 7 条按 companion age 分级时长表 + 加候选预览消费规则；prompt cap 1500→2200；新增 6 项 spec R3 关键词测试 + 调整 cap 测试。
+
+4. **Task 4**：`agent/blueprint.py` 加 `_resolve_age_caps` + `_age_aware_duration_critic` + `BlueprintViolation.expected_range`；`agent/v2/critics_v2.py` 加 `AGE_DURATION_MISMATCH` ViolationCode + `_check_age_aware_duration` 镜像 + `Violation.expected_range`；`format_violations_for_llm` 拼"建议范围 X-Y min"自然语言（**不暴露**字段名）；`_check_demo_restaurant_full` 改为查 mock `reservation_slots[time].available` 真值（不再写死 17:00）；新增 `tests/test_age_aware_critic.py` 13 项。
+
+**修改的代码文件**：
+- `backend/schemas/domain.py`（加 SuggestedDuration / Union 升级 / typical_dining_min）
+- `backend/schemas/persona.py`（加 PaceProfile / default_pace_profile）
+- `backend/schemas/tools.py`（SearchPoisOutput 加 effective_distance_max_km）
+- `backend/agent/blueprint.py`（_resolve_age_caps / _age_aware_duration_critic / BlueprintViolation.expected_range）
+- `backend/agent/blueprint_llm.py`（_poi_preview / _restaurant_preview 字段透传 + companions 形参）
+- `backend/agent/prompts/blueprint_prompt.py`（范例改 75 + 分级表 + 消费规则）
+- `backend/agent/planner_llm_first.py`（兜底放宽时回写 effective_distance_max_km）
+- `backend/agent/v2/critics_v2.py`（AGE_DURATION_MISMATCH / _check_age_aware_duration / format expected_range / _check_demo_restaurant_full 改查 mock 真值）
+- `backend/utils/__init__.py` + `backend/utils/duration_helpers.py`（新建）
+- `backend/scripts/migrate_mock_v2.py`（新建）
+- `mock_data/pois.json` / `mock_data/restaurants.json` / `mock_data/personas.json`（92 项升级）
+- 新增 4 个测试文件（test_schema_dict_compat / test_preview_field_passthrough / test_age_aware_critic / 修 test_blueprint_prompt + test_sse_critic_events）
+
+**应当达成的效果**：
+
+- mock 数据信息源：5 岁娃投影 P003 城市儿童博物馆 = 60min（以前是单值 90，无法分客群）
+- LLM 主防：BlueprintPrompt 范例 75min + 分级表 + 候选预览消费规则，让 LLM 一次过命中"5 岁娃 ≤ 75min"业务约束
+- critic 兜底：blueprint critic 主路径 + critics_v2 ILS 路径双层镜像，LLM 偶发不听话时拦下并给"建议范围 60-75 min"区间
+- **测试**：482（Wave 0）→ 510（Wave 3 后），新增 28 项 0 回归
+- **commit**：`5b9cef3 feat(planning): spec A Wave 1-3 主防+critic 兜底落地`
+
+---
+
+## 问题33：spec planning-quality-deep-review Wave 4 并行落地（ILS overload / Narrator 主动质疑 / 意图层 + Refiner）
+
+**时间**：2026-05-23
+
+**用户原问**：「可以并行开几个子代理来干，只要说清楚，设置好边界条件就行」
+
+**解决方案**：
+
+派 3 个并行 general-task-execution 子代理同时跑 Task 5/6/7（spec tasks.md Wave 4 的 3 个 task），文件边界严格不重叠：
+
+- **Task 5（α 代理）**：`agent/planner_hybrid.py:_overload_penalty` + `_utility` 末尾加 `-0.5 * _overload_penalty(poi, intent)` + `DINING_SLOTS` 改为 `_resolve_time_window` 动态化 + `_retry_with_critic_feedback` 黑名单覆盖 4 类违规（time_window / hard_constraint / dietary / social_context）；新增 `tests/test_planner_hybrid_overload.py` 15 项。
+- **Task 6（β 代理）**：`agent/narrator.py:build_narrator_user_message` 签名加 critic_summary + quality_warnings + LLM 温度 0.7→0.5 + `_template_narration` 兜底质疑（含 ≤6 岁孩 + duration > 90 强制追加质疑短语）；`agent/prompts/narrator_prompt.py:NARRATOR_SYSTEM_PROMPT` 加主动质疑规则段（4 规则 + 2 few-shot）；`graph/state.py` 删 `routes` 死字段；`graph/nodes/refiner.py` 重置 critic_attempts/fallback_chain/alternatives/quality_issues 4 字段；`graph/nodes/narrate.py` 用 model_copy 替代 mutate（Pydantic 不可变）+ 拼 critic_summary 喂 narrator；`graph/nodes/execute_finalize.py` 餐厅全量遍历 + confirm 阶段 narrator 调用；`graph/sse_adapter.py` DONE payload 加 6 字段总结（final_strategy / plan_attempts / critic_attempt_count / fallback_hops_count / total_ms / has_itinerary）；新增 `tests/test_narrator_active_query.py` 9 项。
+- **Task 7（γ 代理）**：`schemas/intent.py` 加 `pace_profile: Optional[PaceProfile]` 字段（从 schemas/persona import 复用）；`agent/prompts/system_prompt.py:INTENT_PARSER_SYSTEM_PROMPT` 加 4 条 pace_profile 隐含规则 + `build_intent_parser_system_prompt_with_priors` 注入 persona.default_pace_profile addendum；`agent/refiner.py:_rule_fallback` 加 `_KEYWORDS_SESSION_TOO_LONG` 关键词词典 + 命中后产出 pace_profile.single_session_max_min 缩 30%（**不动** distance/duration_hours）+ `_extract_duration_from_feedback` 扩支持半小时/30 分钟/一个半小时 3 类正则；`agent/feedback_detector.py:looks_like_feedback` 同步加 SESSION_TOO_LONG 关键词；新增 `tests/test_refiner_session_too_long.py` 9 个 test 函数 26 个 parametrized cases。
+
+3 个 commit 顺序合并到 main 后跨 task 集成测试自动通过（β 代理报告的 Task 5 dynamic_dining_slots 红灯是 commit 时序问题，当 α/β/γ 三 commit 都到 main 后所有 560 项测试 0 红灯）。
+
+**修改的代码文件**：
+- Task 5：`backend/agent/planner_hybrid.py`（+254/-31）+ `backend/tests/test_planner_hybrid_overload.py`（+423，新建）
+- Task 6：`backend/agent/narrator.py` + `narrator_prompt.py` + `graph/state.py` + `graph/nodes/{narrate,refiner,execute_finalize}.py` + `graph/sse_adapter.py` + `tests/test_narrator_active_query.py`（新建）—— 9 文件 +883/-43
+- Task 7：`backend/schemas/intent.py` + `agent/prompts/system_prompt.py` + `agent/refiner.py` + `agent/feedback_detector.py` + `tests/test_refiner_session_too_long.py`（新建）+ 顺手修 `tests/test_refiner_duration_consistency.py` 1 处断言
+
+**应当达成的效果**：
+
+- ILS 兜底：5 岁娃 P019 180min 候选被 utility 罚分 -0.15（0.3 × 0.5），不会被选中作主活动
+- Narrator 主动质疑：5 岁娃 + 主活动 > 90min 场景，narrator 文案含质疑短语（"宝贝可能会累" / "中途休息"），评分项 1 + 2 加分点
+- 意图层：用户说"今天下午带 5 岁娃出去玩"时，IntentExtraction.pace_profile.single_session_max_min ≤ 90 自动推断；persona u_dad 的 default_pace_profile 注入 prompt addendum；用户反馈"这段太久了"时 refiner 缩 single_session_max_min 30%（不动 distance/duration_hours）
+- **测试**：510（Wave 3 后）→ 560（Wave 4 后），新增 50 项 0 回归
+- **commits**：`b399af3 feat(spec-A R6+R7 Task 6)` → `f05ea59 feat(spec-A R5 Task 5)` → `1a74aba feat(intent+refiner): R8`
+
+---
+
+## 问题34：spec planning-quality-deep-review Wave 5 收尾（演示场景集 S9 + 端到端验证 + 防再犯）
+
+**时间**：2026-05-23
+
+**用户原问**：（接 Task 8 实施请求）
+
+**解决方案**：
+
+执行 spec tasks.md Task 8 的 5 项收尾工作：
+
+1. **演示场景集 §四 加 S9 反例条目**：`docs/01-requirements/演示场景集.md` §4.1 「业务合理性反例自检」加 S9 / S9.1 / S9.2 三个反例（5 岁娃博物馆 / 78 岁老人爬山 / 商务接待轻食 30 分钟），含「期待 AI 行为」+「演示路径」+「为什么这个反例最有说服力」三段说明
+2. **verify_planning_quality.py 端到端脚本**：4 种场景 + 2 个反例（共 6 个）的 4 道检查（persona pace_profile / age cap 推断 / mock 投影合规率 / critic 命中），24/24 (100%) 通过 ≥ 95% 要求
+3. **audit_review_template.py 评论审计脚本**：用 `_TYPE_THEME_KEYWORDS`（按 POI type 推主题词典，34 种 type）+ `_GENERAL_SOCIAL_KEYWORDS`（通用 social_context 词典，30+ 词）双词典审计，84/84 (100%) 命中 ≥ 95% 要求
+4. **pitfalls.md 追加 4 条防再犯**：[P0] BlueprintPrompt 范例 in-context 锚定 / [P0] candidate_preview 漏字段 / [P0] critic 三套职责漂移 / [P1] mock dict 升级 verify 脚本失效风险（adversarial-review §7 红旗 1 实证）
+5. **problem.md 追加 4 段记录**：本 spec 4 个 wave 的完整记录
+
+**修改的代码文件**：
+- `docs/01-requirements/演示场景集.md`（§4.1 加 S9 反例自检表）
+- `backend/scripts/verify_planning_quality.py`（新建）
+- `backend/scripts/audit_review_template.py`（新建）
+- `docs/03-implementation/pitfalls.md`（追加 4 条防再犯）
+- `problem.md`（追加 4 段记录，含本条）
+- `.kiro/specs/planning-quality-deep-review/tasks.md`（Task 1-8 全部勾选 [x]）
+
+**应当达成的效果**：
+
+- spec planning-quality-deep-review 8 个 task 全部完成
+- 端到端验收 24/24 + 评论审计 84/84，全套 pytest 560 全过 0 回归
+- 演示场景集 +S9 反例：评委可点 "5 岁娃博物馆 2.5h" 按钮触发完整防御链路展示（主防 prompt → critic 兜底 → narrator 质疑），评分项 1 + 2 + 5 三项加分
+- **commit**：（待本条记录写完后一次性 commit Wave 5 全部产物）
+- **下一步**：spec B `agent-directory-restructure` 启动条件已满足（spec A 联调通过 + e2e 验收通过 + 用户人工确认），等待用户决定何时启动
+

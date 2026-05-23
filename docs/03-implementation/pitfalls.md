@@ -832,3 +832,46 @@
   - `backend/agent/graph/nodes/assemble.py`（final_strategy 改 fallback_chain 判据）
   - `backend/agent/graph/nodes/narrate.py`（定稿前更新 trace + resolved 标记）
 - **防再犯**：流程中的"最终产物"应只在终态节点推送一次（不要在中间节点试图"边做边推"造成视觉与实际不一致）；trace 状态字段命名应避免歧义（`final_strategy` 容易误解为"最终成功的路径"，实际是"走到了哪个分支"——chip label 仍称"LLM 修正后通过"是有问题的，下次重命名）
+
+
+### [P0] 2026-05-23 BlueprintPrompt 范例 JSON 的 in-context 锚定（"主活动 165min" 反例）
+
+- **现象**：spec planning-quality-deep-review 全链路审查时发现「家庭主线 5 岁娃博物馆主活动 2.5h 反业界常识」反例（行业基线 60-90min，参考 Smithsonian SEEC）。根因之一是 BlueprintPrompt 范例 JSON 写的是 `{"kind":"主活动","duration_min":165}`——LLM 把"主活动 = 长时段"当成隐性等式，对 5 岁娃也排 165min。
+- **根因**：prompt 范例不仅是格式示例，更是 in-context anchor——LLM 会把范例值当合理范围参考。当 prompt 里没有按客群分级时长表 + 候选预览参考字段时，LLM 唯一可锚的就是范例里的 165。
+- **修复**（spec R3）：范例改 `{"kind":"看展","duration_min":75}` + 加 7 条按 companion age 分级时长规则 + 加 candidate.suggested_duration_minutes / typical_dining_min 消费规则。
+- **防再犯**：
+  1. **任何 prompt 范例值改动须 grep 范例 ID + mock 数据一致性**（如 `P040` 现实是亲子博物馆 default=90/kid_3_6=60，范例若引用 P040 就要给学龄前合规值）
+  2. **prompt 关键词单测必有**（如 spec R3 后 `tests/test_blueprint_prompt.py:test_system_prompt_contains_spec_r3_keywords` 检查 6 个关键词全在）
+  3. **prompt cap 提升须配套提升测试断言**（spec R3 1500→2200 时同步改 `test_system_prompt_length_under_hard_cap`）
+
+### [P0] 2026-05-23 candidate_preview 漏字段导致 LLM 无业务锚点
+
+- **现象**：spec 审查发现 `_poi_preview` / `_restaurant_preview` 不暴露 `suggested_duration_minutes` / `typical_dining_min` 给 LLM。Agent B/D/E 三方报告独立指认这个 gap。LLM 在没有候选业务锚点时只能靠训练先验拍 `duration_min`，5 岁娃 2.5h 博物馆就是这个根因之一。
+- **修复**（spec R2）：`_poi_preview` 加 `suggested_duration_minutes` 字段（按 companions 投影为单值，**不暴露 dict 结构**遵守 design "不暴露字段名"原则）；`_restaurant_preview` 加 `typical_dining_min`；`SearchPoisOutput` 加 `effective_distance_max_km`（兜底放宽时回写）。
+- **防再犯**：
+  1. **preview 字段集变更须有 preview 字段单测覆盖**（如 spec R2 后 `tests/test_preview_field_passthrough.py` 验 8 项断言：dict 投影正确 / 多代取最严 / 5 岁娃场景 P003 投影 60 不是 90 / preview 不暴露 dict 结构）
+  2. **新加 mock schema 字段时同步 audit preview 是否透传**（schemas/domain.py 加字段 → blueprint_llm.py preview 透传 → prompt 消费规则 三件事必须捆绑做完）
+  3. **investigated 但未消费的字段判定为反模式**（参考 pitfalls P2-F8 state.weights 写但下游不消费）——加字段必须有消费方
+
+### [P0] 2026-05-23 critic 三套职责漂移（blueprint critic / critics_v2 / ILS utility）
+
+- **现象**：spec 审查发现 critic 有三套并存——blueprint critic（LLM 主路径拦截）、critics_v2（assemble 后兜底）、planner_hybrid `_utility`（ILS 路径）。三套对"5 岁娃 75min"这类规则**没有镜像**，导致 ILS 兜底路径绕过年龄约束。
+- **修复**（spec R4+R5）：
+  - blueprint.py 加 `_age_aware_duration_critic`（LLM 主路径）
+  - critics_v2.py 加 `_check_age_aware_duration` 镜像（ILS / fallback 路径）
+  - planner_hybrid.py `_utility` 加 `_overload_penalty` 维度（ILS 算法路径）
+  - 三套同源公式 + critics_v2 镜像测试 `test_critics_mirror_equivalence_5yo_90min` 验证等价
+- **防再犯**：
+  1. **critic 主防 + critic 兜底 + 算法兜底"对称三层"语义须在 spec 写明**——任何路径修复都要同步另两路径，避免单点修复让其他路径绕过
+  2. **三套 critic 职责不漂移**：blueprint critic 拦 LLM 出蓝图前结构性违规；critics_v2 拦 itinerary 已 assemble 后业务性违规；ILS utility 是算法目标函数（连续可微）。**业务规则**（如年龄 cap）三处必须镜像；**结构性规则**（如 hop 数与 node 数 -1 等）只在 critics_v2 invariants 跑
+  3. **新加 critic 规则前先看现有 ViolationCode 列表**（避免重复造轮子）
+
+### [P1] 2026-05-23 mock dict 升级时旧测试断言失效（21+ verify 脚本风险）
+
+- **现象**：spec R1 把 `Poi.suggested_duration_minutes` 从 `Optional[int]` 升为 `Optional[Union[int, SuggestedDuration]]` 时，曾担心 21+ verify 脚本失效。实际 grep 后只有 2 处引用（`schemas/domain.py` + `scripts/enrich_mock_data.py`），未膨胀。
+- **教训**：spec 写作时 adversarial-review §7 风险红旗 1 假设过悲观（"21+ 脚本"），实际只有 2 处。**先 grep 改动面再估工时**而不是凭直觉抬高。
+- **防再犯**：
+  1. **mock schema 升级必先 grep 全仓库引用**（`grep -r "字段名" backend/`），把改动面落数字
+  2. **Pydantic Union 双兼容**是字段类型升级的标准动作（旧测试用旧形态 / 新形态 都能 model_validate 不破）
+  3. **adversarial-review 的"风险红旗"应配合实证 grep 检查**——估算之外要有数字背书
+
