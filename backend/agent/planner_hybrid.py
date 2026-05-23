@@ -6,6 +6,21 @@
 
     所有新功能改动应在 `agent/graph/` 下完成；ILS 算法内部修改可继续在本文件做。
 
+【spec planning-quality-deep-review R5】（Wave 4 Task 5，2026-05-23）
+
+ILS 兜底路径加 3 项业务对齐改动：
+
+1. `_overload_penalty(poi, intent) -> float`：按 _resolve_age_caps 同款公式（婴幼儿 ≤45 /
+   学龄前 ≤75 / 学童 ≤120 / 高龄 ≤60）推单段 cap，用 get_duration_for_companions 投影
+   POI 推荐时长，超 cap 返 0.3 强惩罚（否则 0.0）。
+2. `_utility` 公式末尾追加 `-0.5 * _overload_penalty(poi, intent)` 项，让 ILS 在候选池里
+   先剔除「成人 180min 但 5 岁娃只能玩 90min」类反人性方案；保留原 4 维 comfort/time/cost/smoothness 不变。
+3. DINING_SLOTS 改用 planner.py:_resolve_time_window 推（按 intent.start_time + duration_hours
+   动态算），不再硬编码 ("17:00","17:30","18:00")。
+4. `_retry_with_critic_feedback` 黑名单按违规类型 4 类全覆盖（time_window / hard_constraint /
+   dietary / social_context），通过 helper `_compute_blacklists` 做单点路由；critics.py 当前
+   没暴露 dietary critic name，关键词路由作 future-proof。
+
 学术依据：
 - A 段（ILS 启发式）：[Vansteenwegen et al. 2009 ILS for TOPTW]、
   [Gunawan et al. 2019 Adjustment ILS for Multi-objective TOPTW]
@@ -48,7 +63,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from schemas.domain import Poi, Restaurant
+from schemas.domain import Poi, Restaurant, SuggestedDuration
 from schemas.errors import FailureReason
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
@@ -65,6 +80,7 @@ from .critics import CriticReport, run_critics
 from .trace import Tracer
 from .weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
+from utils.duration_helpers import get_duration_for_companions
 
 
 # ============================================================
@@ -93,7 +109,10 @@ ILS_ITERATIONS = _env_int("PLANNER_ILS_ITERATIONS", 30)
 # 候选 top-K（每槽位保留多少候选参与组合）
 CANDIDATE_TOP_K = _env_int("PLANNER_CANDIDATE_TOP_K", 5)
 
-# 用餐时段池（与 rule planner 默认 DEFAULT_DINING_TIMES 一致）
+# 用餐时段池：默认值（与 rule planner 默认 DEFAULT_DINING_TIMES 一致）。
+# spec planning-quality-deep-review R5：实际运行时 plan_hybrid 会调
+# planner._resolve_time_window 按 intent.start_time + duration_hours 推动态时段，
+# 然后传给 ILS 内部的算法用；本常量仅作 module 级 fallback / 老调用方兼容。
 DINING_SLOTS = ("17:00", "17:30", "18:00")
 
 # 随机种子（reproducibility；生产可设 None）
@@ -184,6 +203,11 @@ def plan_hybrid(
         },
     )
 
+    # ---- 步骤 1.5：解析动态用餐时段（spec planning-quality-deep-review R5）----
+    # 不再硬编码 ("17:00","17:30","18:00")；用 planner._resolve_time_window 按
+    # intent.start_time + duration_hours + segments 推（与 rule planner 同源）。
+    dining_slots = _resolve_dynamic_dining_slots(intent, mid_nodes, tracer)
+
     # ---- 步骤 2：候选生成（按需搜索）----
     pois: list[Poi] = []
     restaurants: list[Restaurant] = []
@@ -221,7 +245,7 @@ def plan_hybrid(
     rest_top = restaurants[:CANDIDATE_TOP_K] if restaurants else []
 
     # ---- 步骤 3：贪心初始解（utility 最高的 POI×餐厅×17:00）----
-    initial = _greedy_init(poi_top, rest_top, intent, weights, tracer)
+    initial = _greedy_init(poi_top, rest_top, intent, weights, tracer, dining_slots)
     if initial is None:
         return HybridResult(
             success=False,
@@ -246,9 +270,9 @@ def plan_hybrid(
     current = best
     for i in range(ILS_ITERATIONS):
         # 扰动：随机换 POI / 换餐厅 / 移时段三选一
-        perturbed = _perturb(current, poi_top, rest_top, rng)
+        perturbed = _perturb(current, poi_top, rest_top, rng, dining_slots)
         # 局部搜索：在邻域内贪心改进（仅用 utility，不查可订位）
-        improved = _local_search(perturbed, poi_top, rest_top, intent, weights)
+        improved = _local_search(perturbed, poi_top, rest_top, intent, weights, dining_slots)
         s = improved.utility
         if s > best_score:
             best, best_score = improved, s
@@ -312,7 +336,8 @@ def plan_hybrid(
             },
         )
         retried = _retry_with_critic_feedback(
-            best, poi_top, rest_top, intent, weights, report, rule_assembler, tracer
+            best, poi_top, rest_top, intent, weights, report, rule_assembler, tracer,
+            dining_slots,
         )
         if retried is not None:
             return HybridResult(
@@ -402,6 +427,80 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
 # 加权效用 utility（A 段核心）
 # ============================================================
 
+# spec planning-quality-deep-review R5：年龄分级 cap（与 blueprint.py:_resolve_age_caps
+# / critics_v2.py:_check_age_aware_duration 同源公式；ILS 路径在此重写避免循环 import）
+_AGE_CAP_TODDLER = 45    # ≤3 岁婴幼儿
+_AGE_CAP_PRESCHOOL = 75  # 4-6 岁学龄前
+_AGE_CAP_SCHOOL_AGE = 120  # 7-12 岁学童
+_AGE_CAP_SENIOR = 60     # ≥75 岁高龄长辈
+_AGE_CAP_NO_LIMIT = 9999  # 哨兵：无 age 信息时返此值
+
+
+def _resolve_age_cap(intent: IntentExtraction) -> int:
+    """从 intent.companions 推单段最严 cap（min）。
+
+    与 `agent/blueprint.py:_resolve_age_caps` / `agent/v2/critics_v2.py:_check_age_aware_duration`
+    业务等价；返回 9999 表示无年龄约束（spec planning-quality-deep-review R5）。
+    """
+    if intent is None or not getattr(intent, "companions", None):
+        return _AGE_CAP_NO_LIMIT
+
+    caps: list[int] = []
+    for c in intent.companions:
+        age = getattr(c, "age", None)
+        if not isinstance(age, int) or age < 0:
+            continue
+        if age <= 3:
+            caps.append(_AGE_CAP_TODDLER)
+        elif age <= 6:
+            caps.append(_AGE_CAP_PRESCHOOL)
+        elif age <= 12:
+            caps.append(_AGE_CAP_SCHOOL_AGE)
+        elif age >= 75:
+            caps.append(_AGE_CAP_SENIOR)
+
+    if not caps:
+        return _AGE_CAP_NO_LIMIT
+    return min(caps)
+
+
+def _overload_penalty(poi: Optional[Poi], intent: IntentExtraction) -> float:
+    """单段时长 vs 同行人画像合理性 → 强惩罚值（spec planning-quality-deep-review R5）。
+
+    返回：
+        0.3 表示「该 POI 在当前客群下的推荐时长 > 年龄 cap」（5 岁娃 + 推荐 90min POI / cap 75）；
+        0.0 表示「不超 cap 或无 age 信息」。
+
+    与 critic 主路径的关系：
+    - blueprint critic / critics_v2._check_age_aware_duration：拦 LLM 主出错（已规划好的 itinerary）
+    - 本 penalty：在 ILS 候选生成 / 局部搜索阶段就给「显然不合适的 POI」打负分，让算法主动跳过
+    - 两者镜像防绕过；critic 是兜底，penalty 是先验。
+    """
+    if poi is None:
+        return 0.0
+    cap = _resolve_age_cap(intent)
+    if cap >= _AGE_CAP_NO_LIMIT:
+        return 0.0
+
+    suggested_raw = getattr(poi, "suggested_duration_minutes", None)
+    if suggested_raw is None:
+        return 0.0
+
+    # 用 helper 投影 SuggestedDuration / int 双形态 → 单值
+    if isinstance(suggested_raw, (int, SuggestedDuration)):
+        suggested = get_duration_for_companions(
+            suggested_raw, intent.companions if intent else []
+        )
+    else:
+        suggested = None
+    if suggested is None:
+        return 0.0
+
+    # design.md Component 6 公式：actual = min(suggested, cap)；
+    # actual < suggested 即 cap 起到约束作用（即 suggested > cap）→ 强惩罚
+    return 0.3 if suggested > cap else 0.0
+
+
 def _utility(
     poi: Optional[Poi],
     rest: Optional[Restaurant],
@@ -473,6 +572,10 @@ def _utility(
         + w.smoothness * smoothness
     )
 
+    # spec planning-quality-deep-review R5：年龄超 cap 的 POI 候选打强负分，
+    # 让 ILS 算法层先于 critic 主动跳过（保留原 4 维不变，仅末尾追加项）。
+    score -= 0.5 * _overload_penalty(poi, intent)
+
     # 物理可行性快检
     fail = None
     if poi and poi.distance_km > intent.distance_max_km + 1.0:
@@ -511,12 +614,54 @@ def _make_candidate(
 # 贪心初始 + ILS
 # ============================================================
 
+def _resolve_dynamic_dining_slots(
+    intent: IntentExtraction,
+    mid_nodes: list[str],
+    tracer: Tracer,
+) -> tuple[str, ...]:
+    """spec planning-quality-deep-review R5：动态用餐时段。
+
+    委托 planner.py:_resolve_time_window 推算（与 rule planner 同源逻辑），
+    避免 ILS 路径在 14:00 出发的场景仍然只试 17:00/17:30/18:00。
+
+    `mid_nodes` 是 decide_nodes(intent) 输出（含 "用餐"/"主活动" 等中文标签）；
+    本 helper 把它转成 segments frozenset 喂给 _resolve_time_window。
+
+    返 tuple；空 list 时返 module 级 DINING_SLOTS 兜底（保持向后兼容）。
+    """
+    try:
+        from .planner import _resolve_time_window
+    except Exception:  # pragma: no cover —— 仅在 import 顺序异常时触发
+        return DINING_SLOTS
+
+    segments = frozenset(mid_nodes) if mid_nodes else None
+    try:
+        _, dining_slots, _, _ = _resolve_time_window(intent, segments=segments)
+    except Exception:  # pragma: no cover
+        return DINING_SLOTS
+
+    if not dining_slots:
+        return DINING_SLOTS
+    out = tuple(dining_slots)
+    tracer.emit(
+        "agent_thought",
+        {
+            "text": (
+                f"ILS 用餐时段（动态推导，spec R5）：{list(out)}"
+                f"（出发 {intent.start_time}，时长 {intent.duration_hours}h）"
+            ),
+        },
+    )
+    return out
+
+
 def _greedy_init(
     pois: list[Poi],
     rests: list[Restaurant],
     intent: IntentExtraction,
     w: PlanningWeights,
     tracer: Tracer,  # noqa: ARG001
+    dining_slots: tuple[str, ...] = DINING_SLOTS,
 ) -> Optional[CandidatePlan]:
     """从候选中取 utility 最高且 feasible 的作为初始解。
 
@@ -524,6 +669,9 @@ def _greedy_init(
     - pois + rests 都有 → POI×餐厅×时段 笛卡尔积
     - 只有 pois → POI 单维度
     - 只有 rests → 餐厅×时段
+
+    `dining_slots` spec planning-quality-deep-review R5：调用方传入动态时段；
+    缺省时退化为 module 级 DINING_SLOTS（向后兼容旧调用方）。
     """
     best: Optional[CandidatePlan] = None
 
@@ -531,7 +679,7 @@ def _greedy_init(
         # 完整场景：POI × 餐厅 × 时段
         for poi in pois:
             for rest in rests:
-                for slot in DINING_SLOTS:
+                for slot in dining_slots:
                     cand = _make_candidate(poi, rest, slot, intent, w, pois)
                     if not cand.feasible:
                         continue
@@ -548,7 +696,7 @@ def _greedy_init(
     elif rests:
         # 仅用餐：餐厅 × 时段
         for rest in rests:
-            for slot in DINING_SLOTS:
+            for slot in dining_slots:
                 cand = _make_candidate(None, rest, slot, intent, w, [])
                 if not cand.feasible:
                     continue
@@ -563,6 +711,7 @@ def _perturb(
     pois: list[Poi],
     rests: list[Restaurant],
     rng: random.Random,
+    dining_slots: tuple[str, ...] = DINING_SLOTS,
 ) -> CandidatePlan:
     """随机扰动当前解（edge_v1：邻域操作针对 nodes，不再针对 stages）。
 
@@ -609,7 +758,7 @@ def _perturb(
             current.restaurant, rests, rng, target_kind="restaurant"
         )
     elif op == "shift_node":
-        new.dining_time = _shift_node(current.dining_time, rng)
+        new.dining_time = _shift_node(current.dining_time, rng, dining_slots)
     return new
 
 
@@ -650,8 +799,9 @@ def _swap_node(
 def _shift_node(
     current_time: str,
     rng: random.Random,
+    dining_slots: tuple[str, ...] = DINING_SLOTS,
 ) -> str:
-    """ILS 邻域算子：把用餐节点的开始时刻推到 DINING_SLOTS 中另一时段。
+    """ILS 邻域算子：把用餐节点的开始时刻推到 dining_slots 中另一时段。
 
     旧版 `_shift_time` 重命名 + 语义对齐 edge_v1：
     - 旧：操作 stage 索引上的 start/end 时刻
@@ -662,11 +812,13 @@ def _shift_node(
     Args:
         current_time: 当前用餐时段（"17:30" 之类）
         rng: 随机数发生器
+        dining_slots: 候选时段池（spec R5 起按 _resolve_dynamic_dining_slots 推；
+                      缺省时退化为 module 级 DINING_SLOTS）
 
     Returns:
         新的时段；候选池为空时返当前
     """
-    pool = [s for s in DINING_SLOTS if s != current_time]
+    pool = [s for s in dining_slots if s != current_time]
     if not pool:
         return current_time
     return rng.choice(pool)
@@ -684,6 +836,7 @@ def _local_search(
     rests: list[Restaurant],
     intent: IntentExtraction,
     w: PlanningWeights,
+    dining_slots: tuple[str, ...] = DINING_SLOTS,
 ) -> CandidatePlan:
     """在 seed 邻域内贪心改进：枚举每个可用维度的所有候选，选 utility 最高的。"""
     best = _make_candidate(
@@ -707,7 +860,7 @@ def _local_search(
                 best = cand
     # 枚举时段维度（如果有餐厅）
     if seed.dining_time:
-        for slot in DINING_SLOTS:
+        for slot in dining_slots:
             cand = _make_candidate(
                 best.main_poi, best.restaurant, slot, intent, w, pois
             )
@@ -720,6 +873,89 @@ def _local_search(
 # Critic 失败后的重排（C 段反馈）
 # ============================================================
 
+# spec planning-quality-deep-review R5：critic 名 → 黑名单类型映射
+# 当前 critics.py 的 4 个 critic：hard_constraint / time_window / budget / style；
+# 新增 dietary / social_context 关键词路由，让黑名单覆盖 ≥ 4 类违规：
+# - time_window：餐厅 + 时段对禁用
+# - hard_constraint：距离/时长越界 → 剔除越界 POI/餐厅
+# - dietary（关键词或 critic name）：当前 message 包含「饮食/不辣/过敏」类违规 → 剔除餐厅
+# - social_context（critic="style" 或关键词）：调性不匹配 → 剔除 POI/餐厅
+_DIETARY_KEYWORDS = ("饮食", "辣", "过敏", "素食", "低脂", "kids-meal", "包间")
+_SOCIAL_KEYWORDS = ("调性", "social_context", "suitable_for", "氛围", "场景")
+
+
+def _classify_violation(v) -> set[str]:
+    """把 CriticViolation 归类为 {time_window, hard_constraint, dietary, social_context} 子集。
+
+    一条违规可能同时命中多个类（如 critic="style" 的餐厅 dietary 不匹配 + 调性不匹配）。
+    """
+    classes: set[str] = set()
+    name = getattr(v, "critic", "") or ""
+    msg = getattr(v, "message", "") or ""
+
+    if name == "time_window":
+        classes.add("time_window")
+    if name == "hard_constraint":
+        classes.add("hard_constraint")
+    if name == "dietary" or any(k in msg for k in _DIETARY_KEYWORDS):
+        classes.add("dietary")
+    if name in ("style", "social_context") or any(
+        k in msg for k in _SOCIAL_KEYWORDS
+    ):
+        classes.add("social_context")
+    return classes
+
+
+def _compute_blacklists(
+    failed: CandidatePlan,
+    intent: IntentExtraction,
+    report: CriticReport,
+) -> tuple[set[str], set[str], set[tuple[str, str]]]:
+    """根据 critic 报告产出 (POI 黑名单 / 餐厅黑名单 / 餐厅×时段 黑名单)。
+
+    spec planning-quality-deep-review R5：覆盖 4 类违规：
+    - time_window → 把 (失败餐厅, 失败时段) 加入 rest_time 黑名单
+    - hard_constraint → 距离越界则剔除对应实体
+    - dietary → 失败餐厅入餐厅黑名单（让重排去找 dietary 兼容餐厅）
+    - social_context → 失败 POI / 餐厅都入对应黑名单
+    """
+    blacklist_rest_time: set[tuple[str, str]] = set()
+    blacklist_rest: set[str] = set()
+    blacklist_poi: set[str] = set()
+
+    for v in report.hard_violations():
+        classes = _classify_violation(v)
+
+        if "time_window" in classes and failed.restaurant is not None:
+            blacklist_rest_time.add(
+                (failed.restaurant.id, failed.dining_time)
+            )
+
+        if "hard_constraint" in classes and "总耗时" in (v.message or ""):
+            # 时长超限：尝试换更近的 POI/餐厅
+            if (
+                failed.main_poi is not None
+                and failed.main_poi.distance_km > intent.distance_max_km - 1
+            ):
+                blacklist_poi.add(failed.main_poi.id)
+            if (
+                failed.restaurant is not None
+                and failed.restaurant.distance_km > intent.distance_max_km - 1
+            ):
+                blacklist_rest.add(failed.restaurant.id)
+
+        if "dietary" in classes and failed.restaurant is not None:
+            blacklist_rest.add(failed.restaurant.id)
+
+        if "social_context" in classes:
+            if failed.main_poi is not None:
+                blacklist_poi.add(failed.main_poi.id)
+            if failed.restaurant is not None:
+                blacklist_rest.add(failed.restaurant.id)
+
+    return blacklist_poi, blacklist_rest, blacklist_rest_time
+
+
 def _retry_with_critic_feedback(
     failed: CandidatePlan,
     pois: list[Poi],
@@ -729,27 +965,16 @@ def _retry_with_critic_feedback(
     report: CriticReport,
     rule_assembler,
     tracer: Tracer,
+    dining_slots: tuple[str, ...] = DINING_SLOTS,
 ) -> Optional[Itinerary]:
     """根据硬违规反馈在候选池中找替代。
 
-    策略：
-    - time_window 违规 → 把出错的 (餐厅 id, 时段) 从候选剔除，重新跑 _greedy_init
-    - hard_constraint 违规（段缺失 / 总时长越界）→ 由 rule_assembler 自动重组装
-                       （本函数仅换 POI/餐厅，再交还给 rule_assembler 试一次）
+    spec planning-quality-deep-review R5：黑名单覆盖 ≥ 4 类违规——
+    time_window / hard_constraint / dietary / social_context（见 _compute_blacklists）。
     """
-    blacklist_rest_time: set[tuple[str, str]] = set()
-    blacklist_rest: set[str] = set()
-    blacklist_poi: set[str] = set()
-    for v in report.hard_violations():
-        if v.critic == "time_window":
-            # field_hint 形如 "stages.用餐.start=17:00"
-            blacklist_rest_time.add((failed.restaurant.id, failed.dining_time))
-        elif v.critic == "hard_constraint" and "总耗时" in v.message:
-            # 时长超限：尝试换更近的 POI/餐厅
-            if failed.main_poi.distance_km > intent.distance_max_km - 1:
-                blacklist_poi.add(failed.main_poi.id)
-            if failed.restaurant.distance_km > intent.distance_max_km - 1:
-                blacklist_rest.add(failed.restaurant.id)
+    blacklist_poi, blacklist_rest, blacklist_rest_time = _compute_blacklists(
+        failed, intent, report
+    )
 
     pois_filtered = [p for p in pois if p.id not in blacklist_poi]
     rests_filtered = [r for r in rests if r.id not in blacklist_rest]
@@ -757,7 +982,7 @@ def _retry_with_critic_feedback(
     best: Optional[CandidatePlan] = None
     for poi in pois_filtered:
         for rest in rests_filtered:
-            for slot in DINING_SLOTS:
+            for slot in dining_slots:
                 if (rest.id, slot) in blacklist_rest_time:
                     continue
                 cand = _make_candidate(poi, rest, slot, intent, w, pois_filtered)
