@@ -12,6 +12,14 @@
  *   - 默认折叠（不打扰主时间轴）
  *   - 数据为空时整个卡片不渲染
  *   - 颜色与 ItineraryCard 主题保持一致（黄昏深色 + brand-orange）
+ *
+ * edge_v1（节点+边模型）兼容说明：
+ *   - critic_attempts.violation_codes 已从 stages_incomplete 演进为 nodes_incomplete /
+ *     invariant_broken / hop_infeasible 等，但本组件只把 code 当作小标签字面渲染，不解析
+ *   - 后端 violations 的 field_path 已从 stages[i] 改为 nodes[i] / hops[j]，
+ *     但 field_path 在前端从未渲染（仅 codes + feedback_summary 给评委看），故无需改组件
+ *   - fallback_chain.from_stage / to_stage 是 fallback 链路名（llm_first → llm_backprompt → ils），
+ *     不是 itinerary.stages，与本次重构正交
  */
 
 import { useState } from "react";

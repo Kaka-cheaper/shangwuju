@@ -86,7 +86,7 @@ def _build_alternatives(blueprint, pois, restaurants):
 
     selected_target_ids: set[str] = set()
     if blueprint is not None:
-        for s in blueprint.stages:
+        for s in blueprint.nodes:
             if s.target_id:
                 selected_target_ids.add(s.target_id)
 

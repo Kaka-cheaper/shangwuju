@@ -5,7 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
-import type { IntentExtraction } from "@/lib/types";
+import type {
+  HopMode,
+  IntentExtraction,
+  Itinerary,
+  ScheduleEntry,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 import NumberTicker from "./NumberTicker";
@@ -56,13 +61,39 @@ export default function ItineraryCard() {
   }, [itinerary]);
 
   // ============================================================
-  // 时间轴 stagger 动画（R1）：stages 逐段"长出来"
+  // 时间轴 stagger 动画（R1）：schedule 逐条"长出来"
   //   - itinerary 从 null → 非 null：从 0 开始递增显示
-  //   - stages.length >= 3：间隔 400ms；<= 2：间隔 200ms
+  //   - visibleEntries.length >= 3：间隔 400ms；<= 2：间隔 200ms
   //   - 用户可点「跳过动画」立即显示全部
   //   - animating 期间禁用确认/反馈/取消按钮（防止半成品交互）
   //   - streaming 变 false 时强制兜底（防止 abort 卡住）
+  //
+  //   schedule 派生视图（edge_v1）已是 nodes+hops 排序展平结果，hidden=true
+  //   的条目（in_place hop / virtual hop）由 visibleEntries 在源头过滤，
+  //   下游所有 stagger 控制都基于 visibleEntries.length。
+  //   兜底：schedule 为空（旧后端 / 异常）时按 nodes 派生（跳过 home）。
   // ============================================================
+  const visibleEntries: ScheduleEntry[] = (() => {
+    if (!itinerary) return [];
+    const sched = itinerary.schedule || [];
+    if (sched.length > 0) {
+      return sched.filter((e) => !e.hidden);
+    }
+    // 降级：从 nodes 拼一个最小 schedule（跳过 home）
+    return (itinerary.nodes || [])
+      .filter((n) => n.target_kind !== "home")
+      .map<ScheduleEntry>((n) => ({
+        entry_kind: "node",
+        ref_id: n.node_id,
+        start: n.start_time,
+        end: addMinutes(n.start_time, n.duration_min),
+        title: n.title,
+        minutes: n.duration_min,
+        mode: null,
+        hidden: false,
+      }));
+  })();
+
   const [visibleCount, setVisibleCount] = useState(0);
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,8 +104,8 @@ export default function ItineraryCard() {
       setAnimating(false);
       return;
     }
-    const stages = itinerary.stages;
-    if (stages.length === 0) {
+    const total = visibleEntries.length;
+    if (total === 0) {
       setVisibleCount(0);
       setAnimating(false);
       return;
@@ -83,13 +114,13 @@ export default function ItineraryCard() {
     // 重启动画：从 0 开始
     setAnimating(true);
     setVisibleCount(0);
-    const delay = stages.length <= 2 ? 200 : 400;
+    const delay = total <= 2 ? 200 : 400;
     let idx = 0;
 
     const tick = () => {
       idx += 1;
       setVisibleCount(idx);
-      if (idx >= stages.length) {
+      if (idx >= total) {
         setAnimating(false);
         animTimerRef.current = null;
       } else {
@@ -104,6 +135,7 @@ export default function ItineraryCard() {
         animTimerRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itinerary]);
 
   // 跳过动画：清 timer + 立即全显
@@ -112,7 +144,7 @@ export default function ItineraryCard() {
       clearTimeout(animTimerRef.current);
       animTimerRef.current = null;
     }
-    if (itinerary) setVisibleCount(itinerary.stages.length);
+    setVisibleCount(visibleEntries.length);
     setAnimating(false);
   };
 
@@ -123,13 +155,14 @@ export default function ItineraryCard() {
       // 如果是 abort，强制兜底
       const timer = setTimeout(() => {
         if (!animTimerRef.current && itinerary) {
-          setVisibleCount(itinerary.stages.length);
+          setVisibleCount(visibleEntries.length);
           setAnimating(false);
         }
       }, 100);
       return () => clearTimeout(timer);
     }
     return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streaming, animating, itinerary]);
 
   if (!itinerary && !streaming) {
@@ -238,16 +271,41 @@ export default function ItineraryCard() {
               "linear-gradient(180deg, rgba(251,146,60,0.6) 0%, rgba(236,72,153,0.4) 50%, rgba(139,92,246,0.2) 100%)",
           }}
         />
-        {itinerary.stages.map((stage, idx) => {
-          // R1: stagger 控制——idx 超出 visibleCount 时不渲染（保留时间轴竖线高度感由间隔自然成）
+        {visibleEntries.map((entry, idx) => {
+          // R1: stagger 控制——idx 超出 visibleCount 时不渲染
           if (idx >= visibleCount) return null;
+
+          // hop 行（细长条）：mode!=="virtual" 才渲染（virtual=in_place 已在
+          // visibleEntries 过滤阶段被 hidden=true 屏蔽，此处再保险一道）
+          if (entry.entry_kind === "hop") {
+            if (!entry.mode || entry.mode === "virtual") return null;
+            return (
+              <li
+                key={entry.ref_id || `hop-${idx}`}
+                className="relative flex items-center gap-3 animate-fade-in-up"
+              >
+                <div className="min-w-[44px]" aria-hidden />
+                <div
+                  className={cn(
+                    "flex-1 ml-2 px-3 py-1 border-l-2 border-white/[0.06]",
+                    "text-[11px] text-ink-500 tracking-tight leading-tight",
+                  )}
+                  title={`${entry.start} → ${entry.end}`}
+                >
+                  通勤 {entry.minutes} 分钟（{translateHopMode(entry.mode)}）
+                </div>
+              </li>
+            );
+          }
+
+          // node 行（与原 stage 渲染等价）
           return (
             <li
-              key={idx}
+              key={entry.ref_id || `node-${idx}`}
               className="relative flex items-start gap-3 animate-fade-in-up"
             >
               <div className="flex flex-col items-center min-w-[44px] z-10">
-                <div className="text-[10px] text-ink-500 mono">{stage.start}</div>
+                <div className="text-[10px] text-ink-500 mono">{entry.start}</div>
                 {/* 暖橙→莓粉时间点 */}
                 <div
                   className="my-1 w-2 h-2 rounded-full ring-[3px] ring-[#08080d]"
@@ -258,20 +316,23 @@ export default function ItineraryCard() {
                       "0 0 0 1px rgba(255,255,255,0.16), 0 0 8px rgba(249,115,22,0.6)",
                   }}
                 />
-                <div className="text-[10px] text-ink-500 mono">{stage.end}</div>
+                <div className="text-[10px] text-ink-500 mono">{entry.end}</div>
               </div>
               <div className="flex-1 pt-0.5">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="chip">{stage.kind}</span>
+                  <span className="chip">{nodeKindLabel(itinerary, entry.ref_id)}</span>
                   <span className="text-sm font-medium text-ink-900 tracking-tight">
-                    {stage.title}
+                    {entry.title}
                   </span>
                 </div>
-                {stage.note && (
-                  <div className="mt-1 text-xs text-ink-600 leading-relaxed">
-                    {stage.note}
-                  </div>
-                )}
+                {(() => {
+                  const note = nodeNote(itinerary, entry.ref_id);
+                  return note ? (
+                    <div className="mt-1 text-xs text-ink-600 leading-relaxed">
+                      {note}
+                    </div>
+                  ) : null;
+                })()}
               </div>
             </li>
           );
@@ -700,4 +761,52 @@ function IntentChips({ intent }: { intent: IntentExtraction }) {
       </div>
     </div>
   );
+}
+
+// ============================================================
+// edge_v1 schedule 渲染辅助函数
+// ============================================================
+
+/** "HH:MM" + minutes → "HH:MM"（只用于 schedule 为空、用 nodes 兜底时拼 end）。 */
+function addMinutes(start: string, minutes: number): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(start);
+  if (!m) return start;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (Number.isNaN(h) || Number.isNaN(mm)) return start;
+  const total = h * 60 + mm + (minutes || 0);
+  const wrap = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  const oh = Math.floor(wrap / 60);
+  const om = wrap % 60;
+  return `${String(oh).padStart(2, "0")}:${String(om).padStart(2, "0")}`;
+}
+
+/** Hop mode 中文化展示。 */
+function translateHopMode(mode: HopMode): string {
+  switch (mode) {
+    case "walking":
+      return "步行";
+    case "taxi":
+      return "打车";
+    case "bus":
+      return "公交";
+    case "haversine_estimated":
+      return "估算";
+    case "virtual":
+      return "原地";
+    default:
+      return mode;
+  }
+}
+
+/** node ref_id → ActivityNode.kind（用于 schedule 行展示左侧 chip）。 */
+function nodeKindLabel(itinerary: Itinerary, ref_id: string): string {
+  const n = itinerary.nodes?.find((x) => x.node_id === ref_id);
+  return n?.kind ?? "活动";
+}
+
+/** node ref_id → ActivityNode.note（schedule 没存 note，从 nodes 反查）。 */
+function nodeNote(itinerary: Itinerary, ref_id: string): string | null {
+  const n = itinerary.nodes?.find((x) => x.node_id === ref_id);
+  return n?.note ?? null;
 }

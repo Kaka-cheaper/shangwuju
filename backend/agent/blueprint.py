@@ -1,28 +1,40 @@
-"""agent.blueprint —— LLM-First Planner 的"行程蓝图"数据结构 + 蓝图级 Critic。
+"""agent.blueprint —— LLM-First Planner 的"行程蓝图"数据结构 + 蓝图级 Critic（edge_v1）。
 
 【为什么需要蓝图】（参考 problem.md 问题 14 / pitfalls.md P1-2026-05-17）
 
-历史包袱：rule planner 把"5 段写死 + 14:00 起 + POI→餐厅顺序"当默认，导致：
-- 24 小时营业餐厅、夜宵、早茶等场景被强行套到下午局模板
-- 用户说"只想吃饭不去玩"被强加主活动
-- 每次出新反例都要在 plan_itinerary 里加 if，违反 LLM-Modulo
-  (Kambhampati NeurIPS 2024) "LLM 决主观、算法决客观" 的原则
+历史包袱：rule planner 把"5 段写死 + 14:00 起 + POI→餐厅顺序"当默认，
+导致 24h 营业餐厅、夜宵、早茶、单段方案被强行套到下午局模板，违反
+LLM-Modulo（Kambhampati NeurIPS 2024）"LLM 决主观、算法决客观"原则。
 
-修复方向：把"段集合 / 段顺序 / 每段时长 / 目标 id"全交给 LLM 决策，算法只做：
-1. 蓝图级 Critic 验证（时序、营业时间、时长边界）
-2. 把 Blueprint 拼成 Itinerary 时间轴
+【edge_v1 的本质转变】
 
-蓝图字段是**意图最小可执行表达**：
-- kind: 自由中文文本（早茶 / 晨练 / 夜宵 / 单独购物 / city walk 任意）
-- target_kind: poi/restaurant/none（"出发"和"返回"通常 none）
-- target_id: 关联到 mock_data 的具体 id；none 段为空
-- start_time + duration_min: HH:MM + 分钟数
-- note: 给前端的提示文案
+旧 BlueprintStage（已删）：`kind / start_time / duration_min / target_kind / target_id`
+- LLM 既要选目标，又要算时刻、又要算通勤——典型职责漂移
+- target_kind="none" 用来表达"出发 / 转场 / 返回"过程段，与 hop 概念重叠
+
+新 BlueprintNode：`kind / target_kind / target_id / duration_min / note`
+- LLM 只决定 **「在哪里、做什么、停留多久」**（mid nodes）
+- 系统（assemble_from_blueprint）自动补 home 首尾节点 + 自动按 routes.json 算 hop 通勤
+- target_kind 只允许 poi / restaurant，**没有 NONE 过程段**——通勤是 hop 不是 node
+
+【蓝图级 Critic 的职责（也变小了）】
+
+旧 critic 验「段时序 + 段时长 + 段间通勤」——通勤校验现已下沉到
+`agent/v2/critics_v2._check_hop_feasibility`（在拿到 Itinerary 后验 hop 实际可达）。
+
+新 blueprint critic 只验：
+1. _temporal_critic：nodes 顺序累加后时间区间不重叠（结构合法性兜底）
+2. _duration_critic：每个 node.duration_min 在合理区间（≥ MIN，≤ MAX）
+3. _opening_hours_critic：按 preferred_start_time + 累积 duration 推算每个 node 的
+   开始时刻，粗略校验目标 POI/餐厅营业时间覆盖
+
+注意：blueprint critic **不验通勤可达性**——LLM 不输出通勤时间，谈何"通勤够不够"。
+hop 时间够不够由后续 critics_v2 在 Itinerary 拼装完毕后验。
 
 不负责：
-- LLM 调用与 prompt（在 agent/planner_llm_first.py）
-- 蓝图→Itinerary 拼装（在 planner.assemble_from_blueprint）
-- Tool 实现 / Mock 数据加载
+- LLM 调用与 prompt（在 agent/blueprint_llm.py / agent/prompts/blueprint_prompt.py）
+- 蓝图→Itinerary 拼装（在 agent/assemble_blueprint.py）
+- Itinerary 级别校验（在 agent/v2/critics_v2.py）
 """
 
 from __future__ import annotations
@@ -30,146 +42,326 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, field_validator
 
 from data.loader import load_pois, load_restaurants
 from schemas.intent import IntentExtraction
 
 
 # ============================================================
-# 字段类型
+# 单段时长合理区间（仅作硬下/上限兜底；细分场景由 Itinerary 级 critic 把关）
 # ============================================================
 
-class BlueprintTargetKind(str, Enum):
-    """段的目标实体类型。"""
+MIN_NODE_DURATION_MIN: int = 10
+"""单个节点的最短停留时长（分钟）。低于此视为 LLM 误填。"""
 
-    POI = "poi"
-    RESTAURANT = "restaurant"
-    NONE = "none"  # "出发" / "返回" / 自由活动等
+MAX_NODE_DURATION_MIN: int = 300
+"""单个节点的最长停留时长（分钟，5 小时）。超过此视为 LLM 误填。"""
 
+
+# ============================================================
+# 时间工具（HH:MM ↔ 分钟）
+# ============================================================
 
 _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 
 def _parse_time_to_minutes(t: str) -> int:
+    """把 "HH:MM" 解析为分钟数（00:00 → 0，14:30 → 870）。"""
     if not _TIME_RE.match(t):
-        raise ValueError(f"start_time 必须是 HH:MM 格式，实际 {t!r}")
+        raise ValueError(f"时间字符串必须是 HH:MM 格式，实际 {t!r}")
     h, m = t.split(":")
     return int(h) * 60 + int(m)
 
 
 def _minutes_to_time(total: int) -> str:
-    """允许跨日（24+）但截到合理范围。"""
-    total = max(0, min(total, 24 * 60 - 1))
+    """把分钟数转回 "HH:MM"；超 24h 按 mod 24 截断。"""
+    total = max(0, total) % (24 * 60)
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
 # ============================================================
-# BlueprintStage
+# 节点目标类型（删除了 NONE）
 # ============================================================
 
-@dataclass
-class BlueprintStage:
-    """蓝图中的一段。
 
-    LLM 直接产出此结构；下游 assemble_from_blueprint 按 stages 顺序拼时间轴。
+class BlueprintTargetKind(str, Enum):
+    """蓝图节点的目标实体类型。
 
-    Args:
-        kind: 段类型（自由中文）；"出发"/"主活动"/"用餐"/"转场"/"返回" 是惯用值，
-              但允许任意如"夜宵"/"晨练"/"早茶"/"逛街"。
-        start_time: HH:MM 格式
-        duration_min: 段时长（分钟），≥ 0
-        target_kind: poi / restaurant / none
-        target_id: 关联实体 id（none 时应为 None）
-        note: 给前端的提示文案
+    edge_v1 移除了 NONE：通勤过程在新模型里是 hop（边），不是 node（节点）。
+    LLM 蓝图里只输出"具体目标"——POI 或餐厅。
     """
 
-    kind: str
-    start_time: str
-    duration_min: int
-    target_kind: BlueprintTargetKind = BlueprintTargetKind.NONE
-    target_id: str | None = None
-    note: str | None = None
+    POI = "poi"
+    RESTAURANT = "restaurant"
 
-    def __post_init__(self) -> None:
-        if not self.kind or not self.kind.strip():
-            raise ValueError("kind 不能为空")
-        # 校验 start_time 格式
-        _parse_time_to_minutes(self.start_time)
-        if self.duration_min < 0:
-            raise ValueError(f"duration_min 必须 ≥ 0，实际 {self.duration_min}")
-        if self.target_kind != BlueprintTargetKind.NONE and not self.target_id:
+
+# ============================================================
+# BlueprintNode（LLM 输出契约）
+# ============================================================
+
+
+class BlueprintNode(BaseModel):
+    """LLM 输出的中间节点契约。
+
+    LLM 只决定 `target_id + duration_min + kind`，**不决定时间、不决定通勤**。
+    首尾的 home 节点由 assemble_from_blueprint 自动补；
+    节点间的 hop（通勤）由 lookup_hop 自动算。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(
+        ...,
+        min_length=1,
+        description='节点性质中文标签：主活动 / 用餐 / 夜宵 / 自由 / 早茶 / 晨练 等自由文本',
+    )
+    target_kind: BlueprintTargetKind = Field(
+        ..., description="节点目标类型：poi / restaurant（不允许 home / 过程段）"
+    )
+    target_id: str = Field(
+        ..., min_length=1, description="对应 mock_data.pois.id / mock_data.restaurants.id"
+    )
+    duration_min: NonNegativeInt = Field(
+        ..., description="在该节点的停留时长（分钟，不含通勤）；建议 ≥10 ≤300"
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description='给前端的补充提示文案，如"已预约 17:00 三人位"',
+    )
+
+
+# ============================================================
+# PlanBlueprint（LLM 输出的完整蓝图）
+# ============================================================
+
+
+class PlanBlueprint(BaseModel):
+    """LLM 输出的完整行程蓝图（mid nodes 列表）。
+
+    **不**含首尾 home（assemble 自动加），**不**含 hops（assemble 自动算）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    nodes: list[BlueprintNode] = Field(
+        ...,
+        min_length=1,
+        description="按时间顺序排列的中间节点（mid nodes，不含 home 首尾）",
+    )
+    preferred_start_time: str = Field(
+        default="14:00",
+        description='蓝图整体偏好的开始时刻 HH:MM（assemble 算时间从此刻起）',
+    )
+    rationale: str = Field(
+        default="", description="LLM 对方案的简短中文 rationale（用于 DecisionTrace）"
+    )
+
+    @field_validator("preferred_start_time")
+    @classmethod
+    def _check_start_time_format(cls, v: str) -> str:
+        if not _TIME_RE.match(v):
             raise ValueError(
-                f"target_kind={self.target_kind.value} 时 target_id 不能为空"
+                f"preferred_start_time 必须是 HH:MM 格式，实际 {v!r}"
             )
-        if self.target_kind == BlueprintTargetKind.NONE and self.target_id:
-            # 容忍：自动清掉
-            object.__setattr__(self, "target_id", None)
+        return v
 
-    def end_time(self) -> str:
-        """段结束时间（HH:MM）。"""
-        return _minutes_to_time(
-            _parse_time_to_minutes(self.start_time) + self.duration_min
+
+# ============================================================
+# 推导：根据 preferred_start_time + 累积 duration 算每个 node 的 [start, end]
+# ============================================================
+
+
+def _derive_node_windows(blueprint: PlanBlueprint) -> list[tuple[int, int]]:
+    """按 preferred_start_time 起，把 nodes 的 duration_min 累加为 [start, end] 区间（分钟）。
+
+    新蓝图不含 hop，本函数**不**给 hop 留时间——只用于粗略校验「营业时间覆盖」
+    与「时序结构合法」。真实带 hop 的时间轴由 assemble_from_blueprint 计算。
+
+    Returns:
+        list of (start_min, end_min)，长度与 blueprint.nodes 相同。
+    """
+    cursor = _parse_time_to_minutes(blueprint.preferred_start_time)
+    out: list[tuple[int, int]] = []
+    for node in blueprint.nodes:
+        start = cursor
+        end = cursor + node.duration_min
+        out.append((start, end))
+        cursor = end
+    return out
+
+
+# ============================================================
+# Critic 函数（任务 R2：返回 list[str] 的违规描述）
+# ============================================================
+
+
+def _temporal_critic(blueprint: PlanBlueprint) -> list[str]:
+    """C1：nodes 时间区间不重叠 + 单调递增 + 不跨越 24:00 边界。
+
+    新蓝图按 preferred_start_time + 累加 duration 推算每个 node 的 [start, end]，
+    数学上**只要 duration_min ≥ 0 即不可能重叠**。本 critic 主要兜底以下异常：
+
+    - 末尾时间溢出 24:00（导致跨日，前端时间轴渲染会异常）
+    - 万一上游构造蓝图时强塞了非顺序数据（防御性）
+
+    Returns:
+        list[str]：每条违规一段中文描述；合法时返空 list。
+    """
+    out: list[str] = []
+    if not blueprint.nodes:
+        return out
+
+    windows = _derive_node_windows(blueprint)
+
+    # 检查 1：相邻 node 区间不重叠（[start, end) 严格单调）
+    for i in range(1, len(windows)):
+        prev_end = windows[i - 1][1]
+        cur_start = windows[i][0]
+        if cur_start < prev_end:
+            prev_kind = blueprint.nodes[i - 1].kind
+            cur_kind = blueprint.nodes[i].kind
+            out.append(
+                f"节点「{prev_kind}」与「{cur_kind}」时序重叠："
+                f"前者结束于 {_minutes_to_time(prev_end)}，"
+                f"后者开始于 {_minutes_to_time(cur_start)}"
+            )
+
+    # 检查 2：末尾不超过 24:00（粗略，跨日场景由前端 v2 处理；hackathon 范围拒绝）
+    last_end = windows[-1][1]
+    if last_end > 24 * 60:
+        out.append(
+            f"蓝图末尾时间 {_minutes_to_time(last_end)} 跨越 24:00，"
+            f"暂不支持跨日蓝图（preferred_start_time={blueprint.preferred_start_time}，"
+            f"累计 duration={sum(n.duration_min for n in blueprint.nodes)} 分钟）"
         )
 
-    def start_minutes(self) -> int:
-        return _parse_time_to_minutes(self.start_time)
-
-    def end_minutes(self) -> int:
-        return self.start_minutes() + self.duration_min
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "start_time": self.start_time,
-            "end_time": self.end_time(),
-            "duration_min": self.duration_min,
-            "target_kind": self.target_kind.value,
-            "target_id": self.target_id,
-            "note": self.note,
-        }
+    return out
 
 
-# ============================================================
-# PlanBlueprint
-# ============================================================
+def _duration_critic(blueprint: PlanBlueprint) -> list[str]:
+    """C2：每个 node 的停留时长在合理区间（[MIN_NODE_DURATION_MIN, MAX_NODE_DURATION_MIN]）。
 
-@dataclass
-class PlanBlueprint:
-    """LLM 的完整行程蓝图。"""
-
-    stages: list[BlueprintStage]
-    rationale: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.stages:
-            raise ValueError("PlanBlueprint.stages 不能为空")
-
-    def total_minutes(self) -> int:
-        if not self.stages:
-            return 0
-        first = self.stages[0].start_minutes()
-        last_end = max(s.end_minutes() for s in self.stages)
-        return last_end - first
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "stages": [s.to_dict() for s in self.stages],
-            "rationale": self.rationale,
-            "total_minutes": self.total_minutes(),
-        }
+    旧版还会拿 IntentExtraction.duration_hours 校验"总时长不超用户上限"——
+    这一职责已下沉到 Itinerary 级别（critics_v2._check_duration），blueprint critic
+    在还没拼出 hop 的阶段去算总时长会偏小，不准。这里只做**单段合理性**兜底。
+    """
+    out: list[str] = []
+    for i, node in enumerate(blueprint.nodes):
+        if node.duration_min < MIN_NODE_DURATION_MIN:
+            out.append(
+                f"节点「{node.kind}」（target={node.target_id}）停留时长 "
+                f"{node.duration_min} 分钟过短（< {MIN_NODE_DURATION_MIN}min 下限）"
+                f"——LLM 可能把通勤时间误填给了 node"
+            )
+        elif node.duration_min > MAX_NODE_DURATION_MIN:
+            out.append(
+                f"节点「{node.kind}」（target={node.target_id}）停留时长 "
+                f"{node.duration_min} 分钟过长（> {MAX_NODE_DURATION_MIN}min 上限）"
+                f"——单段 5h 以上请考虑拆成多个节点"
+            )
+        # 兼容防御：duration_min == 0（NonNegativeInt 允许，但 mid node 不应为 0）
+        if node.duration_min == 0:
+            out.append(
+                f"节点[{i}]「{node.kind}」duration_min=0；"
+                f"中间节点不应为零停留（home 节点才是 0，由 assemble 自动加）"
+            )
+    return out
 
 
 # ============================================================
-# Critic
+# 营业时间解析（与旧版语义一致，迁移过来）
 # ============================================================
+
+
+_BUSINESS_HOURS_RE = re.compile(
+    r"^([01]\d|2[0-3]):([0-5]\d)\s*[-–]\s*([01]\d|2[0-3]):([0-5]\d)$"
+)
+
+
+def _is_in_business_hours(
+    start_min: int, end_min: int, opening_hours: str
+) -> bool:
+    """判断 [start_min, end_min]（分钟）是否完全落在 opening_hours 内。
+
+    支持 "10:30-21:30" / "00:00-23:59" / "08:00 - 22:00" 等格式。
+    跨日营业（如 "22:00-04:00"）暂按全天通过——hackathon 范围简化处理。
+    """
+    if not opening_hours:
+        return True  # 无营业时间约束默认通过
+    m = _BUSINESS_HOURS_RE.match(opening_hours.strip())
+    if not m:
+        return True  # 不识别格式时不报错（让其它 critic 兜）
+    open_h, open_m, close_h, close_m = map(int, m.groups())
+    open_t = open_h * 60 + open_m
+    close_t = close_h * 60 + close_m
+    if close_t <= open_t:
+        return True  # 跨日营业，简化通过
+    return open_t <= start_min and end_min <= close_t
+
+
+def _opening_hours_critic(blueprint: PlanBlueprint) -> list[str]:
+    """C3：每个 node 的目标 POI/餐厅在该 node 的推算开始时刻仍在营业。
+
+    由于 LLM 不输出 start_time，本 critic 用 preferred_start_time + 累加 duration
+    粗略推算每个 node 的开始时刻，再去查营业时间。
+
+    注意：本估算**不包含 hop 通勤时间**，所以推算出的开始时刻会比实际偏早。
+    这只是 blueprint 级粗筛——精确营业时间检查在 assemble 完成后由
+    critics_v2 完成（届时已知 hop 真实分钟数）。
+    """
+    out: list[str] = []
+
+    pois_by_id = {p.id: p for p in load_pois()}
+    rests_by_id = {r.id: r for r in load_restaurants()}
+
+    windows = _derive_node_windows(blueprint)
+
+    for node, (start_min, end_min) in zip(blueprint.nodes, windows):
+        if node.target_kind == BlueprintTargetKind.POI:
+            target = pois_by_id.get(node.target_id)
+            entity_label = "POI"
+        else:  # RESTAURANT
+            target = rests_by_id.get(node.target_id)
+            entity_label = "餐厅"
+
+        if target is None:
+            out.append(
+                f"未找到 {entity_label} id={node.target_id}（节点「{node.kind}」）"
+            )
+            continue
+
+        if not _is_in_business_hours(start_min, end_min, target.opening_hours):
+            out.append(
+                f"{entity_label}「{target.name}」营业时间 {target.opening_hours}，"
+                f"不覆盖节点「{node.kind}」推算时段 "
+                f"{_minutes_to_time(start_min)}-{_minutes_to_time(end_min)}"
+            )
+
+    return out
+
+
+# ============================================================
+# 兼容封装：旧 run_blueprint_critics / BlueprintReport / BlueprintViolation
+# ============================================================
+#
+# planner_llm_first.py（冻结路径）仍调用 run_blueprint_critics → BlueprintReport，
+# 这里保留入口但内部委托给上面三个 list[str] critic，把消息包装成 BlueprintViolation。
+# Task 6/9 同步前文件后会进一步清理。
+
 
 @dataclass
 class BlueprintViolation:
-    """蓝图违规条目。"""
+    """蓝图违规条目（兼容封装）。
 
-    critic: str           # blueprint_temporal / blueprint_duration / blueprint_opening_hours
-    severity: str         # hard / soft
+    edge_v1 只有"hard"严重度——blueprint critic 一旦命中即触发 LLM 重生成；
+    soft 违规的概念已下沉到 Itinerary 级 critic。
+    """
+
+    critic: str  # blueprint_temporal / blueprint_duration / blueprint_opening_hours
+    severity: str  # 当前一律 "hard"
     message: str
     field_hint: str = ""
 
@@ -184,7 +376,7 @@ class BlueprintViolation:
 
 @dataclass
 class BlueprintReport:
-    """蓝图 Critic 全跑完的聚合。"""
+    """蓝图 Critic 全跑完的聚合（兼容封装）。"""
 
     passed: bool
     violations: list[BlueprintViolation] = field(default_factory=list)
@@ -201,175 +393,47 @@ class BlueprintReport:
         }
 
 
-# ============================================================
-# Critic 实现
-# ============================================================
-
-def _temporal_critic(blueprint: PlanBlueprint) -> list[BlueprintViolation]:
-    """C1：段无重叠 + 时间单调递增。"""
-    out: list[BlueprintViolation] = []
-    if len(blueprint.stages) < 2:
-        return out
-    prev_end = blueprint.stages[0].end_minutes()
-    prev_kind = blueprint.stages[0].kind
-    for s in blueprint.stages[1:]:
-        cur_start = s.start_minutes()
-        if cur_start < prev_end:
-            out.append(
-                BlueprintViolation(
-                    critic="blueprint_temporal",
-                    severity="hard",
-                    message=(
-                        f"段「{prev_kind}」与「{s.kind}」时序重叠："
-                        f"前者 {prev_kind} 结束于 {_minutes_to_time(prev_end)}，"
-                        f"后者 {s.kind} 开始于 {s.start_time}"
-                    ),
-                    field_hint=f"stages.{s.kind}.start_time",
-                )
-            )
-        prev_end = s.end_minutes()
-        prev_kind = s.kind
-    return out
-
-
-def _duration_critic(
-    blueprint: PlanBlueprint, intent: IntentExtraction
-) -> list[BlueprintViolation]:
-    """C2：蓝图总时长不超过 intent.duration_hours[1] + 15min 容忍。
-
-    总时长 = 末段 end - 首段 start。
-    """
-    out: list[BlueprintViolation] = []
-    total = blueprint.total_minutes()
-    max_min = max(intent.duration_hours) * 60 + 15
-    min_min = min(intent.duration_hours) * 60 - 15
-    if total > max_min:
-        out.append(
-            BlueprintViolation(
-                critic="blueprint_duration",
-                severity="hard",
-                message=(
-                    f"蓝图总时长 {total} 分钟，超过用户上限 "
-                    f"{max(intent.duration_hours) * 60}+15 分钟容忍"
-                ),
-                field_hint="stages",
-            )
-        )
-    elif total < max(60, min_min):
-        # 软违规：太短
-        out.append(
-            BlueprintViolation(
-                critic="blueprint_duration",
-                severity="soft",
-                message=(
-                    f"蓝图总时长 {total} 分钟，低于用户期望下限 "
-                    f"{min(intent.duration_hours) * 60} 分钟"
-                ),
-                field_hint="stages",
-            )
-        )
-    return out
-
-
-def _opening_hours_critic(
-    blueprint: PlanBlueprint,
-) -> list[BlueprintViolation]:
-    """C3：每段 target 在营业时间内（poi/restaurant 都查 mock_data.opening_hours）。"""
-    out: list[BlueprintViolation] = []
-
-    pois_by_id = {p.id: p for p in load_pois()}
-    rests_by_id = {r.id: r for r in load_restaurants()}
-
-    for s in blueprint.stages:
-        if s.target_kind == BlueprintTargetKind.NONE or not s.target_id:
-            continue
-
-        if s.target_kind == BlueprintTargetKind.POI:
-            target = pois_by_id.get(s.target_id)
-            entity_label = "POI"
-        else:
-            target = rests_by_id.get(s.target_id)
-            entity_label = "餐厅"
-
-        if target is None:
-            out.append(
-                BlueprintViolation(
-                    critic="blueprint_opening_hours",
-                    severity="hard",
-                    message=f"未找到 {entity_label} id={s.target_id}",
-                    field_hint=f"stages.{s.kind}.target_id={s.target_id}",
-                )
-            )
-            continue
-
-        if not _is_in_business_hours(
-            s.start_time, s.end_time(), target.opening_hours
-        ):
-            out.append(
-                BlueprintViolation(
-                    critic="blueprint_opening_hours",
-                    severity="hard",
-                    message=(
-                        f"{entity_label}「{target.name}」营业时间 "
-                        f"{target.opening_hours}，不覆盖蓝图段 "
-                        f"{s.start_time}-{s.end_time()}"
-                    ),
-                    field_hint=f"stages.{s.kind}.target_id={target.id}",
-                )
-            )
-
-    return out
-
-
-_BUSINESS_HOURS_RE = re.compile(
-    r"^([01]\d|2[0-3]):([0-5]\d)\s*[-–]\s*([01]\d|2[0-3]):([0-5]\d)$"
-)
-
-
-def _is_in_business_hours(
-    start: str, end: str, opening_hours: str
-) -> bool:
-    """判断 [start, end] 是否完全落在 opening_hours 内。
-
-    支持 "10:30-21:30" / "00:00-23:59" / "08:00 - 22:00" 格式。
-    跨日营业（如 "22:00-04:00"）暂按全天通过——hackathon 范围不做精确处理。
-    """
-    if not opening_hours:
-        return True  # 无营业时间约束默认通过
-    m = _BUSINESS_HOURS_RE.match(opening_hours.strip())
-    if not m:
-        return True  # 不识别格式时不报错（让其它 critic 兜）
-    open_h, open_m, close_h, close_m = map(int, m.groups())
-    open_min = open_h * 60 + open_m
-    close_min = close_h * 60 + close_m
-    if close_min <= open_min:
-        return True  # 跨日营业，简化通过
-    s_min = _parse_time_to_minutes(start)
-    e_min = _parse_time_to_minutes(end)
-    return open_min <= s_min and e_min <= close_min
-
-
-# ============================================================
-# 主入口
-# ============================================================
-
 def run_blueprint_critics(
-    blueprint: PlanBlueprint, intent: IntentExtraction
+    blueprint: PlanBlueprint,
+    intent: IntentExtraction | None = None,
 ) -> BlueprintReport:
     """跑全部蓝图 Critic 返聚合 BlueprintReport。
 
-    硬违规 → passed=False（让上层 backprompt LLM 重生成）。
-    软违规 → 仅扣 soft_score。
+    Args:
+        blueprint: LLM 输出的蓝图。
+        intent: 兼容参数。edge_v1 三个 critic 内部不再使用 intent
+                （单段时长 / 营业时间 / 时序均与 intent 解耦）；
+                保留参数仅为不破坏 planner_llm_first.py 的旧调用签名。
+
+    Returns:
+        BlueprintReport：硬违规 → passed=False（让上层 backprompt LLM 重生成）。
     """
+    _ = intent  # 显式忽略，避免 linter 提醒；保留签名兼容性
+
     all_violations: list[BlueprintViolation] = []
-    all_violations.extend(_temporal_critic(blueprint))
-    all_violations.extend(_duration_critic(blueprint, intent))
-    all_violations.extend(_opening_hours_critic(blueprint))
+
+    for msg in _temporal_critic(blueprint):
+        all_violations.append(
+            BlueprintViolation(
+                critic="blueprint_temporal", severity="hard", message=msg
+            )
+        )
+    for msg in _duration_critic(blueprint):
+        all_violations.append(
+            BlueprintViolation(
+                critic="blueprint_duration", severity="hard", message=msg
+            )
+        )
+    for msg in _opening_hours_critic(blueprint):
+        all_violations.append(
+            BlueprintViolation(
+                critic="blueprint_opening_hours", severity="hard", message=msg
+            )
+        )
 
     hard = [v for v in all_violations if v.severity == "hard"]
-    soft = [v for v in all_violations if v.severity == "soft"]
-    soft_score = max(0.0, 1.0 - 0.15 * len(soft))
-
     return BlueprintReport(
-        passed=not hard, violations=all_violations, soft_score=soft_score
+        passed=not hard,
+        violations=all_violations,
+        soft_score=1.0,  # edge_v1 取消 soft 概念
     )

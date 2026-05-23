@@ -1,17 +1,52 @@
-"""nodes.assemble —— 蓝图 → Itinerary 拼装节点。
+"""nodes.assemble —— 蓝图 → Itinerary 拼装节点（edge_v1）。
 
 复用 backend/agent/assemble_blueprint.py 的 assemble_from_blueprint。
 
-输入：state["intent"] / state["blueprint"] /（Step 8）trace 累积字段
-输出：state["itinerary"] = Itinerary（含 decision_trace）
+输入：
+- state["intent"]
+- state["blueprint"]
+- state["user_profile"]：GetUserProfileOutput（execute 阶段并行 worker 写入，
+  含 .profile: UserProfile）。assemble_from_blueprint 需要 user_profile.home_location
+  与 user_profile.transport_preference 算 home 锚点 + hop 通勤。
+- state（Step 8）trace 累积字段：critic_attempts / fallback_chain / alternatives
+
+输出：
+- state["itinerary"] = Itinerary（含 nodes/hops/schedule + decision_trace）
+
+【字段路径】Itinerary 已是 edge_v1：含 nodes / hops / schedule，不再有 stages。
+LLM 蓝图也已切到 PlanBlueprint.nodes（无 stages）。
+
+【兜底】state.user_profile 缺失（execute worker 没跑或失败）时回落 load_user_profile()
+默认画像，避免 assemble_from_blueprint 调 lookup_hop 时 transport_preference 报错。
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from agent.assemble_blueprint import assemble_from_blueprint
 from agent.graph.state import AgentState
+from data.loader import load_user_profile
+from schemas.domain import UserProfile
+
+
+def _resolve_user_profile(state: AgentState) -> UserProfile:
+    """从 state.user_profile（GetUserProfileOutput）取出 UserProfile，缺失则用默认画像。"""
+    raw = state.get("user_profile")
+    profile: Optional[UserProfile] = None
+
+    if raw is not None:
+        # state.user_profile 由 get_user_profile_worker 写入 GetUserProfileOutput
+        profile = getattr(raw, "profile", None)
+        # 兜底：万一直接就是 UserProfile（测试场景）
+        if profile is None and isinstance(raw, UserProfile):
+            profile = raw
+
+    if profile is None:
+        # execute worker 失败时退回默认画像，保证 assemble 能继续推进
+        profile = load_user_profile()
+
+    return profile
 
 
 def assemble_node(state: AgentState) -> dict[str, Any]:
@@ -21,7 +56,8 @@ def assemble_node(state: AgentState) -> dict[str, Any]:
     if intent is None or blueprint is None:
         return {"itinerary": None}
 
-    itinerary = assemble_from_blueprint(intent, blueprint)
+    user_profile = _resolve_user_profile(state)
+    itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
 
     # Step 8：注入 DecisionTrace
     from schemas.decision_trace import (

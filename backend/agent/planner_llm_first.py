@@ -173,14 +173,16 @@ def plan_llm_first(
             )
             continue
 
+        # 累计 mid nodes 的 duration 作为 LLM 蓝图的总时长（粗略，hop 由 assemble 算）
+        mid_total = sum(n.duration_min for n in blueprint.nodes)
         tracer.emit(
             "agent_thought",
             {
                 "text": (
-                    f"LLM 蓝图（第 {attempt + 1} 次）：{len(blueprint.stages)} 段，"
-                    f"总时长 {blueprint.total_minutes()} 分钟。理由：{blueprint.rationale[:80]}"
+                    f"LLM 蓝图（第 {attempt + 1} 次）：{len(blueprint.nodes)} 个中间节点，"
+                    f"累计停留 {mid_total} 分钟。理由：{blueprint.rationale[:80]}"
                 ),
-                "blueprint": blueprint.to_dict(),
+                "blueprint": blueprint.model_dump(),
             },
         )
 
@@ -199,13 +201,19 @@ def plan_llm_first(
 
         if report.passed:
             # ---- 阶段 5：拼装 ----
-            itinerary = assemble_from_blueprint(intent, blueprint)
+            # edge_v1：assemble 需要 user_profile 取 home_location + transport_pref。
+            # 冻结路径不在意 user_id 多用户场景，用 demo_user 默认画像兜底。
+            from data.loader import load_user_profile
+
+            user_profile = load_user_profile()
+            itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
             tracer.emit(
                 "agent_thought",
                 {
                     "text": (
                         f"蓝图通过 critic，已组装 itinerary（"
-                        f"{len(itinerary.stages)} 段，{itinerary.total_minutes} 分钟）"
+                        f"{len(itinerary.nodes)} 个节点 / {len(itinerary.hops)} 段通勤，"
+                        f"{itinerary.total_minutes} 分钟）"
                     ),
                 },
             )

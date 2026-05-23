@@ -27,6 +27,15 @@ critics_v2 看 blocking 升 CRITICAL，narrator 看 match 选问候语调性。
 - narrator 读 match 等级决定问候语
 - 真上线时矩阵由运营团队维护词典；本质同 SemRel ontology
 
+【edge_v1 升级（itinerary-edge-model-refactor Task 10）】
+
+evaluate_poi / evaluate_restaurant 增加可选 `node: ActivityNode | None` 形参，
+取代旧的「按 ItineraryStage 上下文判定」路径：
+- node=None：纯候选评估（保持原行为，不依赖 itinerary 上下文）
+- node=ActivityNode：调用方已把候选放进具体节点，可在未来引入「节点位置敏感」
+  规则（如「夜宵节点 + 高人均」额外加重 POOR）；当前矩阵不依赖 node 字段，
+  保持向后兼容（critics_v2 老调用 `evaluate_poi(intent, poi)` 不传 node 仍可用）。
+
 不负责：
 - LLM 调用 / Critic 实现
 - 历史 if 逻辑（已迁移到 _MISMATCH_RULES）
@@ -35,9 +44,11 @@ critics_v2 看 blocking 升 CRITICAL，narrator 看 match 选问候语调性。
 from __future__ import annotations
 
 from enum import Enum
+from typing import Optional
 
 from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
+from schemas.itinerary import ActivityNode
 
 
 # ============================================================
@@ -134,15 +145,42 @@ def evaluate(
     return CompatLevel.ACCEPTABLE, ""
 
 
-def evaluate_poi(intent: IntentExtraction, poi: Poi) -> tuple[CompatLevel, str]:
-    """便捷封装：传 IntentExtraction + Poi。"""
+def evaluate_poi(
+    intent: IntentExtraction,
+    poi: Poi,
+    node: Optional[ActivityNode] = None,
+) -> tuple[CompatLevel, str]:
+    """便捷封装：传 IntentExtraction + Poi（+ 可选所在 ActivityNode 上下文）。
+
+    edge_v1：`node` 形参取代旧 stage 参数；当前矩阵评估只看 intent.social_context
+    与 poi.suitable_for，不依赖 node 字段，但保留入参为未来「节点位置敏感」规则
+    （如夜宵节点对独处场景的特殊判定）预留扩展点。
+
+    Args:
+        intent: 用户意图（取 social_context）
+        poi: 候选 POI
+        node: 该 POI 所在的 ActivityNode（可选；当前实现忽略）
+    """
+    del node  # 当前矩阵不依赖 node 上下文；显式忽略避免 lint 警告
     return evaluate(intent.social_context, poi.suitable_for)
 
 
 def evaluate_restaurant(
-    intent: IntentExtraction, rest: Restaurant
+    intent: IntentExtraction,
+    rest: Restaurant,
+    node: Optional[ActivityNode] = None,
 ) -> tuple[CompatLevel, str]:
-    """便捷封装：传 IntentExtraction + Restaurant。"""
+    """便捷封装：传 IntentExtraction + Restaurant（+ 可选所在 ActivityNode 上下文）。
+
+    edge_v1：`node` 形参取代旧 stage 参数；语义与 evaluate_poi 一致，未来若引入
+    「用餐节点 + 时段」类规则可读 node.start_time / node.duration_min。
+
+    Args:
+        intent: 用户意图（取 social_context）
+        rest: 候选餐厅
+        node: 该餐厅所在的 ActivityNode（可选；当前实现忽略）
+    """
+    del node  # 当前矩阵不依赖 node 上下文；显式忽略避免 lint 警告
     return evaluate(intent.social_context, rest.suitable_for)
 
 

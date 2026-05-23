@@ -22,12 +22,12 @@ def test_new_event_types_in_enum():
 
 
 def test_critic_violations_event_payload():
-    """SseEvent(CRITIC_VIOLATIONS, ...) 能正常构造。"""
+    """SseEvent(CRITIC_VIOLATIONS, ...) 能正常构造（edge_v1：HOP_INFEASIBLE 替代 COMMUTE_INFEASIBLE）。"""
     v = Violation(
-        code=ViolationCode.COMMUTE_INFEASIBLE,
+        code=ViolationCode.HOP_INFEASIBLE,
         severity=Severity.CRITICAL,
-        message="第 5 段开始时间不足以走完通勤",
-        field_path="stages[4].start",
+        message="hop 时间不足以走完通勤",
+        field_path="hops[0].minutes",
     )
     ev = SseEvent(
         type=SseEventType.CRITIC_VIOLATIONS,
@@ -38,7 +38,7 @@ def test_critic_violations_event_payload():
     assert dumped["type"] == "critic_violations"
     assert dumped["payload"]["fix_attempt"] == 2
     assert len(dumped["payload"]["violations"]) == 1
-    assert dumped["payload"]["violations"][0]["code"] == "commute_infeasible"
+    assert dumped["payload"]["violations"][0]["code"] == "hop_infeasible"
     assert dumped["payload"]["violations"][0]["severity"] == "critical"
 
 

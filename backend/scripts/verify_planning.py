@@ -157,12 +157,19 @@ def _summarize(label: str, result, w: PlanningWeights | None = None) -> None:
         print(f"，failure={result.failure_detail}")
         return
     itin = result.itinerary
-    main = next((s for s in itin.stages if s.kind == "主活动"), None)
-    dining = next((s for s in itin.stages if s.kind == "用餐"), None)
-    print(
-        f"，主活动={main.poi_id if main else '?'} "
-        f"用餐={dining.restaurant_id if dining else '?'}@{dining.start if dining else '?'}"
+    # edge_v1：从 nodes 里找主活动 / 用餐节点（首尾 home 跳过）
+    main = next(
+        (n for n in itin.nodes if n.target_kind == "poi"),
+        None,
     )
+    dining = next(
+        (n for n in itin.nodes if n.target_kind == "restaurant"),
+        None,
+    )
+    main_id = main.target_id if main else "?"
+    dining_id = dining.target_id if dining else "?"
+    dining_start = dining.start_time if dining else "?"
+    print(f"，主活动={main_id} 用餐={dining_id}@{dining_start}")
     if w is not None:
         print(f"           权重：{w.summary()} | 来源={w.source}")
         print(f"           理由：{w.rationale or '(无)'}")
@@ -257,15 +264,21 @@ def main() -> int:
 def _main_id(result) -> str:
     if not result.success or not result.itinerary:
         return "-"
-    s = next((x for x in result.itinerary.stages if x.kind == "主活动"), None)
-    return s.poi_id or "?" if s else "?"
+    n = next(
+        (x for x in result.itinerary.nodes if x.target_kind == "poi"),
+        None,
+    )
+    return n.target_id if n else "?"
 
 
 def _rest_id(result) -> str:
     if not result.success or not result.itinerary:
         return "-"
-    s = next((x for x in result.itinerary.stages if x.kind == "用餐"), None)
-    return s.restaurant_id or "?" if s else "?"
+    n = next(
+        (x for x in result.itinerary.nodes if x.target_kind == "restaurant"),
+        None,
+    )
+    return n.target_id if n else "?"
 
 
 if __name__ == "__main__":

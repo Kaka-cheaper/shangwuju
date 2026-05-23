@@ -4996,3 +4996,760 @@ def build_candidate_preview(pois, restaurants, top_k=5, *, transport_preference=
 ### 备注
 
 `final_strategy` 字段名 + 前端 label「LLM 修正后通过」字面歧义仍在（`final_strategy="llm_backprompt"` 表示"走到了 backprompt 这一步"，不一定真"通过了"）。下次需要重命名为 `path_taken` + label 改成"LLM 修正后通过 critic"以彻底消除歧义。本次先用 fallback_chain 判据收住症状。
+
+
+---
+
+## 问题N：执行 itinerary-edge-model-refactor Task 1（重写 schemas/itinerary.py 为 edge_v1 模型）
+
+**解决方案**：
+
+按 spec design.md 一刀切重写 `backend/schemas/itinerary.py`：
+
+- **删除**：`ItineraryStage`（旧的「在某地停留 + 通勤过程」糅合段）
+- **新增**：`ActivityNode`（停留节点）+ `Hop`（通勤段）+ `ScheduleEntry`（派生只读视图）
+- **类型别名**：`NodeTargetKind = Literal["poi", "restaurant", "home"]` / `HopMode = Literal["walking","taxi","bus","haversine_estimated","virtual"]` / `HopPathType = Literal["real_route","estimated","in_place"]`
+- **OrderRecord 加字段** `target_kind: Literal["poi", "restaurant"]`（不接受 "home"，订单必须挂在真实业务实体上）
+- **Itinerary 字段重写**：`schema_version: Literal["edge_v1"]` + `nodes` + `hops` + `schedule`（默认空，由下游 builder 填充）+ 保留 `summary` / `orders` / `share_message` / `total_minutes` / `decision_trace`
+- **`@model_validator(mode="after")`** 实现 5 条不变量：(1) `len(hops) == len(nodes) - 1`；(2)/(3) 首尾节点 `target_kind == "home"`；(4) home 节点 `duration_min == 0`；(5) home 节点 `target_id == "home"`
+- 同步更新 `schemas/__init__.py` 的 import 与 `__all__`（删除 `ItineraryStage`，导出 `ActivityNode/Hop/ScheduleEntry/NodeTargetKind/HopMode/HopPathType`）——这是删除旧类型的必要连锁，不改包就 ImportError
+
+**新建测试** `backend/tests/test_itinerary_schema.py` 13 用例：
+
+- 2 条合法路径（最小 home→home / 常见 home→POI→home）
+- 5 条不变量负向测试（hops 长度不匹配 ×2 / 首节点非 home / 尾节点非 home / home duration!=0 ×2 / home target_id!="home"）
+- 4 条 OrderRecord.target_kind 测试（restaurant / poi / 拒绝 home / 必填）
+
+**验证**：
+
+```text
+$ uv run pytest tests/test_itinerary_schema.py -v
+13 passed in 0.10s
+
+$ uv run python -m scripts.verify_schemas
+✓ 全部 6 项通过
+```
+
+**修改的代码文件**：
+
+- `backend/schemas/itinerary.py`（整体重写）
+- `backend/schemas/__init__.py`（同步 import / __all__）
+- `backend/tests/test_itinerary_schema.py`（新建）
+
+**应当达成的效果**：
+
+- 行程数据模型从 stage 一元糅合改为 nodes + hops 二元组（业内标准建模）
+- 5 条不变量在 Pydantic 层强制，从根上断绝 LLM/critic/前端三方解读不一致
+- Task 2-13 在此之上接续修改下游
+
+**预期下游级联（Task 2-10 处理，本任务不修复）**：
+
+src 引用旧 ItineraryStage 的文件（5 个）：
+
+- `backend/agent/planner.py`（rule-based safety-net）
+- `backend/agent/assemble_blueprint.py`
+- `backend/agent/v2/critics_v2.py`
+- `backend/agent/graph/nodes/...`（多处用 `.stages`）
+- `backend/scripts/verify_react_agent.py` / `verify_planning.py` / `verify_llm_first.py` / `experiment_critic_value.py`
+
+test 引用旧 ItineraryStage 的文件（9 个）：
+
+- `test_social_compat.py` / `test_planner_hybrid.py` / `test_decision_trace.py` / `test_critics_v2.py` / `test_critics_v2_commute.py` / `test_assemble_blueprint.py` / `test_blueprint_llm.py` / `test_agent_flow.py` / `test_8_scenarios.py` / `test_e2e_refinement.py` / `test_llm_planner.py` / `test_refiner_duration_consistency.py`
+
+新 schema 自身的不变量测试（13/13）已绿；下游 import 错误是 Task 2-10 的范围，不在本次 Task 1 内修复。
+
+
+---
+
+## 问题：itinerary-edge-model-refactor Task 2（Wave 2）—— 重写 blueprint.py + test_blueprint.py
+
+**用户问题**：执行 spec `itinerary-edge-model-refactor` 的 Task 2：重写 `backend/agent/blueprint.py`，删除 `BlueprintStage` 与 `BlueprintTargetKind.NONE`，新增 `BlueprintNode + PlanBlueprint`（edge_v1 模型）。重写 `_temporal_critic / _duration_critic / _opening_hours_critic` 三个 critic（删 stage 概念，改读 nodes，不验通勤）。
+
+**解决方案**：
+
+1. **类型层**：
+   - 新增 `BlueprintTargetKind` 枚举（仅 POI / RESTAURANT，不含 NONE）
+   - 新增 `BlueprintNode`（Pydantic v2 BaseModel，5 字段：`kind / target_kind / target_id / duration_min / note`，`extra="forbid"` 防 LLM 漂移）
+   - 新增 `PlanBlueprint`（`nodes: list[BlueprintNode]` + `preferred_start_time: str = "14:00"` + `rationale: str = ""`）
+
+2. **Critic 函数**（保持原函数名以兼容上游）：
+   - `_temporal_critic`：基于 `preferred_start_time + 累加 duration_min` 推算每个 node 时间窗，验区间不重叠 + 不跨 24:00；返 `list[str]`
+   - `_duration_critic`：单段时长 ∈ [10, 300] 分钟，超界报警；返 `list[str]`
+   - `_opening_hours_critic`：用累加 duration 推算 node 开始时刻，查 mock_data 营业时间覆盖；返 `list[str]`
+   - **注意**：通勤可达性不在此层验，由 `critics_v2._check_hop_feasibility`（Itinerary 层）接管
+
+3. **兼容封装**：
+   - 保留 `BlueprintViolation / BlueprintReport / run_blueprint_critics` 入口，内部委托给三个 list[str] critic 包装；`run_blueprint_critics(blueprint, intent=None)` 让 intent 变可选（edge_v1 三 critic 已与 intent 解耦）
+   - 这样 `agent/planner_llm_first.py`（冻结路径）仍能 import 而不崩
+
+4. **测试重写**（`backend/tests/test_blueprint.py`）：
+   - 28 个测试覆盖 7 个维度：BlueprintTargetKind 枚举 / BlueprintNode 字段约束 / PlanBlueprint 字段约束 / _temporal_critic / _duration_critic / _opening_hours_critic / run_blueprint_critics 兼容封装
+   - 所有测试通过（验证：跑 `_run_blueprint_tests.py` 临时 runner 绕过 Task 9 未完成导致的 `agent/__init__.py` eager import 失败，28/28 PASS）
+
+**修改的代码文件**：
+- `backend/agent/blueprint.py`（整体重写，从 dataclass 迁移到 Pydantic v2 BaseModel）
+- `backend/tests/test_blueprint.py`（整体重写，覆盖 edge_v1 模型）
+
+**应当达成的效果**：
+- `BlueprintStage` / `BlueprintTargetKind.NONE` 在 codebase 中不再存在于 `agent/blueprint.py`（仅遗留在 Task 4/6/7/9 还未改的下游文件）
+- `BlueprintNode + PlanBlueprint` 是 LLM 输出契约，LLM 只决定 `target + duration`，不决定时间，不输出 home，不输出 hops
+- 三个 blueprint critic 只验「nodes 时序结构 + 单段时长合理 + 营业时间覆盖」，不再越权验通勤
+- 给 Task 4（assemble_blueprint 重写）/ Task 6（blueprint prompt 改写）/ Task 7（blueprint_llm 解析层改写）留出明确的输入契约
+
+**下游影响（grep 结果，本任务不修复，留 Task 4/5/6/7/9）**：
+- `backend/agent/blueprint_llm.py`（Task 7）：仍 import `BlueprintStage / BlueprintTargetKind.NONE`，构造 `PlanBlueprint(stages=...)`
+- `backend/agent/assemble_blueprint.py`（Task 4）：用 `BlueprintStage / BlueprintTargetKind.NONE`
+- `backend/agent/planner_llm_first.py`（Task 6/9）：访问 `bp.stages`
+- `backend/tests/test_blueprint_llm.py`（Task 7）：访问 `bp.stages` + `BlueprintTargetKind.RESTAURANT` 旧用法
+- `backend/tests/test_assemble_blueprint.py`（Task 4）：构造 `PlanBlueprint(stages=...)`
+- `backend/tests/test_decision_trace_integration.py`（Task 14）：构造 `BlueprintStage(start_time=...)`
+- `backend/agent/__init__.py` eager 导入 `planner.py`，后者引用已被 Task 1 删的 `ItineraryStage` —— 阻塞了 `pytest tests/test_blueprint.py` 直接收集（Task 9 修）
+
+
+---
+
+问题：itinerary-edge-model-refactor Task 4（Wave 3，单任务）—— 重写 `backend/agent/assemble_blueprint.py` 为 edge_v1 拼装层。
+解决方案：
+- 整体重写 `backend/agent/assemble_blueprint.py`：删除 `_resolve_coord_and_address` / `_stage_title` / 旧 `_build_summary` 中依赖 `BlueprintStage` 的逻辑；新版 `assemble_from_blueprint(intent, blueprint, user_profile) -> Itinerary`：
+  - 顶部 import：`schemas.itinerary.{ActivityNode, Hop, Itinerary, ScheduleEntry, NodeTargetKind}` + `agent.blueprint.{BlueprintNode, BlueprintTargetKind, PlanBlueprint}` + `agent.lookup_hop.lookup_hop`
+  - 流程：(a) 取 `user_profile.transport_preference`（兜底 taxi）；(b) 在 nodes 首部插 home 起点节点 `n0`（duration_min=0）；(c) 遍历 `blueprint.nodes` 逐对调 `lookup_hop` 算 hop，时间游标 `cursor_min` 推进 prev_node.end + hop.minutes + buffer → next_node.start，首跳 buffer=0 / 非首跳 buffer=5；(d) 尾部追加返程 hop（buffer=0）+ home 终点节点；(e) `_derive_schedule(nodes, hops)` 按生产顺序展平为 `ScheduleEntry`，home 节点 hidden=True / `path_type==in_place` 的 hop hidden=True；(f) 返回前手工 RuntimeError 断言 4 条不变量（hops 长度 / 首尾 home / 首尾 duration=0），Pydantic `model_validator` 兜底二次校验。
+- 新增辅助：`_parse_hhmm` / `_fmt_hhmm` / `_resolve_target_meta(target_kind, target_id, user_profile, fallback_title)` 统一查 POI/Restaurant/home 的 title/lat/lng/address。
+- 重写 `backend/tests/test_assemble_blueprint.py`（旧测试用 `BlueprintStage` 已坏）：4 场景 + 边角共 7 项测试，每项跑公共 `_assert_invariants`（8 条不变量）：
+  - A1 `test_A1_standard_two_segment`：POI P040(165) + Restaurant R001(60)，验 4 nodes / 3 hops / 首跳 buffer=0
+  - A1' `test_A1_actual_timing_walkthrough`：精确时间轴 14:00→14:09→17:04→18:11，total=251min
+  - A2 `test_A2_single_node_dining_only`：单段 R001(60)，验 routes 无正向边走 haversine 估算 + 返程 R001→home=7min real_route taxi
+  - A3 `test_A3_in_place_reuse_same_poi`：连续两段 P040(90)+P040(60)，验中间 hop minutes=0 mode=virtual path_type=in_place + schedule entry hidden=True
+  - A4 `test_A4_reverse_order_restaurant_then_poi`：反序 R001(60)→P040(90)，验顺序保留
+  - A5 `test_A5_walking_preference_picks_walking_route`：profile transport=walking 时 hop.mode=walking
+  - A6 `test_A6_assemble_returns_valid_pydantic_object`：assemble 输出能通过 Pydantic 二次校验
+- 测试文件参考 `tests/test_lookup_hop.py` 同款套路：注册 `agent` 为空命名空间包绕过 `agent/__init__.py` eager-import 旧 `ItineraryStage` 的损坏链（Task 9 修复后可删）。
+修改的代码文件：
+- `backend/agent/assemble_blueprint.py`（整体重写）
+- `backend/tests/test_assemble_blueprint.py`（整体重写）
+应当达成的效果：
+- `cd backend && uv run pytest tests/test_assemble_blueprint.py -v` 全过（7 passed）
+- 任何 blueprint 输入产出的 Itinerary 都满足：`len(hops)==len(nodes)-1` / 首尾 home / home duration=0 / hop.start_time 紧接 from_node.end / to_node.start = hop.start+hop.minutes+hop.buffer / total_minutes 自洽
+- 同地复用场景中间 hop 自动 in_place（minutes=0 / virtual / hidden=True）
+- 单段 / 反序 / walking 偏好均工作正常；Wave 3 推进解锁，Wave 4（critic / prompt / blueprint_llm）可并行启动
+
+
+---
+
+## 问题N：itinerary-edge-model-refactor Task 7 —— 重写 blueprint_llm.py
+
+**用户问题**：执行 spec 的 Task 7：重写 `backend/agent/blueprint_llm.py`，把 LLM 输出契约从旧 `stages` 改为 edge_v1 的 `nodes` 数组；删除 `build_candidate_preview` 中的 `commute_matrix` 字段（assemble 自己算 hop）；保留 review_excerpts UGC 引用逻辑；解析层显式拒绝旧字段并抛 BlueprintGenError 含明确诊断。
+
+**解决方案**：
+
+1. `generate_blueprint` 重写：
+   - 调 LLM 后先剥围栏 + json.loads
+   - 解析层显式拦截：`payload["stages"]` 存在 → `BlueprintGenError(reason="legacy_stages_field")`
+   - 逐 node 检查 `start_time` / `end_time` / `commute_minutes` 任一存在 → `BlueprintGenError(reason="legacy_node_field")` 并指明 index
+   - `payload["nodes"]` 缺失或为空 → `BlueprintGenError(reason="nodes_missing_or_empty")`
+   - 全部通过后 `PlanBlueprint.model_validate(payload)`，依靠 Task 2 的 `extra="forbid"` 兜底
+   - critic_feedback 注入 user message 的重试逻辑保留
+2. `build_candidate_preview` 重写：删除 `_build_commute_matrix` 与 `commute_matrix` 字段；保留 `pois / restaurants / transport_preference`；review_excerpts 通过 `_format_review_excerpts` 保留
+3. 新增 BlueprintGenError reason 枚举：`llm_chat_failed / empty_response / json_decode_failed / not_a_json_object / legacy_stages_field / nodes_missing_or_empty / node_not_dict / legacy_node_field / blueprint_validation_failed`
+4. 测试 `tests/test_blueprint_llm.py` 全量重写（20 项），覆盖：
+   - preview 不含 commute_matrix（关键回归）+ review_excerpts 保留
+   - 合法路径（含围栏剥离 + critic_feedback 注入）
+   - 旧 stages 字段拒绝 + 旧 node 内 start_time / end_time / commute_minutes 拒绝
+   - 缺 nodes / 空 nodes / 非 dict node 拒绝
+   - Pydantic 兜底（target_kind=home / extra forbid）
+   - LLM 客户端抛异常包成 BlueprintGenError
+5. 测试文件加 `agent/__init__.py` 旁路桥（与 test_lookup_hop / test_assemble_blueprint 同款），让 `from agent.blueprint import` 跳过尚未修复的 eager-import 副作用，等 Task 9 修好 planner 后可移除
+
+**修改的代码文件**：
+
+- `backend/agent/blueprint_llm.py`（整体重写）
+- `backend/tests/test_blueprint_llm.py`（整体重写，20 项）
+
+**应当达成的效果**：
+
+- LLM 退回旧 stages schema → 解析层立即拒绝，BlueprintGenError detail 指明 "请改为 nodes 数组"
+- preview 不再喂 commute_matrix（assemble 自己用 lookup_hop 算 hop）
+- LLM Chat 调用失败、JSON 非法、字段缺失等错误路径都被包成 BlueprintGenError 让上层 backprompt 链路可控
+- `pytest tests/test_blueprint_llm.py -v` 20 passed in 3.09s
+
+问题：itinerary-edge-model-refactor Task 5（Wave 4，单任务）—— 重写 `backend/agent/v2/critics_v2.py` 为 edge_v1 critic 兜底层。
+解决方案：
+- 整体重写 `backend/agent/v2/critics_v2.py`：删 `_check_inter_stage_commute` / `_is_commute_stage` / `_resolve_stage_location`；新增 `_check_invariants`（hops 长度 / 首尾 home / home duration=0 三条结构断言）/ `_check_hop_feasibility`（遍历 hops，非 in_place 调 `lookup_hop` 取 actual_min，断言 `hop.minutes >= actual_min - 2` 容差 2）/ `_check_temporal_feasibility`（验 from_node.end+hop.minutes+buffer ≤ to_node.start，容差 2min）。其它 critic（duration/distance/dietary/demo_restaurant_full/social_context）字段路径全量 stages → nodes，逻辑保留；`_resolve_node_location` 取代旧 `_resolve_stage_location`（home 直读 user_profile.home_location）。
+- ViolationCode 重命名：`STAGES_INCOMPLETE → NODES_INCOMPLETE` / `COMMUTE_INFEASIBLE → HOP_INFEASIBLE`；新增 `INVARIANT_BROKEN`。`Severity` / `Violation` / `validate_itinerary(itinerary, intent, *, user_id=...)` / `format_violations_for_llm` 公共契约保持向后兼容，下游 `agent/graph/nodes/critic.py` + `agent/v2/react_agent.py` 零改动。
+- `format_violations_for_llm` 重写：仅打 critical，编号 + message，**杜绝暴露 dot-path**（`hops[1]` / `nodes[2]` 一律不进 LLM prompt）；message 自包含「第 N 段「kind · title」」人话定位。`_humanize_node` 助手统一翻译 nodes[i] → 人话。
+- 删除旧 `backend/tests/test_critics_v2_commute.py`，重写 `backend/tests/test_critics_v2_hop.py`（5 项：legal/偏小/in_place/15min 兜底/无 profile）。
+- 重写 `backend/tests/test_critics_v2.py`（15 项：legal/3 项 invariants/nodes_incomplete/2 项 duration/timeline/3 项 format_for_llm/2 项 dietary/2 项 demo_full）；用 `object.__setattr__` 绕过 Pydantic 测 total_minutes 越界，用 list mutate 测 invariants。
+- 测试文件均含 `sys.modules['agent']` 空命名空间桥（绕过 Task 9 未修的 `agent/__init__.py` eager-import 损坏）。
+修改的代码文件：
+- `backend/agent/v2/critics_v2.py`（整体重写）
+- `backend/tests/test_critics_v2_commute.py`（删除）
+- `backend/tests/test_critics_v2_hop.py`（新建，5 项）
+- `backend/tests/test_critics_v2.py`（整体重写，15 项）
+应当达成的效果：
+- `cd backend && uv run pytest tests/test_critics_v2_hop.py tests/test_critics_v2.py -v` 全过（20 passed in 0.22s）
+- critic 与 assemble_blueprint 共用同一 `lookup_hop` 函数 → 同输入同输出 → 杜绝旧版「critic 反复挑刺触发死循环」
+- `format_violations_for_llm` 输出严格人话化，`test_format_violations_does_not_leak_dot_path` 单测兜底 design.md 强约束
+- `validate_itinerary` 公共签名不变，下游 `critic_node` / `react_agent` 无需改动；Wave 5 Task 8/9/10 修编排层时本模块已就绪
+
+
+
+---
+
+问题：itinerary-edge-model-refactor Task 6 — 重写 `backend/agent/prompts/blueprint_prompt.py` 为 edge_v1 极简版。
+解决方案：
+1. 整体重写 `BLUEPRINT_SYSTEM_PROMPT`：删除「commute_matrix 查表代入」「下一段 start_time = 上一段 end + commute + 5min 公式」「buffer 5 分钟」三段；新增「你只决定 / 你不决定 / 硬性约束 / 灵活性」四块结构。强调 LLM 只输出 nodes（不含 home / hops / start_time），节点字段仅 kind / target_kind / target_id / duration_min / note 五项；明确单段 / 反序 / 同地复用 / 24h / 夜宵都允许。
+2. `build_user_message` 函数签名保持兼容（intent_json + candidates_json + critic_feedback）；末尾追加「仅 nodes / preferred_start_time / rationale 三字段」提醒，防止 LLM 漂回旧 stages 输出。
+3. 新建 `backend/tests/test_blueprint_prompt.py`：覆盖 hard cap / 旧概念缺席 / 关键约束齐全 / 灵活性条款 / build_user_message 行为 6 类，共 31 个 case。复用 Task 3/4/5/7 的 `sys.modules["agent"] = stub` 桥接套路绕过 `agent/__init__.py` eager-import 旧 ItineraryStage 的问题。
+修改的代码文件：
+- `backend/agent/prompts/blueprint_prompt.py`（整体重写）
+- `backend/tests/test_blueprint_prompt.py`（新建）
+应当达成的效果：
+- `BLUEPRINT_SYSTEM_PROMPT` 实测 1450 字符（旧 3442 → 新 1450，-58%；落在 ≤1500 hard cap 内）
+- prompt 中再不含 commute_matrix / 下一段 / 查表代入 / 5min 缓冲 / 段间通勤 等旧概念
+- prompt 显式约束 nodes / preferred_start_time / rationale / target_id 必须在候选预览存在 / opening_hours 覆盖 / 不要输出 home / 不要输出 hop / 不要输出 start_time / 不要输出 stages
+- prompt 显式允许单段 / 反序 / 同地复用 / 24h / 夜宵，解开旧 5 段模板束缚
+- `pytest tests/test_blueprint_prompt.py -v` 31/31 全绿
+
+
+---
+
+## 问题（spec itinerary-edge-model-refactor / Task 10 / Wave 5）：refiner / main confirm 流 / collab room / social_compat 字段路径同步到 edge_v1
+
+**用户原问**：执行 Task 10 子任务清单——refiner.py 验证不动 / main.py 中 _collect_itinerary_tags + _accumulate_memory_after_confirm 改读 itinerary.nodes / collab/room.py 确认 dict 形式无需改 / social_compat.evaluate_poi/_restaurant 函数签名加 node: ActivityNode 形参（取代旧 stage 参数）。
+
+**摸查结论**（4 个文件现状）：
+
+```
+| 文件                                    | 状态                                                                  |
+|----------------------------------------|----------------------------------------------------------------------|
+| backend/agent/refiner.py               | grep stages/itinerary/snapshot 零命中；仅消费 intent，**真不动**       |
+| backend/main.py                        | _collect_itinerary_tags / _accumulate_memory_after_confirm 读 stages | 
+|                                        | stub fixture 1290+ 行用 ItineraryStage 构造（schema 已删，必修）       |
+|                                        | confirm 流 orders 缺 target_kind 字段（OrderRecord 新增字段）           |
+| backend/collab/room.py                 | dict 形式天然兼容；但 _get_stage_title 硬编码读 stages key             |
+| backend/agent/v2/social_compat.py      | 当前签名 evaluate_poi(intent, poi)，无 stage 参数；按任务文本"加 node"  |
+```
+
+**解决方案**：
+
+1. **refiner.py**：grep 确认零 itinerary 字段引用，未动一行（任务文本"不改逻辑"被验证）
+2. **main.py 三处改造**：
+   - import 删 ItineraryStage，加 ActivityNode / Hop / OrderRecord / ScheduleEntry
+   - `_collect_itinerary_tags`：遍历 itinerary_dict["nodes"]，按 target_kind=poi/restaurant 分支查 mock，跳过 home（target_kind=="home"）
+   - `_accumulate_memory_after_confirm`：visits 与 segments 都改读 nodes；segments 不再依赖 kind 文本判返回，直接用 home 节点 target_id 作端点
+   - stub fixture itinerary：从 5 段 ItineraryStage 改成 4 个 ActivityNode（home / P001 / R001 / home）+ 3 个 Hop + 7 条 ScheduleEntry，total_minutes=310 不变
+   - confirm 流 orders 加 `target_kind: "restaurant"`（OrderRecord 新增必填字段）
+3. **collab/room.py**：`_get_stage_title` 改为兼容三态：旧 stages dict / edge_v1 nodes dict（跳 home 取 mid nodes 第 stage_index 段）/ fallback 文本。dict 形式天然跟随 schema，仅修硬编码字段名
+4. **social_compat.py**：evaluate_poi / evaluate_restaurant 增加 `node: Optional[ActivityNode] = None` 形参作为接口扩展点；当前矩阵不依赖 node 字段（保持原行为），向后兼容旧调用 `evaluate_poi(intent, poi)`（critics_v2 已用调用签名不变）
+
+**修改的代码文件**：
+
+- `backend/main.py`（imports / _collect_itinerary_tags / _accumulate_memory_after_confirm / stub fixture / confirm 流 orders 共 5 处）
+- `backend/collab/room.py`（_get_stage_title 一处）
+- `backend/agent/v2/social_compat.py`（imports + evaluate_poi/_restaurant 签名 + 模块 docstring）
+- `backend/agent/refiner.py`：**不动**（任务文本明确要求）
+
+**应当达成的效果**：
+
+- main.py 可独立 import（ItineraryStage 已不在 schema，import 错误消除）
+- 烟测验证：itinerary 构造通过 + _collect_itinerary_tags 返 8 个合法 tag + _accumulate_memory_after_confirm 不抛 + evaluate_poi/restaurant 新签名 ok
+- collab/room.py 可独立 import
+- 受 Task 9（agent/planner.py 还引用 ItineraryStage）阻塞的测试（test_8_scenarios / test_agent_flow / test_decision_trace[_integration] / test_e2e_refinement / test_llm_planner / test_planner_hybrid / test_social_compat）等 Task 9 完成后即可恢复——Task 10 自身未引入新破坏
+
+**仍需 Task 14 修的关联测试**：
+
+- `tests/test_social_compat.py`：调用方仍是 `evaluate_poi(intent, poi)` 不传 node，签名向后兼容**无需改**；但 collection 阻塞于 Task 9
+- 无主动需要 Task 14 修复的 social_compat 调用方（critics_v2 调 `evaluate_poi(intent, poi)` 不传 node 仍可用）
+
+
+---
+
+问题：itinerary-edge-model-refactor Task 8 / Wave 5 ——LangGraph 节点字段路径同步到 edge_v1（Itinerary 已切到 nodes+hops+schedule）
+
+解决方案：
+- `agent/graph/nodes/assemble.py`：调 `assemble_from_blueprint(intent, blueprint, user_profile)`（新签名加 user_profile 参数）；从 `state["user_profile"]`（GetUserProfileOutput）取 `.profile`，缺失回落 `load_user_profile()` 默认画像。其余 DecisionTrace 注入逻辑不变（FallbackHop 的 from_stage/to_stage 是 plan-strategy 阶段名 llm_first/ils/rule，与 itinerary stages 同名但语义无关）。
+- `agent/graph/nodes/critic.py`：`validate_itinerary` 与 `format_violations_for_llm` 接口在 critics_v2 改写时已保持向后兼容签名，本节点零改动。
+- `agent/graph/nodes/execute_finalize.py`：旧逻辑 `next(s for s in itinerary.stages if s.kind=="用餐" and s.restaurant_id)` → 新逻辑 `next((n for n in itinerary.nodes if n.target_kind=="restaurant"), None)`；`OrderRecord` 字段升级（必填 `target_kind` / 改名 `details`→`detail` / 新增 `target_name`）；`ReserveRestaurantInput.user_note` → `extra_notes`；`GenerateShareMessageInput.summary` → `itinerary_summary`，去掉旧 `highlights` 字段。
+- `agent/graph/sse_adapter.py`：`len(blueprint.stages)` → `len(blueprint.nodes)`；缺坐标兜底警示从遍历 stages（含 `s.poi_id or s.restaurant_id`）改为遍历 `itin.nodes` 检查 `target_kind ∈ {poi, restaurant}` 的节点。ITINERARY_READY payload 仍是 `itin.model_dump()`，自动含 schema_version=edge_v1 + nodes + hops + schedule。
+- `agent/graph/nodes/replan.py`：不动（FallbackHop.from_stage/to_stage 是 plan-strategy，不是 itinerary stage）。
+- `agent/graph/state.py`：不动（`itinerary: Optional[Itinerary]` 类型注解天然兼容新 schema，无残留 stages 字段）。
+
+修改的代码文件：
+- `backend/agent/graph/nodes/assemble.py`
+- `backend/agent/graph/nodes/execute_finalize.py`
+- `backend/agent/graph/sse_adapter.py`
+（critic.py / replan.py / state.py 无需改动）
+
+应当达成的效果：
+- LangGraph 走完 router → intent → execute → planner → assemble → critic → narrate 后，前端通过 `ITINERARY_READY` 事件收到 `schema_version="edge_v1" + nodes + hops + schedule + decision_trace` 的 Itinerary payload。
+- confirm 路径走 execute_finalize 时通过 `target_kind=="restaurant"` 找用餐节点，OrderRecord 含 target_kind / target_name / detail。
+- 端到端 smoke 验证：构造 4 节点 / 3 hop 行程，schema_version=edge_v1，nodes/hops 不变量满足，critic 0 violation，sse payload 不再含 stages 字段。
+- 仍需 Task 9 修复：`agent/__init__.py` eager import `from .planner import ...` 触发 `schemas.itinerary.ItineraryStage` ImportError；`agent/graph/nodes/planner.py:89` 仍引用 `blueprint.stages`（按用户严格约束未在本任务修）。
+- 仍需 Task 14 修复：`tests/test_decision_trace_integration.py` 用 BlueprintStage/BlueprintTargetKind.NONE/PlanBlueprint(stages=...)，需要重写为 BlueprintNode + nodes=...
+
+
+---
+
+## 问题（spec itinerary-edge-model-refactor / Task 9 / Wave 5）：同步 rule planner / hybrid ILS / segment_decider 到 edge_v1
+
+**用户原问**：执行 Task 9——`agent/planner.py:_assemble_itinerary` 输出 edge_v1 schema（nodes+hops），删除 5 段写死；`planner_hybrid.py` ILS 邻域操作 `_swap_poi/_swap_rest/_shift_time` 重命名为 `_swap_node/_shift_node`；`segment_decider.py` 重命名为 `node_decider.py`，函数 `decide_segments → decide_nodes`；`critics.py` 字段路径替换为 nodes/hops。Task 9 是 Wave 5 解锁 `agent` 包 import 的钥匙（Task 8/10 与本任务并行，不动对方文件）。
+
+**摸查结论（4 个核心文件现状）**：
+
+```
+| 文件                                  | 改前状态                                                                       |
+|--------------------------------------|--------------------------------------------------------------------------------|
+| backend/agent/__init__.py            | eager-import planner.py（其顶部 import ItineraryStage）→ 整个 agent 包炸        |
+| backend/agent/planner.py             | _assemble_itinerary 自己拼 5 段 ItineraryStage（出发/主活动/转场/用餐/返回）     |
+| backend/agent/planner_hybrid.py      | ILS 邻域 _swap_poi/_swap_rest/_shift_time 内联在 _perturb；按 segment 决段        |
+| backend/agent/segment_decider.py     | decide_segments 返 frozenset[str]（含「出发/转场/返回」过程段）                 |
+| backend/agent/critics.py             | 4 critic 全用 plan.stages 遍历 + stage.kind/poi_id/restaurant_id 字段          |
+```
+
+**解决方案**：
+
+1. **rename：smartRelocate `segment_decider.py` → `node_decider.py`**，重写文件内容暴露 `decide_nodes(intent) -> list[str]`（返中间节点 kind 列表，不含首尾 home / 不含过程段）；保留 `decide_segments` 作兼容 alias。
+2. **新建 `segment_decider.py` 兼容入口**：`from .node_decider import *` + 显式 re-export 旧符号（`ALWAYS_INCLUDED / FULL_SEGMENTS / decide_segments / explain_segments`），不破坏现有 `agent/planner_hybrid.py / agent/critics.py / agent/planner_llm_first.py / agent/graph/nodes/replan.py / tests/test_segment_decider.py` 的 import。
+3. **planner.py：删除 `ItineraryStage` import；重写 `_assemble_itinerary`** —— 不再手写 5 段时间轴，构造最小 `PlanBlueprint(nodes, preferred_start_time, rationale)` 后调 `assemble_from_blueprint(intent, blueprint, user_profile)` 拼装，由 Task 4 的拼装层统一负责自动补 home 首尾节点 + 自动调 lookup_hop 算 hops + 派生 schedule。映射：has_main → BlueprintNode(target_kind=poi)；has_dining → BlueprintNode(target_kind=restaurant)；旧「出发/转场/返回」过程段由自动 hop 表达。chosen_time 协商时段：当用户在 POI 自然完成时间 < chosen_time 时，把等待差量塞进 main_poi.duration_min 让用户在 POI 多停留；仅用餐场景下用 chosen_time 反推 preferred_start_time。新增 `_swap_node` / `_shift_node` 概念暴露给 R7 验收（实际算子函数定义在 hybrid）。
+4. **planner_hybrid.py：ILS 邻域操作重命名**：抽出 `_swap_node(current_target, candidates, rng, target_kind="poi"|"restaurant")` 与 `_shift_node(current_time, rng)` 两个独立函数；`_perturb` 内部按可用维度 dispatch 到 `swap_node_poi / swap_node_restaurant / shift_node`。删除旧 `_swap_poi / _swap_rest / _shift_time` 命名。`segment_decider.decide_segments` 调用切到 `node_decider.decide_nodes`；trace agent_thought 文案改「ILS 节点决策」。
+5. **critics.py：字段路径全切到 nodes**：新增 `_find_main_node` / `_find_dining_node` / `_mid_node_kinds` 辅助函数（按 ActivityNode.target_kind 而非 stage.kind 找）；4 个 critic 全部改读 `plan.nodes` + `node.target_id` / `node.start_time`；段缺失语义改为 `decide_nodes(intent) - mid_node_kinds(plan)`，不再硬要 5 段。
+6. **rename：smartRelocate `tests/test_segment_decider.py` → `tests/test_node_decider.py`**，断言保留待 Task 14 修。
+
+**修改的代码文件**：
+
+- `backend/agent/segment_decider.py`（重写为 alias，5 行 + re-export）
+- `backend/agent/node_decider.py`（新文件，~190 行：decide_nodes / decide_segments alias / explain_nodes / explain_segments）
+- `backend/agent/planner.py`（import 删 ItineraryStage；_assemble_itinerary 重写为 PlanBlueprint + assemble_from_blueprint；segments 内部命名保留兼容；新增 `_parse_hhmm_to_min` helper）
+- `backend/agent/planner_hybrid.py`（_perturb 重写；新增 `_swap_node` / `_shift_node` 独立函数；`segment_decider` import 切到 `node_decider`）
+- `backend/agent/critics.py`（整体重写：plan.stages → plan.nodes；新增 _find_main_node / _find_dining_node / _mid_node_kinds 辅助；段缺失改用 decide_nodes）
+- `backend/tests/test_segment_decider.py` → `backend/tests/test_node_decider.py`（仅改名，断言保留）
+
+**应当达成的效果**：
+
+- ✅ `cd backend && uv run python -c "from agent import planner; print('ok')"` 输出 `ok`（Wave 5 解锁的核心证据：agent 包不再因 ItineraryStage 炸了）
+- ✅ `cd backend && uv run python -c "from agent.planner import plan_itinerary; from agent.planner_hybrid import plan_hybrid; from agent.node_decider import decide_nodes; from agent.segment_decider import decide_segments; from agent.critics import run_critics; print('all import ok')"` 输出 `all import ok`
+- ✅ 烟测：rule planner 跑通 5h 家庭场景 → 输出 `schema_version=edge_v1`，4 个 nodes（home / 主活动 P033 / 用餐 R023 / home），3 个 hops（含一个 haversine_estimated），7 条 schedule entries，total_minutes=343；不变量全过（hops=nodes-1 / 首尾 home / home duration=0）
+- ✅ 烟测：1h 短场景 → 自动削段为 1 中间节点（仅「主活动」），无用餐节点，total_minutes=75
+- ✅ `pytest tests/test_node_decider.py -v` 22/22 全过（旧断言通过 alias 兼容）
+- ✅ `pytest tests/test_assemble_blueprint tests/test_critics_v2 tests/test_critics_v2_hop tests/test_lookup_hop tests/test_blueprint tests/test_blueprint_llm tests/test_blueprint_prompt tests/test_node_decider tests/test_itinerary_schema -q` 154/154 全过（Wave 1-4 + Task 9 测试面）
+- ✅ `pytest tests/test_intent_parser tests/test_router tests/test_refiner -q` 21/21 全过
+
+**仍需 Task 14 修的关联测试**（本任务不改测试断言，按规约"只做改名"）：
+
+```
+| 测试文件                                     | 失败原因                                                        |
+|---------------------------------------------|----------------------------------------------------------------|
+| tests/test_decision_trace.py                | import ItineraryStage（schema 已删）                            |
+| tests/test_decision_trace_integration.py    | import BlueprintStage（已改 BlueprintNode）                     |
+| tests/test_planner_hybrid.py                | import ItineraryStage                                          |
+| tests/test_social_compat.py                 | import ItineraryStage                                          |
+| tests/test_8_scenarios.py                   | 断言 itinerary.stages（→ itinerary.nodes）                      |
+| tests/test_agent_flow.py                    | 同上 stages 字段断言                                            |
+| tests/test_e2e_refinement.py                | 同上                                                           |
+| tests/test_llm_planner.py                   | 同上                                                           |
+| tests/test_refiner_duration_consistency.py  | 部分 case 断言 stages                                          |
+| tests/test_sse_critic_events.py             | 引用 ViolationCode.COMMUTE_INFEASIBLE（已重命名 HOP_INFEASIBLE）|
+```
+
+**关键代码片段**：
+
+`agent/node_decider.decide_nodes`：
+
+```python
+def decide_nodes(intent: IntentExtraction) -> list[str]:
+    duration_max_min = max(0, intent.duration_hours[1]) * 60
+    has_dietary = bool(intent.dietary_constraints)
+    ctx = intent.social_context
+    if duration_max_min < THRESHOLD_VERY_SHORT_MIN:
+        return [KIND_DINING] if (has_dietary or ctx in _DINING_FOCUSED_CONTEXTS) else [KIND_MAIN]
+    if duration_max_min < THRESHOLD_SHORT_MIN:
+        if ctx in _DINING_FOCUSED_CONTEXTS:
+            return [KIND_MAIN, KIND_DINING] if duration_max_min >= THRESHOLD_SHORT_HAS_BOTH_MIN else [KIND_DINING]
+        if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary: return [KIND_MAIN]
+        return [KIND_MAIN, KIND_DINING] if has_dietary else [KIND_MAIN]
+    if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary: return [KIND_MAIN]
+    return [KIND_MAIN, KIND_DINING]
+```
+
+`agent/planner._assemble_itinerary`（关键映射）：
+
+```python
+mid_nodes: list[BlueprintNode] = []
+if has_main:
+    mid_nodes.append(BlueprintNode(kind="主活动", target_kind=BlueprintTargetKind.POI,
+                                   target_id=main_poi.id, duration_min=poi_duration))
+if has_dining:
+    mid_nodes.append(BlueprintNode(kind="用餐", target_kind=BlueprintTargetKind.RESTAURANT,
+                                   target_id=chosen_restaurant.id, duration_min=dining_minutes,
+                                   note=f"已为你预留 {chosen_time}（{party_size} 人）"))
+blueprint = PlanBlueprint(nodes=mid_nodes, preferred_start_time=preferred_start, rationale="rule planner 启发式")
+itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
+return itinerary.model_copy(update={"summary": summary})  # 重写 rule 风味 summary
+```
+
+`agent/planner_hybrid._swap_node / _shift_node`：
+
+```python
+def _swap_node(current_target, candidates, rng, *, target_kind: str):
+    """ILS 邻域算子：换指定 target_kind 节点的 target_id。旧 _swap_poi / _swap_rest 合并。"""
+    pool = [c for c in candidates if current_target is None or c.id != current_target.id]
+    return rng.choice(pool) if pool else current_target
+
+def _shift_node(current_time: str, rng) -> str:
+    """ILS 邻域算子：把用餐节点开始时刻推到 DINING_SLOTS 中另一时段。旧 _shift_time 重命名。"""
+    pool = [s for s in DINING_SLOTS if s != current_time]
+    return rng.choice(pool) if pool else current_time
+```
+
+`agent/critics._find_main_node / _mid_node_kinds`（字段路径替换关键点）：
+
+```python
+def _find_main_node(plan: Itinerary) -> Optional[ActivityNode]:
+    for node in plan.nodes:
+        if node.target_kind == "poi": return node
+    return None
+
+def _mid_node_kinds(plan: Itinerary) -> set[str]:
+    return {n.kind for n in plan.nodes if n.target_kind in ("poi", "restaurant")}
+
+# _hard_constraint_critic 段缺失判定改：
+required_kinds = set(decide_nodes(intent))
+have_kinds = _mid_node_kinds(plan)
+missing = required_kinds - have_kinds  # 不再硬要 5 段
+```
+
+
+---
+
+问题：itinerary-edge-model-refactor Task 13（Wave 6 R9）—— 前端 SSE schema 兼容降级
+解决方案：在 `frontend/lib/store.ts` 的 `itinerary_ready` handler 内加 `schema_version === "edge_v1"` 校验。不一致时 console.warn 并降级——构造一个 fallback Itinerary 仅保留 `summary` + `total_minutes`，其余 stages/nodes/hops/schedule/orders 全置空数组。fallback 同时带「旧 stages 字段」与「新 nodes/hops/schedule 字段」，兼容 Task 11 完成前后两态，下游 ItineraryCard / MapOverlay / TtsPlayer / PosterGenerator / Confetti / ComparisonView 均无 NPE。
+修改的代码文件：
+- `frontend/lib/store.ts`（仅这一个文件，handler 段从 1 行扩到 ~35 行）
+应当达成的效果：
+- 后端推 schema_version="edge_v1"（新 sse_adapter 自动带）→ 走原路径正常渲染
+- 后端误推旧 schema 或缺字段 → 浏览器 console.warn 提示 + 降级为「文字摘要卡」（行程总时长 + summary 文字），不全屏报错、不阻断 demo 录屏
+- TS strict typecheck 通过（`pnpm typecheck` exit 0）
+- 不改 types.ts / 不改 sse_adapter.py / 不与并行进行的 Task 11 / 12 冲突
+
+
+## 问题N：执行 itinerary-edge-model-refactor Task 11（Wave 6）—— 前端 types + ItineraryCard 切到 edge_v1
+
+**解决方案**：
+
+按 spec `itinerary-edge-model-refactor/tasks.md` Task 11 落地：
+
+1. **types.ts**：删除 `ItineraryStage`，新增 `ActivityNode` / `Hop` / `ScheduleEntry` 三个接口与 `NodeTargetKind` / `HopMode` / `HopPathType` 三个类型别名；`Itinerary` 加 `schema_version: "edge_v1" | string` + `nodes` + `hops` + `schedule`，删除 `stages`；`OrderRecord` 加 `target_kind: "poi" | "restaurant"`。字段命名保持后端 snake_case（`node_id` / `start_time` / `duration_min`）。
+2. **ItineraryCard.tsx**：默认遍历 `itinerary.schedule.filter(e => !e.hidden)` 渲染（schedule 空时降级到 `nodes` 过滤 home）；`entry_kind="hop"` 且 `mode!=="virtual"` 时渲染细长条「通勤 N 分钟（中文 mode）」（视觉权重低于 node 卡片 — 11px 灰字 + 左侧 2px 浅色边框）；保留 stagger 动画 / 跳过按钮 / intent_chips / orders / share_message / DecisionTraceCard 渲染逻辑不变。Stagger 计数从 `stages.length` 改为 `visibleEntries.length`。
+3. **边界冲突处理**：`TtsPlayer.tsx` / `PosterGenerator.tsx` / `ComparisonView.tsx` / `store.test.ts` 也引用了 `itinerary.stages` 但既不在 Task 11 改动清单也不在 Task 12 严禁清单（spec 规划遗漏）。在用户授权下"扩边界最小适配"：把 `stages` 访问换成"从 `nodes` 派生 `{start, end, title, kind, note}`"的本地辅助函数（`nodesToStages` / `nodesToDiffStages`），渲染逻辑/diff 算法零改动；`store.test.ts` fixture 改用 edge_v1 形状。
+4. **未改文件**：`MapOverlay.tsx` / `DecisionTraceCard.tsx` / `store.ts` / `sse.ts` —— 这些是 Task 12+13 范围，且已在更早的提交中迁移到 edge_v1（store.ts itinerary_ready handler 已带 schema_version 降级路径，MapOverlay 已读 `itinerary.nodes`）。
+
+**验证证据**：
+
+```text
+pnpm typecheck → Exit Code 0（TS strict 通过）
+pnpm lint → Exit Code 0（仅 ShareModal.tsx 一条 next/image 历史 warning，非本任务引入；
+                        scoped lint 6 个改动文件 = "No ESLint warnings or errors"）
+pnpm test → 30 passed / 2 files / Exit Code 0
+```
+
+**修改的代码文件**：
+
+- `frontend/lib/types.ts`（核心：edge_v1 schema）
+- `frontend/components/ItineraryCard.tsx`（核心：schedule 派生视图渲染 + hop 行）
+- `frontend/components/TtsPlayer.tsx`（边界扩展：从 nodes 派生语音文案）
+- `frontend/components/PosterGenerator.tsx`（边界扩展：从 nodes 派生海报段）
+- `frontend/components/ComparisonView.tsx`（边界扩展：DiffStage 内部别名 + nodesToDiffStages）
+- `frontend/lib/store.test.ts`（fixture：旧 stages → edge_v1 形状）
+
+**应当达成的效果**：
+
+- 后端 SSE 推 `schema_version: "edge_v1"` payload 含 nodes/hops/schedule 后，ItineraryCard 时间轴正常渲染；hop 行以细长条「通勤 N 分钟（步行/打车/公交/估算）」视觉权重低于 node 卡片；`mode==="virtual"` 或 `hidden=true` 的 hop 行不渲染。
+- TS strict / ESLint / vitest 全部清洁；旁路组件（语音 / 海报 / 对比视图）通过最小改动维持现有行为。
+- Task 12 / 13 已在前期完成（MapOverlay 读 nodes、store.ts 有 schema_version 降级），Wave 6 三个任务整体闭合。
+
+
+
+---
+
+## 问题N：itinerary-edge-model-refactor Wave 5 残留补丁（Task 8/9/10 扫尾）
+
+**用户原问**：
+
+> Wave 1-5 大部分已完成，但 7 个运行时文件仍引用旧 `.stages` / 旧 `BlueprintStage` 概念，需要扫尾对齐 edge_v1（nodes + hops + schedule）。严格只改运行时代码 + prompt 文件，不改测试、verify 脚本、schemas 与已冻结模块。
+
+**解决方案**：
+
+按 spec-task-execution 流程，逐文件 str_replace 字段路径 + import 验证 + 回归单测：
+
+1. **`backend/agent/v2/orchestrator.py`**（log payload）：`stages=len(itinerary.stages)` → `nodes=len(itinerary.nodes), hops=len(itinerary.hops)`。
+
+2. **`backend/agent/v2/output_types.py`**（ItineraryResponse docstring + Field description）：删「stages ≥ 5 段 / 三类关键字」反模式描述；新写「nodes 首尾 home / 中间节点 ≥ 1 / hops 长度 = nodes-1 / schedule 派生视图」契约。
+
+3. **`backend/agent/v2/react_agent.py`**（最关键）：
+   - `_FlexibleItineraryResponse._normalize_nested_objects`：解 list-as-string 时 ("stages","orders") → ("nodes","hops","schedule","orders")
+   - system prompt【输出纪律】段：删「stages ≥ 5 段 + 三类关键字」反模式；新写 edge_v1 契约 + 「**不要写死 5 段**」防 over-fitting；同时把【典型调用顺序】第 6 步、few-shot S1、【硬性禁止】、【输出格式】里所有 `itinerary.stages` 替换为 `itinerary.nodes / hops / schedule`，stage.note → node.note
+
+4. **`backend/agent/prompts/narrator_prompt.py`**：
+   - docstring「itinerary.stages：每段 ...」→ 「itinerary.nodes（含 target_kind="home" 起讫节点跳过）+ hops + schedule + orders」
+   - `build_narrator_user_message` itinerary_brief 抽取从 `stages` 改为 `nodes`，并 `if n.target_kind != "home"` 跳过首尾 home（home 是抽象起讫，narrator 不该讲）
+
+5. **`backend/agent/narrator.py`**（fallback 模板路径）：
+   - `_stage_to_phrase` 重命名 `_node_to_phrase`，内部从 `kind` 判定改为 `target_kind` 判定：home 节点（首/末）输出"出发 / 回家"，restaurant 节点输出"到 X 吃饭 / 给你预约了"，poi（kind="主活动"）输出"去 X"，其它输出"X start_time"
+   - `_template_narration` 内 `itinerary.stages` → `itinerary.nodes`，全量传给 `_node_to_phrase`（让函数自决定是否吐文案）
+
+6. **`backend/agent/executor.py`**：
+   - 找用餐节点：`next((s for s in itinerary.stages if s.kind=="用餐" and s.restaurant_id), None)` → `next((n for n in itinerary.nodes if n.target_kind=="restaurant"), None)`；用 `restaurant_node.target_id` / `start_time` / `note` 取数
+   - 找主活动节点：同样改为 `target_kind=="poi"`
+   - **OrderRecord 新 schema 加必填 `target_kind: Literal["poi","restaurant"]`**：餐厅订单填 `target_kind="restaurant"`，门票订单填 `target_kind="poi"`（schema 不允许 home，所以与节点的 home 起讫天然区分）；字段名旧 `details` 已在 schema 改为 `detail`，本文件原本就是 `detail=...` 调用风格，无需改
+
+7. **`backend/agent/planner_llm_first.py`**：
+   - `len(blueprint.stages)` → `len(blueprint.nodes)`；`blueprint.total_minutes()`（已不存在）→ `sum(n.duration_min for n in blueprint.nodes)`；`blueprint.to_dict()` → `blueprint.model_dump()`（PlanBlueprint 已是 Pydantic v2 BaseModel）
+   - `len(itinerary.stages)` → `len(itinerary.nodes)` + `len(itinerary.hops)`
+   - `assemble_from_blueprint(intent, blueprint)` 缺第 3 形参 `user_profile`：补 `from data.loader import load_user_profile; user_profile = load_user_profile()`（冻结路径不感知多用户，用 demo_user 兜底，与 planner.py:_assemble_itinerary 同源）
+
+**改动行数（git diff --stat）**：
+
+```text
+backend/agent/executor.py                | 51 ++++++++++++++++++++++----------
+backend/agent/narrator.py                | 48 +++++++++++++++++-------------
+backend/agent/planner_llm_first.py       | 18 +++++++----
+backend/agent/prompts/narrator_prompt.py | 26 ++++++++++------
+backend/agent/v2/orchestrator.py         |  3 +-
+backend/agent/v2/output_types.py         | 15 ++++++----
+backend/agent/v2/react_agent.py          | 30 ++++++++++++-------
+7 files changed, 125 insertions(+), 66 deletions(-)
+```
+
+**关键 diff（react_agent.py system prompt 删 5 段反模式）**：
+
+```diff
+- - itinerary.stages **必须 ≥ 5 段**，且 stages 至少含 kind 含「主活动」「用餐」「返回」三类关键字
+- - 时间轴单调递增，每段 end > start，相邻段不重叠（容差 ±5 分钟）
++ - itinerary.schema_version 固定为 "edge_v1"（系统会校验）
++ - itinerary.nodes 首尾固定 home（target_kind="home" / duration_min=0），中间节点 ≥ 1
++   （**不要写死 5 段**——可以是 1 个 mid node「只想吃饭」也可以是 3-4 个「家庭多停留」；
++   按用户实际需求出节点数，别套模板）
++ - 中间节点 target_kind ∈ {poi, restaurant}，按需要包含主活动 / 用餐 / 自由 等 kind 标签
++ - itinerary.hops 长度恒等于 nodes - 1，每条 hop 含 minutes / mode / path_type
+```
+
+**关键 diff（executor.py OrderRecord 加 target_kind）**：
+
+```diff
+- orders.append(OrderRecord(order_id=..., kind="餐厅预约",
+-                            target_id=dining_stage.restaurant_id,
+-                            target_name=dining_stage.title,
+-                            detail=...))
++ orders.append(OrderRecord(order_id=..., kind="餐厅预约",
++                            target_kind="restaurant",
++                            target_id=restaurant_node.target_id,
++                            target_name=restaurant_node.title,
++                            detail=...))
+```
+
+**验证证据**：
+
+```text
+import 验证：LLM_PROVIDER=stub uv run python -c "from agent import planner; from agent.executor import execute_plan; from agent.narrator import generate_narration; from agent.planner_llm_first import plan_llm_first; from agent.v2 import react_agent, output_types, orchestrator; from agent.prompts import narrator_prompt; print('ok')"
+→ ok（Exit Code 0）
+
+单测回归（Wave 1-4 相关）：
+LLM_PROVIDER=stub uv run pytest tests/test_intent_parser.py tests/test_router.py tests/test_refiner.py tests/test_node_decider.py tests/test_blueprint.py tests/test_blueprint_llm.py tests/test_blueprint_prompt.py tests/test_assemble_blueprint.py tests/test_lookup_hop.py tests/test_critics_v2.py tests/test_critics_v2_hop.py tests/test_itinerary_schema.py
+→ 175 passed in 1.91s（Exit Code 0，零失败）
+
+诊断（getDiagnostics 7 个改动文件）：No diagnostics found
+```
+
+**修改的代码文件**：
+
+- `backend/agent/narrator.py`（fallback 模板路径，stage→node）
+- `backend/agent/executor.py`（OrderRecord 加 target_kind + 找 restaurant/poi 节点的 target_kind 路径）
+- `backend/agent/planner_llm_first.py`（blueprint.nodes / model_dump / 补 user_profile 形参）
+- `backend/agent/v2/react_agent.py`（system prompt 删「5 段必须」反模式 + 字段路径）
+- `backend/agent/v2/output_types.py`（docstring + Field description）
+- `backend/agent/v2/orchestrator.py`（log 字段名）
+- `backend/agent/prompts/narrator_prompt.py`（docstring + user_message 构造）
+
+**未动**（按严格约束）：
+
+- `backend/schemas/` / `backend/agent/blueprint.py` / `assemble_blueprint.py` / `lookup_hop.py` / `v2/critics_v2.py` / `prompts/blueprint_prompt.py`（前置 Wave 改过）
+- `backend/main.py` / `collab/` / `agent/refiner.py` / `agent/v2/social_compat.py` / `agent/planner.py` / `agent/planner_hybrid.py` / `agent/node_decider.py` / `agent/segment_decider.py` / `agent/critics.py` / `agent/graph/`（Task 5/8/9/10 已改过）
+- 任何 `tests/test_*.py`（Task 14 范围）
+- 任何 `backend/scripts/verify_*.py`（Task 16 范围）
+
+**应当达成的效果**：
+
+- ReAct 单 Agent 路径（USE_REACT_AGENT=1 fallback 链）的 system prompt 不再向 LLM 暴露「stages ≥ 5 段必须」反模式，让 LLM 按用户真实意图出节点数（1 个 mid node 的「只想吃饭」/ 3-4 个的「家庭多停留」都合法）
+- LLM-First Planner（plan_itinerary_with_mode("llm")）冻结子策略与 edge_v1 蓝图模型字段路径完全对齐，import 通过，可作为 LangGraph 主路径降级兜底
+- executor 用户确认后下发预约 / 门票 Tool，OrderRecord 满足 edge_v1 schema 必填字段（target_kind / target_name / detail）
+- narrator fallback 模板（无 LLM key 时启用）按 home 起讫跳过 + restaurant/poi 节点派文案，文案不再泄露 home 抽象节点
+- Wave 1-4 单测 175 项零失败，Wave 5 主路径无回归
+
+
+---
+
+## 问题：itinerary-edge-model-refactor Wave 6 / Task 12 — 前端 MapOverlay + DecisionTraceCard 适配 edge_v1
+
+**用户原问**：（spec 自动派单）执行 Task 12：MapOverlay 改读 itinerary.nodes、只对 target_kind ∈ {poi, restaurant} 画 marker、home 不画；DecisionTraceCard violation field_path 引用从 stages[i] 改 nodes[i]/hops[j]，文案不变；store.ts previousItinerary 快照逻辑不变；sse.ts 不改。
+
+**摸查结论**：
+- `frontend/lib/types.ts` —— Task 11 已完成 ActivityNode / Hop / ScheduleEntry 类型迁移，Itinerary 已是 nodes/hops/schedule/schema_version
+- `frontend/components/MapOverlay.tsx` —— 仍读旧 stages 字段（lat/lng/poi_id/restaurant_id），需要全面改为读 nodes 字段
+- `frontend/components/DecisionTraceCard.tsx` —— 实际从未渲染 violation.field_path（只渲染 violation_codes + feedback_summary），仅需补充注释说明 edge_v1 兼容
+- `frontend/lib/store.ts` —— previousItinerary 已是 `structuredClone(itinerary)` 整体克隆，零 stages 引用，无需改动
+- `frontend/lib/sse.ts` —— grep 验证无 stages 引用（解析器与字段无关）
+
+**修改方案**：
+- MapOverlay: `buildStageCoords` → `buildNodeCoords`；过滤 `target_kind === "home"` + 无 lat/lng 的节点；marker 编号用 `visibleIdx`（1-based）对齐 ItineraryCard 时间轴；`InfoWindow` 读 `node.kind / start_time / duration_min / note`，端时间用 `addMinutesToHHMM(start, duration)` 推导；`FallbackList` 也跳过 home，并提示「共 N 段通勤」
+- DecisionTraceCard: 仅在文件头补注释说明「field_path 在前端从未渲染，仅 codes 字面渲染，无需改组件」
+- store.ts: 不改
+
+**修改的代码文件**：
+- `frontend/components/MapOverlay.tsx`（重写）
+- `frontend/components/DecisionTraceCard.tsx`（仅头注释）
+
+**应当达成的效果**：
+- typecheck / lint / vitest 全过（30/30 通过）
+- 地图只画 POI/餐厅 marker，home 不画
+- marker 编号 1, 2, 3... 对齐 ItineraryCard 可见节点序号（不算 home）
+- InfoWindow 时间从 nodes 字段计算，文案体感不变
+- 任何 schema 字段名漂移在 edge_v1 下不再报 typecheck 错误
+
+**验证**：
+```
+$ pnpm typecheck  → Exit 0
+$ pnpm lint       → Exit 0（仅 ShareModal 一个无关的 <img> 警告）
+$ pnpm test --run → 2 files, 30/30 tests passed
+```
+
+
+---
+
+## 问题：itinerary-edge-model-refactor Task 15（Wave 7）—— 新建 fuzz invariants 测试
+
+**用户原问**：（spec 自动派单）执行 Task 15：新建 `tests/test_edge_model_invariants.py`，随机 fuzz 10 个 blueprint（mid nodes 1~5、target_kind 随机、target_id 从 mock 随机选）跑 assemble，每次断言 8 条不变量。
+
+**解决方案**：
+
+新建 `backend/tests/test_edge_model_invariants.py`：
+
+1. 桥接套路绕过 `agent/__init__.py` eager-import（与 test_assemble_blueprint.py 同款）。
+2. `_make_random_blueprint(rng, pois, restaurants)`：用私有 `random.Random(seed)` 实例（不碰模块级 random），按 50/50 概率从 POI / 餐厅候选选；30% 概率把第二个节点的 target_kind/target_id 复制为第一个节点（触发 in_place hop 1 级降级）。
+3. `_assert_invariants(itin, blueprint)`：8 条不变量逐条 assert，失败消息含 `[I#]` 标识便于追根因。
+4. `@pytest.mark.parametrize("seed", list(range(10)))` 跑 10 个固定种子。
+
+**根因分析（fuzz 输入域调整）**：
+
+首轮跑 seed=6 / 9 失败，failing example 显示 `hops[i].start_time='00:13'` 对应分钟数 1453 → cursor 跨过 24:00 后 `_fmt_hhmm` 静默 `% (24*60)` 截断成 00:13。这不是 assemble bug：design.md 与 blueprint._temporal_critic 都明确**不支持跨日**，blueprint critic 已在 LLM 路径上拒绝 last_end > 24*60 的蓝图。fuzz 直接喂 assemble 绕过 critic，须自行约束输入域。
+
+修正：fuzz generator 加 `_HOP_BUDGET_MIN=240` 与「累计 duration 上限 = (24h - start_min - HOP_BUDGET)」逻辑，剩余预算不足下限时整体提前结束（保证 nodes ≥ 1）；start_hour 收窄到 [10, 13]，给 6 hops × ~30min 留 35min 余量。
+
+**修改的代码文件**：
+
+- `backend/tests/test_edge_model_invariants.py`（新增）
+
+**应当达成的效果**：
+
+- 10 个种子全过；任一种子失败可用 `pytest -k "test_fuzz_invariants_hold[3]"` 复现
+- 不变量 I1-I8 任一被破坏即失败消息含明确编号 + 节点/跳号定位
+- 不修改任何运行时代码；fuzz 输入域对齐 design.md「不支持跨日」边界
+
+**验证**：
+
+```
+$ uv run pytest tests/test_edge_model_invariants.py -v
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[0]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[1]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[2]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[3]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[4]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[5]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[6]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[7]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[8]  PASSED
+tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
+======================================== 10 passed in 0.18s ========================================
+```
+
+并联跑 `test_edge_model_invariants + test_assemble_blueprint + test_lookup_hop` → 30/30 passed，确认无回归。
+
+
+---
+
+问题：执行 itinerary-edge-model-refactor Wave 7 Task 14：把所有现有测试文件从旧 stages schema 迁移到新 edge_v1 schema（ActivityNode + Hop）。
+解决方案：
+- 对 8 个待修测试文件按通用规则做字段路径替换：`itinerary.stages` → `itinerary.nodes`、`s.kind=="主活动"` → `n.target_kind=="poi"`、`s.poi_id/s.restaurant_id` → `n.target_id`、`s.start` → `n.start_time`、`COMMUTE_INFEASIBLE` → `HOP_INFEASIBLE`、`segment_decider.decide_segments` → `node_decider.decide_nodes`。
+- 对硬塞 5 段断言改为「按 decide_nodes(intent) 期望中间节点 kind」+「至少含必要 mid kinds」+「首尾 home」。
+- 对手工拼 `Itinerary(stages=[ItineraryStage(...)])` 的测试统一改用 `assemble_from_blueprint(intent, PlanBlueprint(nodes=[...]), user_profile)`，把不变量交给 assemble + Pydantic model_validator 强校验。
+- `OrderRecord` 加 `target_kind` 字段（与新 schema 对齐）。
+- `evaluate_poi/evaluate_restaurant` 接受可选 `node` 形参（向后兼容，不传仍 ok）。
+修改的代码文件：
+- backend/tests/test_8_scenarios.py（替换 stages → nodes，断言 mid_kinds 命中 decide_nodes 期望）
+- backend/tests/test_agent_flow.py（5 段硬断言 → mid_node + home 断言）
+- backend/tests/test_decision_trace.py（重写：用 assemble 拼合法 Itinerary，violation_codes 改 hop_infeasible）
+- backend/tests/test_decision_trace_integration.py（重写：BlueprintStage → BlueprintNode + 删除 NONE 过程段）
+- backend/tests/test_e2e_refinement.py（替换 stages → nodes）
+- backend/tests/test_llm_planner.py（替换 stages 引用 + decide_segments → decide_nodes）
+- backend/tests/test_planner_hybrid.py（重写：通过 assemble 构造 Itinerary，hard 违规与时段测试条件化处理）
+- backend/tests/test_refiner_duration_consistency.py（替换 stages → nodes/hops 断言）
+- backend/tests/test_social_compat.py（重写：删除 ItineraryStage import，用 assemble + OrderRecord(target_kind) 构造）
+- backend/tests/test_sse_critic_events.py（COMMUTE_INFEASIBLE → HOP_INFEASIBLE，field_path 改 hops[0].minutes）
+应当达成的效果：
+- 全量 pytest 464 passed + 1 skipped（仅 1 个 test_critic_catches_unavailable_slot 因构造时刻被 lookup_hop 推后偏离 17:00 时主动 skip，不影响 schema 正确性）
+- verify_schemas 6/6 通过
+- verify_phase0_5 8/8 通过
+- 所有测试断言保留意图（场景调性匹配 / 节点完整度 / 总时长边界 / D9 禁词），仅字段路径替换
+
+
+---
+
+## 问题：itinerary-edge-model-refactor Task 17（Wave 9 终极门禁）—— 浏览器端到端验证 edge_v1 schema
+
+**用户原问**：跑 `pnpm dev` 后用「家庭主线」场景输入家庭主线 prompt，确认 6 个验收点：(a) ITINERARY_READY payload 含 schema_version="edge_v1" + nodes + hops + schedule；(b) ItineraryCard 含 hop 行细长条；(c) MapOverlay 只画节点 marker（不画 home）；(d) DecisionTraceCard 不显示「LLM 修正后通过」误导 chip；(e) 不再触发 ILS 死循环；(f) console 无 schema_version 兼容警告。
+
+**解决方案**：
+
+1. **启动服务**：
+   - backend：`uv run uvicorn main:app --port 8000 --reload`，3 秒 Application startup complete
+   - frontend：`pnpm dev`，4.4 秒 Ready in
+2. **浏览器自动化**（chrome-devtools MCP）：
+   - 打开 http://localhost:3000，等首屏渲染
+   - 点 S1「家庭主线」按钮（按钮自带 prompt「今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。」）
+   - 等行程出现（90s 超时给真 LLM 留时间，实际 ~30s 出方案）
+3. **取证**：
+   - 用 `get_network_request` 把 `/chat/turn` 的 SSE 响应保存到磁盘，从 itinerary_ready 事件解析 payload
+   - 用 `evaluate_script` 数 hop 行 / marker / final_strategy chip / 「LLM 修正后通过」存在性
+   - 用 `list_console_messages` 看 warn/error
+   - 用 `take_screenshot` 截全屏证据
+4. **6 项验收**全部 ✅ 通过：
+
+```
+| #   | 验收点                                           | 实际证据                                                                |
+|-----|--------------------------------------------------|------------------------------------------------------------------------|
+| (a) | ITINERARY_READY 含 edge_v1 + nodes/hops/schedule | schema_version="edge_v1"；4 nodes（home/poi/restaurant/home）/3 hops/7 schedule |
+| (b) | ItineraryCard 含 hop 行细长条                    | DOM 命中「通勤 9 分钟」「通勤 6 分钟」「通勤 12 分钟」3 条                |
+| (c) | MapOverlay 只画节点 marker，home 不画            | `.amap-marker` 实际 2 个（编号 1=POI / 2=餐厅）；MapOverlay debug 日志「可见(非 home)节点=2」 |
+| (d) | DecisionTraceCard 无「LLM 修正后通过」chip       | 显示「LLM 直出 · 4 个备选」（final_strategy="llm_first"，critic_attempts=[]） |
+| (e) | 不再触发 ILS 死循环（核心症状回归）              | agent_thought 流仅 6 条，无「ILS 兜底重排」字样；critic_attempts=[]（一次过） |
+| (f) | console 无 schema_version 兼容警告               | 仅 1 条无关 404 + 1 条 Canvas2D 性能提示；无 `[store] itinerary_ready schema_version 不兼容` |
+```
+
+5. **关键 SSE payload 摘要**（reqid=25 `/chat/turn`）：
+   - response header `x-turn-kind: langgraph` + `x-planner-mode: llm` 透传成功
+   - itinerary_ready: schema_version="edge_v1"，total_minutes=242，blueprint_rationale 真 LLM 输出（非 stub），4 个 alternatives_considered
+   - hops: h0 taxi(real_route 9min) / h1 haversine_estimated(6min) / h2 taxi(real_route 12min) —— 三级降级都触发到了（lookup_hop 实际工作）
+   - schedule: n0/n3 hidden=true（home 节点不渲染时间轴行），4 visible（hop+poi+hop+restaurant 中间夹一个 hop）
+   - decision_trace.final_strategy="llm_first" —— 一次过，没走 ILS / 规则兜底链路
+6. **清理**：stop 两个 dev server 进程；删 SSE 中间产物；保留截图作证据
+
+**修改的代码文件**：无（纯验证任务，按 Wave 9 边界规则不改任何代码）
+
+**生成产物**：
+- `backend/exp_log_task17_screenshot.png`（1003247 bytes，全屏 Demo 证据图，evaluate_script 排版正常 + hop 行 + map marker 都在）
+
+**应当达成的效果**：
+
+- itinerary-edge-model-refactor Wave 9 终极门禁 ✅ 通过
+- ILS 死循环回归彻底确认消除（家庭主线一次出方案、零 critic 重排、`final_strategy="llm_first"`）
+- edge_v1 schema 在 SSE 序列化 + 前端解析 + 时间轴渲染 + 地图 marker 全链路无漂移
+- DecisionTraceCard 不再显示「LLM 修正后通过」误导文案（因为 critic 一次过，根本不走「修正」路径）
+- 任务 17 可以勾掉，整个 itinerary-edge-model-refactor spec 收尾

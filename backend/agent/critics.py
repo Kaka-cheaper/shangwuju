@@ -1,23 +1,51 @@
-"""agent.critics —— LLM-Modulo 风格的 Critic 验证层（A+C 混合方案的 C 段）。
+"""agent.critics —— LLM-Modulo 风格的 Critic 验证层（A+C 混合方案的 C 段，edge_v1）。
 
 学术依据：[Kambhampati et al. 2024 LLMs Can't Plan, But Can Help Planning in
 LLM-Modulo Frameworks (NeurIPS 2024)] + [Kim et al. Robust Planning with
 LLM-Modulo Framework arXiv:2405.20625]——LLM 直接生成的方案常违背硬约束，
 解法是用一组规则化、便宜、可证伪的 Critic 验证后再决定是否反馈给 LLM 重写。
 
+【edge_v1 字段路径迁移（Wave 5 Task 9）】
+
+旧 hybrid critic 用 `plan.stages` 遍历，按 `stage.kind`（"主活动" / "用餐"）找目标段。
+edge_v1 起 `Itinerary.stages` 已被 `Itinerary.nodes` 替换：
+
+```
+旧：next(s for s in plan.stages if s.kind == "用餐").restaurant_id
+新：next(n for n in plan.nodes if n.target_kind == "restaurant").target_id
+```
+
+ActivityNode 的字段映射：
+- 旧 stage.kind="主活动"  → 新 node.target_kind="poi"
+- 旧 stage.kind="用餐"    → 新 node.target_kind="restaurant"
+- 旧 stage.poi_id         → 新 node.target_id（target_kind="poi"）
+- 旧 stage.restaurant_id  → 新 node.target_id（target_kind="restaurant"）
+- 旧 stage.start          → 新 node.start_time
+- 旧 stage.kind 中文标签   → 新 node.kind 中文标签（"主活动"/"用餐" 仍保留）
+
+「段缺失」语义现在 == 「中间节点 kind 缺失」：把 decide_nodes(intent) 的输出与
+itinerary 中 mid nodes 的 kind 集合对比。home 节点（target_kind="home"）不参与
+段缺失判定。
+
 本模块提供 4 个 Critic：
-- HardConstraintCritic ：距离上限、总时长、步数（≥5 段）
-- TimeWindowCritic     ：餐厅时段真的可订（mock 数据 reservation_slots）
+- HardConstraintCritic ：距离上限、总时长、节点 kind 完整度
+- TimeWindowCritic     ：餐厅节点 start_time 真的可订（mock 数据 reservation_slots）
 - BudgetCritic         ：人均预算是否超限（user.default_budget）
 - StyleCritic          ：主活动 POI / 用餐餐厅 suitable_for 含 social_context
 
 Critic 不抛异常；通过 CriticReport.passed + violations 表达结果。
 违反时 violations 列出可读中文原因，给 ILS 重排或 LLM backprompt 用。
 
+⚠️ 与 `agent/v2/critics_v2.py` 的关系：
+v2/critics_v2.py 是 LangGraph 主路径用的 Itinerary 级 critic（含 hop 可达性 / 营业时间
+精确校验等 8 项）。本文件是 A+C 混合范式（hybrid ILS）专用的轻量 critic，仅做 4 项
+快速判定，且不验通勤可达性（hybrid 内部已通过 utility 函数粗筛距离）。
+
 不负责：
 - 候选生成、搜索（在 planner_hybrid.py）
 - 权重决策（在 weights_llm.py）
 - Tool 调用
+- hop 可达性 / 时间轴精确校验（在 v2/critics_v2.py）
 """
 
 from __future__ import annotations
@@ -27,7 +55,7 @@ from typing import Optional
 
 from data.loader import load_restaurants, load_user_profile
 from schemas.intent import IntentExtraction
-from schemas.itinerary import Itinerary
+from schemas.itinerary import ActivityNode, Itinerary
 
 
 # ============================================================
@@ -72,17 +100,54 @@ class CriticReport:
 
 
 # ============================================================
+# 节点查找辅助（edge_v1：替代旧 plan.stages 遍历）
+# ============================================================
+
+
+def _find_main_node(plan: Itinerary) -> Optional[ActivityNode]:
+    """找主活动节点：第一个 target_kind="poi" 的中间节点。
+
+    `plan.nodes` 首尾固定为 home（不参与查找）；中间节点按时间序排列。
+    取第一个 POI 节点作为「主活动」（与 rule planner 构造顺序对齐）。
+    """
+    for node in plan.nodes:
+        if node.target_kind == "poi":
+            return node
+    return None
+
+
+def _find_dining_node(plan: Itinerary) -> Optional[ActivityNode]:
+    """找用餐节点：第一个 target_kind="restaurant" 的中间节点。"""
+    for node in plan.nodes:
+        if node.target_kind == "restaurant":
+            return node
+    return None
+
+
+def _mid_node_kinds(plan: Itinerary) -> set[str]:
+    """收集 itinerary 的中间节点 kind 集合（不含首尾 home）。
+
+    edge_v1 中 ActivityNode.kind 是中文标签（"主活动" / "用餐" / ...）；
+    与 decide_nodes(intent) 的返回元素类型对齐，可直接做集合差比对。
+    """
+    return {
+        n.kind
+        for n in plan.nodes
+        if n.target_kind in ("poi", "restaurant")
+    }
+
+
+# ============================================================
 # 4 个 Critic
 # ============================================================
 
 def _hard_constraint_critic(
     plan: Itinerary, intent: IntentExtraction
 ) -> list[CriticViolation]:
-    """C1：距离 / 总时长 / 段数。
+    """C1：距离 / 总时长 / 节点 kind 完整度。
 
-    段数判定（Phase 0.10）：按 segment_decider 决定本场景应有的段，而非硬要 5 段。
-    旧行为：5 段全部缺一不可（家庭场景没问题，1h 场景永远过不了）
-    新行为：段集合取自 decide_segments(intent)
+    节点完整度判定（edge_v1）：按 decide_nodes(intent) 决定本场景应有的中间节点
+    kind 列表，与 itinerary 中 mid nodes 的 kind 集合对比；不再硬要 5 段。
     """
     out: list[CriticViolation] = []
 
@@ -110,18 +175,21 @@ def _hard_constraint_critic(
             )
         )
 
-    # 段数：按 intent 决定的 segments 判（不再硬要 5 段）
-    from .segment_decider import decide_segments
-    required_kinds = decide_segments(intent)
-    have_kinds = {s.kind for s in plan.stages}
+    # 节点 kind 完整度：按 intent 决定的 mid_nodes 判（edge_v1：不再硬要 5 段）
+    from .node_decider import decide_nodes
+    required_kinds = set(decide_nodes(intent))
+    have_kinds = _mid_node_kinds(plan)
     missing = required_kinds - have_kinds
     if missing:
         out.append(
             CriticViolation(
                 critic="hard_constraint",
                 severity="hard",
-                message=f"行程段缺失：{sorted(missing)}（按 intent 应有 {sorted(required_kinds)}）",
-                field_hint="stages",
+                message=(
+                    f"行程中间节点缺失：{sorted(missing)}"
+                    f"（按 intent 应有 {sorted(required_kinds)}，实际 {sorted(have_kinds)}）"
+                ),
+                field_hint="nodes",
             )
         )
 
@@ -131,36 +199,40 @@ def _hard_constraint_critic(
 def _time_window_critic(
     plan: Itinerary, intent: IntentExtraction  # noqa: ARG001
 ) -> list[CriticViolation]:
-    """C2：用餐段的餐厅时段真的可订（查 mock_data）。"""
+    """C2：用餐节点的餐厅时段真的可订（查 mock_data）。
+
+    edge_v1：用餐节点 == ActivityNode(target_kind="restaurant")；
+    时段 == node.start_time（HH:MM）。
+    """
     out: list[CriticViolation] = []
 
-    dining_stage = next((s for s in plan.stages if s.kind == "用餐"), None)
-    if dining_stage is None or not dining_stage.restaurant_id:
+    dining_node = _find_dining_node(plan)
+    if dining_node is None or not dining_node.target_id:
         out.append(
             CriticViolation(
                 critic="time_window",
                 severity="hard",
-                message="用餐段未关联餐厅 id",
-                field_hint="stages.用餐.restaurant_id",
+                message="用餐节点未关联餐厅 target_id",
+                field_hint="nodes[target_kind=restaurant].target_id",
             )
         )
         return out
 
     restaurants = {r.id: r for r in load_restaurants()}
-    rest = restaurants.get(dining_stage.restaurant_id)
+    rest = restaurants.get(dining_node.target_id)
     if rest is None:
         out.append(
             CriticViolation(
                 critic="time_window",
                 severity="hard",
-                message=f"餐厅 {dining_stage.restaurant_id} 不存在 mock 数据",
-                field_hint=f"stages.用餐.restaurant_id={dining_stage.restaurant_id}",
+                message=f"餐厅 {dining_node.target_id} 不存在 mock 数据",
+                field_hint=f"nodes[restaurant].target_id={dining_node.target_id}",
             )
         )
         return out
 
-    # dining_stage.start 形如 "17:30"
-    want_time = dining_stage.start
+    # dining_node.start_time 形如 "17:30"
+    want_time = dining_node.start_time
     slot = next((s for s in rest.reservation_slots if s.time == want_time), None)
     if slot is None:
         out.append(
@@ -168,7 +240,7 @@ def _time_window_critic(
                 critic="time_window",
                 severity="hard",
                 message=f"餐厅 {rest.id} 无 {want_time} 时段配置",
-                field_hint=f"stages.用餐.start={want_time}",
+                field_hint=f"nodes[restaurant].start_time={want_time}",
             )
         )
     elif not slot.available:
@@ -184,7 +256,7 @@ def _time_window_critic(
                 critic="time_window",
                 severity="hard",
                 message=msg,
-                field_hint=f"stages.用餐.start={want_time}",
+                field_hint=f"nodes[restaurant].start_time={want_time}",
             )
         )
     return out
@@ -200,22 +272,22 @@ def _budget_critic(
     budget_cap = profile.default_budget * party * 1.5
 
     # 餐厅人均
-    dining = next((s for s in plan.stages if s.kind == "用餐"), None)
+    dining = _find_dining_node(plan)
     rest_cost = 0.0
-    if dining and dining.restaurant_id:
+    if dining and dining.target_id:
         rest = next(
-            (r for r in load_restaurants() if r.id == dining.restaurant_id), None
+            (r for r in load_restaurants() if r.id == dining.target_id), None
         )
         if rest:
             rest_cost = float(rest.avg_price) * party
 
     # POI 门票（取 price_range 下限作下界估算）
-    main = next((s for s in plan.stages if s.kind == "主活动"), None)
+    main = _find_main_node(plan)
     poi_cost = 0.0
-    if main and main.poi_id:
+    if main and main.target_id:
         from data.loader import load_pois
 
-        poi = next((p for p in load_pois() if p.id == main.poi_id), None)
+        poi = next((p for p in load_pois() if p.id == main.target_id), None)
         if poi and poi.price_range:
             poi_cost = float(poi.price_range[0]) * party
 
@@ -242,11 +314,11 @@ def _style_critic(
     out: list[CriticViolation] = []
     ctx = intent.social_context
 
-    main = next((s for s in plan.stages if s.kind == "主活动"), None)
-    if main and main.poi_id:
+    main = _find_main_node(plan)
+    if main and main.target_id:
         from data.loader import load_pois
 
-        poi = next((p for p in load_pois() if p.id == main.poi_id), None)
+        poi = next((p for p in load_pois() if p.id == main.target_id), None)
         if poi is not None and ctx not in poi.suitable_for:
             out.append(
                 CriticViolation(
@@ -256,14 +328,14 @@ def _style_critic(
                         f"主活动 POI 「{poi.name}」未适配场景调性 {ctx}（实际 "
                         f"suitable_for={poi.suitable_for}）"
                     ),
-                    field_hint=f"stages.主活动.poi_id={poi.id}",
+                    field_hint=f"nodes[poi].target_id={poi.id}",
                 )
             )
 
-    dining = next((s for s in plan.stages if s.kind == "用餐"), None)
-    if dining and dining.restaurant_id:
+    dining = _find_dining_node(plan)
+    if dining and dining.target_id:
         rest = next(
-            (r for r in load_restaurants() if r.id == dining.restaurant_id), None
+            (r for r in load_restaurants() if r.id == dining.target_id), None
         )
         if rest is not None and ctx not in rest.suitable_for:
             out.append(
@@ -274,7 +346,7 @@ def _style_critic(
                         f"用餐餐厅「{rest.name}」未适配场景调性 {ctx}（实际 "
                         f"suitable_for={rest.suitable_for}）"
                     ),
-                    field_hint=f"stages.用餐.restaurant_id={rest.id}",
+                    field_hint=f"nodes[restaurant].target_id={rest.id}",
                 )
             )
     return out

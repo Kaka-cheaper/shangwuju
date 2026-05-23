@@ -82,29 +82,34 @@ def _format_companions(companions: list) -> str:
     return "和" + "、".join(roles)
 
 
-def _stage_to_phrase(stage: dict, idx: int, total: int) -> Optional[str]:
-    """把单个 stage 转一句话；返回 None 表示不出现在开场白里（如「转场」「出发」太琐碎）。"""
-    kind = (stage.get("kind") or "").strip()
-    title = (stage.get("title") or "").strip()
-    start = (stage.get("start") or "").strip()
-    note = (stage.get("note") or "").strip()
+def _node_to_phrase(node: dict, idx: int, total: int) -> Optional[str]:
+    """把单个 node 转一句话；返回 None 表示不出现在开场白里（如 home 起讫太琐碎）。
 
-    if kind in ("出发", "返回"):
-        # 首段说"X 出发"，末段说"X 回家"，其它跳过
+    edge_v1 nodes 首尾固定 home（target_kind="home"）；narrator 不讲 home 节点
+    （home 是抽象起讫，用户看不到）。中间节点按 kind / target_kind 派文案。
+    """
+    target_kind = (node.get("target_kind") or "").strip()
+    kind = (node.get("kind") or "").strip()
+    title = (node.get("title") or "").strip()
+    start = (node.get("start_time") or "").strip()
+    note = (node.get("note") or "").strip()
+
+    # home 节点：仅当首段 / 末段时点一句"出发 / 回家"，其它跳过
+    if target_kind == "home":
         if idx == 0:
-            return f"{start} 从家出发"
+            return f"{start} 从家出发" if start else "从家出发"
         if idx == total - 1:
-            return f"{start} 打车回家"
+            return f"{start} 打车回家" if start else "打车回家"
         return None
-    if kind == "转场":
-        return None
-    # 主活动 / 用餐 / 附加
+
     short_title = title.split(" · ")[-1] if " · " in title else title
-    if kind == "用餐":
+    # 用餐节点：尽量带上预约信息
+    if target_kind == "restaurant" or "用餐" in kind or "夜宵" in kind:
         if note and "预约" in note:
             return f"{start} 到{short_title}，{note.replace('待你确认后为你预约', '给你预约了')}"
         return f"{start} 到{short_title}吃饭"
-    if kind == "主活动":
+    # POI 节点：按 kind 区分主活动 / 自由 / 其他
+    if "主活动" in kind:
         return f"{start} 去{short_title}"
     return f"{start} {short_title}"
 
@@ -124,11 +129,14 @@ def _template_narration(
         [c.model_dump() if hasattr(c, "model_dump") else c for c in intent.companions]
     )
 
-    # 抽几个关键 stage
-    stages_dump = [s.model_dump() if hasattr(s, "model_dump") else s for s in itinerary.stages]
+    # 抽几个关键 node（edge_v1：跳过 home 起讫由 _node_to_phrase 内部决定；
+    # 这里全量传入以保留首尾"出发 / 回家"的可选点缀）
+    nodes_dump = [
+        n.model_dump() if hasattr(n, "model_dump") else n for n in itinerary.nodes
+    ]
     phrases: list[str] = []
-    for i, s in enumerate(stages_dump):
-        p = _stage_to_phrase(s, i, len(stages_dump))
+    for i, n in enumerate(nodes_dump):
+        p = _node_to_phrase(n, i, len(nodes_dump))
         if p:
             phrases.append(p)
 

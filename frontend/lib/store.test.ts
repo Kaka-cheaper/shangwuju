@@ -61,8 +61,11 @@ describe("store · refinement", () => {
   it("cancel：推 agent 消息 + warn toast", () => {
     useChatStore.setState({
       itinerary: {
+        schema_version: "edge_v1",
         summary: "x",
-        stages: [],
+        nodes: [],
+        hops: [],
+        schedule: [],
         orders: [],
         total_minutes: 0,
       },

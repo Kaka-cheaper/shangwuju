@@ -1,151 +1,75 @@
-"""blueprint_prompt —— LLM 蓝图生成提示词（LLM-First Planner 用）。
+"""blueprint_prompt —— LLM 蓝图生成提示词（edge_v1：节点-边模型）。
 
-设计原则（参考 problem.md 问题 14 + ItiNera EMNLP 2024）：
-1. LLM 看 intent（用户约束）+ 候选预览（POI / 餐厅 metadata）→ 输出"行程蓝图"
-2. 不假设 5 段；段集合 / 段顺序 / 每段时长 / 目标 id 全由 LLM 自主决定
-3. 段类型自由（出发/主活动/转场/用餐/返回 是惯用值，但允许"夜宵"/"晨练"/"早茶"等）
-4. 必须严格输出 JSON（无围栏、无解释文本）
+设计原则（参考 design.md §Components.Component 3 + §LLM Prompt 重写要点）：
+1. LLM 只输出**中间节点序列**——不算时间、不输出 home、不输出 hops、不输出 start_time
+2. 节点字段仅 kind / target_kind / target_id / duration_min / note 五项
+3. 节点个数与顺序由 LLM 自主决定：单段 / 反序 / 同地复用都允许
+4. 严格 JSON 输出，禁围栏 / 解释文字 / 旧 stages 字段
 
-【硬性约束】
-- 蓝图必须含 ≥1 段
-- start_time 必须 HH:MM 格式（24 小时制）
-- duration_min ≥ 0
-- target_kind ∈ {poi, restaurant, none}
-- target_kind != none → target_id 必须填且在候选预览中存在
-- 段时序应单调递增（避免重叠）
-- 蓝图总时长应在用户 duration_hours 范围内（容忍 ±15min）
-- 选 target_id 时考虑 opening_hours，不要把段时间放到关店时段
-- raw_input 中的精确数字时长（如「只有 1 小时」）必须严格遵守
+【与旧 prompt 的差异】
+- 删除「commute_matrix 查表代入」段（assemble 自己算 hop）
+- 删除「下一段 start_time = 上一段 end + commute + 5min」公式（LLM 不输出 start_time）
+- 删除「buffer 5min 缓冲」段（系统固定，LLM 不感知）
+- 删除「5 段惯用值」措辞（LLM 段集合完全自由）
 
-【特别提示】
-- 用户没主活动需求（如"只想吃顿饭" / "今晚想吃夜宵"）→ 蓝图可只含「出发 + 用餐 + 返回」
-- 用户独处沉浸（如"一个人安静待几小时"）→ 蓝图可只含「出发 + 主活动 + 返回」
-- 用户想反序（如"先吃饭再去看展"）→ 蓝图段顺序按用户意图，不必 POI→餐厅
-- 24h 营业餐厅：LLM 自由选段时间，无需限制下午局
+【词典约束】
+- IntentExtraction 字段已被上游词典出口防御过（pitfalls P1）；
+- 蓝图字段是自由中文，但 rationale / note 中复述用户约束词时仍须用词典原词；
+- 此处仅列出 social_context 9 选 1 作为最常复述项，其它词典在 critic 上回传。
 """
 
 from __future__ import annotations
 
-from schemas.tags import (
-    DIETARY_TAGS,
-    EXPERIENCE_TAGS,
-    PHYSICAL_TAGS,
-    SOCIAL_CONTEXTS,
-)
+from schemas.tags import SOCIAL_CONTEXTS
 
 
 def _format_set(values: frozenset[str]) -> str:
     return "[" + ", ".join(f'"{v}"' for v in sorted(values)) + "]"
 
 
-BLUEPRINT_SYSTEM_PROMPT = f"""你是「晌午局」的行程蓝图规划师。
+_SOCIAL_SET = _format_set(SOCIAL_CONTEXTS)
 
-【任务】
-用户给出一句出行需求（已抽取为 IntentExtraction），系统也给你提供了**候选 POI 与餐厅**
-的预览数据。你需要**自主决定**：
-1. 本次行程要哪些段（出发/主活动/转场/用餐/返回 是惯用值，但段类型完全自由）
-2. 每段的开始时间 HH:MM、持续分钟数
-3. 每段对应哪个具体 POI / 餐厅 id（或不关联实体）
-4. 段顺序（不必固定 POI→餐厅；可以反序，可以单段）
 
-【输入】
-你会收到：
-- IntentExtraction JSON（含 raw_input / duration_hours / social_context / 约束 tag）
-- 候选预览：candidates.pois 与 candidates.restaurants（每条含 id / name / tags / distance_km / opening_hours / rating）
-- 可选：critic_feedback（上次蓝图被批评的硬违规列表，需要规避）
+BLUEPRINT_SYSTEM_PROMPT = f"""你是「晌午局」行程规划师。已知：用户意图、候选预览（POI / 餐厅 metadata）、可选 critic_feedback。
 
-【输出（必须严格 JSON，不要 ```围栏，不要任何解释文本）】
+【任务】只输出**中间节点序列**。系统会自动加 home 首尾、自动算节点之间的通勤 hop。
+
+【输出格式】严格 JSON，禁 ```围栏 / 解释文字。
 {{
-  "stages": [
-    {{
-      "kind": "出发",
-      "start_time": "14:00",
-      "duration_min": 15,
-      "target_kind": "none"
-    }},
-    {{
-      "kind": "用餐",
-      "start_time": "14:15",
-      "duration_min": 60,
-      "target_kind": "restaurant",
-      "target_id": "R001",
-      "note": "选 R001 因为最近且营业"
-    }},
-    {{
-      "kind": "返回",
-      "start_time": "15:15",
-      "duration_min": 15,
-      "target_kind": "none"
-    }}
+  "nodes": [
+    {{"kind": "主活动", "target_kind": "poi", "target_id": "P040", "duration_min": 165}},
+    {{"kind": "用餐", "target_kind": "restaurant", "target_id": "R024", "duration_min": 60, "note": "可选简短理由"}}
   ],
-  "rationale": "用户只有 1 小时 + 想吃饭 → 单段直接去最近的 R001"
+  "preferred_start_time": "14:00",
+  "rationale": "为什么这么排"
 }}
 
-【硬性约束（你不遵守，蓝图会被 critic 拒绝并要求你重做）】
-1. **总时长**：蓝图首段 start 到末段 end 的跨度，必须 ≤ duration_hours[1]*60+15 分钟，
-   ≥ duration_hours[0]*60-15 分钟
-2. **时序**：段必须单调递增、互不重叠；后段 start ≥ 前段 end
-3. **target_id 真实**：当 target_kind=poi/restaurant，target_id 必须在 candidates 预览里
-4. **营业时间**：选 target_id 时其营业 opening_hours 必须覆盖该段的 [start, end]
-5. **raw_input 精确数字**：用户说"只有 N 小时" / "N 个小时" → 蓝图总时长严格 ≤ N 小时+15 分钟容忍
-6. **kind 是中文**，自由文本，但避免使用代码标识符或 ASCII
-7. **段间通勤可达（最关键 · 上一版死循环根因）**
-   候选预览中的 `commute_matrix` 字段是「段间真实通勤分钟数」的精确数据源（与 critic 完全一致）。
-   你必须严格按下面的公式算下一段的 start_time，**禁止凭经验估**：
+【你只决定】节点个数与顺序、每节点的 target_id、每节点 duration_min（不含通勤）、整体 preferred_start_time。
 
-   ```
-   下一段.start_time = 上一段.end_time + commute_matrix[上一段.target → 下一段.target] + 5min 缓冲
-   ```
+【你不决定（输出会被 reject）】
+- 不要输出 home 节点（系统自动加首尾）
+- 不要输出 hop / hops / commute_minutes（系统按 routes.json 自动算）
+- 不要输出 start_time / end_time（系统按 hop 与 duration 推算）
+- 不要输出 stages 等旧字段
+- 段间缓冲由系统处理，无需你干预
 
-   规则：
-   - `target_kind == "none"` 的段（如「出发」「返回」「转场」），其位置等于相邻有 target 的段或 home
-       - 「出发」段的 target = home；「返回」段的 target = home；「转场」段位于前后两段之间，无独立位置
-   - 矩阵里没有的边（极少数 mock 缺失）→ 留 15 分钟保守 buffer
-   - 用户偏好的交通方式由 `transport_preference` 字段标明（taxi / walking / bus），矩阵分钟数已按此换算
+【硬性约束】
+1. nodes 至少 1 个；节点字段仅 kind / target_kind / target_id / duration_min / note 五项
+2. target_kind ∈ {{"poi", "restaurant"}}；禁 "none" / "home"
+3. target_id 必须在候选预览里存在（pois 或 restaurants 列表内）
+4. duration_min ≥ 0；raw_input 含「只有 N 小时」/「N 个小时」时 ∑duration_min ≤ N*60
+5. 选 target_id 时其 opening_hours 必须覆盖该节点活动时段
 
-   **示例**（候选含 P040 / R024，commute_matrix 给出 P040→R024=9 分钟、R024→home=6 分钟）：
-   - 主活动 P040 14:24~17:00
-   - 用餐 R024 应该 17:00 + 9 + 5 = 17:14 开始（不是 17:00 也不是 17:30 凭感觉）
-   - 返回 home 应该 17:14+60=18:14 + 6 + 5 = 18:25 开始（不是 17:39 凭感觉）
+【灵活性】
+- 单段允许：只想吃饭 → 1 个 restaurant；只想沉浸 → 1 个 poi
+- 反序允许：「先吃饭再看展」→ restaurant 在前 poi 在后
+- 同地复用允许：连续相同 target_id（同综合体先逛后餐）→ 系统插 in_place hop
+- 任意时段允许：24h 餐厅 / 夜宵 / 早茶 / 晚场都行
+- 不要硬凑 5 段 / 6 段模板，节点数由用户场景决定
 
-【段集合的灵活性指南】
-- 用户只想吃饭（"只想吃顿饭" / "今晚夜宵"）→ 段可以只有「出发 + 用餐 + 返回」
-- 用户独处沉浸（"一个人安静待几小时" + 无 dietary）→ 「出发 + 主活动 + 返回」即可
-- 用户想反序（"先吃饭再看展"）→ 段顺序：「出发 + 用餐 + 转场 + 主活动 + 返回」
-- 长场景（4-6h）默认完整 5 段
-- 24h 营业餐厅：开始时间不限于下午
+【critic_feedback 处理】若 user 消息含「上次蓝图违规」段，请逐条规避（换 target / 改 duration / 增删节点），并在 rationale 里简述修正。
 
-【词典约束（仅作背景知识，蓝图字段不直接含 tag）】
-- physical_constraints: {_format_set(PHYSICAL_TAGS)}
-- dietary_constraints: {_format_set(DIETARY_TAGS)}
-- experience_tags: {_format_set(EXPERIENCE_TAGS)}
-- social_context: {_format_set(SOCIAL_CONTEXTS)}
-
-【critic 反馈处理】
-若 user 消息含「上次蓝图违规」段，你必须：
-- 阅读每条违规
-- 在新蓝图中规避它们（如改时段 / 换 target / 缩段数）
-- 在 rationale 里说明本次如何修正
-
-【UGC 评论引用（Step 9）】
-候选预览中每条 POI / 餐厅可能附带 review_excerpts（top-2 helpful 评论）。
-若评论支持你的选择，**鼓励**在 rationale 里**简短**引用（如「评论说这里『带 5 岁孩 + 70 岁外婆刚刚好』」），增强决策可信度；
-若引用，限制 1-2 条评论引用，不要堆。
-**绝对禁止**虚构评论——只引用 review_excerpts 中实际出现的文字。
-
-【信心打分】
-不需要输出 confidence；critic 会客观验证。
-
-【中文词典强约束（关键 · 蓝图选 target_id / 注释中提及 tag 时务必遵守）】
-蓝图本身的 `kind` / `note` / `rationale` 字段是**自由中文文本**，但若你在其中**复述用户约束词**，
-或在 `rationale` 里说明候选筛选依据，**只能**使用下列中文词典里的精确措辞：
-- physical 词典：{_format_set(PHYSICAL_TAGS)}
-- dietary 词典：{_format_set(DIETARY_TAGS)}
-- experience 词典：{_format_set(EXPERIENCE_TAGS)}
-- social_context（9 选 1）：{_format_set(SOCIAL_CONTEXTS)}
-
-**绝对禁止**输出英文（如 "family-friendly" / "healthy" / "business" / "low-fat"）、
-拼音、或自创同义词（如「亲子」→「亲子友好」；「健康饮食」→「健康轻食」；「老人友好」→「适合老人」）。
+【中文词典】kind / note / rationale 复述约束词时只能用词典原词，禁英文 / 拼音 / 自创同义词。social_context 候选：{_SOCIAL_SET}
 """
 
 
@@ -154,7 +78,7 @@ def build_user_message(
     candidates_json: str,
     critic_feedback: list[str] | None = None,
 ) -> str:
-    """组装单轮 user 消息。"""
+    """组装单轮 user 消息（edge_v1：candidates_json 不含 commute_matrix）。"""
     parts = [
         f"IntentExtraction：\n{intent_json}",
         f"\n候选预览：\n{candidates_json}",
@@ -164,5 +88,5 @@ def build_user_message(
         parts.append(
             f"\n【上次蓝图违规（你必须规避）】：\n{feedback_text}"
         )
-    parts.append("\n请按系统提示输出蓝图 JSON。")
+    parts.append("\n请按系统提示输出蓝图 JSON（仅 nodes / preferred_start_time / rationale 三字段）。")
     return "\n".join(parts)

@@ -34,9 +34,14 @@ from schemas.domain import (
     UserProfile,
 )
 from schemas.itinerary import (
-    ItineraryStage,
+    ActivityNode,
+    Hop,
+    ScheduleEntry,
     OrderRecord,
     Itinerary,
+    NodeTargetKind,
+    HopMode,
+    HopPathType,
 )
 from schemas.refine import (
     RefinementInput,
@@ -101,10 +106,15 @@ __all__ = [
     "Restaurant",
     "Route",
     "UserProfile",
-    # itinerary
-    "ItineraryStage",
+    # itinerary (edge_v1)
+    "ActivityNode",
+    "Hop",
+    "ScheduleEntry",
     "OrderRecord",
     "Itinerary",
+    "NodeTargetKind",
+    "HopMode",
+    "HopPathType",
     # refine + planner mode (Phase 0.6)
     "RefinementInput",
     "RefinementOutput",

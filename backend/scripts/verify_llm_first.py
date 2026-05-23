@@ -31,14 +31,14 @@ SCENES = [
         "input": "周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。",
         "feedback": "只有一个小时",
         "expect_max_minutes": 90,
-        "expect_max_stages": 3,
+        "expect_max_mid_nodes": 3,
     },
     {
         "id": "S2_dining_only",
         "input": "今晚就想找个地方吃顿饭，别的不需要。",
         "feedback": None,
         "expect_max_minutes": 180,
-        "expect_min_stages": 1,
+        "expect_min_mid_nodes": 1,
     },
     {
         "id": "S3_solo_immerse",
@@ -51,7 +51,7 @@ SCENES = [
         "input": "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",
         "feedback": None,
         "expect_max_minutes": 400,
-        "expect_min_stages": 4,
+        "expect_min_mid_nodes": 2,
     },
 ]
 
@@ -95,12 +95,17 @@ def main() -> int:
                 continue
 
             itin = result.itinerary
+            # edge_v1: 中间节点 = 跳过首尾 home 的节点
+            mid_nodes = [n for n in itin.nodes if n.target_kind != "home"]
             print(
-                f"  itinerary：{len(itin.stages)} 段，{itin.total_minutes} 分钟，{elapsed_ms:.0f}ms"
+                f"  itinerary：{len(itin.nodes)} 节点（{len(mid_nodes)} 中间），"
+                f"{len(itin.hops)} 通勤段，{itin.total_minutes} 分钟，{elapsed_ms:.0f}ms"
             )
             print(f"  summary: {itin.summary}")
-            for s in itin.stages:
-                print(f"    {s.kind}: {s.start} - {s.end} | {s.title}")
+            for n in itin.nodes:
+                if n.target_kind == "home":
+                    continue
+                print(f"    {n.kind}: {n.start_time} | {n.title}")
 
             ok = True
             reasons = []
@@ -110,17 +115,17 @@ def main() -> int:
                     reasons.append(
                         f"总时长 {itin.total_minutes} > {scene['expect_max_minutes']}"
                     )
-            if "expect_max_stages" in scene:
-                if len(itin.stages) > scene["expect_max_stages"]:
+            if "expect_max_mid_nodes" in scene:
+                if len(mid_nodes) > scene["expect_max_mid_nodes"]:
                     ok = False
                     reasons.append(
-                        f"段数 {len(itin.stages)} > {scene['expect_max_stages']}"
+                        f"中间节点数 {len(mid_nodes)} > {scene['expect_max_mid_nodes']}"
                     )
-            if "expect_min_stages" in scene:
-                if len(itin.stages) < scene["expect_min_stages"]:
+            if "expect_min_mid_nodes" in scene:
+                if len(mid_nodes) < scene["expect_min_mid_nodes"]:
                     ok = False
                     reasons.append(
-                        f"段数 {len(itin.stages)} < {scene['expect_min_stages']}"
+                        f"中间节点数 {len(mid_nodes)} < {scene['expect_min_mid_nodes']}"
                     )
 
             label = scene["id"]

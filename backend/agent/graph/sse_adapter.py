@@ -225,12 +225,13 @@ async def run_graph_stream(
                         )
                         seq += 1
                     if blueprint is not None and weights is not None:
+                        # edge_v1：蓝图里只有 mid nodes（不含 home 首尾）。
                         yield _ev(
                             seq,
                             SseEventType.AGENT_THOUGHT,
                             {
                                 "text": (
-                                    f"蓝图 {len(blueprint.stages)} 段：{blueprint.rationale[:80]}"
+                                    f"蓝图 {len(blueprint.nodes)} 个节点：{blueprint.rationale[:80]}"
                                 ),
                             },
                         )
@@ -333,12 +334,13 @@ async def run_graph_stream(
                 elif node_name == "assemble":
                     itin = node_diff.get("itinerary")
                     if itin is not None:
-                        # 兜底警示：缺坐标段（assemble 找不到对应 mock 数据）
+                        # 兜底警示：edge_v1 节点缺坐标（assemble 找不到对应 mock 数据）
+                        # 只检查 target_kind ∈ {poi, restaurant}（home 节点本来就无坐标）
                         miss_coord_count = sum(
                             1
-                            for s in itin.stages
-                            if (s.poi_id or s.restaurant_id)
-                            and (s.lat is None or s.lng is None)
+                            for n in itin.nodes
+                            if n.target_kind in ("poi", "restaurant")
+                            and (n.lat is None or n.lng is None)
                         )
                         if miss_coord_count > 0:
                             yield _ev(
@@ -346,9 +348,9 @@ async def run_graph_stream(
                                 SseEventType.AGENT_THOUGHT,
                                 {
                                     "text": (
-                                        f"⚠ 有 {miss_coord_count} 段未能定位坐标"
+                                        f"⚠ 有 {miss_coord_count} 个节点未能定位坐标"
                                         f"（mock 数据可能未覆盖该 id），"
-                                        f"地图上对应段不会标注。"
+                                        f"地图上对应节点不会标注。"
                                     ),
                                 },
                             )

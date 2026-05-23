@@ -1,4 +1,4 @@
-"""tests.test_decision_trace_integration —— Step 8：DecisionTrace 在 LangGraph 中的注入。
+"""tests.test_decision_trace_integration —— Step 8：DecisionTrace 在 LangGraph 中的注入（edge_v1）。
 
 覆盖：
 1. planner_node 写 alternatives_considered（dict 形式）
@@ -8,13 +8,21 @@
 5. 一次性通过场景：trace 有 weights / blueprint_rationale，无 critic_attempts / fallback
 
 不调真 LLM；用最小 stub 蓝图。
+
+【edge_v1 迁移（Wave 7 Task 14）】
+
+旧测试构造 5 段 BlueprintStage 蓝图（含 BlueprintTargetKind.NONE 过程段）。edge_v1 起：
+- BlueprintStage → BlueprintNode（仅 mid nodes，删除 NONE 过程段）
+- PlanBlueprint.stages → PlanBlueprint.nodes
+- BlueprintTargetKind 仅保留 POI / RESTAURANT
+- assemble_node 自动补 home 首尾节点 + 自动算 hops
 """
 
 from __future__ import annotations
 
 import pytest
 
-from agent.blueprint import BlueprintStage, BlueprintTargetKind, PlanBlueprint
+from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
 from agent.graph.nodes.assemble import assemble_node
 from agent.graph.nodes.planner import _build_alternatives
 from agent.graph.state import make_initial_state
@@ -39,42 +47,23 @@ def _basic_intent() -> IntentExtraction:
 
 
 def _stub_blueprint() -> PlanBlueprint:
-    """构造一个简单合法蓝图。"""
+    """构造一个简单合法的 edge_v1 蓝图（仅 mid nodes，不含首尾 home 与过程段）。"""
     return PlanBlueprint(
-        stages=[
-            BlueprintStage(
-                kind="出发",
-                start_time="14:00",
-                duration_min=15,
-                target_kind=BlueprintTargetKind.NONE,
-            ),
-            BlueprintStage(
+        nodes=[
+            BlueprintNode(
                 kind="主活动",
-                start_time="14:30",
-                duration_min=120,
                 target_kind=BlueprintTargetKind.POI,
                 target_id="P011",
+                duration_min=120,
             ),
-            BlueprintStage(
-                kind="转场",
-                start_time="16:30",
-                duration_min=30,
-                target_kind=BlueprintTargetKind.NONE,
-            ),
-            BlueprintStage(
+            BlueprintNode(
                 kind="用餐",
-                start_time="17:30",
-                duration_min=60,
                 target_kind=BlueprintTargetKind.RESTAURANT,
                 target_id="R001",
-            ),
-            BlueprintStage(
-                kind="返回",
-                start_time="18:45",
-                duration_min=30,
-                target_kind=BlueprintTargetKind.NONE,
+                duration_min=60,
             ),
         ],
+        preferred_start_time="14:00",
         rationale="家庭日常 + 5 岁孩 → P011 亲子 + R001 健康轻食",
     )
 
@@ -135,12 +124,19 @@ def test_assemble_injects_trace_with_rationale_and_weights():
     itin = result.get("itinerary")
     assert itin is not None
     assert itin.decision_trace is not None
-    assert "P011" in itin.decision_trace.blueprint_rationale or "亲子" in itin.decision_trace.blueprint_rationale
+    rationale = itin.decision_trace.blueprint_rationale or ""
+    assert "P011" in rationale or "亲子" in rationale
     assert itin.decision_trace.weights_explanation  # 非空
     # 默认无 critic 命中
     assert itin.decision_trace.critic_attempts == []
     assert itin.decision_trace.fallback_chain == []
     assert itin.decision_trace.final_strategy == "llm_first"
+
+    # edge_v1 不变量自检：assemble 应已补 home 首尾 + 自动 hops
+    assert itin.schema_version == "edge_v1"
+    assert len(itin.hops) == len(itin.nodes) - 1
+    assert itin.nodes[0].target_kind == "home"
+    assert itin.nodes[-1].target_kind == "home"
 
 
 def test_assemble_includes_critic_attempts_and_fallback():
@@ -158,8 +154,8 @@ def test_assemble_includes_critic_attempts_and_fallback():
     state["critic_attempts"] = [
         {
             "attempt_n": 1,
-            "violation_codes": ["commute_infeasible"],
-            "feedback_summary": "第 5 段需要 15 分钟通勤",
+            "violation_codes": ["hop_infeasible"],
+            "feedback_summary": "hop 时间不足以走完通勤",
             "resolved": True,
         }
     ]

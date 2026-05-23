@@ -66,9 +66,12 @@ class ItineraryResponse(BaseModel):
     """LLM 完成完整规划后的行程方案。
 
     规则（critic 会强校验）：
-    - itinerary.stages 必须 ≥ 5 段
-    - 至少含「主活动」「用餐」「返回」三类 stage.kind
-    - 主活动 / 用餐 / 转场 / 返回的时序必须单调递增、不能重叠
+    - itinerary.nodes 首尾固定为 home（虚拟节点 duration_min=0），中间节点 ≥ 1
+    - 中间节点 target_kind ∈ {poi, restaurant}，至少应包含主活动 / 用餐其中之一
+      （`kind` 字段是中文标签：主活动 / 用餐 / 夜宵 / 自由 等）
+    - itinerary.hops 长度恒等于 nodes - 1，每条 hop 的 minutes / mode / path_type
+      由系统按 routes.json 自动计算，LLM 不需要也不要去构造
+    - itinerary.schedule 是派生只读视图，由后端 assemble 阶段填充
     - orders 仅在用户已确认「下单」后才填；规划阶段保持空数组
     """
 
@@ -77,8 +80,10 @@ class ItineraryResponse(BaseModel):
     itinerary: Itinerary = Field(
         ...,
         description=(
-            "完整行程（complete itinerary）：六段时间轴 stages + 可选 orders + "
-            "可选 share_message + total_minutes。stages ≥ 5 段且单调递增；"
+            "完整行程（complete itinerary，schema_version='edge_v1'）：包含三个数组——"
+            "`nodes`（活动节点，首尾固定 home，中间节点 ≥ 1）、`hops`（相邻节点之间的通勤段，"
+            "长度 = nodes - 1）、`schedule`（按时间序展平的派生只读视图，前端时间轴消费）。"
+            "另含可选 orders + 可选 share_message + total_minutes。"
             "orders 在规划阶段必须为空数组（[]）——下单由 reserve_restaurant / buy_ticket "
             "工具完成后由后端追加，LLM 不要假装已下单。"
         ),

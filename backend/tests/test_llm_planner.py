@@ -49,10 +49,11 @@ def test_llm_planner_fallback_to_rule_with_stub():
     result = plan_itinerary_llm(intent, client=StubLLMClient())
     assert result.success
     assert result.itinerary is not None
-    # Phase 0.10：家庭场景应得 5 段（segment_decider 默认）
-    from agent.segment_decider import decide_segments
-    expected = decide_segments(intent)
-    assert len(result.itinerary.stages) >= len(expected)
+    # edge_v1：家庭场景按 decide_nodes 至少含主活动 + 用餐两类 mid node
+    from agent.node_decider import decide_nodes
+    expected_kinds = decide_nodes(intent)
+    mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
+    assert len(mid_nodes) >= len(expected_kinds)
 
     # 必须留下 fallback 提示事件
     thoughts = [r for r in result.tracer.records if r.type == "agent_thought"]
@@ -65,22 +66,30 @@ def test_llm_planner_fallback_to_rule_with_stub():
 # ============================================================
 
 def test_rule_vs_llm_mode_same_main_poi_and_restaurant():
-    """rule mode 与 llm mode（fallback 后）应当选同样的主 POI 和用餐餐厅。"""
+    """rule mode 与 llm mode（fallback 后）应当选同样的主 POI 和用餐餐厅（edge_v1：节点 target_id）。"""
     intent = _family_intent()
     rule_result = plan_itinerary(intent)
     llm_result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())
 
     assert rule_result.success and llm_result.success
 
-    rule_main = next((s for s in rule_result.itinerary.stages if s.kind == "主活动"), None)
-    llm_main = next((s for s in llm_result.itinerary.stages if s.kind == "主活动"), None)
+    rule_main = next(
+        (n for n in rule_result.itinerary.nodes if n.target_kind == "poi"), None
+    )
+    llm_main = next(
+        (n for n in llm_result.itinerary.nodes if n.target_kind == "poi"), None
+    )
     assert rule_main and llm_main
-    assert rule_main.poi_id == llm_main.poi_id
+    assert rule_main.target_id == llm_main.target_id
 
-    rule_dining = next((s for s in rule_result.itinerary.stages if s.kind == "用餐"), None)
-    llm_dining = next((s for s in llm_result.itinerary.stages if s.kind == "用餐"), None)
+    rule_dining = next(
+        (n for n in rule_result.itinerary.nodes if n.target_kind == "restaurant"), None
+    )
+    llm_dining = next(
+        (n for n in llm_result.itinerary.nodes if n.target_kind == "restaurant"), None
+    )
     assert rule_dining and llm_dining
-    assert rule_dining.restaurant_id == llm_dining.restaurant_id
+    assert rule_dining.target_id == llm_dining.target_id
 
 
 # ============================================================
@@ -148,7 +157,8 @@ def test_llm_mode_handles_all_scenes_via_fallback(payload):
     result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())
     assert result.success, f"场景 {payload['social_context']} 失败：{result.failure_detail}"
     assert result.itinerary is not None
-    # Phase 0.10：段数按 segment_decider 决定（独处放空可能 3 段）
-    from agent.segment_decider import decide_segments
-    expected = decide_segments(intent)
-    assert len(result.itinerary.stages) >= len(expected)
+    # edge_v1：中间节点按 decide_nodes 决定（独处放空可能仅 1 个 mid node）
+    from agent.node_decider import decide_nodes
+    expected_kinds = decide_nodes(intent)
+    mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
+    assert len(mid_nodes) >= len(expected_kinds)

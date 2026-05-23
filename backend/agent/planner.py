@@ -15,7 +15,7 @@
 - 接 IntentExtraction（来自 intent_parser）
 - 通过 invoke_tool 调查询类 Tool（不直接 import 单个 Tool）
 - 异常 reason → 自动重规划（E1 餐厅满 / E2 票售罄 / E3 距离超限 / E4 时长超）
-- 组装 Itinerary（六段结构：出发/主活动/转场/用餐/附加/返回）
+- 组装 Itinerary（edge_v1：home → mid nodes → home + 自动 hop；不再硬塞 5 段过程段）
 
 执行类 Tool（reserve / buy_ticket / generate_share_message）由 executor.py 在用户确认后下发。
 
@@ -49,7 +49,7 @@ from data.loader import load_pois, load_restaurants
 from schemas.domain import Poi, Restaurant
 from schemas.errors import FailureReason
 from schemas.intent import IntentExtraction
-from schemas.itinerary import Itinerary, ItineraryStage
+from schemas.itinerary import Itinerary
 from schemas.tools import (
     CheckRestaurantAvailabilityInput,
     CheckRestaurantAvailabilityOutput,
@@ -213,8 +213,11 @@ def plan_itinerary(
     if user_profile is None:
         return _abort(tracer, FailureReason.NOT_FOUND, "用户画像为空")
 
-    # ---- 1.5. 决定本次行程要哪些段（pitfalls P1-2026-05-17：段=intent 的函数）----
-    from .segment_decider import decide_segments, explain_segments
+    # ---- 1.5. 决定本次行程要哪些中间节点（edge_v1：节点=intent 的函数）----
+    # 旧版用 decide_segments 返「段集合」frozenset；edge_v1 起改为 decide_nodes 返「中间节点 kind 列表」。
+    # 此处仍保留 segments 内部命名（兼容下游 _resolve_time_window / _assemble_itinerary 实现细节），
+    # 但语义已等同于 ALWAYS_INCLUDED ∪ {主活动?} ∪ {用餐?} ∪ {转场?}。
+    from .node_decider import decide_segments, explain_segments
     segments = decide_segments(intent)
     tracer.emit("agent_thought", {"text": explain_segments(intent, segments)})
 
@@ -997,23 +1000,48 @@ def _assemble_itinerary(
     main_activity_minutes: int = DEFAULT_MAIN_ACTIVITY_MINUTES,
     dining_minutes: int = DEFAULT_DINING_MINUTES,
     segments: frozenset[str] | None = None,
+    intent: IntentExtraction | None = None,
+    user_profile: Any | None = None,
 ) -> Itinerary:
-    """组装行程。
+    """组装行程（edge_v1：home → mid nodes → home + 自动 hop）。
 
-    新增参数（Phase 0.8.1，修复硬编码 14-19 时间窗 bug）：
-        depart_time: 出发时间，从 intent.start_time 推导
-        main_activity_minutes: 主活动时长，从 intent.duration_hours 按比例推导
-        dining_minutes: 用餐时长，同上
-    缺省走兼容默认值（14:00 / 120 / 90），不破现有测试。
+    实现策略（Wave 5 Task 9 重写）：
+        rule planner 不再自己拼时间轴 + 手写 5 段 ItineraryStage；
+        改为构造一个最小 PlanBlueprint（mid nodes 列表）后调
+        `agent.assemble_blueprint.assemble_from_blueprint`，由它统一负责：
 
-    新增参数（Phase 0.10，pitfalls P1-2026-05-17 修复）：
-        segments: 本次要拼的段集合；缺省时按 main_poi/chosen_restaurant 是否为空回兼容 5 段
-        main_poi / chosen_restaurant 改为可空：极短场景（1h）只去 POI 不吃饭，或反之
+        - 自动补 home 首尾节点（target_kind="home"，duration=0）
+        - 自动调 lookup_hop 计算节点间通勤分钟（mock routes.json + haversine 三级降级）
+        - 自动派生 schedule 视图
 
-    向后兼容：
-        老调用方（不传 segments）+ 主 POI/餐厅都给 → 走旧 5 段路径
-        老调用方 + 缺其一 → 抛 ValueError（早暴露 bug 而非默默退化）
+        这样 rule / hybrid / llm-first 三种规划路径产物完全一致，前端只需渲染 nodes + hops。
+
+    映射（旧 stages → 新 mid nodes）：
+        - has_main:    BlueprintNode(target_kind="poi", target_id=main_poi.id, duration=main_activity_minutes)
+        - has_dining:  BlueprintNode(target_kind="restaurant", target_id=chosen_restaurant.id, duration=dining_minutes)
+        - 旧「出发 / 转场 / 返回」过程段：edge_v1 由自动 hop 表达，不再是 node
+
+    对 chosen_time 的处理（餐厅可订时段对齐）：
+        - 若同时有主活动 + 用餐：把 chosen_time 写入 dining node 的 note；
+          同时把 main 时长延长到「让餐厅自然到达时刻 ≥ chosen_time」（用户在 POI 多停留）
+        - 若仅有用餐：把 preferred_start_time 直接设为 chosen_time（去除路上延迟，让 dining 准时开始）
+        - 若 chosen_time 不存在或自然到达更晚：维持 dining_minutes 不变
+
+    向后兼容（旧调用方签名不变）：
+        - 老调用方（不传 segments）+ 主 POI/餐厅都给 → 走旧 5 段语义（mid: 主活动 + 用餐）
+        - 老调用方 + 缺其一 → 抛 ValueError（早暴露 bug 而非默默退化）
+
+    新增参数：
+        intent: 透传给 assemble_from_blueprint（当前未读，留作扩展余地）；
+                调用方未传时构造一个最小占位 IntentExtraction，避免改 hybrid_assembler 签名
+        user_profile: home_location 来源；未传时调 load_user_profile() 读 mock_data
     """
+    from data.loader import load_user_profile
+    from schemas.domain import UserProfile
+
+    from .assemble_blueprint import assemble_from_blueprint
+    from .blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+
     # 决定 segments：缺省时按可用 POI/餐厅推导
     if segments is None:
         if main_poi is not None and chosen_restaurant is not None:
@@ -1032,150 +1060,138 @@ def _assemble_itinerary(
 
     has_main = "主活动" in segments
     has_dining = "用餐" in segments
-    has_transfer = "转场" in segments and has_main and has_dining
-
-    # ---- 时间轴推导 ----
-    depart = depart_time
-    cursor = depart  # 当前时间游标
-
-    stages: list[ItineraryStage] = []
-
-    # 出发段（始终有）
-    if has_main:
-        first_target = main_poi
-        first_target_name = main_poi.name
-    elif has_dining:
-        first_target = chosen_restaurant
-        first_target_name = chosen_restaurant.name
-    else:
-        # 极端兜底：只有出发返回也得有目的地
+    if not (has_main or has_dining):
         raise ValueError("segments 必须至少含「主活动」或「用餐」之一")
 
-    arrive_first = _add_minutes(cursor, home_to_poi if has_main else rest_to_home)
-    # 「出发」段把 lat/lng/address 指向首个目的地（POI 或餐厅），便于地图标点
-    first_target_loc = first_target.location
-    stages.append(
-        ItineraryStage(
-            kind="出发",
-            start=cursor,
-            end=arrive_first,
-            title=f"出发前往「{first_target_name}」",
-            poi_id=main_poi.id if has_main else None,
-            restaurant_id=chosen_restaurant.id if (not has_main and has_dining) else None,
-            lat=first_target_loc.lat,
-            lng=first_target_loc.lng,
-            address=first_target_loc.name,
-            note=f"打车约 {home_to_poi if has_main else rest_to_home} 分钟",
-        )
-    )
-    cursor = arrive_first
+    # ---- 构造 mid nodes ----
+    mid_nodes: list[BlueprintNode] = []
 
-    # 主活动
+    # POI 持续时间补偿：当 chosen_time > 自然到达餐厅时刻，把"等待时间"塞进主活动
+    # （用户在 POI 多停留，避免餐厅前长时间空 hop 浪费）
+    poi_duration = main_activity_minutes
+    if has_main and has_dining and chosen_time is not None:
+        try:
+            depart_min_int = _parse_hhmm_to_min(depart_time)
+            chosen_min_int = _parse_hhmm_to_min(chosen_time)
+            # 自然到达餐厅时刻：出发 + home→POI + POI 停留 + POI→餐厅 + 5min buffer（与 assemble 一致）
+            natural_arrive_rest_min = (
+                depart_min_int
+                + home_to_poi
+                + main_activity_minutes
+                + poi_to_rest
+                + 5  # buffer_min（与 assemble_from_blueprint 默认一致）
+            )
+            if chosen_min_int > natural_arrive_rest_min:
+                poi_duration += chosen_min_int - natural_arrive_rest_min
+        except (ValueError, AttributeError):
+            # chosen_time 异常 → 不做补偿，note 里仍写 chosen_time，时间轴自然推进
+            pass
+
     if has_main:
-        leave_poi = _add_minutes(cursor, main_activity_minutes)
-        stages.append(
-            ItineraryStage(
+        assert main_poi is not None  # narrowing for type checker
+        mid_nodes.append(
+            BlueprintNode(
                 kind="主活动",
-                start=cursor,
-                end=leave_poi,
-                title=f"{main_poi.type} · {main_poi.name}",
-                poi_id=main_poi.id,
-                lat=main_poi.location.lat,
-                lng=main_poi.location.lng,
-                address=main_poi.location.name,
+                target_kind=BlueprintTargetKind.POI,
+                target_id=main_poi.id,
+                duration_min=poi_duration,
+                note=None,
             )
         )
-        cursor = leave_poi
 
-    # 用餐 + 可选转场
     if has_dining:
-        # 若同时有主活动 + 用餐 → 拼转场（用 chosen_time 对齐到餐厅时段）
-        if has_transfer:
-            arrive_rest = _add_minutes(
-                cursor, poi_to_rest + TRANSFER_BUFFER_MINUTES
-            )
-            dining_start = (
-                chosen_time
-                if (chosen_time and chosen_time > arrive_rest)
-                else arrive_rest
-            )
-            transfer_end = dining_start
-            stages.append(
-                ItineraryStage(
-                    kind="转场",
-                    start=cursor,
-                    end=transfer_end,
-                    title=f"前往「{chosen_restaurant.name}」",
-                    lat=chosen_restaurant.location.lat,
-                    lng=chosen_restaurant.location.lng,
-                    address=chosen_restaurant.location.name,
-                    note=(
-                        f"打车约 {poi_to_rest} 分钟"
-                        if transfer_end == arrive_rest
-                        else f"打车约 {poi_to_rest} 分钟，到达后稍作休息等到用餐时段"
-                    ),
-                )
-            )
-            cursor = transfer_end
-        else:
-            # 没主活动直接吃：cursor 就是到达餐厅的时间
-            dining_start = chosen_time or cursor
-            if chosen_time and dining_start > cursor:
-                # 出发到餐厅但餐厅最早只有 chosen_time → 提示等待
-                pass
-
-        dining_end = _add_minutes(dining_start, dining_minutes)
-        stages.append(
-            ItineraryStage(
+        assert chosen_restaurant is not None
+        dining_note = (
+            f"已为你预留 {chosen_time}（{party_size} 人）"
+            if chosen_time
+            else f"{party_size} 人"
+        )
+        mid_nodes.append(
+            BlueprintNode(
                 kind="用餐",
-                start=dining_start,
-                end=dining_end,
-                title=f"{chosen_restaurant.cuisine} · {chosen_restaurant.name}",
-                restaurant_id=chosen_restaurant.id,
-                lat=chosen_restaurant.location.lat,
-                lng=chosen_restaurant.location.lng,
-                address=chosen_restaurant.location.name,
-                note=f"已为你预留 {chosen_time or dining_start}（{party_size} 人）",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id=chosen_restaurant.id,
+                duration_min=dining_minutes,
+                note=dining_note,
             )
         )
-        cursor = dining_end
 
-    # 返回（始终有）
-    home_back = _add_minutes(cursor, rest_to_home)
-    stages.append(
-        ItineraryStage(
-            kind="返回",
-            start=cursor,
-            end=home_back,
-            title="回家",
-            note=f"打车约 {rest_to_home} 分钟",
-        )
+    # ---- 决定 preferred_start_time ----
+    # 仅有用餐场景：用 chosen_time 反推（让餐厅准点开始；assemble 内会扣掉 home→餐厅 commute）
+    # 其它场景：维持 depart_time（与旧实现一致）
+    preferred_start = depart_time
+    if has_dining and not has_main and chosen_time:
+        # 估算 home→restaurant 的通勤；调用方传入的 rest_to_home 当作粗略代理（出发回家对称）
+        commute_to_rest = max(0, rest_to_home or 0)
+        try:
+            chosen_min_int = _parse_hhmm_to_min(chosen_time)
+            start_min = max(0, chosen_min_int - commute_to_rest)
+            preferred_start = f"{start_min // 60:02d}:{start_min % 60:02d}"
+        except (ValueError, AttributeError):
+            preferred_start = depart_time
+
+    # ---- 构造 PlanBlueprint + 调 assemble_from_blueprint ----
+    blueprint = PlanBlueprint(
+        nodes=mid_nodes,
+        preferred_start_time=preferred_start,
+        rationale="rule planner 启发式（POI/餐厅候选筛选 + 时段协商）",
     )
 
-    total_minutes = _diff_minutes(depart, home_back)
+    # user_profile / intent fallback：rule planner 调用时已有 user_profile in scope，
+    # 但 _assemble_itinerary 历史签名没暴露；此处用 load_user_profile() 兜底
+    if user_profile is None:
+        user_profile = load_user_profile()
 
-    # summary 文案按段数适配
+    # intent 当前不被 assemble_from_blueprint 实际读取（# noqa: ARG001），
+    # 但签名是必填位置参数；调用方未传时构造一个最小占位
+    if intent is None:
+        intent = IntentExtraction(
+            start_time=depart_time,
+            duration_hours=[3, 5],
+            distance_max_km=5.0,
+            companions=[],
+            physical_constraints=[],
+            dietary_constraints=[],
+            experience_tags=[],
+            social_context="家庭日常",
+            raw_input="",
+            parse_confidence=0.0,
+        )
+
+    itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
+
+    # ---- 重写 summary（rule planner 风味）----
     if has_main and has_dining:
         backup_summary = (
             f"；备选 POI：{', '.join(p.name for p in backup_pois[:2])}"
             if backup_pois
             else ""
         )
-        summary = f"半日方案 · {main_poi.name} → {chosen_restaurant.name}{backup_summary}"
+        summary = (
+            f"半日方案 · {main_poi.name} → {chosen_restaurant.name}"  # type: ignore[union-attr]
+            f"{backup_summary}"
+        )
     elif has_main:
-        summary = f"轻量方案 · {main_poi.name}（{total_minutes // 60} 小时左右）"
+        assert main_poi is not None
+        summary = (
+            f"轻量方案 · {main_poi.name}"
+            f"（{itinerary.total_minutes // 60} 小时左右）"
+        )
     elif has_dining:
+        assert chosen_restaurant is not None
         summary = f"用餐方案 · {chosen_restaurant.cuisine} · {chosen_restaurant.name}"
     else:
         summary = "短途方案"
 
-    return Itinerary(
-        summary=summary,
-        stages=stages,
-        orders=[],  # MVP-1 在 executor 里追加
-        share_message=None,
-        total_minutes=total_minutes,
-    )
+    return itinerary.model_copy(update={"summary": summary})
+
+
+def _parse_hhmm_to_min(t: str) -> int:
+    """形如 "14:30" → 870；不合法时抛 ValueError。"""
+    if not t or ":" not in t:
+        raise ValueError(f"非法时间字符串：{t!r}")
+    h, m = t.split(":", 1)
+    return int(h) * 60 + int(m)
 
 
 def _diff_minutes(start: str, end: str) -> int:
@@ -1317,7 +1333,7 @@ def _plan_with_hybrid(
         rest_to_home = _estimate(_call_route, candidate.restaurant.id, "home")
         party_size = max(1, sum(c.count for c in intent_.companions) or 1)
         # hybrid 走完整 5 段（segments_reduced 已在 plan_hybrid 入口被剔出）
-        from .segment_decider import FULL_SEGMENTS
+        from .node_decider import FULL_SEGMENTS
         return _assemble_itinerary(
             main_poi=candidate.main_poi,
             chosen_restaurant=candidate.restaurant,

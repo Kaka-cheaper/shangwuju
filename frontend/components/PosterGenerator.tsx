@@ -43,6 +43,38 @@ import type { Itinerary } from "@/lib/types";
 const POSTER_RENDER_TIMEOUT_MS = 5000;
 
 // ============================================================
+// edge_v1 适配：把 nodes（过滤 home）压成原 stage 形状给海报渲染层用
+// ============================================================
+
+interface PosterStage {
+  start: string;
+  end: string;
+  title: string;
+  kind: string;
+  note?: string | null;
+}
+
+function addMinutesHHMM(start: string, minutes: number): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(start);
+  if (!m) return start;
+  const total = Number(m[1]) * 60 + Number(m[2]) + (minutes || 0);
+  const wrap = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(wrap / 60)).padStart(2, "0")}:${String(wrap % 60).padStart(2, "0")}`;
+}
+
+function nodesToStages(itinerary: Itinerary): PosterStage[] {
+  return (itinerary.nodes || [])
+    .filter((n) => n.target_kind !== "home")
+    .map((n) => ({
+      start: n.start_time,
+      end: addMinutesHHMM(n.start_time, n.duration_min),
+      title: n.title,
+      kind: n.kind,
+      note: n.note ?? null,
+    }));
+}
+
+// ============================================================
 // 文字版降级（与 ShareMessage 复制按钮等价的兜底）
 // ============================================================
 
@@ -51,7 +83,7 @@ function buildTextFallback(itinerary: Itinerary): string {
   lines.push(`【晌午局】${itinerary.summary || "本次行程"}`);
   lines.push(`总时长 ${(itinerary.total_minutes / 60).toFixed(1)} 小时`);
   lines.push("");
-  for (const stage of itinerary.stages) {
+  for (const stage of nodesToStages(itinerary)) {
     lines.push(`${stage.start}-${stage.end}  ${stage.title}（${stage.kind}）`);
   }
   return lines.join("\n");
@@ -456,8 +488,9 @@ function PreviewModal({
 const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
   function PosterTemplate({ itinerary }, ref) {
     const maxStages = 8;
-    const stages = itinerary.stages.slice(0, maxStages);
-    const overflow = Math.max(0, itinerary.stages.length - maxStages);
+    const allStages = nodesToStages(itinerary);
+    const stages = allStages.slice(0, maxStages);
+    const overflow = Math.max(0, allStages.length - maxStages);
     const summary =
       (itinerary.summary || "本次行程").length <= 50
         ? itinerary.summary || "本次行程"

@@ -177,37 +177,98 @@ export type FailureReason =
   | "upstream_failure";
 
 // ============================================================
-// 行程（schemas/itinerary.py）
+// 行程（schemas/itinerary.py，edge_v1）
 // ============================================================
 
-export interface ItineraryStage {
-  kind: string; // 出发 / 主活动 / 转场 / 用餐 / 附加 / 返回
-  start: string; // "14:00"
-  end: string;
+/** ActivityNode 的 target 类型；home 为隐式起终点节点。 */
+export type NodeTargetKind = "poi" | "restaurant" | "home";
+
+/** Hop 的运输模式；virtual 表示同地复用（in_place hop）。 */
+export type HopMode =
+  | "walking"
+  | "taxi"
+  | "bus"
+  | "haversine_estimated"
+  | "virtual";
+
+/** Hop 的路径来源标记，用于前端不同视觉/语义分支。 */
+export type HopPathType = "real_route" | "estimated" | "in_place";
+
+/**
+ * 活动节点（ActivityNode）—— 边模型的"顶点"。
+ * 字段名保持后端 snake_case（不转 camel）。
+ */
+export interface ActivityNode {
+  node_id: string;
+  kind: string; // 主活动 / 用餐 / 附加 / home 等
+  target_kind: NodeTargetKind;
+  target_id: string; // poi_id / restaurant_id / "home"
+  start_time: string; // "14:15"
+  duration_min: number; // home 节点为 0
   title: string;
-  poi_id?: string | null;
-  restaurant_id?: string | null;
-  // 后端 assemble 时直接注入坐标，前端 MapOverlay 不再二次查询
+  note?: string | null;
   lat?: number | null;
   lng?: number | null;
   address?: string | null;
-  note?: string | null;
-  // Step 1：commute critic 写入的通勤元数据
-  commute_minutes_required?: number | null;
-  commute_mode?: "walking" | "taxi" | "bus" | "haversine_estimated" | null;
+}
+
+/**
+ * 通勤段（Hop）—— 边模型的"边"。
+ * minutes：实际通勤分钟（in_place hop minutes=0）。
+ * buffer_min：节点之间的缓冲（首跳 0，后续 5）。
+ */
+export interface Hop {
+  hop_id: string;
+  from_node_id: string;
+  to_node_id: string;
+  start_time: string;
+  minutes: number;
+  mode: HopMode;
+  path_type: HopPathType;
+  buffer_min: number;
+}
+
+/**
+ * 派生时间轴（ScheduleEntry）—— assemble 阶段按 start 排序展平的视图。
+ * 前端 ItineraryCard 直接遍历这个数组渲染（hidden=true 跳过）。
+ *  - entry_kind="node" → ref_id 指向 ActivityNode.node_id
+ *  - entry_kind="hop"  → ref_id 指向 Hop.hop_id；mode 必填
+ */
+export interface ScheduleEntry {
+  entry_kind: "node" | "hop";
+  ref_id: string;
+  start: string;
+  end: string;
+  title: string;
+  minutes: number;
+  mode?: HopMode | null;
+  hidden: boolean;
 }
 
 export interface OrderRecord {
   order_id: string;
   kind: string; // 餐厅预约 / 门票 / 加购服务
+  /** edge_v1 新增：用于 confirm 流找下单目标节点。 */
+  target_kind: "poi" | "restaurant";
   target_id: string;
   target_name: string;
   detail: string;
 }
 
+/**
+ * 行程根对象（edge_v1）。
+ *
+ * schema_version 字段：
+ *  - 后端固定输出 "edge_v1"；前端默认按此渲染。
+ *  - Task 13 会在 store 层加降级判断：非 edge_v1 时仅渲染 summary + total_minutes。
+ *    这里保留 string 兜底类型，避免降级路径触发 TS 错误。
+ */
 export interface Itinerary {
+  schema_version: "edge_v1" | string;
   summary: string;
-  stages: ItineraryStage[];
+  nodes: ActivityNode[];
+  hops: Hop[];
+  schedule: ScheduleEntry[];
   orders: OrderRecord[];
   share_message?: string | null;
   total_minutes: number;

@@ -41,14 +41,17 @@ from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from schemas import (
+    ActivityNode,
     Companion,
+    Hop,
     IntentExtraction,
     Itinerary,
-    ItineraryStage,
+    OrderRecord,
     RefinementInput,
     RefinementOutput,
     RouterDecision,
     InputKind,
+    ScheduleEntry,
     SseEvent,
     SseEventType,
     current_env_mode,
@@ -619,6 +622,7 @@ def auth_callback(
 def _collect_itinerary_tags(itinerary_dict: dict[str, Any]) -> list[str]:
     """从已确认 itinerary 里抽出命中的 tag（用于 memory accept）。
 
+    edge_v1：遍历 `itinerary.nodes`（target_kind=poi/restaurant），跳过 home。
     策略：
     - 主活动 POI 的 tags + suitable_for
     - 用餐餐厅的 tags + suitable_for
@@ -635,8 +639,7 @@ def _collect_itinerary_tags(itinerary_dict: dict[str, Any]) -> list[str]:
 
     out: set[str] = set()
 
-    # 注：这里没有完整的 POI/Restaurant 对象，仅能从 stages 拿到 id；
-    # demo 安全做法：从 mock_data 反查
+    # 注：dict 视图里只有 target_id；从 mock_data 反查取 tags / suitable_for
     try:
         from data.loader import load_pois, load_restaurants
 
@@ -646,14 +649,21 @@ def _collect_itinerary_tags(itinerary_dict: dict[str, Any]) -> list[str]:
         pois_by_id = {}
         rests_by_id = {}
 
-    for stage in itinerary_dict.get("stages") or []:
-        if stage.get("poi_id"):
-            poi = pois_by_id.get(stage["poi_id"])
+    for node in itinerary_dict.get("nodes") or []:
+        target_kind = node.get("target_kind")
+        target_id = node.get("target_id")
+        if not target_id:
+            continue
+        if target_kind == "home":
+            # 起终点 home 不参与 tag 累积
+            continue
+        if target_kind == "poi":
+            poi = pois_by_id.get(target_id)
             if poi is not None:
                 out.update(poi.tags or [])
                 out.update(poi.suitable_for or [])
-        if stage.get("restaurant_id"):
-            rest = rests_by_id.get(stage["restaurant_id"])
+        elif target_kind == "restaurant":
+            rest = rests_by_id.get(target_id)
             if rest is not None:
                 out.update(rest.tags or [])
                 out.update(rest.suitable_for or [])
@@ -698,14 +708,16 @@ def _accumulate_memory_after_confirm(
 
     # Step 7：visited targets
     visits: list[tuple[str, str]] = []
-    stages = itinerary_dict.get("stages") or []
-    for stage in stages:
-        pid = stage.get("poi_id")
-        if pid:
-            visits.append((pid, "poi"))
-        rid = stage.get("restaurant_id")
-        if rid:
-            visits.append((rid, "restaurant"))
+    nodes = itinerary_dict.get("nodes") or []
+    for node in nodes:
+        target_kind = node.get("target_kind")
+        target_id = node.get("target_id")
+        if not target_id or target_kind == "home":
+            continue
+        if target_kind == "poi":
+            visits.append((target_id, "poi"))
+        elif target_kind == "restaurant":
+            visits.append((target_id, "restaurant"))
     if visits:
         try:
             record_visited(user_id, visits=visits)
@@ -713,21 +725,16 @@ def _accumulate_memory_after_confirm(
             pass
 
     # Step 7：preferred routes (相邻段都有 target 时)
+    # edge_v1：home 节点 target_id="home"，正好用作 segments 端点；不再按 kind 文本判返回。
     segments: list[tuple[str, str]] = []
-    prev_loc: str | None = "home"  # 出发段一端是 home
-    for stage in stages:
-        cur_loc: str | None = None
-        if stage.get("poi_id"):
-            cur_loc = stage["poi_id"]
-        elif stage.get("restaurant_id"):
-            cur_loc = stage["restaurant_id"]
-        kind = stage.get("kind", "")
-        if "返回" in kind or "回家" in kind:
-            cur_loc = "home"
+    prev_loc: str | None = None
+    for node in nodes:
+        cur_loc = node.get("target_id")
+        if not cur_loc:
+            continue
         if prev_loc and cur_loc and prev_loc != cur_loc:
             segments.append((prev_loc, cur_loc))
-        if cur_loc:
-            prev_loc = cur_loc
+        prev_loc = cur_loc
     if segments:
         try:
             record_preferred_route(user_id, segments=segments)
@@ -1288,47 +1295,117 @@ async def _stub_stream(
     await _delay()
 
     # ---- 13: itinerary_ready ----
+    # edge_v1：用 ActivityNode + Hop 构造，5 段旧 stages → 3 mid nodes（home / P001 / R001 / home）+ 4 hops
+    nodes: list[ActivityNode] = [
+        ActivityNode(
+            node_id="n_home_start",
+            kind="出发",
+            target_kind="home",
+            target_id="home",
+            start_time="14:00",
+            duration_min=0,
+            title="从家出发",
+            note="预估打车 25 分钟",
+        ),
+        ActivityNode(
+            node_id="n_1",
+            kind="主活动",
+            target_kind="poi",
+            target_id="P001",
+            start_time="14:25",
+            duration_min=155,
+            title="森林儿童探索乐园 · 亲子游玩",
+            note="5 岁年龄段适配，户外低强度",
+        ),
+        ActivityNode(
+            node_id="n_2",
+            kind="用餐",
+            target_kind="restaurant",
+            target_id="R001",
+            start_time="17:30",
+            duration_min=75,
+            title="轻语沙拉 · 健康轻食晚餐",
+            note="待你确认后为你预约 17:30 三人位",
+        ),
+        ActivityNode(
+            node_id="n_home_end",
+            kind="返回",
+            target_kind="home",
+            target_id="home",
+            start_time="19:10",
+            duration_min=0,
+            title="回到家",
+            note="预估打车 25 分钟",
+        ),
+    ]
+    hops: list[Hop] = [
+        Hop(
+            hop_id="h_0",
+            from_node_id="n_home_start",
+            to_node_id="n_1",
+            start_time="14:00",
+            minutes=25,
+            mode="taxi",
+            path_type="estimated",
+            buffer_min=0,
+        ),
+        Hop(
+            hop_id="h_1",
+            from_node_id="n_1",
+            to_node_id="n_2",
+            start_time="17:00",
+            minutes=25,
+            mode="walking",
+            path_type="estimated",
+            buffer_min=5,
+        ),
+        Hop(
+            hop_id="h_2",
+            from_node_id="n_2",
+            to_node_id="n_home_end",
+            start_time="18:45",
+            minutes=25,
+            mode="taxi",
+            path_type="estimated",
+            buffer_min=0,
+        ),
+    ]
+    # 派生 schedule 视图：按 start_time 顺序展平 nodes + hops
+    schedule: list[ScheduleEntry] = [
+        ScheduleEntry(
+            entry_kind="node", ref_id="n_home_start", start="14:00", end="14:00",
+            title="从家出发", minutes=0, mode=None,
+        ),
+        ScheduleEntry(
+            entry_kind="hop", ref_id="h_0", start="14:00", end="14:25",
+            title="打车前往西溪湿地", minutes=25, mode="taxi",
+        ),
+        ScheduleEntry(
+            entry_kind="node", ref_id="n_1", start="14:25", end="17:00",
+            title="森林儿童探索乐园 · 亲子游玩", minutes=155, mode=None,
+        ),
+        ScheduleEntry(
+            entry_kind="hop", ref_id="h_1", start="17:00", end="17:25",
+            title="步行 + 短途打车至轻语沙拉", minutes=25, mode="walking",
+        ),
+        ScheduleEntry(
+            entry_kind="node", ref_id="n_2", start="17:30", end="18:45",
+            title="轻语沙拉 · 健康轻食晚餐", minutes=75, mode=None,
+        ),
+        ScheduleEntry(
+            entry_kind="hop", ref_id="h_2", start="18:45", end="19:10",
+            title="打车回家", minutes=25, mode="taxi",
+        ),
+        ScheduleEntry(
+            entry_kind="node", ref_id="n_home_end", start="19:10", end="19:10",
+            title="回到家", minutes=0, mode=None,
+        ),
+    ]
     itinerary = Itinerary(
         summary="家庭半日方案 · 西溪亲子探索 + 健康晚餐",
-        stages=[
-            ItineraryStage(
-                kind="出发",
-                start="14:00",
-                end="14:25",
-                title="从家出发 · 打车前往西溪湿地",
-                note="预估打车 25 分钟",
-            ),
-            ItineraryStage(
-                kind="主活动",
-                start="14:25",
-                end="17:00",
-                title="森林儿童探索乐园 · 亲子游玩",
-                poi_id="P001",
-                note="5 岁年龄段适配，户外低强度",
-            ),
-            ItineraryStage(
-                kind="转场",
-                start="17:00",
-                end="17:30",
-                title="步行 + 短途打车至轻语沙拉",
-                note="步行 18 分钟，可慢慢走",
-            ),
-            ItineraryStage(
-                kind="用餐",
-                start="17:30",
-                end="18:45",
-                title="轻语沙拉 · 健康轻食晚餐",
-                restaurant_id="R001",
-                note="待你确认后为你预约 17:30 三人位",
-            ),
-            ItineraryStage(
-                kind="返回",
-                start="18:45",
-                end="19:10",
-                title="打车回家",
-                note="预估 25 分钟",
-            ),
-        ],
+        nodes=nodes,
+        hops=hops,
+        schedule=schedule,
         orders=[],
         share_message=None,
         total_minutes=310,
@@ -2002,6 +2079,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
             {
                 "order_id": "R20260516_001",
                 "kind": "餐厅预约",
+                "target_kind": "restaurant",
                 "target_id": "R001",
                 "target_name": "轻语沙拉 · 西溪店",
                 "detail": "17:30 三人位",

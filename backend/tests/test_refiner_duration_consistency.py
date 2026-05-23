@@ -254,14 +254,15 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
         f"反馈 1h 后总时长应 ≤ 90min，实际 {itin.total_minutes}"
     )
 
-    # 段数应 ≤ 3（出发 + 单段主体 + 返回）
-    assert len(itin.stages) <= 3, (
-        f"反馈 1h 后段数应 ≤ 3，实际 {len(itin.stages)}"
+    # edge_v1：mid 节点应 ≤ 2（不会硬塞 5 段），且首尾 home 由 assemble 自动补
+    mid_nodes = [n for n in itin.nodes if n.target_kind != "home"]
+    assert len(mid_nodes) <= 2, (
+        f"反馈 1h 后中间节点应 ≤ 2，实际 {len(mid_nodes)}"
     )
 
-    # 必有出发与返回
-    kinds = {s.kind for s in itin.stages}
-    assert "出发" in kinds and "返回" in kinds
+    # 必有 home 起讫（assemble 不变量已校验，此处冗余兜底）
+    assert itin.nodes[0].target_kind == "home"
+    assert itin.nodes[-1].target_kind == "home"
 
 
 def test_two_hour_feedback_caps_total_within_2_5_hours():
@@ -290,10 +291,14 @@ def test_two_hour_feedback_caps_total_within_2_5_hours():
         f"2h 反馈下总时长应 ≤ 150min，实际 {itin.total_minutes}"
     )
 
-    # 必有出发返回，主活动或用餐至少一个
-    kinds = {s.kind for s in itin.stages}
-    assert "出发" in kinds and "返回" in kinds
-    assert "主活动" in kinds or "用餐" in kinds
+    # edge_v1：必有 home 起讫，主活动 / 用餐 mid node 至少一个
+    assert itin.nodes[0].target_kind == "home"
+    assert itin.nodes[-1].target_kind == "home"
+    mid_nodes = [n for n in itin.nodes if n.target_kind != "home"]
+    mid_kinds = {n.kind for n in mid_nodes}
+    assert "主活动" in mid_kinds or "用餐" in mid_kinds, (
+        f"应至少含主活动或用餐 mid node：实际 {mid_kinds}"
+    )
 
 
 def test_long_duration_unaffected_by_dining_cut():
@@ -315,6 +320,14 @@ def test_long_duration_unaffected_by_dining_cut():
     result = plan_itinerary(intent)
     assert result.success
     itin = result.itinerary
-    assert len(itin.stages) == 5  # 完整 5 段
-    kinds = {s.kind for s in itin.stages}
-    assert kinds == {"出发", "主活动", "转场", "用餐", "返回"}
+    # edge_v1：4h 场景应有完整 mid nodes（主活动 + 用餐 共 2 个），
+    # 加上首尾 home 共 4 个节点，3 条 hop
+    mid_nodes = [n for n in itin.nodes if n.target_kind != "home"]
+    assert len(mid_nodes) == 2, (
+        f"4h 家庭场景应得 2 个中间节点（主活动+用餐），实际 {len(mid_nodes)}"
+    )
+    mid_kinds = {n.kind for n in mid_nodes}
+    assert mid_kinds == {"主活动", "用餐"}, f"实际 mid_kinds={mid_kinds}"
+    # 首尾 home + 2 mid = 4 nodes / 3 hops
+    assert len(itin.nodes) == 4
+    assert len(itin.hops) == 3

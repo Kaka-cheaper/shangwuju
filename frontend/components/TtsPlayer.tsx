@@ -34,11 +34,15 @@ import type { Itinerary } from "@/lib/types";
 // ============================================================
 
 function buildSpeechText(itinerary: Itinerary): string {
-  if (itinerary.stages.length === 0) {
+  // edge_v1：用 nodes（过滤 home）做语音文案；与原 stages 文本结构等价。
+  const speakable = (itinerary.nodes || []).filter(
+    (n) => n.target_kind !== "home",
+  );
+  if (speakable.length === 0) {
     return itinerary.summary || "暂无行程信息";
   }
-  const parts = itinerary.stages.map((s) => {
-    return `${s.start} 去${s.title}（${s.kind}）`;
+  const parts = speakable.map((n) => {
+    return `${n.start_time} 去${n.title}（${n.kind}）`;
   });
   const text = parts.join("，然后");
   // 加摘要开头

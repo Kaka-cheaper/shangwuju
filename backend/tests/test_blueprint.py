@@ -1,308 +1,519 @@
-"""tests.test_blueprint —— Blueprint 数据结构 + 蓝图级 Critic 单元测试。
+"""tests.test_blueprint —— Blueprint 数据结构 + 蓝图级 Critic 单元测试（edge_v1）。
 
-蓝图（PlanBlueprint）是 LLM 在看到 POI/餐厅候选数据后，**自主决定**段集合、
-段顺序、每段时长、目标 id 的产物。下游算法（assemble_from_blueprint）按蓝图
-拼出 Itinerary 时间轴；Critic 负责验证蓝图本身的合法性。
+蓝图（PlanBlueprint）是 LLM 在看到 POI/餐厅候选数据后，**自主决定**节点集合、
+节点顺序、每个节点停留时长、目标 id 的产物。下游算法（assemble_from_blueprint）
+按蓝图自动补 home 首尾 + 自动算 hop 通勤，拼出 Itinerary 时间轴。
 
-设计动机：参考 problem.md 问题 14——纯规则 planner 在 1h 反馈 / 24h 营业 / 反序就餐
-等场景下都需要"补 if"，违反 LLM-Modulo（NeurIPS 2024）+ ItiNera（EMNLP 2024）的
-"LLM 决主观、算法决客观"原则。
+设计动机：参考 problem.md 问题 14 + .kiro/specs/itinerary-edge-model-refactor/design.md
+——LLM-Modulo（NeurIPS 2024）+ ItiNera（EMNLP 2024）的"LLM 决主观、算法决客观"原则。
 
-本测试覆盖 4 类场景：
-- 蓝图字段约束（kind 自由 / target 一致 / 时间格式）
-- 时序 critic（段无重叠 + 顺序连续）
-- 营业时间 critic（用 mock 的 opening_hours 验证 target 在营业时间内）
-- 时长边界 critic（蓝图总时长 ≤ duration_hours[1]+15min 容忍）
+edge_v1 关键变化（vs 旧 BlueprintStage 模型）：
+- 删除 `BlueprintStage`：节点不再含 start_time（系统算）；改为 `BlueprintNode`
+- 删除 `BlueprintTargetKind.NONE`：通勤是 hop 不是 node，蓝图里只有 poi/restaurant
+- 删除「蓝图总时长 vs intent.duration_hours」校验：下沉到 Itinerary 级 critic
+- 删除「段间通勤」校验：blueprint 阶段还没有 hop，下沉到 critics_v2._check_hop_feasibility
+
+本测试覆盖以下维度：
+- BlueprintNode 字段约束（必填项 / 非负 duration / 非空 kind）
+- BlueprintTargetKind 枚举仅 POI/RESTAURANT（不含 NONE）
+- PlanBlueprint 字段约束（nodes 非空 / preferred_start_time 格式 / extra="forbid"）
+- _temporal_critic：合法蓝图返空 / 跨 24h 报警
+- _duration_critic：单段过短 / 过长 / 零停留
+- _opening_hours_critic：在营业时间内通过 / 营业时间外报警 / target_id 不存在报警
+- run_blueprint_critics 兼容封装（passed / to_dict / 不传 intent 也合法）
 """
 
 from __future__ import annotations
 
+import json
+
 import pytest
+from pydantic import ValidationError
 
 from agent.blueprint import (
-    BlueprintStage,
+    MAX_NODE_DURATION_MIN,
+    MIN_NODE_DURATION_MIN,
+    BlueprintNode,
     BlueprintTargetKind,
     BlueprintViolation,
     PlanBlueprint,
+    _duration_critic,
+    _opening_hours_critic,
+    _temporal_critic,
     run_blueprint_critics,
 )
-from schemas.intent import Companion, IntentExtraction
 
 
 # ============================================================
-# 共享 fixture
+# 维度 1：BlueprintTargetKind 枚举
 # ============================================================
 
-def _intent(duration: list[int] = [1, 1]) -> IntentExtraction:
-    return IntentExtraction(
-        start_time="today_afternoon",
-        duration_hours=list(duration),
-        distance_max_km=5,
-        companions=[Companion(role="自己", count=1)],
-        physical_constraints=[],
-        dietary_constraints=[],
-        experience_tags=[],
-        social_context="独处放空",
-        raw_input="只有一个小时",
-        parse_confidence=0.9,
+
+def test_target_kind_only_poi_and_restaurant():
+    """edge_v1 删除了 NONE：枚举只能有 POI 与 RESTAURANT。"""
+    members = {m.value for m in BlueprintTargetKind}
+    assert members == {"poi", "restaurant"}, (
+        f"BlueprintTargetKind 应只含 poi/restaurant，实际：{members}"
     )
 
 
+def test_target_kind_none_is_removed():
+    """显式确认 NONE 不存在——访问 attribute / Enum lookup 都应失败。"""
+    assert not hasattr(BlueprintTargetKind, "NONE")
+    with pytest.raises(ValueError):
+        BlueprintTargetKind("none")
+
+
 # ============================================================
-# 维度 1：BlueprintStage 字段约束
+# 维度 2：BlueprintNode 字段约束
 # ============================================================
 
-def test_blueprint_stage_minimum_fields():
-    s = BlueprintStage(
+
+def test_blueprint_node_minimum_fields():
+    """合法 mid node：kind/target_kind/target_id/duration_min 即可。"""
+    n = BlueprintNode(
         kind="主活动",
-        start_time="14:00",
-        duration_min=45,
+        target_kind=BlueprintTargetKind.POI,
+        target_id="P040",
+        duration_min=120,
     )
-    assert s.target_kind == BlueprintTargetKind.NONE
-    assert s.target_id is None
-    assert s.kind == "主活动"
+    assert n.kind == "主活动"
+    assert n.target_kind == BlueprintTargetKind.POI
+    assert n.target_id == "P040"
+    assert n.duration_min == 120
+    assert n.note is None
 
 
-def test_blueprint_stage_with_target_must_have_id():
-    """target_kind != none 时 target_id 不能为空。"""
-    with pytest.raises(ValueError, match="target_id"):
-        BlueprintStage(
-            kind="用餐",
-            start_time="18:00",
-            duration_min=60,
-            target_kind=BlueprintTargetKind.RESTAURANT,
-            target_id=None,
+def test_blueprint_node_with_optional_note():
+    """note 字段可选，给前端透传提示。"""
+    n = BlueprintNode(
+        kind="用餐",
+        target_kind=BlueprintTargetKind.RESTAURANT,
+        target_id="R001",
+        duration_min=60,
+        note="已预约 17:00 三人位",
+    )
+    assert n.note == "已预约 17:00 三人位"
+
+
+def test_blueprint_node_kind_is_free_chinese():
+    """kind 自由中文：夜宵 / 晨练 / 早茶 都允许。"""
+    n = BlueprintNode(
+        kind="夜宵小聚",
+        target_kind=BlueprintTargetKind.RESTAURANT,
+        target_id="R001",
+        duration_min=90,
+    )
+    assert n.kind == "夜宵小聚"
+
+
+def test_blueprint_node_negative_duration_rejected():
+    """duration_min 不能负数（NonNegativeInt）。"""
+    with pytest.raises(ValidationError, match="duration_min"):
+        BlueprintNode(
+            kind="主活动",
+            target_kind=BlueprintTargetKind.POI,
+            target_id="P040",
+            duration_min=-10,
         )
 
 
-def test_blueprint_stage_kind_is_free_string():
-    """kind 是自由文本——LLM 可以输出"夜宵" / "下午茶续杯" / "晨练" 任意中文。"""
-    s = BlueprintStage(kind="夜宵小聚", start_time="22:00", duration_min=90)
-    assert s.kind == "夜宵小聚"
+def test_blueprint_node_empty_kind_rejected():
+    """kind 不允许空字符串（min_length=1）。"""
+    with pytest.raises(ValidationError):
+        BlueprintNode(
+            kind="",
+            target_kind=BlueprintTargetKind.POI,
+            target_id="P040",
+            duration_min=60,
+        )
 
 
-def test_blueprint_stage_invalid_time_format():
-    with pytest.raises(ValueError, match="start_time"):
-        BlueprintStage(kind="主活动", start_time="2pm", duration_min=60)
+def test_blueprint_node_empty_target_id_rejected():
+    """target_id 不允许空字符串。"""
+    with pytest.raises(ValidationError):
+        BlueprintNode(
+            kind="主活动",
+            target_kind=BlueprintTargetKind.POI,
+            target_id="",
+            duration_min=60,
+        )
 
 
-def test_blueprint_stage_negative_duration():
-    with pytest.raises(ValueError, match="duration_min"):
-        BlueprintStage(kind="主活动", start_time="14:00", duration_min=-10)
-
-
-def test_blueprint_end_time_computed():
-    s = BlueprintStage(kind="主活动", start_time="14:00", duration_min=90)
-    assert s.end_time() == "15:30"
-
-
-def test_blueprint_end_time_crosses_hour():
-    s = BlueprintStage(kind="主活动", start_time="14:45", duration_min=30)
-    assert s.end_time() == "15:15"
+def test_blueprint_node_extra_field_forbidden():
+    """配置 extra='forbid'，防止 LLM 字段漂移混入旧 start_time。"""
+    with pytest.raises(ValidationError):
+        BlueprintNode(
+            kind="主活动",
+            target_kind=BlueprintTargetKind.POI,
+            target_id="P040",
+            duration_min=60,
+            start_time="14:00",  # 旧字段，应被拒绝
+        )
 
 
 # ============================================================
-# 维度 2：PlanBlueprint 字段约束
+# 维度 3：PlanBlueprint 字段约束
 # ============================================================
 
-def test_blueprint_must_have_at_least_one_stage():
-    with pytest.raises(ValueError, match="stages"):
-        PlanBlueprint(stages=[], rationale="空蓝图")
 
-
-def test_blueprint_total_minutes_computed():
+def test_plan_blueprint_single_node():
+    """单节点合法（如「只想吃饭」场景）。"""
     bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="14:00", duration_min=15),
-            BlueprintStage(kind="主活动", start_time="14:15", duration_min=45),
-            BlueprintStage(kind="返回", start_time="15:00", duration_min=15),
-        ],
-        rationale="单段去玩",
-    )
-    assert bp.total_minutes() == 75
-
-
-# ============================================================
-# 维度 3：时序 critic
-# ============================================================
-
-def test_critic_temporal_passes_for_continuous_stages():
-    """段连续无重叠 → critic 通过。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="14:00", duration_min=15),
-            BlueprintStage(kind="主活动", start_time="14:15", duration_min=45),
-            BlueprintStage(kind="返回", start_time="15:00", duration_min=15),
-        ],
-        rationale="ok",
-    )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    temporal = [v for v in report.violations if v.critic == "blueprint_temporal"]
-    assert not temporal, f"应无时序违规，实际：{[v.message for v in temporal]}"
-
-
-def test_critic_temporal_catches_overlap():
-    """段重叠 → 硬违规。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="主活动", start_time="14:00", duration_min=60),
-            BlueprintStage(kind="用餐", start_time="14:30", duration_min=60),
-        ],
-        rationale="重叠",
-    )
-    report = run_blueprint_critics(bp, _intent([2, 2]))
-    overlaps = [v for v in report.violations if v.critic == "blueprint_temporal"]
-    assert overlaps, "应捕获时序重叠"
-    assert any("重叠" in v.message for v in overlaps)
-
-
-def test_critic_temporal_catches_out_of_order():
-    """段时间倒序 → 硬违规。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="15:00", duration_min=15),
-            BlueprintStage(kind="返回", start_time="14:00", duration_min=15),
-        ],
-        rationale="倒序",
-    )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    assert any(v.critic == "blueprint_temporal" for v in report.violations)
-
-
-# ============================================================
-# 维度 4：时长边界 critic
-# ============================================================
-
-def test_critic_duration_passes_within_limit():
-    """蓝图总时长在 duration_hours 上限 + 15min 容忍内 → 通过。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="14:00", duration_min=15),
-            BlueprintStage(kind="主活动", start_time="14:15", duration_min=45),
-            BlueprintStage(kind="返回", start_time="15:00", duration_min=15),
-        ],
-        rationale="1h 内",
-    )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    duration_v = [v for v in report.violations if v.critic == "blueprint_duration"]
-    assert not duration_v
-
-
-def test_critic_duration_catches_exceed():
-    """蓝图总时长超 duration_hours[1]+15min → 硬违规。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="14:00", duration_min=15),
-            BlueprintStage(kind="主活动", start_time="14:15", duration_min=180),
-            BlueprintStage(kind="返回", start_time="17:15", duration_min=15),
-        ],
-        rationale="3h 但用户要 1h",
-    )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    assert any(v.critic == "blueprint_duration" for v in report.violations)
-
-
-# ============================================================
-# 维度 5：营业时间 critic（依赖 mock_data）
-# ============================================================
-
-def test_critic_opening_hours_passes_for_in_business():
-    """R001 营业 10:30-21:30；蓝图用餐 17:30 在营业时间内 → 通过。"""
-    bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(
+        nodes=[
+            BlueprintNode(
                 kind="用餐",
-                start_time="17:30",
-                duration_min=60,
                 target_kind=BlueprintTargetKind.RESTAURANT,
                 target_id="R001",
+                duration_min=60,
             ),
         ],
-        rationale="ok",
     )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    opening = [v for v in report.violations if v.critic == "blueprint_opening_hours"]
-    assert not opening, f"R001 17:30 应在营业时间内，实际：{opening}"
+    assert len(bp.nodes) == 1
+    assert bp.preferred_start_time == "14:00"  # 默认值
+    assert bp.rationale == ""
 
 
-def test_critic_opening_hours_catches_closed():
-    """R001 营业 10:30-21:30；蓝图用餐 06:00 不在营业时间 → 硬违规。"""
+def test_plan_blueprint_multi_node():
+    """多节点合法（标准 POI + 用餐场景）。"""
     bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=165,
+            ),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+        preferred_start_time="14:00",
+        rationale="经典下午局：先逛后吃",
+    )
+    assert len(bp.nodes) == 2
+    assert bp.rationale.startswith("经典")
+
+
+def test_plan_blueprint_empty_nodes_rejected():
+    """nodes 列表不能为空（min_length=1）。"""
+    with pytest.raises(ValidationError):
+        PlanBlueprint(nodes=[])
+
+
+def test_plan_blueprint_invalid_start_time_format():
+    """preferred_start_time 必须 HH:MM。"""
+    with pytest.raises(ValidationError, match="preferred_start_time"):
+        PlanBlueprint(
+            nodes=[
+                BlueprintNode(
+                    kind="用餐",
+                    target_kind=BlueprintTargetKind.RESTAURANT,
+                    target_id="R001",
+                    duration_min=60,
+                ),
+            ],
+            preferred_start_time="2pm",
+        )
+
+
+def test_plan_blueprint_extra_field_forbidden():
+    """蓝图层级也禁止旧字段透传（如旧 stages 字段）。"""
+    with pytest.raises(ValidationError):
+        PlanBlueprint(
+            nodes=[
+                BlueprintNode(
+                    kind="用餐",
+                    target_kind=BlueprintTargetKind.RESTAURANT,
+                    target_id="R001",
+                    duration_min=60,
+                ),
+            ],
+            stages=[],  # 旧字段
+        )
+
+
+# ============================================================
+# 维度 4：_temporal_critic
+# ============================================================
+
+
+def test_temporal_critic_passes_for_continuous_nodes():
+    """合法蓝图（按累加 duration 自然不重叠）→ critic 返空 list。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=60,
+            ),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+        preferred_start_time="14:00",
+    )
+    violations = _temporal_critic(bp)
+    assert violations == [], f"应无时序违规，实际：{violations}"
+
+
+def test_temporal_critic_single_node_passes():
+    """单节点不可能重叠 → 返空 list。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+    )
+    assert _temporal_critic(bp) == []
+
+
+def test_temporal_critic_catches_24h_overflow():
+    """累加 duration 末尾溢出 24:00 → 报警。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=300,  # 5h
+            ),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=300,  # 又 5h，累计 10h
+            ),
+        ],
+        preferred_start_time="22:00",  # 22:00 + 10h = 08:00 次日
+    )
+    violations = _temporal_critic(bp)
+    assert violations, "应捕获跨 24:00 溢出"
+    assert any("24:00" in v for v in violations)
+
+
+# ============================================================
+# 维度 5：_duration_critic
+# ============================================================
+
+
+def test_duration_critic_passes_for_normal_nodes():
+    """所有 node 时长在合理区间 → 返空 list。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=120,
+            ),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+    )
+    assert _duration_critic(bp) == []
+
+
+def test_duration_critic_catches_too_short():
+    """单段过短（5min）→ 报警。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=5,  # 低于 MIN=10
+            ),
+        ],
+    )
+    violations = _duration_critic(bp)
+    assert violations, f"应捕获过短停留，实际：{violations}"
+    assert any(str(MIN_NODE_DURATION_MIN) in v for v in violations)
+
+
+def test_duration_critic_catches_too_long():
+    """单段过长（500min）→ 报警。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=500,  # 高于 MAX=300
+            ),
+        ],
+    )
+    violations = _duration_critic(bp)
+    assert violations, f"应捕获过长停留，实际：{violations}"
+    assert any(str(MAX_NODE_DURATION_MIN) in v for v in violations)
+
+
+def test_duration_critic_catches_zero_duration():
+    """duration_min=0（NonNegativeInt 允许）→ 报警（mid node 不应零停留）。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=0,
+            ),
+        ],
+    )
+    violations = _duration_critic(bp)
+    assert violations, "应捕获零停留"
+
+
+# ============================================================
+# 维度 6：_opening_hours_critic（依赖 mock_data）
+# ============================================================
+
+
+def test_opening_hours_passes_for_in_business():
+    """R001 营业 10:30-21:30；蓝图 14:00 + 用餐 60min = 14:00-15:00 在营业时间内 → 通过。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+        preferred_start_time="14:00",
+    )
+    violations = _opening_hours_critic(bp)
+    assert violations == [], f"R001 14:00-15:00 应在营业时间内，实际：{violations}"
+
+
+def test_opening_hours_catches_closed():
+    """R001 营业 10:30-21:30；蓝图 06:00 早餐 60min 不在营业时间 → 报警。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
                 kind="早餐",
-                start_time="06:00",
-                duration_min=60,
                 target_kind=BlueprintTargetKind.RESTAURANT,
                 target_id="R001",
+                duration_min=60,
             ),
         ],
-        rationale="bad",
+        preferred_start_time="06:00",
     )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    opening = [v for v in report.violations if v.critic == "blueprint_opening_hours"]
-    assert opening, "R001 06:00 应捕获营业时间违规"
+    violations = _opening_hours_critic(bp)
+    assert violations, "R001 06:00 应捕获营业时间违规"
+    assert any("营业时间" in v or "营业" in v for v in violations)
 
 
-def test_critic_opening_hours_unknown_target_id():
-    """target_id 不存在 → 硬违规。"""
+def test_opening_hours_catches_unknown_target_id():
+    """target_id 在 mock_data 中不存在 → 报警。"""
     bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(
+        nodes=[
+            BlueprintNode(
                 kind="用餐",
-                start_time="18:00",
-                duration_min=60,
                 target_kind=BlueprintTargetKind.RESTAURANT,
                 target_id="R_NOT_EXIST",
+                duration_min=60,
             ),
         ],
-        rationale="bad id",
     )
-    report = run_blueprint_critics(bp, _intent([2, 2]))
-    assert any(
-        v.critic == "blueprint_opening_hours" and "未找到" in v.message
-        for v in report.violations
-    )
+    violations = _opening_hours_critic(bp)
+    assert violations, "应捕获未知 target_id"
+    assert any("未找到" in v for v in violations)
 
 
 # ============================================================
-# 维度 6：聚合 report
+# 维度 7：run_blueprint_critics 兼容封装
 # ============================================================
 
-def test_report_passed_when_no_hard_violations():
+
+def test_run_blueprint_critics_passes_for_legal_blueprint():
+    """合法蓝图 → report.passed=True。"""
     bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="出发", start_time="14:00", duration_min=15),
-            BlueprintStage(kind="主活动", start_time="14:15", duration_min=45),
-            BlueprintStage(kind="返回", start_time="15:00", duration_min=15),
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=120,
+            ),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
         ],
-        rationale="ok",
+        preferred_start_time="14:00",
     )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    assert report.passed
+    report = run_blueprint_critics(bp)
+    assert report.passed, f"合法蓝图应 pass，实际违规：{report.violations}"
+    assert report.violations == []
 
 
-def test_report_failed_when_any_hard_violation():
+def test_run_blueprint_critics_fails_when_any_hard_violation():
+    """单段过短即 hard 违规 → passed=False。"""
     bp = PlanBlueprint(
-        stages=[
-            BlueprintStage(kind="主活动", start_time="14:00", duration_min=60),
-            BlueprintStage(kind="用餐", start_time="14:30", duration_min=60),
+        nodes=[
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=5,
+            ),
         ],
-        rationale="重叠",
     )
-    report = run_blueprint_critics(bp, _intent([2, 2]))
+    report = run_blueprint_critics(bp)
     assert not report.passed
-    assert any(v.severity == "hard" for v in report.violations)
+    assert all(v.severity == "hard" for v in report.violations)
+    assert all(isinstance(v, BlueprintViolation) for v in report.violations)
 
 
-def test_report_to_dict_serializable():
-    """report 应能直接 JSON 序列化（trace 推送用）。"""
-    import json
-
+def test_run_blueprint_critics_intent_param_optional():
+    """edge_v1 三个 critic 内部不再使用 intent，签名保留兼容旧调用方但参数可缺省。"""
     bp = PlanBlueprint(
-        stages=[BlueprintStage(kind="出发", start_time="14:00", duration_min=10)],
-        rationale="测试",
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=60,
+            ),
+        ],
     )
-    report = run_blueprint_critics(bp, _intent([1, 1]))
-    d = report.to_dict()
-    json.dumps(d)  # 不抛异常即合格
+    # 不传 intent
+    report = run_blueprint_critics(bp)
+    assert report.passed
+    # 传 None 也合法
+    report2 = run_blueprint_critics(bp, None)
+    assert report2.passed
+
+
+def test_run_blueprint_critics_to_dict_serializable():
+    """report.to_dict 应能直接 JSON 序列化（DecisionTrace 推送用）。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id="R001",
+                duration_min=60,
+            ),
+        ],
+    )
+    report = run_blueprint_critics(bp)
+    json.dumps(report.to_dict())  # 不抛异常即合格

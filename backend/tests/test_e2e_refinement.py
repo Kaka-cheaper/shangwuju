@@ -147,15 +147,18 @@ def test_scenario_x_mode_main_path(scenario_id: str, mode: str):
     )
     itinerary = result.itinerary
     assert itinerary is not None
-    # Phase 0.10：段数按 segment_decider 决定，不再硬要 5 段
-    from agent.segment_decider import decide_segments
-    expected = decide_segments(intent)
-    assert len(itinerary.stages) >= len(expected), (
-        f"段数不足：实际 {len(itinerary.stages)}，按 intent 应有 {len(expected)} 段"
+    # edge_v1：中间节点按 decide_nodes 决定（不再硬要 5 段）
+    from agent.node_decider import decide_nodes
+    expected_kinds = decide_nodes(intent)
+    mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
+    mid_kinds = {n.kind for n in mid_nodes}
+    assert len(mid_nodes) >= len(expected_kinds), (
+        f"中间节点数不足：实际 {len(mid_nodes)}，按 intent 应有 {len(expected_kinds)} 个"
     )
-    kinds = {s.kind for s in itinerary.stages}
-    for required in expected:
-        assert required in kinds, f"{scenario_id}/{mode} 缺段：{required}"
+    for required in expected_kinds:
+        assert required in mid_kinds, (
+            f"{scenario_id}/{mode} 缺中间节点 kind：{required}（实际 {mid_kinds}）"
+        )
 
 
 # ============================================================
@@ -216,7 +219,9 @@ def test_refine_then_replan_end_to_end(scenario_id: str, mode: str):
         f"{scenario_id}/{mode} refine 后重新 plan 失败：{plan2.failure_detail}"
     )
     assert plan2.itinerary is not None
-    assert len(plan2.itinerary.stages) >= 5
+    # edge_v1：至少含 1 个 mid node
+    mid_nodes = [n for n in plan2.itinerary.nodes if n.target_kind != "home"]
+    assert len(mid_nodes) >= 1, "重新 plan 后应至少含 1 个 mid node"
 
 
 # ============================================================

@@ -31,11 +31,17 @@ def test_end_to_end_family_main_scene():
     itinerary = plan_result.itinerary
     assert itinerary is not None
 
-    # 六段（实际可能 5 段：出发/主活动/转场/用餐/返回，附加可选）
-    assert len(itinerary.stages) >= 5
-    kinds = [s.kind for s in itinerary.stages]
-    for required in ("出发", "主活动", "转场", "用餐", "返回"):
-        assert required in kinds, f"缺少行程段：{required}"
+    # edge_v1：节点-边模型，至少 1 个 mid node + 首尾 home（≥3 节点）
+    assert itinerary.schema_version == "edge_v1"
+    assert len(itinerary.hops) == len(itinerary.nodes) - 1
+    assert itinerary.nodes[0].target_kind == "home"
+    assert itinerary.nodes[-1].target_kind == "home"
+
+    mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
+    mid_kinds = {n.kind for n in mid_nodes}
+    # 家庭场景应至少含主活动 + 用餐两类 mid node
+    assert "主活动" in mid_kinds, f"缺少主活动 mid node：实际 {mid_kinds}"
+    assert "用餐" in mid_kinds, f"缺少用餐 mid node：实际 {mid_kinds}"
 
     # 3. 执行（用户确认后）
     party_size = sum(c.count for c in intent.companions) or 1
@@ -68,10 +74,12 @@ def test_e1_restaurant_full_triggers_replan():
     ]
     assert full_replans, "replan 触发了但不是因为 restaurant_full"
 
-    # 最终 itinerary 用餐段不是 17:00（因为 R001 17:00 满）
-    dining = next(s for s in plan_result.itinerary.stages if s.kind == "用餐")
+    # 最终 itinerary 用餐节点的开始时刻不是 17:00（因为 R001 17:00 满）
+    dining_node = next(
+        n for n in plan_result.itinerary.nodes if n.target_kind == "restaurant"
+    )
     # 选了 R001 → 必须是 17:30/18:00；选了 R002 → 17:00 也可
-    assert dining.note  # 有"已为你预留"备注
+    assert dining_node.note  # 有"已为你预留"备注
 
 
 def test_no_forbidden_d9_fields_in_intent():

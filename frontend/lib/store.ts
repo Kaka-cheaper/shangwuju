@@ -740,9 +740,45 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
       break;
     }
 
-    case "itinerary_ready":
-      set({ itinerary: ev.payload as unknown as Itinerary });
+    case "itinerary_ready": {
+      // R9：SSE schema 兼容降级。
+      // 后端 edge model refactor 后 payload 自带 schema_version="edge_v1"。
+      // 若版本字段缺失或不一致（旧后端 / 错误数据），不抛错也不全屏崩，
+      // 仅保留 summary + total_minutes 文字提示，让 demo 现场仍能看到结果。
+      // 校验放在 store 层而不是组件层 —— 一处兜住，下游所有组件无脑读 itinerary 即可。
+      const rawPayload = ev.payload as unknown as Itinerary & {
+        schema_version?: string;
+      };
+      if (rawPayload.schema_version !== "edge_v1") {
+        console.warn(
+          "[store] itinerary_ready schema_version 不兼容：",
+          rawPayload.schema_version,
+          "—— 已降级到文字摘要（仅渲染 summary + total_minutes）",
+        );
+        // fallback 同时带「旧 stages 字段」与「新 nodes/hops/schedule 字段」：
+        // - 兼容 Task 11 完成前（types.ts 仍是 stages schema）：stages=[] 让组件不 NPE
+        // - 兼容 Task 11 完成后（types.ts 升级为 edge schema）：nodes/hops/schedule=[] 同步生效
+        // 强转 `as unknown as Itinerary` 让 schema 演进期不卡 typecheck。
+        const fallback = {
+          schema_version: "edge_v1" as const,
+          summary:
+            rawPayload.summary ??
+            "（行程数据格式暂不兼容，已为你保留文字摘要，请稍后重试）",
+          stages: [],
+          nodes: [],
+          hops: [],
+          schedule: [],
+          orders: [],
+          share_message: rawPayload.share_message ?? null,
+          total_minutes: rawPayload.total_minutes ?? 0,
+          decision_trace: null,
+        };
+        set({ itinerary: fallback as unknown as Itinerary });
+        break;
+      }
+      set({ itinerary: rawPayload });
       break;
+    }
 
     case "agent_narration": {
       const p = ev.payload as unknown as AgentNarrationPayload;

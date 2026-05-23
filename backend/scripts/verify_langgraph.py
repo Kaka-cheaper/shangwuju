@@ -60,8 +60,12 @@ async def case_planning() -> bool:
                 f"social={ints.get('social_context')}"
             )
         elif kind == "itinerary_ready":
-            stages = ev.payload.get("stages", [])
-            payload_preview = f"{len(stages)} 段"
+            nodes = ev.payload.get("nodes", [])
+            hops = ev.payload.get("hops", [])
+            mid = [n for n in nodes if n.get("target_kind") != "home"]
+            payload_preview = (
+                f"{len(nodes)} 节点（{len(mid)} 中间）/ {len(hops)} 通勤段"
+            )
         elif kind == "agent_narration":
             payload_preview = ev.payload.get("text", "")[:60]
         elif kind == "stream_error":

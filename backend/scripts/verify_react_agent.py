@@ -4,11 +4,11 @@
 5 场景端到端验证 ReAct 单一 Agent：
     1. 闲聊（"你是谁"）→ ChatResponse 不调任何工具
     2. POI Q&A（"P004 是什么样的地方"）→ 调 search_pois → ChatResponse
-    3. 完整规划（家庭主线）→ 调多工具 → ItineraryResponse, stages ≥ 5,
+    3. 完整规划（家庭主线）→ 调多工具 → ItineraryResponse, mid_nodes ≥ 2,
        narration 含 "老婆" 或 "孩子"
     4. 拒答（"5+5 等于几"）→ ChatResponse 含晌午局/下午/出行/帮你 等关键词
     5. 上下文反馈：先 run 主线 → 再 run "太远了 3 公里以内" 用 result.all_messages()
-       传 message_history → ItineraryResponse 中所有 stage 距离 ≤ 3km
+       传 message_history → ItineraryResponse 中所有节点距离 ≤ 3km
 
 跑法：
     # SKIPPED 模式（CI / 无真 LLM key）
@@ -59,8 +59,11 @@ def _summarize_result(result: Any) -> dict[str, Any]:
         info["suggestions"] = list(output.suggestions or [])
     elif out_type == "ItineraryResponse":
         info["narration_head"] = (output.narration or "")[:200]
-        info["stages_count"] = len(output.itinerary.stages)
-        info["stage_kinds"] = [s.kind for s in output.itinerary.stages]
+        # edge_v1：节点数 / 中间节点数 / 节点种类
+        nodes = output.itinerary.nodes
+        info["nodes_count"] = len(nodes)
+        info["mid_nodes_count"] = len([n for n in nodes if n.target_kind != "home"])
+        info["node_target_kinds"] = [n.target_kind for n in nodes]
         info["total_minutes"] = output.itinerary.total_minutes
         info["orders"] = list(output.itinerary.orders or [])
     return info
@@ -180,7 +183,8 @@ async def _scenario_planning() -> tuple[bool, list[str], dict[str, Any]]:
     summary["tool_calls"] = _count_tool_calls(result)
 
     ok_type = isinstance(result.output, ItineraryResponse)
-    ok_stages = ok_type and summary.get("stages_count", 0) >= 5
+    # edge_v1：mid 节点 ≥ 2（POI + 用餐 / 或 POI + POI 等）
+    ok_nodes = ok_type and summary.get("mid_nodes_count", 0) >= 2
     narration = summary.get("narration_head", "")
     ok_narration = ok_type and (("老婆" in narration) or ("孩子" in narration))
 
@@ -192,8 +196,8 @@ async def _scenario_planning() -> tuple[bool, list[str], dict[str, Any]]:
         f"\n[场景 3] 家庭主线规划 → ItineraryResponse",
         _bullet(ok_type, f"output 类型 = ItineraryResponse (实际 {summary['output_type']})"),
         _bullet(
-            ok_stages,
-            f"stages ≥ 5 段 (实际 {summary.get('stages_count', 0)})",
+            ok_nodes,
+            f"中间节点 ≥ 2 (实际 {summary.get('mid_nodes_count', 0)})",
         ),
         _bullet(
             ok_narration,
@@ -204,10 +208,10 @@ async def _scenario_planning() -> tuple[bool, list[str], dict[str, Any]]:
             f"search_pois + search_restaurants 都调过 (实际 {tc})",
         ),
     ]
-    if not (ok_type and ok_stages and ok_narration and ok_multi_tools):
+    if not (ok_type and ok_nodes and ok_narration and ok_multi_tools):
         lines.append(f"  · summary: {summary}")
 
-    return ok_type and ok_stages and ok_narration and ok_multi_tools, lines, summary
+    return ok_type and ok_nodes and ok_narration and ok_multi_tools, lines, summary
 
 
 # ============================================================
@@ -289,7 +293,7 @@ async def _scenario_feedback() -> tuple[bool, list[str], dict[str, Any]]:
 
     ok_type = isinstance(r2.output, ItineraryResponse)
 
-    # distance ≤ 3km 验证：用 ToolProvider 加载 mock 数据查每个 stage 的 poi/restaurant 距离
+    # distance ≤ 3km 验证：用 ToolProvider 加载 mock 数据查每个节点的 poi/restaurant 距离
     ok_distance = False
     distance_detail: list[str] = []
     if ok_type:
@@ -303,16 +307,18 @@ async def _scenario_feedback() -> tuple[bool, list[str], dict[str, Any]]:
             ok_distance = True  # loader 不可用时不阻塞
         else:
             ok_distance = True  # 默认通过；任何超阈值则置 False
-            for idx, stage in enumerate(r2.output.itinerary.stages):
+            for idx, node in enumerate(r2.output.itinerary.nodes):
+                if node.target_kind == "home":
+                    continue
                 d = None
-                if stage.poi_id and stage.poi_id in poi_dist:
-                    d = poi_dist[stage.poi_id]
-                elif stage.restaurant_id and stage.restaurant_id in rest_dist:
-                    d = rest_dist[stage.restaurant_id]
+                if node.target_kind == "poi" and node.target_id in poi_dist:
+                    d = poi_dist[node.target_id]
+                elif node.target_kind == "restaurant" and node.target_id in rest_dist:
+                    d = rest_dist[node.target_id]
                 if d is not None and d > 3.0:
                     ok_distance = False
                     distance_detail.append(
-                        f"stage[{idx}] {stage.title} 目标距离 {d}km > 3km"
+                        f"node[{idx}] {node.title} 目标距离 {d}km > 3km"
                     )
 
     # 必须调过工具（refine 不能空想）
@@ -323,7 +329,7 @@ async def _scenario_feedback() -> tuple[bool, list[str], dict[str, Any]]:
         f"\n[场景 5] 上下文反馈：先主线 → 再「3km 以内」",
         _bullet(
             isinstance(r1.output, ItineraryResponse),
-            f"r1 baseline = ItineraryResponse, stages={s1.get('stages_count')}",
+            f"r1 baseline = ItineraryResponse, mid_nodes={s1.get('mid_nodes_count')}",
         ),
         _bullet(
             ok_type,
@@ -336,7 +342,7 @@ async def _scenario_feedback() -> tuple[bool, list[str], dict[str, Any]]:
         _bullet(
             ok_distance,
             (
-                f"r2 所有 stage 距离 ≤ 3km"
+                f"r2 所有节点距离 ≤ 3km"
                 + (f" — 违例：{distance_detail}" if distance_detail else "")
             ),
         ),

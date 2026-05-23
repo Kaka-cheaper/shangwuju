@@ -16,20 +16,50 @@
  * 位置：ItineraryCard 内部 header 下方、narration 之前。
  * 默认状态：展开（refine 后立刻展示对比给用户看）。
  *
- * 数据契约：
- *   - Itinerary.stages: ItineraryStage[]
- *   - ItineraryStage: { kind, start, end, title, poi_id?, restaurant_id?, note? }
+ * 数据契约（edge_v1）：
+ *   - Itinerary.nodes: ActivityNode[]（含 home 起终点；diff 时过滤）
+ *   - 本视图把 nodes 投影到内部 DiffStage 形状（start/end/title/kind），保持原 diff 算法不变。
  *
  * Diff 算法：
- *   按 stage 索引对齐（不做 LCS / 模糊匹配），逐字段比较 start/end/title/kind。
+ *   按节点索引对齐（不做 LCS / 模糊匹配），逐字段比较 start/end/title/kind。
  *   不同字段加 amber 高亮。新增/删除段加专门的 「新增」/「已移除」 占位。
  */
 
 import { useState } from "react";
 import { ChevronDown, GitCompare } from "lucide-react";
 
-import type { Itinerary, ItineraryStage } from "@/lib/types";
+import type { Itinerary } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+// ============================================================
+// 渲染层 stage 形状（edge_v1 适配，不再依赖已删除的 ItineraryStage 类型）
+// ============================================================
+
+interface DiffStage {
+  start: string;
+  end: string;
+  title: string;
+  kind: string;
+}
+
+function addMinutesHHMM(start: string, minutes: number): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(start);
+  if (!m) return start;
+  const total = Number(m[1]) * 60 + Number(m[2]) + (minutes || 0);
+  const wrap = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(wrap / 60)).padStart(2, "0")}:${String(wrap % 60).padStart(2, "0")}`;
+}
+
+function nodesToDiffStages(itinerary: Itinerary): DiffStage[] {
+  return (itinerary.nodes || [])
+    .filter((n) => n.target_kind !== "home")
+    .map((n) => ({
+      start: n.start_time,
+      end: addMinutesHHMM(n.start_time, n.duration_min),
+      title: n.title,
+      kind: n.kind,
+    }));
+}
 
 // ============================================================
 // Diff 算法
@@ -38,16 +68,16 @@ import { cn } from "@/lib/utils";
 type StageDiffKind = "unchanged" | "modified" | "added" | "removed";
 
 interface StageDiff {
-  oldStage: ItineraryStage | null;
-  newStage: ItineraryStage | null;
+  oldStage: DiffStage | null;
+  newStage: DiffStage | null;
   kind: StageDiffKind;
   /** 在 modified 时具体变化的字段名（用于高亮） */
   changedFields: ReadonlyArray<"time" | "title" | "kind">;
 }
 
 function diffStages(
-  oldStages: ReadonlyArray<ItineraryStage>,
-  newStages: ReadonlyArray<ItineraryStage>,
+  oldStages: ReadonlyArray<DiffStage>,
+  newStages: ReadonlyArray<DiffStage>,
 ): StageDiff[] {
   const maxLen = Math.max(oldStages.length, newStages.length);
   const diffs: StageDiff[] = [];
@@ -95,7 +125,10 @@ export default function ComparisonView({
   newItinerary,
 }: ComparisonViewProps) {
   const [expanded, setExpanded] = useState(true);
-  const diffs = diffStages(oldItinerary.stages, newItinerary.stages);
+  const diffs = diffStages(
+    nodesToDiffStages(oldItinerary),
+    nodesToDiffStages(newItinerary),
+  );
   const changedCount = diffs.filter((d) => d.kind !== "unchanged").length;
 
   return (
@@ -190,7 +223,7 @@ function StageRow({
   side,
   changedFields,
 }: {
-  stage: ItineraryStage | null;
+  stage: DiffStage | null;
   diffKind: StageDiffKind;
   side: "old" | "new";
   changedFields: ReadonlyArray<"time" | "title" | "kind">;

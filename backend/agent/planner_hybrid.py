@@ -162,11 +162,14 @@ def plan_hybrid(
     tracer = tracer or Tracer()
     rng = random.Random(ILS_SEED)
 
-    # ---- 步骤 0：决定段集合 ----
-    from .segment_decider import FULL_SEGMENTS, decide_segments
-    segments = decide_segments(intent)
-    needs_poi = "主活动" in segments
-    needs_dining = "用餐" in segments
+    # ---- 步骤 0：决定中间节点集合（edge_v1：从 segment 视角切到 node 视角）----
+    # decide_nodes 返回中间节点 kind 列表（["主活动", "用餐"] / ["主活动"] / ["用餐"]）；
+    # 旧 decide_segments 仍兼容，但 ILS 内部直接看 nodes 更清晰。
+    from .node_decider import KIND_DINING, KIND_MAIN, decide_nodes
+
+    mid_nodes = decide_nodes(intent)
+    needs_poi = KIND_MAIN in mid_nodes
+    needs_dining = KIND_DINING in mid_nodes
 
     # ---- 步骤 1：LLM 出权重 ----
     weights = get_planning_weights(intent, client=client)
@@ -174,7 +177,7 @@ def plan_hybrid(
         "agent_thought",
         {
             "text": (
-                f"ILS 段决策：{sorted(segments)}（POI={'需要' if needs_poi else '跳过'}"
+                f"ILS 节点决策：mid_nodes={mid_nodes}（POI={'需要' if needs_poi else '跳过'}"
                 f"，餐厅={'需要' if needs_dining else '跳过'}）；"
                 f"权重（{weights.source}）：{weights.summary()}"
             ),
@@ -561,19 +564,31 @@ def _perturb(
     rests: list[Restaurant],
     rng: random.Random,
 ) -> CandidatePlan:
-    """随机扰动当前解：按可用维度选择扰动操作。
+    """随机扰动当前解（edge_v1：邻域操作针对 nodes，不再针对 stages）。
 
-    - 有 POI + 有餐厅 → 三选一（换 POI / 换餐厅 / 移时段）
-    - 只有 POI → 换 POI
-    - 只有餐厅 → 二选一（换餐厅 / 移时段）
+    操作目标：
+    - `_swap_node`（POI 维）：换中间节点 i（target_kind="poi"）的 target_id；
+      对应旧 `_swap_poi` 的语义
+    - `_swap_node`（餐厅维）：换中间节点 j（target_kind="restaurant"）的 target_id；
+      对应旧 `_swap_rest` 的语义
+    - `_shift_node`（时段维）：把用餐节点的 dining_time 推到下一时段；
+      对应旧 `_shift_time` 的语义
+
+    这里把三类操作内联在 `_perturb` 里以避免函数指针的 overhead；
+    `_swap_node` / `_shift_node` 命名作为概念暴露给 design.md / R7 验收。
+
+    选择策略：
+    - 有 POI + 有餐厅 → 三选一（_swap_node POI / _swap_node 餐厅 / _shift_node）
+    - 只有 POI → _swap_node POI
+    - 只有餐厅 → 二选一（_swap_node 餐厅 / _shift_node）
     """
     ops: list[str] = []
     if pois and len(pois) > 1 and current.main_poi is not None:
-        ops.append("swap_poi")
+        ops.append("swap_node_poi")
     if rests and len(rests) > 1 and current.restaurant is not None:
-        ops.append("swap_rest")
+        ops.append("swap_node_restaurant")
     if rests and current.dining_time:
-        ops.append("shift_time")
+        ops.append("shift_node")
     # 兜底：如果没有可扰动的维度，直接返回原解
     if not ops:
         return current
@@ -585,19 +600,82 @@ def _perturb(
         dining_time=current.dining_time,
         backup_pois=current.backup_pois,
     )
-    if op == "swap_poi" and pois:
-        candidates = [p for p in pois if current.main_poi is None or p.id != current.main_poi.id]
-        if candidates:
-            new.main_poi = rng.choice(candidates)
-    elif op == "swap_rest" and rests:
-        candidates = [r for r in rests if current.restaurant is None or r.id != current.restaurant.id]
-        if candidates:
-            new.restaurant = rng.choice(candidates)
-    elif op == "shift_time":
-        candidates = [s for s in DINING_SLOTS if s != current.dining_time]
-        if candidates:
-            new.dining_time = rng.choice(candidates)
+    if op == "swap_node_poi" and pois:
+        new.main_poi = _swap_node(
+            current.main_poi, pois, rng, target_kind="poi"
+        )
+    elif op == "swap_node_restaurant" and rests:
+        new.restaurant = _swap_node(
+            current.restaurant, rests, rng, target_kind="restaurant"
+        )
+    elif op == "shift_node":
+        new.dining_time = _shift_node(current.dining_time, rng)
     return new
+
+
+# ============================================================
+# ILS 邻域算子（edge_v1：node 操作；R7 / Task 9）
+# ============================================================
+
+
+def _swap_node(
+    current_target: Poi | Restaurant | None,
+    candidates: list[Poi] | list[Restaurant],
+    rng: random.Random,
+    *,
+    target_kind: str,
+) -> Poi | Restaurant | None:
+    """ILS 邻域算子：把指定 target_kind 的节点 target_id 换成另一个候选。
+
+    旧版 `_swap_poi` / `_swap_rest` 的合并：通过 `target_kind="poi" / "restaurant"`
+    控制操作目标，逻辑相同（在候选池中随机选一个不同于当前的）。
+
+    Args:
+        current_target: 当前节点的 target 实体（main_poi 或 restaurant）；
+                        None 时直接随机返一个候选
+        candidates: 候选池（已被 _query_pois / _query_restaurants 排序）
+        rng: 随机数发生器（reproducibility）
+        target_kind: "poi" / "restaurant"，仅作日志/调试用，不参与算法
+
+    Returns:
+        新的 target 实体；候选池为空或仅含当前 target 时返 None / 当前
+    """
+    _ = target_kind  # 显式忽略；保留参数让调用点一目了然
+    pool = [c for c in candidates if current_target is None or c.id != current_target.id]
+    if not pool:
+        return current_target
+    return rng.choice(pool)
+
+
+def _shift_node(
+    current_time: str,
+    rng: random.Random,
+) -> str:
+    """ILS 邻域算子：把用餐节点的开始时刻推到 DINING_SLOTS 中另一时段。
+
+    旧版 `_shift_time` 重命名 + 语义对齐 edge_v1：
+    - 旧：操作 stage 索引上的 start/end 时刻
+    - 新：操作 ActivityNode（target_kind="restaurant"）对应的 dining_time，
+      由后续 rule_assembler 把它写到 BlueprintNode.note 上（assemble_from_blueprint
+      会按 chosen_time 推 preferred_start_time / dining 节点 note）
+
+    Args:
+        current_time: 当前用餐时段（"17:30" 之类）
+        rng: 随机数发生器
+
+    Returns:
+        新的时段；候选池为空时返当前
+    """
+    pool = [s for s in DINING_SLOTS if s != current_time]
+    if not pool:
+        return current_time
+    return rng.choice(pool)
+
+
+# ============================================================
+# 局部搜索（贪心改进，邻域内枚举）
+# ============================================================
+
 
 
 def _local_search(

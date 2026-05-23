@@ -67,7 +67,7 @@ CASES = [
             "这周加班加得想吐，下午想一个人安安静静"
             "待几个小时再回家，最好室内不晒。"
         ),
-        "expected_challenges": "SOCIAL_CONTEXT 独处；可能 STAGES_INCOMPLETE（只想 POI 不想用餐）",
+        "expected_challenges": "SOCIAL_CONTEXT 独处；可能 NODES_INCOMPLETE（只想 POI 不想用餐）",
     },
     {
         "id": "S4-business",
@@ -170,8 +170,10 @@ async def measure_one(graph, case_input: str, session_id: str) -> dict:
         "first_has_critical": first_run["has_critical"] if first_run else None,
         "final_critic_codes": last_run["codes"] if last_run else [],
         "final_has_critical": last_run["has_critical"] if last_run else None,
-        "final_stages": (
-            len(final_itinerary.stages) if final_itinerary else 0
+        "final_mid_nodes": (
+            len([n for n in final_itinerary.nodes if n.target_kind != "home"])
+            if final_itinerary
+            else 0
         ),
         "final_total_minutes": (
             final_itinerary.total_minutes if final_itinerary else None
@@ -237,7 +239,7 @@ async def main() -> int:
     print()
     print(
         f"{'Case':<14} | {'plan':<5} | {'bp':<3} | {'ILS':<5} | "
-        f"{'1st 违规':<22} | {'final':<7} | {'段数':<5} | 总分钟"
+        f"{'1st 违规':<22} | {'final':<7} | {'mid节点':<7} | 总分钟"
     )
     print("-" * 100)
     for r in results:
@@ -253,7 +255,7 @@ async def main() -> int:
             f"{'YES' if r['ils_triggered'] else 'no':<5} | "
             f"{first_codes_str:<22} | "
             f"{final_pass:<7} | "
-            f"{r['final_stages']:<5} | "
+            f"{r['final_mid_nodes']:<7} | "
             f"{r['final_total_minutes']}"
         )
 

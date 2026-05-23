@@ -1,32 +1,41 @@
 "use client";
 
 /**
- * MapOverlay —— 高德地图行程标注（spec R2）。
+ * MapOverlay —— 高德地图行程标注（spec R8 / edge_v1）。
  *
  * 设计动机：
  *   - 评委要看「这个方案能直接接入美团生态」——用高德（不是 Leaflet）
  *   - 行程地点在地图上实时标注，配合 R1 stagger 动画逐段亮起
  *
- * 数据流（重构后，2026-05-22）：
- *   - itinerary.stages 已带 lat/lng/address（后端 assemble 时注入）
- *   - 不再调 /poi-locations 二次查询
+ * 数据流（edge_v1 重构后，2026-05-XX）：
+ *   - itinerary.nodes 已带 target_kind / target_id / lat / lng / address
+ *     （后端 assemble 时注入；home 节点 lat/lng 可缺，但前端本来就不画 home）
+ *   - 旧 stages 模型已删除，不再读 itinerary.stages
  *   - 真接入美团 POI 时，POI 接口直接返坐标 → 数据形态不变
  *
  * 高德能力：
  *   - 标注（Marker）+ 真实路线规划（Driving）+ InfoWindow 详情
  *   - Driving 失败时 fallback 到直连 Polyline，保证 Demo 不挂
  *
+ * 哪些节点会画 marker：
+ *   - 仅 target_kind ∈ {poi, restaurant} 且坐标完整的节点
+ *   - home 节点（target_kind="home"）永远不画 —— 它是抽象起终点
+ *
+ * 路径连法：
+ *   - 按 visible nodes 顺序两两相连
+ *   - hops 信息（如 hop.minutes）当前仅用于 InfoWindow 文案；路线渲染仍走 Driving / fallback
+ *
  * 降级：
  *   - 没 NEXT_PUBLIC_AMAP_KEY → 渲染文字列表
  *   - 高德 SDK 加载失败 → 渲染文字列表
- *   - 当前 stage 无坐标 → 在文字列表中标注「位置待定」
+ *   - 当前 node 无坐标 → 在文字列表中标注「位置待定」
  */
 
 import { useEffect, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
-import type { Itinerary, ItineraryStage } from "@/lib/types";
+import type { ActivityNode, Itinerary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const AMAP_KEY = process.env.NEXT_PUBLIC_AMAP_KEY ?? "";
@@ -52,43 +61,75 @@ const FALLBACK_CENTER: [number, number] = [120.155, 30.255]; // [lng, lat]
 // 类型与工具
 // ============================================================
 
-interface StageWithCoord {
-  idx: number;
-  stage: ItineraryStage;
+/** 一个可渲染 marker 的节点（含坐标 + UI 元数据）。 */
+interface NodeWithCoord {
+  /** 在 visibleNodes（非 home）数组里的下标，1-based 用作 marker 编号 */
+  visibleIdx: number;
+  node: ActivityNode;
   lat: number;
   lng: number;
   type: "poi" | "restaurant";
   displayName: string;
 }
 
-function buildStageCoords(itinerary: Itinerary): StageWithCoord[] {
-  const out: StageWithCoord[] = [];
-  itinerary.stages.forEach((stage, idx) => {
-    if (stage.lat == null || stage.lng == null) return;
+/**
+ * 解析 Itinerary 的 nodes：跳过 home，跳过缺坐标的节点，返回可画在地图上的 NodeWithCoord 列表。
+ *
+ * - target_kind === "home" 直接跳过（home 不画 marker，它是起终点抽象）
+ * - target_kind ∈ {poi, restaurant} 但缺 lat/lng 跳过（容错）
+ */
+function buildNodeCoords(itinerary: Itinerary): NodeWithCoord[] {
+  const out: NodeWithCoord[] = [];
+  let visibleCounter = 0;
+  itinerary.nodes.forEach((node) => {
+    if (node.target_kind === "home") return;
+    if (node.lat == null || node.lng == null) return;
+    const type: "poi" | "restaurant" =
+      node.target_kind === "restaurant" ? "restaurant" : "poi";
+    visibleCounter += 1;
     out.push({
-      idx,
-      stage,
-      lat: stage.lat,
-      lng: stage.lng,
-      type: stage.poi_id ? "poi" : "restaurant",
-      displayName: stage.address || stage.title,
+      visibleIdx: visibleCounter,
+      node,
+      lat: node.lat,
+      lng: node.lng,
+      type,
+      displayName: node.address || node.title,
     });
   });
-  // 临时诊断：地图 marker 不出来 → 看是不是所有 stage 都没 lat/lng
+  // 临时诊断：地图 marker 不出来 → 看是不是所有 mid node 都没 lat/lng
   if (typeof window !== "undefined") {
     // eslint-disable-next-line no-console
     console.debug(
-      "[MapOverlay] stages 总数=",
-      itinerary.stages.length,
-      "有坐标的=",
+      "[MapOverlay] nodes 总数=",
+      itinerary.nodes.length,
+      "可见(非 home)节点=",
       out.length,
-      "missing-coord-stages=",
-      itinerary.stages
-        .filter((s) => s.lat == null || s.lng == null)
-        .map((s) => ({ kind: s.kind, title: s.title, poi_id: s.poi_id, restaurant_id: s.restaurant_id })),
+      "missing-coord-nodes=",
+      itinerary.nodes
+        .filter(
+          (n) =>
+            n.target_kind !== "home" && (n.lat == null || n.lng == null),
+        )
+        .map((n) => ({
+          kind: n.kind,
+          title: n.title,
+          target_kind: n.target_kind,
+          target_id: n.target_id,
+        })),
     );
   }
   return out;
+}
+
+/** 从 "HH:MM" + 分钟数算结束时刻 "HH:MM"；解析失败兜底回原值。 */
+function addMinutesToHHMM(hhmm: string, minutes: number): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return hhmm;
+  const total = Number(m[1]) * 60 + Number(m[2]) + minutes;
+  if (!Number.isFinite(total) || total < 0) return hhmm;
+  const hh = Math.floor(total / 60) % 24;
+  const mm = total % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 // ============================================================
@@ -96,7 +137,19 @@ function buildStageCoords(itinerary: Itinerary): StageWithCoord[] {
 // ============================================================
 
 interface MapOverlayProps {
-  /** 配合 R1 stagger 动画——只展示 idx < visibleCount 的标注。-1 表示全部展示。 */
+  /**
+   * 配合 R1 stagger 动画 —— 只展示前 N 个非 home 节点 marker。
+   * -1 表示全部展示。
+   *
+   * 语义说明（edge_v1）：
+   *   - ItineraryCard 传进来的 visibleCount 是「schedule visible entries 索引」
+   *     （含 node 和 hop 的混合时间轴行号）
+   *   - MapOverlay 这里把它直接当作「非 home 节点可显示数」上限——
+   *     由于 schedule entries 数 ≈ 2× node 数，所以 markers 会早早全部显示完，
+   *     再继续推进时间轴动画。这个偏差是可接受的 UX 取舍：
+   *     地图先满亮、时间轴慢出，能让评委先看到「都去哪」再细品「啥时候」
+   *   - home 节点本来就不参与可视化，所以 home 不计入这里
+   */
   visibleCount?: number;
 }
 
@@ -219,36 +272,37 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
     const AMap = AMapRef.current;
     const map = mapRef.current;
-    const stageCoords = buildStageCoords(itinerary);
-    if (stageCoords.length === 0) return;
+    const nodeCoords = buildNodeCoords(itinerary);
+    if (nodeCoords.length === 0) return;
 
     const targetCount =
-      visibleCount === -1 ? stageCoords.length : visibleCount;
+      visibleCount === -1 ? nodeCoords.length : visibleCount;
 
     // 增量加 marker
     while (
       markersRef.current.length < targetCount &&
-      markersRef.current.length < stageCoords.length
+      markersRef.current.length < nodeCoords.length
     ) {
       const i = markersRef.current.length;
-      const sc = stageCoords[i];
+      const nc = nodeCoords[i];
 
       const marker = new AMap.Marker({
-        position: [sc.lng, sc.lat],
-        content: buildMarkerHtml(i + 1, sc.type),
+        position: [nc.lng, nc.lat],
+        // marker 编号用 visibleIdx（1-based，对齐 ItineraryCard 时间轴的可见节点序号）
+        content: buildMarkerHtml(nc.visibleIdx, nc.type),
         offset: new AMap.Pixel(-14, -14),
-        title: sc.displayName,
+        title: nc.displayName,
       });
       marker.setMap(map);
 
-      const infoHtml = buildInfoWindowHtml(sc);
+      const infoHtml = buildInfoWindowHtml(nc);
       marker.on("click", () => {
         const infoWindow = new AMap.InfoWindow({
           content: infoHtml,
           offset: new AMap.Pixel(0, -28),
           closeWhenClickMap: true,
         });
-        infoWindow.open(map, [sc.lng, sc.lat]);
+        infoWindow.open(map, [nc.lng, nc.lat]);
       });
 
       markersRef.current.push(marker);
@@ -260,7 +314,8 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       if (m) m.setMap(null);
     }
 
-    // 重绘路线：清空旧路线，按当前已显示的 marker 间用 AMap.Driving 真实驾车路线
+    // 重绘路线：清空旧路线，按当前已显示的 marker 顺序两两相连
+    // 用 AMap.Driving 真实驾车路线；Driving 失败 fallback 到直连 Polyline
     routeOverlaysRef.current.forEach((ov) => {
       try {
         ov.setMap?.(null);
@@ -273,20 +328,23 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
     routeOverlaysRef.current = [];
 
     if (markersRef.current.length >= 2) {
-      const visibleStages = stageCoords.slice(0, markersRef.current.length);
+      const visibleNodes = nodeCoords.slice(0, markersRef.current.length);
 
       // 逐段调 AMap.Driving，失败则 fallback 到直连 Polyline
-      visibleStages.forEach((from, idx) => {
+      visibleNodes.forEach((from, idx) => {
         if (idx === 0) return;
-        const to = visibleStages[idx];
-        const prev = visibleStages[idx - 1];
+        const to = visibleNodes[idx];
+        const prev = visibleNodes[idx - 1];
+        // hop 元数据（如同地复用 path_type=in_place 时本来就 minutes=0，
+        // Driving 仍可正常画一段最短路线，无需特殊跳过；
+        // 这里只是为后续可能的视觉差异化预留）
         drawSegment(AMap, map, prev, to, routeOverlaysRef.current);
       });
     }
 
     // 全部出来后 setFitView 自动调整视野
     if (
-      markersRef.current.length === stageCoords.length &&
+      markersRef.current.length === nodeCoords.length &&
       markersRef.current.length > 0
     ) {
       try {
@@ -336,8 +394,8 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 function drawSegment(
   AMap: any,
   map: any,
-  from: StageWithCoord,
-  to: StageWithCoord,
+  from: NodeWithCoord,
+  to: NodeWithCoord,
   overlayBucket: any[],
 ): void {
   // Driving 实例不能复用（每次 search 会清空之前的路线）→ 每段用一个独立实例
@@ -379,8 +437,8 @@ function drawSegment(
 function drawFallbackPolyline(
   AMap: any,
   map: any,
-  from: StageWithCoord,
-  to: StageWithCoord,
+  from: NodeWithCoord,
+  to: NodeWithCoord,
   overlayBucket: any[],
 ): void {
   try {
@@ -444,13 +502,14 @@ function buildMarkerHtml(index: number, type: "poi" | "restaurant"): string {
   `;
 }
 
-function buildInfoWindowHtml(sc: StageWithCoord): string {
-  const { stage, displayName, type } = sc;
+function buildInfoWindowHtml(nc: NodeWithCoord): string {
+  const { node, displayName, type } = nc;
   const typeLabel = type === "poi" ? "活动地点" : "餐厅";
   const typeBg =
     type === "poi"
       ? "background:rgba(96,165,250,0.1); color:#3b82f6;"
       : "background:rgba(251,146,60,0.1); color:#c2410c;";
+  const endTime = addMinutesToHHMM(node.start_time, node.duration_min);
   return `
     <div style="
       min-width: 200px;
@@ -466,26 +525,26 @@ function buildInfoWindowHtml(sc: StageWithCoord): string {
         font-size: 10px;
         font-weight: 600;
         margin-bottom: 6px;
-      ">${typeLabel} · ${stage.kind}</div>
+      ">${typeLabel} · ${escapeHtml(node.kind)}</div>
       <div style="
         font-size: 14px;
         font-weight: 600;
         color: #1f1f1f;
         line-height: 1.4;
         margin-bottom: 6px;
-      ">${escapeHtml(stage.title)}</div>
+      ">${escapeHtml(node.title)}</div>
       <div style="
         font-size: 11px;
         color: #737373;
         font-family: ui-monospace, monospace;
-      ">${stage.start} - ${stage.end}</div>
+      ">${node.start_time} - ${endTime}</div>
       ${
-        displayName && displayName !== stage.title
+        displayName && displayName !== node.title
           ? `<div style="font-size:11px;color:#525252;margin-top:4px;">${escapeHtml(displayName)}</div>`
           : ""
       }
       ${
-        stage.note
+        node.note
           ? `<div style="
               margin-top: 6px;
               padding-top: 6px;
@@ -493,7 +552,7 @@ function buildInfoWindowHtml(sc: StageWithCoord): string {
               font-size: 11px;
               color: #525252;
               line-height: 1.5;
-            ">${escapeHtml(stage.note)}</div>`
+            ">${escapeHtml(node.note)}</div>`
           : ""
       }
     </div>
@@ -514,18 +573,26 @@ function escapeHtml(s: string): string {
 // ============================================================
 
 function FallbackList({ itinerary }: { itinerary: Itinerary }) {
-  const items = itinerary.stages.map((stage, idx) => {
-    const hasCoord = stage.lat != null && stage.lng != null;
-    return {
-      idx,
-      title: stage.address || stage.title,
-      timeRange: `${stage.start}-${stage.end}`,
-      kind: stage.kind,
-      hasCoord,
-    };
-  });
+  // 仅展示非 home 节点；home 节点不进列表
+  const items = itinerary.nodes
+    .filter((n) => n.target_kind !== "home")
+    .map((node, idx) => {
+      const hasCoord = node.lat != null && node.lng != null;
+      const endTime = addMinutesToHHMM(node.start_time, node.duration_min);
+      return {
+        idx,
+        title: node.address || node.title,
+        timeRange: `${node.start_time}-${endTime}`,
+        kind: node.kind,
+        hasCoord,
+      };
+    });
 
   if (items.length === 0) return null;
+
+  // 顺便提示有几条 hop（让评委看到「即使地图加载失败，也有通勤元数据」）
+  const hopCount = itinerary.hops.filter((h) => h.path_type !== "in_place")
+    .length;
 
   return (
     <div className="card mt-3">
@@ -534,7 +601,10 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
         <span className="text-[12px] font-medium text-ink-900 tracking-tight">
           行程地点
         </span>
-        <span className="text-[10px] text-ink-500">地图未加载，仅显示列表</span>
+        <span className="text-[10px] text-ink-500">
+          地图未加载，仅显示列表
+          {hopCount > 0 ? ` · 共 ${hopCount} 段通勤` : ""}
+        </span>
       </div>
       <ol className="px-3 py-2.5 space-y-1.5">
         {items.map((item) => (

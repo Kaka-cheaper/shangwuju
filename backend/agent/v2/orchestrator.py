@@ -554,7 +554,8 @@ async def run_react_turn(
             )
             log.info(
                 "react_turn.itinerary_ready",
-                stages=len(itinerary.stages),
+                nodes=len(itinerary.nodes),
+                hops=len(itinerary.hops),
                 total_minutes=itinerary.total_minutes,
             )
 

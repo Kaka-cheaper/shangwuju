@@ -1,16 +1,28 @@
-"""tests.test_social_compat —— Step 5：social_context 兼容矩阵 + critic 升级。
+"""tests.test_social_compat —— Step 5：social_context 兼容矩阵 + critic 升级（edge_v1）。
 
 覆盖：
 1. evaluate 矩阵基本判定（MATCH / BLOCKING / POOR / ACCEPTABLE）
-2. evaluate_poi / evaluate_restaurant 便捷封装
+2. evaluate_poi / evaluate_restaurant 便捷封装（含可选 ActivityNode 上下文）
 3. critics_v2 用 social_compat 矩阵：BLOCKING → CRITICAL
 4. critics_v2 POOR → WARNING（不打断流程）
 5. critics_v2 MATCH → 不报
 6. mock 数据无 suitable_for 字段时不误伤
+
+【edge_v1 迁移（Wave 7 Task 14）】
+
+旧测试用 `ItineraryStage` 手工拼 5 段构造合法 Itinerary。edge_v1 起：
+- ItineraryStage 已删；本文件改用 `assemble_from_blueprint(intent, PlanBlueprint(nodes=[...]), profile)`
+  统一构造合法 Itinerary，把不变量交给 assemble 保证。
+- evaluate_poi / evaluate_restaurant 增加可选 `node: ActivityNode | None` 形参；
+  不传 node 仍兼容（pure 矩阵评估，与 itinerary 上下文无关）。
 """
 
 from __future__ import annotations
 
+import pytest
+
+from agent.assemble_blueprint import assemble_from_blueprint
+from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
 from agent.v2.critics_v2 import (
     Severity,
     ViolationCode,
@@ -22,6 +34,7 @@ from agent.v2.social_compat import (
     evaluate_poi,
     evaluate_restaurant,
 )
+from data.loader import load_user_profile
 from schemas.domain import (
     Location,
     Poi,
@@ -29,8 +42,8 @@ from schemas.domain import (
     Restaurant,
     RestaurantCapacity,
 )
-from schemas.intent import IntentExtraction
-from schemas.itinerary import Itinerary, ItineraryStage, OrderRecord
+from schemas.intent import Companion, IntentExtraction
+from schemas.itinerary import Itinerary, OrderRecord
 
 
 # ============================================================
@@ -43,6 +56,22 @@ def _intent(social: str) -> IntentExtraction:
         duration_hours=[4, 6],  # type: ignore[arg-type]
         distance_max_km=10.0,
         companions=[],
+        physical_constraints=[],
+        dietary_constraints=[],
+        experience_tags=[],
+        social_context=social,
+        raw_input="测试",
+        parse_confidence=0.9,
+    )
+
+
+def _intent_with_companions(social: str) -> IntentExtraction:
+    """带 companions（避免 critic 在某些校验中早返）。"""
+    return IntentExtraction(
+        start_time="2026-05-22T14:00",
+        duration_hours=[4, 6],  # type: ignore[arg-type]
+        distance_max_km=10.0,
+        companions=[Companion(role="自己", count=1)],
         physical_constraints=[],
         dietary_constraints=[],
         experience_tags=[],
@@ -147,29 +176,54 @@ def test_evaluate_restaurant_uses_restaurant_suitable_for():
     assert level == CompatLevel.BLOCKING
 
 
+def test_evaluate_poi_accepts_node_kwarg_no_op():
+    """edge_v1：evaluate_poi 接受可选 node 形参；当前矩阵不依赖 node 字段，传与不传应等价。"""
+    poi = Poi(
+        id="P_TEST",
+        name="测试",
+        type="测试",
+        location=Location(name="测试", lat=30.27, lng=120.15),
+        distance_km=1.0,
+        opening_hours="09:00-21:00",
+        rating=4.5,
+        suitable_for=["家庭日常"],
+    )
+    intent = _intent("独处放空")
+    level_no_node, _ = evaluate_poi(intent, poi)
+    level_with_node, _ = evaluate_poi(intent, poi, node=None)
+    assert level_no_node == level_with_node == CompatLevel.BLOCKING
+
+
 # ============================================================
-# critic 升级回归测
+# critic 升级回归测（edge_v1：通过 assemble 构造合法 Itinerary）
 # ============================================================
 
 def _make_itinerary_with_restaurant(rid: str) -> Itinerary:
-    """构造带指定餐厅 id 的 5 段标准合法行程，最后段留 30min buffer 防 commute critic 误伤。"""
-    return Itinerary(
-        summary="x",
-        stages=[
-            ItineraryStage(kind="出发", start="14:00", end="14:30", title="出发"),
-            ItineraryStage(kind="主活动", start="14:30", end="16:00", title="活动"),
-            ItineraryStage(kind="转场", start="16:00", end="17:30", title="转场"),
-            ItineraryStage(
-                kind="用餐",
-                start="17:30",
-                end="18:30",
-                title="餐厅",
-                restaurant_id=rid,
+    """构造带指定餐厅 id 的合法行程（POI P040 + 餐厅 rid）。
+
+    通过 assemble_from_blueprint 走真链路：
+    - n0(home) → n1(P040, 主活动) → n2(rid, 用餐) → n3(home)
+    - 不变量自动满足：首尾 home / hops 长度 / home duration=0 等
+    """
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=120,
             ),
-            ItineraryStage(kind="返回", start="19:00", end="19:30", title="回家"),
+            BlueprintNode(
+                kind="用餐",
+                target_kind=BlueprintTargetKind.RESTAURANT,
+                target_id=rid,
+                duration_min=60,
+            ),
         ],
-        total_minutes=330,
+        preferred_start_time="14:00",
+        rationale="critic 测试用",
     )
+    return assemble_from_blueprint(_intent("家庭日常"), bp, load_user_profile())
 
 
 def test_critic_blocking_social_triggers_critical():
@@ -200,37 +254,45 @@ def test_critic_match_no_violation():
 
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)
-    assert not social_v, f"匹配场景不应触发 social mismatch，实际：{[v.message for v in social_v]}"
+    assert not social_v, (
+        f"匹配场景不应触发 social mismatch，实际：{[v.message for v in social_v]}"
+    )
 
 
 def test_critic_solo_with_multi_seat_order_still_critical():
-    """独处放空 + orders 含 2 人位 → 仍 CRITICAL（保留旧 detail 检查）。"""
+    """独处放空 + orders 含 2 人位 → 仍 CRITICAL（保留旧 detail 检查）。
+
+    edge_v1：通过 assemble 构造一个合法行程（独处场景下含 P040 主活动），
+    再注入一个 2 人位 order 触发 critic。
+    """
     intent = _intent("独处放空")
-    itinerary = Itinerary(
-        summary="x",
-        stages=[
-            ItineraryStage(kind="出发", start="14:00", end="14:30", title="出发"),
-            ItineraryStage(kind="主活动", start="14:30", end="16:00", title="活动"),
-            ItineraryStage(kind="转场", start="16:00", end="17:30", title="转场"),
-            ItineraryStage(
-                kind="用餐",
-                start="17:30",
-                end="18:30",
-                title="餐厅",
-                restaurant_id=None,
-            ),
-            ItineraryStage(kind="返回", start="19:00", end="19:30", title="回家"),
-        ],
-        orders=[
-            OrderRecord(
-                order_id="X1",
-                kind="餐厅预约",
-                target_id="R001",
-                target_name="测试餐厅",
-                detail="17:30 2 人位",
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=180,
             ),
         ],
-        total_minutes=330,
+        preferred_start_time="14:00",
+        rationale="独处测试",
+    )
+    base = assemble_from_blueprint(intent, bp, load_user_profile())
+    # 注入 2 人位 order（OrderRecord 加 target_kind 字段）
+    itinerary = base.model_copy(
+        update={
+            "orders": [
+                OrderRecord(
+                    order_id="X1",
+                    kind="餐厅预约",
+                    target_kind="restaurant",
+                    target_id="R001",
+                    target_name="测试餐厅",
+                    detail="17:30 2 人位",
+                ),
+            ],
+        }
     )
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)

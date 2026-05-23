@@ -11,6 +11,19 @@
 - MVP-2：在 planner 输出后等用户确认才调 executor（D5 决议）
 - 本模块对两种模式都适配：execute(itinerary) 是无状态的纯函数
 
+【edge_v1 字段路径迁移（Wave 5）】
+
+旧 stages 模型按 `kind=="用餐" / kind=="主活动"` 找用餐 / 主活动段，
+edge_v1 改为按 `target_kind=="restaurant" / target_kind=="poi"` 找节点：
+
+```
+旧：next(s for s in itinerary.stages if s.kind == "用餐" and s.restaurant_id)
+新：next(n for n in itinerary.nodes if n.target_kind == "restaurant")
+```
+
+OrderRecord 在 edge_v1 加了必填字段 `target_kind: Literal["poi", "restaurant"]`
++ 字段名由 `details` 改为 `detail`（与 schemas/itinerary.py 对齐）。
+
 不负责：
 - 规划循环（在 planner.py）
 - LLM 调用（仅 generate_share_message Tool 内部用，不在本模块直接调）
@@ -56,9 +69,11 @@ def execute_plan(
 ) -> ExecutionResult:
     """用户确认后的执行流。
 
-    流程：
-    1. 餐厅预约：找出 itinerary 里 kind="用餐" 的 stage，调 reserve_restaurant
-    2. 门票（可选）：buy_ticket_for_main_poi=True 时调 buy_ticket
+    流程（edge_v1 字段路径）：
+    1. 餐厅预约：找出 itinerary.nodes 中 target_kind=="restaurant" 的节点，
+       调 reserve_restaurant
+    2. 门票（可选）：buy_ticket_for_main_poi=True 时找 target_kind=="poi" 的节点，
+       调 buy_ticket
        - E2 售罄 → 不阻塞流程，记 failed_tools
     3. 转发文案：调 generate_share_message
     4. 把订单号回填 itinerary.orders；把文案填 itinerary.share_message
@@ -68,16 +83,18 @@ def execute_plan(
     orders = list(itinerary.orders)
 
     # ---- 1. 餐厅预约 ----
-    dining_stage = next(
-        (s for s in itinerary.stages if s.kind == "用餐" and s.restaurant_id), None
+    restaurant_node = next(
+        (n for n in itinerary.nodes if n.target_kind == "restaurant"), None
     )
-    if dining_stage and dining_stage.restaurant_id:
-        confirmed_time = _extract_reserved_time(dining_stage.note) or dining_stage.start
+    if restaurant_node is not None:
+        confirmed_time = (
+            _extract_reserved_time(restaurant_node.note) or restaurant_node.start_time
+        )
         result = _call(
             tracer,
             "reserve_restaurant",
             ReserveRestaurantInput(
-                restaurant_id=dining_stage.restaurant_id,
+                restaurant_id=restaurant_node.target_id,
                 time=confirmed_time,
                 party_size=party_size,
             ).model_dump(),
@@ -89,8 +106,9 @@ def execute_plan(
                     OrderRecord(
                         order_id=out.order_id,
                         kind="餐厅预约",
-                        target_id=dining_stage.restaurant_id,
-                        target_name=dining_stage.title,
+                        target_kind="restaurant",
+                        target_id=restaurant_node.target_id,
+                        target_name=restaurant_node.title,
                         detail=f"{out.confirmed_time or confirmed_time}（{out.confirmed_party_size or party_size} 人）",
                     )
                 )
@@ -101,15 +119,15 @@ def execute_plan(
 
     # ---- 2. 门票（可选）----
     if buy_ticket_for_main_poi:
-        main_stage = next(
-            (s for s in itinerary.stages if s.kind == "主活动" and s.poi_id), None
+        poi_node = next(
+            (n for n in itinerary.nodes if n.target_kind == "poi"), None
         )
-        if main_stage and main_stage.poi_id:
+        if poi_node is not None:
             result = _call(
                 tracer,
                 "buy_ticket",
                 BuyTicketInput(
-                    poi_id=main_stage.poi_id, quantity=party_size
+                    poi_id=poi_node.target_id, quantity=party_size
                 ).model_dump(),
             )
             if result.success:
@@ -119,8 +137,9 @@ def execute_plan(
                         OrderRecord(
                             order_id=out.order_id,
                             kind="门票",
-                            target_id=main_stage.poi_id,
-                            target_name=main_stage.title,
+                            target_kind="poi",
+                            target_id=poi_node.target_id,
+                            target_name=poi_node.title,
                             detail=f"{out.quantity or party_size} 张 / 总价 {out.total_price or '—'} 元",
                         )
                     )
