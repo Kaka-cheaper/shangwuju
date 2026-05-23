@@ -13,6 +13,12 @@ schema，不发明新结构。
 不负责：
 - LangGraph SDK 的 messages reducer（用框架默认 add_messages）
 - SSE 事件序列化（在 sse_adapter.py）
+
+【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P2-H8）】
+- 删除已死的 routes: list[Any] 字段（execute.py 未填、其他节点未消费；
+  routes.json 真值 lookup_hop / assemble 内部直接调，state 层不做缓存）
+- 新增 quality_issues: list[Any] 字段，承载 narrator 主动质疑信号
+  （目前由 narrate_node 内部计算，refiner_node 在反馈合并时重置）
 """
 
 from __future__ import annotations
@@ -94,7 +100,6 @@ class AgentState(TypedDict, total=False):
     # ---- 候选数据（execute 阶段并行写入）----
     pois: list[Any]            # list[Poi] —— 用 Any 避开 TypedDict 泛型限制
     restaurants: list[Any]      # list[Restaurant]
-    routes: list[Any]           # list[EstimateRouteTimeOutput]
     user_profile: Optional[Any]  # GetUserProfileOutput
     # Step 6：tag relaxation 路径（split per worker 避免 reduce 冲突）
     pois_relaxed_tags: list[str]
@@ -122,6 +127,7 @@ class AgentState(TypedDict, total=False):
     fallback_chain: list[Any]      # list[FallbackHop]
     critic_attempts: list[Any]     # list[CriticAttempt]
     alternatives: list[Any]        # list[AlternativeCandidate]
+    quality_issues: list[Any]      # list[str]：narrator 主动质疑信号（spec R6）
 
     # ---- 暖语气 ----
     narration: Optional[str]
@@ -158,7 +164,6 @@ def make_initial_state(
         messages=[],
         pois=[],
         restaurants=[],
-        routes=[],
         violations=[],
         has_critical=False,
         plan_attempt=0,
@@ -168,6 +173,7 @@ def make_initial_state(
         fallback_chain=[],
         critic_attempts=[],
         alternatives=[],
+        quality_issues=[],
         pois_relaxed_tags=[],
         restaurants_relaxed_tags=[],
     )

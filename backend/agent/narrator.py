@@ -3,7 +3,8 @@
 行程出炉时把 itinerary.summary 替换成像导游开场白一样有温度的两三句话。
 
 模式：
-- LLM 模式：调 llm_client，温度 0.7（要"人味"），短 prompt 快返回（<2s）
+- LLM 模式：调 llm_client，温度 0.5（spec R6 把质疑稳定性提上来；之前 0.7 偶尔
+  发散导致 critic_summary 指令被忽略），短 prompt 快返回（<2s）
 - Fallback / 规则模式：模板拼，无依赖
 
 调用约定（main.py 在 itinerary_ready 推送之前调一次）：
@@ -15,12 +16,22 @@
         itinerary=itinerary,
         stage="stream",          # 或 "confirm"
         use_llm=True,            # mode == "llm" 或 _use_real_planner()
+        critic_summary="",       # spec R6：critic 历史摘要 → 触发主动质疑
+        quality_warnings=[],     # spec R6：可选 meta-critic 输出
     )
 
 不负责：
 - prompt 文本（在 prompts/narrator_prompt.py）
-- SSE 推送（在 main.py）
+- SSE 推送（在 main.py / sse_adapter.py）
 - 行程组装（在 planner_*.py）
+
+【spec planning-quality-deep-review R6（Task 6）】
+- build_narrator_user_message 加 critic_summary / quality_warnings 两形参
+- 主路径 LLM 温度从 0.7 降到 0.5
+- _template_narration 兜底：含 ≤6 岁孩 + 任一 node.duration_min > 90 时强制
+  追加质疑短语（"宝贝可能会累" / "可以中途休息"），让 LLM 失败时模板路径
+  也能让用户感知"AI 在为我考虑"
+- generate_narration 透传 critic_summary / quality_warnings 给 LLM 与模板兜底
 """
 
 from __future__ import annotations
@@ -118,11 +129,17 @@ def _template_narration(
     intent: IntentExtraction,
     itinerary: Itinerary,
     stage_label: str,
+    quality_warnings: Optional[list[str]] = None,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
 
     格式（暖语气）：
-        "{开场} {时长} 的安排——{主活动短语}；{用餐短语}；{回家短语}。{结尾}"
+        "{开场} {时长} 的安排——{主活动短语}；{用餐短语}；{回家短语}。{质疑}{结尾}"
+
+    spec R6 兜底质疑：
+    - 含 ≤6 岁孩 + 任一非 home 节点 duration_min > 90 时，强制追加质疑短语，
+      让 LLM 失败的兜底路径也能让用户感知"AI 在为我考虑"。
+    - quality_warnings（如果由调用方传入）会被合并进质疑短语。
     """
     total_h = itinerary.total_minutes / 60
     companions_phrase = _format_companions(
@@ -166,13 +183,40 @@ def _template_narration(
 
     body = "，".join(phrases[:3]) if phrases else f"{itinerary.summary}"
 
+    # spec R6 兜底质疑：含 ≤6 岁孩 + 任 node.duration_min > 90 → 强制追加
+    challenge_text = ""
+    has_young_kid = any(
+        getattr(c, "age", None) is not None and c.age <= 6
+        for c in intent.companions
+    )
+    long_kid_node = None
+    if has_young_kid:
+        for n in itinerary.nodes:
+            target_kind = getattr(n, "target_kind", None)
+            duration_min = getattr(n, "duration_min", 0) or 0
+            if target_kind in (None, "home"):
+                continue
+            if duration_min > 90:
+                long_kid_node = n
+                break
+    if long_kid_node is not None:
+        long_title = (getattr(long_kid_node, "title", "") or "").split(" · ")[-1]
+        long_dur = getattr(long_kid_node, "duration_min", 0)
+        challenge_text = (
+            f"提醒一下，{long_title} 安排了 {long_dur} 分钟，宝贝可能会累，"
+            f"可以中途休息一下。"
+        )
+    elif quality_warnings:
+        # 没命中 ≤6 岁规则，但调用方传了 quality_warnings → 也融进文案
+        challenge_text = "提醒一下，" + "；".join(quality_warnings[:2]) + "。"
+
     # 尾
     if stage_label == "confirm":
         ending = "都给你搞定了，可以放心出门了。"
     else:
         ending = "哪里不合适跟我说一声。"
 
-    return f"{opener}{body}。{ending}"
+    return f"{opener}{body}。{challenge_text}{ending}"
 
 
 # ============================================================
@@ -185,8 +229,14 @@ def _call_llm_narrator(
     intent: IntentExtraction,
     itinerary: Itinerary,
     stage_label: str,
+    critic_summary: str = "",
+    quality_warnings: Optional[list[str]] = None,
 ) -> Optional[str]:
-    """调 LLM 生成开场白；任何异常返 None 让上层走 fallback。"""
+    """调 LLM 生成开场白；任何异常返 None 让上层走 fallback。
+
+    spec R6：透传 critic_summary / quality_warnings，prompt 里有「主动质疑规则」
+    段会指导 LLM 在收到这两个字段时主动加一句质疑性建议。
+    """
     try:
         client = get_llm_client()
     except Exception as e:  # noqa: BLE001
@@ -197,6 +247,8 @@ def _call_llm_narrator(
         intent_dict=intent.model_dump(),
         itinerary_dict=itinerary.model_dump(),
         stage_label=stage_label,
+        critic_summary=critic_summary,
+        quality_warnings=list(quality_warnings or []),
     )
 
     try:
@@ -205,7 +257,9 @@ def _call_llm_narrator(
                 LLMMessage(role="system", content=NARRATOR_SYSTEM_PROMPT),
                 LLMMessage(role="user", content=user_msg),
             ],
-            temperature=0.7,  # 要人味
+            # spec R6：温度从 0.7 降到 0.5，让"主动质疑"指令更稳定被遵守
+            # （0.7 偶发跳过 critic_summary 段直接给暖文案）
+            temperature=0.5,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] LLM chat 失败：%s", e)
@@ -245,6 +299,8 @@ def generate_narration(
     itinerary: Itinerary,
     stage: str = "stream",
     use_llm: bool = True,
+    critic_summary: str = "",
+    quality_warnings: Optional[list[str]] = None,
 ) -> str:
     """生成 Agent 暖心开场白。
 
@@ -254,6 +310,11 @@ def generate_narration(
         stage: "stream"（行程刚出炉，邀请反馈结尾）或
                "confirm"（已下单，安抚式结尾）。
         use_llm: 是否走 LLM；False 则直接走模板（规则模式 + 单测）。
+        critic_summary: spec R6 新增。critic 修正历史摘要（含 critical 违规码 +
+            修复反馈），narrator 据此在文案中追加一句质疑性建议。
+            空串 = 一次过没 critic 命中，narrator 不必质疑。
+        quality_warnings: spec R6 新增。可选 meta-critic 输出的额外质量提醒
+            （如「老人单段过长」），LLM 与模板兜底都会消费。
 
     Returns:
         2-3 句中文文案（80-200 字）。永远返回非空字符串。
@@ -263,12 +324,14 @@ def generate_narration(
             intent=intent,
             itinerary=itinerary,
             stage_label=stage,
+            critic_summary=critic_summary,
+            quality_warnings=quality_warnings,
         )
         if text:
             return text
 
-    # Fallback / 规则模式
-    return _template_narration(intent, itinerary, stage)
+    # Fallback / 规则模式（含 spec R6 兜底质疑）
+    return _template_narration(intent, itinerary, stage, quality_warnings)
 
 
 __all__ = ["generate_narration"]

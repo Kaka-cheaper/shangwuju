@@ -1,9 +1,10 @@
 """nodes.execute_finalize —— confirm 后下单 / 购票 / 生成转发文案（edge_v1）。
 
 interrupt(plan_ready) 后用户选了 confirm → 进本节点：
-1. reserve_restaurant（仅当 itinerary.nodes 含 target_kind="restaurant" 节点时）
+1. reserve_restaurant（**全量遍历**所有 target_kind="restaurant" 节点；spec R6 修复）
 2. buy_ticket（v1 留口子；当前未启用）
 3. generate_share_message
+4. confirm 阶段 narrator（spec R6：把"已下单"的最终文案推给前端）
 
 【字段路径变更（Wave 5）】
 
@@ -15,8 +16,16 @@ interrupt(plan_ready) 后用户选了 confirm → 进本节点：
 明细字段叫 `detail` 不再叫 `details`、新增 `target_name`）。
 `ReserveRestaurantInput` 的备注字段叫 `extra_notes`（不再是 `user_note`）。
 
+【spec planning-quality-deep-review R6+R7（Task 6）】
+- 旧实现用 `next((n for n in itinerary.nodes if n.target_kind=="restaurant"), None)`
+  只取第一个餐厅节点，如果方案里有下午茶 + 晚餐两段都需预约会漏掉第二段；
+  改为 `[n for n in nodes if n.target_kind=="restaurant"]` 全量遍历，每段都试预约。
+- 新增 confirm 阶段 narrator 调用：`generate_narration(stage="confirm")`，
+  把"都搞定了，可以放心了"的安抚文案写进 itinerary.narration 字段，让前端
+  ITINERARY_READY 推流时可一次性带出。
+
 输入：state["intent"] / state["itinerary"]
-输出：state["itinerary"] 含 orders + share_message
+输出：state["itinerary"] 含 orders + share_message + narration（confirm 文案）
 """
 
 from __future__ import annotations
@@ -24,6 +33,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
+from agent.llm_client import get_llm_client
+from agent.narrator import generate_narration
 from schemas.itinerary import OrderRecord
 from schemas.tools import (
     GenerateShareMessageInput,
@@ -41,14 +52,14 @@ def execute_finalize_node(state: AgentState) -> dict[str, Any]:
 
     orders: list[OrderRecord] = []
 
-    # 1. 找到用餐节点（target_kind="restaurant"），调 reserve_restaurant
+    # 1. 找到**所有**用餐节点（target_kind="restaurant"）→ 每段都试预约
     #    edge_v1：用餐是「在某餐厅停留 N 分钟」的 node，不再是「用餐 stage」。
-    restaurant_node = next(
-        (n for n in itinerary.nodes if n.target_kind == "restaurant"),
-        None,
-    )
-    if restaurant_node is not None:
-        party_size = max(1, sum(c.count for c in intent.companions) + 1)
+    #    spec R6 修复：旧 next(...) 只取首段，下午茶 + 晚餐组合会漏掉第二段。
+    restaurant_nodes = [
+        n for n in itinerary.nodes if n.target_kind == "restaurant"
+    ]
+    party_size = max(1, sum(c.count for c in intent.companions) + 1)
+    for restaurant_node in restaurant_nodes:
         try:
             inp = ReserveRestaurantInput(
                 restaurant_id=restaurant_node.target_id,
@@ -69,12 +80,14 @@ def execute_finalize_node(state: AgentState) -> dict[str, Any]:
                     )
                 )
         except Exception:  # noqa: BLE001
-            pass
+            # 单段预约失败不影响其他段（demo 韧性）
+            continue
 
     # 2. 生成转发文案（永远调）
+    first_restaurant = restaurant_nodes[0] if restaurant_nodes else None
     summary_text = (
         f"{itinerary.summary} · "
-        f"{restaurant_node.start_time if restaurant_node else ''}"
+        f"{first_restaurant.start_time if first_restaurant else ''}"
     ).strip(" ·")
     share_msg = ""
     try:
@@ -98,11 +111,34 @@ def execute_finalize_node(state: AgentState) -> dict[str, Any]:
     except Exception:  # noqa: BLE001
         share_msg = "下午行程已搞定，各位准时呀。"
 
-    # 写回 itinerary（含 orders + share_message）
-    new_itin = itinerary.model_copy(
-        update={
-            "orders": orders,
-            "share_message": share_msg,
-        }
-    )
-    return {"itinerary": new_itin, "orders": orders, "share_message": share_msg}
+    # 3. spec R6：confirm 阶段 narrator → 「都搞定了」的安抚文案
+    confirm_narration = ""
+    try:
+        client = get_llm_client()
+        use_llm = (
+            client is not None and getattr(client, "provider", None) != "stub"
+        )
+        confirm_narration = generate_narration(
+            intent=intent,
+            itinerary=itinerary,
+            stage="confirm",
+            use_llm=use_llm,
+        )
+    except Exception:  # noqa: BLE001
+        confirm_narration = ""
+
+    # 写回 itinerary（含 orders + share_message；narration 字段如有则更新）
+    update_kwargs: dict[str, Any] = {
+        "orders": orders,
+        "share_message": share_msg,
+    }
+    new_itin = itinerary.model_copy(update=update_kwargs)
+
+    out_state: dict[str, Any] = {
+        "itinerary": new_itin,
+        "orders": orders,
+        "share_message": share_msg,
+    }
+    if confirm_narration:
+        out_state["narration"] = confirm_narration
+    return out_state

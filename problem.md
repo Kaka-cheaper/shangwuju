@@ -5817,3 +5817,72 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - spec B 在 spec A 联调通过后启动，把 agent/ 目录重组为 5 子目录 + legacy/，未来新增功能 / Agent 接入项目时一眼能识别归属
 - 所有审查阶段产物（8 份 agent 报告 + 综合分析 + 对抗审查 + 2 份 spec）落地 `.kiro/specs/` 永久存档，可追溯
 
+
+
+---
+
+## 问题N：执行 spec planning-quality-deep-review Task 6「Narrator 主动质疑 + state 一致性修复」
+
+**解决方案**：
+
+按 spec R6+R7 改动 7 个目标文件 + 新增 1 个测试文件（硬边界内）：
+
+```text
+| 文件                                              | 改动                                                   |
+|--------------------------------------------------|-------------------------------------------------------|
+| backend/agent/narrator.py                        | build_narrator_user_message 加 critic_summary / quality_warnings 两形参；_template_narration 兜底加质疑短语；LLM 温度 0.7→0.5；generate_narration 透传两个新形参 |
+| backend/agent/prompts/narrator_prompt.py         | NARRATOR_SYSTEM_PROMPT 加「主动质疑规则」段（4 条规则 + 2 条 few-shot 示例 A/B）；build_narrator_user_message 拼 critic_summary / quality_warnings 进 user message |
+| backend/agent/graph/state.py                     | 删 routes: list[Any] 死字段；加 quality_issues: list[Any] 字段；make_initial_state 同步 |
+| backend/agent/graph/nodes/narrate.py             | 用 itinerary.model_copy + decision_trace.model_copy 替代原地 mutate（Agent H P1-H6）；新增 _build_critic_summary 把 state.critic_attempts 拼成中文摘要喂给 narrator |
+| backend/agent/graph/nodes/refiner.py             | return dict 加 critic_attempts/fallback_chain/alternatives/quality_issues 4 字段重置（Agent H P1-H3）；同步删 routes 字段；额外重置 replan_strategy / decision_trace |
+| backend/agent/graph/nodes/execute_finalize.py    | 餐厅遍历从 next(...) 改全量 [n for n in nodes if target_kind=="restaurant"]；加 confirm 阶段 narrator 调用 generate_narration(stage="confirm") |
+| backend/agent/graph/sse_adapter.py               | 末尾 DONE event payload 加 6 字段总结（final_strategy / plan_attempts / critic_attempt_count / fallback_hops_count / total_ms / has_itinerary，Agent H P0-H2） |
+| backend/tests/test_narrator_active_query.py（新建）| 9 项测试：critic_summary 触发 LLM 主动质疑 / template 兜底质疑 ≤6 岁 + >90min / 无 young_kid 不硬加 / ≤90min 不触发 / social_context 文案多样性 / DONE payload 6 字段 / refiner 重置 trace 4 字段 / build_user_message 嵌入 critic_summary / system prompt 含规则与 few-shot |
+```
+
+跑全套 pytest（排除 Task 5 边界外的 test_planner_hybrid_overload.py）→ **519 passed 1 skipped 0 failed**，含 Task 6 新增 9 项。
+
+**修改的代码文件**：
+
+- `backend/agent/narrator.py`
+- `backend/agent/prompts/narrator_prompt.py`
+- `backend/agent/graph/state.py`
+- `backend/agent/graph/nodes/narrate.py`
+- `backend/agent/graph/nodes/refiner.py`
+- `backend/agent/graph/nodes/execute_finalize.py`
+- `backend/agent/graph/sse_adapter.py`
+- `backend/tests/test_narrator_active_query.py`（新建）
+
+**应当达成的效果**：
+
+- Demo 现场 5 岁娃博物馆反例触发 critic 后，narrator 文案能主动追加质疑短句（"宝贝可能会累 / 中途休息 / 注意力"），让评委一眼看到「AI 主动质疑方案」
+- 反馈合并（refiner）后 trace 4 字段全部重置，避免上一轮 critic_attempts 泄漏到新轮次
+- DONE event 携带 6 字段统计，前端 / 评委可直接读「本轮 critic 跑了几次、走没走 fallback、最终策略是什么」
+- 复合方案（下午茶 + 晚餐）两段餐厅都能下单，不再漏第二段
+- LLM 温度从 0.7 降到 0.5，主动质疑指令稳定被遵守
+- routes 死字段删除，state 干净 1 字段（Agent H P2-H8）
+
+
+---
+
+问题：执行 spec planning-quality-deep-review Task 5「ILS 算法兜底 utility 加 overload_penalty」（Wave 4）
+
+解决方案：
+1. `backend/agent/planner_hybrid.py` 加 `_resolve_age_cap(intent)` + `_overload_penalty(poi, intent)` 两个 helper（与 `agent/blueprint.py:_resolve_age_caps` / `agent/v2/critics_v2.py:_check_age_aware_duration` 同源公式：婴幼儿≤45 / 学龄前≤75 / 学童≤120 / 高龄≤60；用 `utils.duration_helpers.get_duration_for_companions` 投影 SuggestedDuration 取主导桶；超 cap 返 0.3，否则 0.0）。
+2. `_utility` 公式末尾追加 `score -= 0.5 * _overload_penalty(poi, intent)`，保留原 4 维 comfort/time/cost/smoothness 不变。
+3. 新增 `_resolve_dynamic_dining_slots(intent, mid_nodes, tracer)` helper，调 `agent.planner._resolve_time_window` 推动态用餐时段；plan_hybrid 入口算一次后传给 `_greedy_init` / `_perturb` / `_local_search` / `_retry_with_critic_feedback` 四个 helper（全部加 `dining_slots` 形参 + 缺省退化为 module 级 DINING_SLOTS 兜底）。
+4. `_retry_with_critic_feedback` 拆出 `_classify_violation` + `_compute_blacklists` 两个新 helper，把黑名单覆盖扩到 4 类违规：time_window（餐厅×时段）/ hard_constraint（距离上限剔除）/ dietary（message 关键词「辣/过敏/素食/不辣/低脂/包间/kids-meal」路由）/ social_context（critic="style" 或关键词「调性/氛围/suitable_for/social_context」路由）。
+5. 新增 `backend/tests/test_planner_hybrid_overload.py` 共 15 项测试，覆盖 5 岁娃 SuggestedDuration 罚分 / 成人无罚 / 旧 int 形态双兼容 / 早上+下午+晚间动态时段 / 4 类违规黑名单单独命中 + 多类聚合。
+
+修改的代码文件：
+- `backend/agent/planner_hybrid.py`（顶部 docstring 标 spec R5；新增 _resolve_age_cap / _overload_penalty / _resolve_dynamic_dining_slots / _classify_violation / _compute_blacklists；改 _utility / _greedy_init / _perturb / _local_search / _shift_node / _retry_with_critic_feedback 签名加 dining_slots 形参；plan_hybrid 入口注入动态时段）
+- `backend/tests/test_planner_hybrid_overload.py`（新建 15 项测试）
+- `.kiro/specs/planning-quality-deep-review/tasks.md`（task 5 勾选）
+
+应当达成的效果：
+- ILS 兜底路径在候选生成阶段就能跳过「成人 180min 但 5 岁娃只能 90min」类反人性 POI（与 critic 主路径形成对称防守）
+- 14:00 出发的下午场景不再傻试 17:00/17:30/18:00 三连——按总时长 + 主活动 4:3 比例推 5 个候选时段
+- critic 反馈到 ILS backprompt 的覆盖面从 2 类（time_window+hard_constraint）扩到 4 类（time_window+hard_constraint+dietary+social_context）
+- 全套 backend pytest 534 passed + 1 skipped（基线 510+ 不破）
+
+用户反馈：—（待用户确认）

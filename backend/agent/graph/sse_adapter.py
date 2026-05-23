@@ -16,6 +16,12 @@ LangGraph astream 模式 = "updates"：每个节点完成后产出 {node_name: s
 - assemble 完成 + 有 itinerary → 推 itinerary_ready
 - narrate 完成 → 推 agent_narration
 - 流结束 → 推 done
+
+【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P0-H2）】
+- DONE event payload 新增 6 字段总结：
+  final_strategy / plan_attempts / critic_attempt_count / fallback_hops_count /
+  total_ms / has_itinerary
+  让前端 / 评委一眼看到本轮 turn 的关键统计（对应 demo 评分项「Agent 行为可见性」）
 """
 
 from __future__ import annotations
@@ -67,6 +73,7 @@ async def run_graph_stream(
     config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
     seq = 0
+    start_ms = _now_ms()  # spec R6：用于 DONE payload 的 total_ms
 
     # 心跳（防 8s 首字节超时）
     yield _ev(seq, SseEventType.AGENT_THOUGHT, {"text": "正在理解你的需求……"})
@@ -76,6 +83,11 @@ async def run_graph_stream(
     itinerary_emitted = False
     chitchat_emitted = False
     last_state: AgentState | None = None
+    # spec R6：累积 DONE payload 需要的 6 字段
+    final_itinerary: Any = None
+    last_plan_attempt: int = 0
+    last_critic_attempts: list[Any] = []
+    last_fallback_chain: list[Any] = []
 
     try:
         async for chunk in graph.astream(
@@ -400,6 +412,15 @@ async def run_graph_stream(
 
                 # 累积 last_state（用于 done 时的最终 itinerary 兜底）
                 last_state = node_diff
+                # spec R6：累积 DONE payload 需要的字段
+                if "plan_attempt" in node_diff and node_diff["plan_attempt"] is not None:
+                    last_plan_attempt = max(last_plan_attempt, int(node_diff["plan_attempt"]))
+                if "critic_attempts" in node_diff and node_diff["critic_attempts"] is not None:
+                    last_critic_attempts = list(node_diff["critic_attempts"])
+                if "fallback_chain" in node_diff and node_diff["fallback_chain"] is not None:
+                    last_fallback_chain = list(node_diff["fallback_chain"])
+                if "itinerary" in node_diff and node_diff["itinerary"] is not None:
+                    final_itinerary = node_diff["itinerary"]
 
     except Exception as e:  # noqa: BLE001
         yield _ev(
@@ -409,5 +430,28 @@ async def run_graph_stream(
         )
         seq += 1
 
-    # 流结束
-    yield _ev(seq, SseEventType.DONE, {})
+    # 流结束（spec R6：DONE payload 加 6 字段总结）
+    final_strategy = "llm_first"
+    has_itinerary = False
+    if final_itinerary is not None:
+        has_itinerary = True
+        trace = getattr(final_itinerary, "decision_trace", None)
+        if trace is not None:
+            final_strategy = getattr(trace, "final_strategy", "llm_first") or "llm_first"
+            # 优先用 trace 上的 fallback_chain（已和最终 itinerary 一致）
+            trace_chain = getattr(trace, "fallback_chain", None)
+            if trace_chain:
+                last_fallback_chain = list(trace_chain)
+            trace_attempts = getattr(trace, "critic_attempts", None)
+            if trace_attempts:
+                last_critic_attempts = list(trace_attempts)
+
+    done_payload = {
+        "final_strategy": final_strategy,
+        "plan_attempts": last_plan_attempt,
+        "critic_attempt_count": len(last_critic_attempts),
+        "fallback_hops_count": len(last_fallback_chain),
+        "total_ms": _now_ms() - start_ms,
+        "has_itinerary": has_itinerary,
+    }
+    yield _ev(seq, SseEventType.DONE, done_payload)
