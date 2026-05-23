@@ -6,6 +6,12 @@
 - social_context 是 §5.5 9 选 1
 - companions[].role 是自由文本
 
+spec planning-quality-deep-review R8（Task 7）：
+- 引入 `pace_profile: Optional[PaceProfile]` 字段
+- PaceProfile 复用自 `schemas.persona`（同一节奏画像模型，避免重复定义；
+  Wave 1 已锁定 PaceProfile 在 persona.py 的位置）
+- 该字段保持向后兼容：默认 None，所有现有 IntentExtraction 构造方都不破
+
 不负责：
 - 解析逻辑（在 Agent 层）。
 - LLM Prompt 设计（在 backend/prompts）。
@@ -15,6 +21,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, conint, conlist
 
+from schemas.persona import PaceProfile
 from schemas.tags import (
     DietaryTag,
     ExperienceTag,
@@ -142,6 +149,16 @@ class IntentExtraction(BaseModel):
     )
     preferred_poi_types: list[str] = Field(
         default_factory=list, description="用户明示 POI 类型，如 [展览, 美术馆]"
+    )
+
+    # ===== 节奏画像（spec planning-quality-deep-review R8 引入；Optional，向后兼容）=====
+    pace_profile: Optional[PaceProfile] = Field(
+        default=None,
+        description=(
+            "节奏画像。当 LLM / refiner 推断出用户对单段时长 / 总活跃 / 休息频率 / "
+            "偏好停留有偏好时填充；缺省时下游算法降级到行业基线。"
+            "spec planning-quality-deep-review R8（Task 7）"
+        ),
     )
 
     # ===== 元数据 =====

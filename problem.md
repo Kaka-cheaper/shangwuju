@@ -5886,3 +5886,27 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - 全套 backend pytest 534 passed + 1 skipped（基线 510+ 不破）
 
 用户反馈：—（待用户确认）
+
+
+---
+
+问题（spec planning-quality-deep-review Task 7 / Wave 4）：意图层 + Refiner 升级
+解决方案：
+  - schemas/intent.py 顶部 import schemas.persona.PaceProfile（复用 Wave 1 已锁定的同名模型，零循环 import 风险），IntentExtraction 加 `pace_profile: Optional[PaceProfile] = None` 字段，向后兼容默认 None
+  - agent/prompts/system_prompt.py: INTENT_PARSER_SYSTEM_PROMPT 加 4 条「pace_profile 隐含规则」段（≤6 岁、老人/适合老人、独处放空、商务接待用餐），并在 build_intent_parser_system_prompt_with_priors 末尾注入 persona.default_pace_profile addendum + 第 6 条 prompt 注入规则
+  - agent/refiner.py: 加 `_KEYWORDS_SESSION_TOO_LONG = ("太久","太长","盯不住","无聊","扛不住","腻了")` 字典；命中后**不动** duration_hours / distance_max_km，产出 pace_profile.single_session_max_min × 0.7（用 round 避免浮点截断 90→62 问题），缺 prior 时用 _DEFAULT_SESSION_MAX_MIN=90 起步缩
+  - agent/refiner.py: `_extract_duration_from_feedback` 扩 3 类正则（半小时 / 30 分钟 / 一个半小时），先匹配「一个半 / 1.5 小时」避免被中文数字归一化截断成 1 小时；分钟 < 60 → (0, 1)，分钟 ≥ 60 自动转小时
+  - agent/feedback_detector.py: `_FEEDBACK_KEYWORDS` 同步加 SESSION_TOO_LONG 关键词
+  - 顺手把 tests/test_refiner_duration_consistency.py 中 `("半小时差不多", None)` 断言改为 `[0, 1]`（spec R8 现在要求支持半小时识别；用户已确认允许此例外）
+修改的代码文件：
+  - backend/schemas/intent.py
+  - backend/agent/prompts/system_prompt.py
+  - backend/agent/refiner.py
+  - backend/agent/feedback_detector.py
+  - backend/tests/test_refiner_session_too_long.py（新建，9 个 test 函数 / 26 个 parametrized cases）
+  - backend/tests/test_refiner_duration_consistency.py（顺手 1 行断言修改，已用户授权）
+应当达成的效果：
+  - 全套 pytest 0 红灯：560 passed + 1 skipped（基线 519 + 新增 41，含我新增 26 + 已有测试集中其他改动衍生）
+  - 用户说「这段太久了」时，refiner 只缩 pace_profile.single_session_max_min（90→63），不会破坏总时长 / 距离
+  - 意图解析层在 LLM 抽取时有 4 条 pace_profile 隐含规则可遵循
+  - persona.default_pace_profile 在 prompt 里有 prior 注入（u_dad/u_grandma/u_solo/u_couple/u_biz 5 个 mock 都已就位）
