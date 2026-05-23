@@ -68,6 +68,47 @@ class Persona(BaseModel):
     default_distance_max_km: NonNegativeFloat = Field(default=5.0)
     default_budget: NonNegativeFloat = Field(default=300.0)
     default_tags: PersonaDefaultTags = Field(default_factory=PersonaDefaultTags)
+    default_pace_profile: Optional["PaceProfile"] = Field(
+        default=None,
+        description=(
+            "默认节奏画像。spec planning-quality-deep-review R1+R8 引入。"
+            "供意图解析层注入 prompt addendum，让 LLM / critic 在用户未显式提及"
+            "节奏时也有 prior（如 u_dad 的 5 岁孩家庭偏好 single_session_max_min ≤ 75）。"
+        ),
+    )
+
+
+class PaceProfile(BaseModel):
+    """节奏画像 —— 用户对单段时长 / 总活跃 / 休息频率 / 偏好停留的偏好刻画。
+
+    spec planning-quality-deep-review R1+R8 引入。
+
+    业务来源：
+    1) Persona.default_pace_profile（mock_data/personas.json 直接定义，prior）
+    2) IntentExtraction.pace_profile（意图解析按 companions 推导，per-session）
+    3) Refiner._rule_fallback 识别"太久 / 盯不住"反馈后缩 30% 回写
+
+    各字段都是 Optional——上层调用方按需取，缺字段降级到默认行业基线。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    single_session_max_min: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="单段活动最长分钟数。儿童 ≤ 75，老人 ≤ 90，独处放空 ≥ 60",
+    )
+    total_active_min: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="总活跃时长分钟数（不含通勤）。家庭 ≤ 240，老人 ≤ 180",
+    )
+    break_every_min: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="每隔多久建议休息一次（分钟）。儿童 45，老人 45",
+    )
+    preferred_dwell_min: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="单点偏好停留时长（分钟）。中位偏好",
+    )
 
 
 # ============================================================
@@ -208,3 +249,4 @@ class UserPreferenceView(BaseModel):
 # 解析 forward reference："VisitedRecord" 在 UserMemory 定义之后才声明
 # Pydantic v2 自动处理但保险起见显式 rebuild
 UserMemory.model_rebuild()
+Persona.model_rebuild()  # PaceProfile 是 forward ref

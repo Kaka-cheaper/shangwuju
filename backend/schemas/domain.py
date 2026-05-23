@@ -13,7 +13,7 @@
 - 业务过滤算法（在 Tool 层）。
 """
 
-from typing import Optional
+from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
@@ -83,6 +83,49 @@ class PoiCapacity(BaseModel):
     )
 
 
+class SuggestedDuration(BaseModel):
+    """推荐游玩时长（按主导客群分桶）。
+
+    spec `planning-quality-deep-review` R1 引入：把 POI 推荐时长
+    从单值升级为按年龄分桶，让 LLM / critic / ILS 能区分
+    「亲子博物馆 5 岁娃 60min」vs「成人独处 90min」。
+
+    业界对标（2025 年 Google Trips / TripAdvisor / Foursquare）：
+    - 亲子场景：3-6 岁桶按 Smithsonian SEEC 60-90min 业界基线
+    - 老年场景：senior 桶按行业经验 ≤ 75min
+    - 多代际：取最严约束（multi_gen 落到 60-75min）
+
+    投影规则（见 backend/utils/duration_helpers.py:get_duration_for_companions）：
+    - 含 ≤6 岁孩 → kid_3_6
+    - 含 7-12 岁孩 → kid_7_12
+    - 含 ≥75 岁老人 → senior
+    - 多代际（孩+老人 / 孩+成年） → multi_gen
+    - 其他 → default
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    default: NonNegativeInt = Field(
+        ..., description="默认推荐时长（分钟）；所有客群兜底"
+    )
+    kid_3_6: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="3-6 岁学龄前客群推荐时长（分钟）；行业基线 ≤ 75",
+    )
+    kid_7_12: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="7-12 岁学童客群推荐时长（分钟）；行业基线 ≤ 120",
+    )
+    senior: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="≥ 75 岁老人客群推荐时长（分钟）；行业基线 ≤ 75",
+    )
+    multi_gen: Optional[NonNegativeInt] = Field(
+        default=None,
+        description="多代际场景推荐时长（分钟）；取多桶最严值",
+    )
+
+
 class Poi(BaseModel):
     """活动地点。tags + suitable_for 是过滤的主战场。"""
 
@@ -114,9 +157,15 @@ class Poi(BaseModel):
         description="适用 social_context 的子集，如 [家庭日常, 老人伴助]",
     )
     capacity: PoiCapacity = Field(default_factory=PoiCapacity)
-    suggested_duration_minutes: Optional[NonNegativeInt] = Field(
+    suggested_duration_minutes: Optional[Union[NonNegativeInt, "SuggestedDuration"]] = Field(
         default=None,
-        description="推荐游玩时长（分钟）；用于行程时间轴拼装",
+        description=(
+            "推荐游玩时长（分钟）。两种形态双兼容（spec planning-quality-deep-review R1）：\n"
+            "1) int 旧形态：所有客群同一时长，向后兼容；\n"
+            "2) SuggestedDuration dict 新形态：按主导客群分桶，含必填 default + 可选 "
+            "kid_3_6 / kid_7_12 / senior / multi_gen。下游 LLM 透传时按 companions "
+            "投影为单值（见 backend/utils/duration_helpers.py）。"
+        ),
     )
     reviews: list[Review] = Field(
         default_factory=list,
@@ -173,6 +222,15 @@ class Restaurant(BaseModel):
     opening_hours: str
     avg_price: NonNegativeFloat = Field(..., description="人均价格（元）")
     rating: float = Field(..., ge=0, le=5)
+    typical_dining_min: Optional[NonNegativeInt] = Field(
+        default=None,
+        description=(
+            "典型用餐时长（分钟）。spec planning-quality-deep-review R1 引入。"
+            "按 cuisine 业界惯例：健康轻食 40 / 咖啡 45 / 下午茶 75 / "
+            "粤菜 90 / 火锅 120；'高人均' / '私房菜' tag 各 +15。"
+            "下游 BlueprintLLM 据此决定 duration_min（见 R3 prompt 消费规则）。"
+        ),
+    )
     capacity: RestaurantCapacity = Field(default_factory=RestaurantCapacity)
     reservation_slots: list[ReservationSlot] = Field(
         default_factory=list,

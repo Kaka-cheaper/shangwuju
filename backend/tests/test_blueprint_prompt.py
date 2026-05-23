@@ -1,12 +1,13 @@
 """tests.test_blueprint_prompt —— blueprint_prompt 重写后回归测试（edge_v1）。
 
 验证 design.md §LLM Prompt 重写要点：
-1. BLUEPRINT_SYSTEM_PROMPT 长度 ≤ 1500 字符（hard cap）
+1. BLUEPRINT_SYSTEM_PROMPT 长度 ≤ 2200 字符（hard cap，spec R3 提到 2200）
 2. 不含旧概念（commute_matrix / buffer 5min / 下一段 start_time 公式 / 5 段模板）
 3. 含 edge_v1 关键约束（不要输出 start_time / target_id 必须在候选预览存在 /
    不要输出 hop / nodes / preferred_start_time）
 4. 强调灵活性：单段 / 反序 / 同地复用都允许
 5. build_user_message 输出包含 intent / candidates / critic_feedback（如果传了）
+6. spec planning-quality-deep-review R3：含按 companion age 分级时长表 + 候选预览消费规则
 
 【sys.modules 桥接】
 agent/__init__.py 当前仍 eager-import 旧 ItineraryStage（Wave 5 Task 9 修），
@@ -55,12 +56,43 @@ from agent.prompts.blueprint_prompt import (  # noqa: E402
 
 
 def test_system_prompt_length_under_hard_cap() -> None:
-    """渲染后 prompt 总字符数 ≤ 1500（design.md §LLM Prompt 重写要点 hard cap）。"""
+    """渲染后 prompt 总字符数 ≤ 2200（spec planning-quality-deep-review R3 提升 cap）。
+
+    历史：1500 → 2200（spec R3 加按 age 分级表 + 候选预览消费规则后必要扩容）。
+    旧版 ~3500 → 新版 < 2200 仍是巨大压缩，仅放宽必要业务规则空间。
+    """
     length = len(BLUEPRINT_SYSTEM_PROMPT)
-    assert length <= 1500, (
-        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 1500，"
-        f"需精简（旧版 ~3500 → 新版目标 ≤1500）"
+    assert length <= 2200, (
+        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 2200，"
+        f"需精简（spec R3 cap 2200，进一步放宽需修订 spec）"
     )
+
+
+# ---- Test 1.1：spec R3 关键词覆盖 ----------------------------
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "suggested_duration",  # 候选预览消费规则
+        "typical_dining",  # 餐厅时长字段
+        "5 岁",  # 学龄前样例（与范例 75min 配对）
+        "75min",  # 学龄前 cap
+        "学龄前",  # age tier 桶
+        "建议范围",  # critic_feedback 收敛措辞
+    ],
+)
+def test_system_prompt_contains_spec_r3_keywords(keyword: str) -> None:
+    """spec R3 要求 prompt 含按 age 分级时长表 + 候选预览消费规则关键词。"""
+    assert keyword in BLUEPRINT_SYSTEM_PROMPT, (
+        f"prompt 缺少 spec R3 关键词 '{keyword}'（违反 spec R3 验收 §5）"
+    )
+
+
+def test_system_prompt_example_uses_short_duration() -> None:
+    """范例 JSON 必须是 75min（学龄前合规），不能是历史 165min（5 岁娃 2.5h 反例锚定）。"""
+    assert "duration_min\": 165" not in BLUEPRINT_SYSTEM_PROMPT
+    assert "duration_min\": 75" in BLUEPRINT_SYSTEM_PROMPT
 
 
 # ---- Test 2：旧概念已删除 ----------------------------------

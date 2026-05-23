@@ -8,10 +8,26 @@
     "default_distance_max_km": 5.0,
     "default_budget": 280,
     "default_tags": {
-      "physical": ["亲子友好", "适合 5-10 岁", "低强度"],
-      "dietary": ["低脂", "健康轻食", "有儿童餐"],
+      "physical": [
+        "亲子友好",
+        "适合 5-10 岁",
+        "低强度"
+      ],
+      "dietary": [
+        "低脂",
+        "健康轻食",
+        "有儿童餐"
+      ],
       "experience": [],
-      "suitable_for_priority": ["家庭日常"]
+      "suitable_for_priority": [
+        "家庭日常"
+      ]
+    },
+    "default_pace_profile": {
+      "single_session_max_min": 75,
+      "total_active_min": 240,
+      "break_every_min": 45,
+      "preferred_dwell_min": 60
     }
   },
   {
@@ -24,9 +40,26 @@
     "default_budget": 800,
     "default_tags": {
       "physical": [],
-      "dietary": ["高人均", "有包间", "粤菜"],
-      "experience": ["商务体面", "礼仪感", "安静聊天"],
-      "suitable_for_priority": ["商务接待", "纪念日仪式感"]
+      "dietary": [
+        "高人均",
+        "有包间",
+        "粤菜"
+      ],
+      "experience": [
+        "商务体面",
+        "礼仪感",
+        "安静聊天"
+      ],
+      "suitable_for_priority": [
+        "商务接待",
+        "纪念日仪式感"
+      ]
+    },
+    "default_pace_profile": {
+      "single_session_max_min": 120,
+      "total_active_min": 240,
+      "break_every_min": 90,
+      "preferred_dwell_min": 90
     }
   },
   {
@@ -38,10 +71,26 @@
     "default_distance_max_km": 3.0,
     "default_budget": 200,
     "default_tags": {
-      "physical": ["适合老人", "无台阶", "可休息", "低强度"],
-      "dietary": ["软烂"],
+      "physical": [
+        "适合老人",
+        "无台阶",
+        "可休息",
+        "低强度"
+      ],
+      "dietary": [
+        "软烂"
+      ],
       "experience": [],
-      "suitable_for_priority": ["老人伴助", "纪念日仪式感"]
+      "suitable_for_priority": [
+        "老人伴助",
+        "纪念日仪式感"
+      ]
+    },
+    "default_pace_profile": {
+      "single_session_max_min": 75,
+      "total_active_min": 180,
+      "break_every_min": 45,
+      "preferred_dwell_min": 60
     }
   },
   {
@@ -55,8 +104,21 @@
     "default_tags": {
       "physical": [],
       "dietary": [],
-      "experience": ["独处舒缓", "安静聊天", "室内", "学习成长"],
-      "suitable_for_priority": ["独处放空"]
+      "experience": [
+        "独处舒缓",
+        "安静聊天",
+        "室内",
+        "学习成长"
+      ],
+      "suitable_for_priority": [
+        "独处放空"
+      ]
+    },
+    "default_pace_profile": {
+      "single_session_max_min": 90,
+      "total_active_min": 240,
+      "break_every_min": 90,
+      "preferred_dwell_min": 75
     }
   },
   {
@@ -69,9 +131,27 @@
     "default_budget": 400,
     "default_tags": {
       "physical": [],
-      "dietary": ["下午茶", "甜品"],
-      "experience": ["看展", "拍照友好", "网红打卡", "亲密情侣", "安静聊天"],
-      "suitable_for_priority": ["情侣亲密", "闺蜜聊天"]
+      "dietary": [
+        "下午茶",
+        "甜品"
+      ],
+      "experience": [
+        "看展",
+        "拍照友好",
+        "网红打卡",
+        "亲密情侣",
+        "安静聊天"
+      ],
+      "suitable_for_priority": [
+        "情侣亲密",
+        "闺蜜聊天"
+      ]
+    },
+    "default_pace_profile": {
+      "single_session_max_min": 90,
+      "total_active_min": 240,
+      "break_every_min": 60,
+      "preferred_dwell_min": 75
     }
   }
 ]

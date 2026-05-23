@@ -73,7 +73,11 @@ def test_plan_fallback_event_payload():
 
 
 def test_violation_dump_shape_for_sse_payload():
-    """critics_v2.Violation 转 dict 后字段名稳定（前端依赖此契约）。"""
+    """critics_v2.Violation 转 dict 后字段名稳定（前端依赖此契约）。
+
+    spec planning-quality-deep-review R4 加 expected_range 字段（Optional），
+    前端 ToolTracePanel 现在可读这个字段把"建议范围"渲染到违规卡片上。
+    """
     v = Violation(
         code=ViolationCode.DURATION_OUT_OF_RANGE,
         severity=Severity.CRITICAL,
@@ -81,7 +85,8 @@ def test_violation_dump_shape_for_sse_payload():
         field_path="total_minutes",
     )
     dumped = v.model_dump()
-    # 前端 ToolTracePanel 渲染依赖以下 4 个字段
-    assert set(dumped.keys()) == {"code", "severity", "message", "field_path"}
+    # 前端 ToolTracePanel 渲染依赖以下字段（spec R4 后增加 expected_range）
+    assert set(dumped.keys()) == {"code", "severity", "message", "field_path", "expected_range"}
     assert dumped["code"] == "duration_out_of_range"
     assert dumped["severity"] == "critical"
+    assert dumped["expected_range"] is None  # 默认 None，未填时不渲染

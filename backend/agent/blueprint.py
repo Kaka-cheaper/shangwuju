@@ -344,12 +344,122 @@ def _opening_hours_critic(blueprint: PlanBlueprint) -> list[str]:
 
 
 # ============================================================
+# spec planning-quality-deep-review R4：年龄感知单段时长 critic
+# ============================================================
+
+
+# Companion age tier 时长 cap（minute）。业界基线（Smithsonian SEEC 等）：
+# - 婴幼儿（≤3）：45（注意力 ≤ 30，余量给过渡）
+# - 学龄前（4-6）：75（与 prompt 学龄前 cap 一致）
+# - 学童（7-12）：120
+# - 老人（≥75）：60（含台阶 / 长走再砍，但 critic 不感知场地坡度，给统一 cap）
+# 多代际取最严（含 ≤6 → 75；含 ≥75 → 60；同时含 → 60）。
+_AGE_CAP_TODDLER = 45  # ≤ 3 岁
+_AGE_CAP_PRESCHOOL = 75  # 4-6 岁
+_AGE_CAP_SCHOOL_AGE = 120  # 7-12 岁
+_AGE_CAP_ELDER_60_74 = 90  # 60-74 岁（保留作为参考，当前未触发）
+_AGE_CAP_SENIOR = 60  # ≥ 75 岁
+
+
+def _resolve_age_caps(intent: IntentExtraction) -> tuple[int, list[str]]:
+    """从 intent.companions 推单段最严 cap + 触发原因列表。
+
+    Returns:
+        (cap_min, reasons)
+        - cap_min: 单段时长上限（分钟）。无 age 信息时返回 9999（实质不约束）。
+        - reasons: 触发的人话原因列表（如 ["含 5 岁孩（学龄前 ≤75min）"]），
+                   留给 _age_aware_duration_critic 拼 message 用。
+
+    取最严策略：从 companions 各自 age 推一个 cap，再取 min。
+    """
+    if intent is None or not getattr(intent, "companions", None):
+        return 9999, []
+
+    cap_candidates: list[tuple[int, str]] = []  # (cap_min, reason)
+
+    for c in intent.companions:
+        age = getattr(c, "age", None)
+        role = getattr(c, "role", "同行")
+        if not isinstance(age, int) or age < 0:
+            continue
+        if age <= 3:
+            cap_candidates.append(
+                (_AGE_CAP_TODDLER, f"含 {age} 岁{role}（婴幼儿 ≤{_AGE_CAP_TODDLER}min）")
+            )
+        elif age <= 6:
+            cap_candidates.append(
+                (_AGE_CAP_PRESCHOOL, f"含 {age} 岁{role}（学龄前 ≤{_AGE_CAP_PRESCHOOL}min）")
+            )
+        elif age <= 12:
+            cap_candidates.append(
+                (_AGE_CAP_SCHOOL_AGE, f"含 {age} 岁{role}（学童 ≤{_AGE_CAP_SCHOOL_AGE}min）")
+            )
+        elif age >= 75:
+            cap_candidates.append(
+                (_AGE_CAP_SENIOR, f"含 {age} 岁{role}（高龄 ≤{_AGE_CAP_SENIOR}min）")
+            )
+
+    if not cap_candidates:
+        return 9999, []
+
+    # 取最严
+    min_cap = min(c[0] for c in cap_candidates)
+    reasons = [c[1] for c in cap_candidates if c[0] == min_cap]
+    return min_cap, reasons
+
+
+def _age_aware_duration_critic(
+    blueprint: PlanBlueprint,
+    intent: IntentExtraction | None,
+) -> list[BlueprintViolation]:
+    """C4 [spec R4]：按 companion age 校验每个 POI 节点的单段时长。
+
+    仅对 target_kind=POI 节点验（餐厅按 typical_dining_min 是其他规则，不在此 critic）。
+
+    违规消息含 expected_range，由 critics_v2 / format_violations_for_llm
+    拼成"建议范围 X-Y min"自然语言喂回 LLM（不暴露字段名）。
+    """
+    if intent is None:
+        return []
+
+    cap, reasons = _resolve_age_caps(intent)
+    if cap >= 9999:
+        return []
+
+    # 期望区间：[max(45, cap-15), cap]——给 LLM 收敛空间
+    lo = max(45, cap - 15)
+    hi = cap
+    expected = (lo, hi)
+
+    out: list[BlueprintViolation] = []
+    reason_text = "；".join(reasons) if reasons else f"同行约束 ≤{cap}min"
+
+    for node in blueprint.nodes:
+        if node.target_kind != BlueprintTargetKind.POI:
+            continue
+        if node.duration_min > cap:
+            msg = (
+                f"节点「{node.kind}」（target={node.target_id}）"
+                f"停留 {node.duration_min} 分钟超出年龄约束（{reason_text}）"
+            )
+            out.append(
+                BlueprintViolation(
+                    critic="blueprint_age_aware_duration",
+                    severity="hard",
+                    message=msg,
+                    expected_range=expected,
+                )
+            )
+
+    return out
+
+
+# ============================================================
 # 兼容封装：旧 run_blueprint_critics / BlueprintReport / BlueprintViolation
 # ============================================================
 #
 # planner_llm_first.py（冻结路径）仍调用 run_blueprint_critics → BlueprintReport，
-# 这里保留入口但内部委托给上面三个 list[str] critic，把消息包装成 BlueprintViolation。
-# Task 6/9 同步前文件后会进一步清理。
+# 这里保留入口但内部委托给上面 critic，把消息包装成 BlueprintViolation。
 
 
 @dataclass
@@ -358,20 +468,31 @@ class BlueprintViolation:
 
     edge_v1 只有"hard"严重度——blueprint critic 一旦命中即触发 LLM 重生成；
     soft 违规的概念已下沉到 Itinerary 级 critic。
+
+    spec planning-quality-deep-review R4 引入 `expected_range`：
+    当 critic 能给出明确收敛区间时（如 _age_aware_duration_critic 的
+    "5 岁娃应 45-75min"），expected_range 携带 (lo, hi) tuple，
+    `format_violations_for_llm` 时拼成"建议范围 X-Y min"自然语言喂回 LLM
+    （**不暴露字段名 expected_range / nodes[i] / dot-path**，遵守
+    design.md "不暴露内部 schema 给 LLM" 原则）。
     """
 
-    critic: str  # blueprint_temporal / blueprint_duration / blueprint_opening_hours
+    critic: str  # blueprint_temporal / blueprint_duration / blueprint_opening_hours / blueprint_age_aware_duration
     severity: str  # 当前一律 "hard"
     message: str
     field_hint: str = ""
+    expected_range: Optional[tuple[int, int]] = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "critic": self.critic,
             "severity": self.severity,
             "message": self.message,
             "field_hint": self.field_hint,
         }
+        if self.expected_range is not None:
+            out["expected_range"] = list(self.expected_range)
+        return out
 
 
 @dataclass
@@ -401,15 +522,13 @@ def run_blueprint_critics(
 
     Args:
         blueprint: LLM 输出的蓝图。
-        intent: 兼容参数。edge_v1 三个 critic 内部不再使用 intent
-                （单段时长 / 营业时间 / 时序均与 intent 解耦）；
-                保留参数仅为不破坏 planner_llm_first.py 的旧调用签名。
+        intent: IntentExtraction，spec planning-quality-deep-review R4 引入消费——
+                `_age_aware_duration_critic` 用 intent.companions[].age 推单段 cap。
+                None 时降级（不跑年龄 critic），保持向后兼容。
 
     Returns:
         BlueprintReport：硬违规 → passed=False（让上层 backprompt LLM 重生成）。
     """
-    _ = intent  # 显式忽略，避免 linter 提醒；保留签名兼容性
-
     all_violations: list[BlueprintViolation] = []
 
     for msg in _temporal_critic(blueprint):
@@ -430,6 +549,11 @@ def run_blueprint_critics(
                 critic="blueprint_opening_hours", severity="hard", message=msg
             )
         )
+
+    # spec planning-quality-deep-review R4：年龄感知单段时长 critic
+    # 仅在 intent 非空时跑（无 age 信号时降级为 no-op）
+    if intent is not None:
+        all_violations.extend(_age_aware_duration_critic(blueprint, intent))
 
     hard = [v for v in all_violations if v.severity == "hard"]
     return BlueprintReport(

@@ -89,7 +89,23 @@ def _format_review_excerpts(reviews) -> list[dict]:
     return out
 
 
-def _poi_preview(p: Poi) -> dict:
+def _poi_preview(p: Poi, *, companions: list | None = None) -> dict:
+    """投影 POI 给 LLM 看（spec planning-quality-deep-review R2）。
+
+    Args:
+        p: 候选 POI
+        companions: IntentExtraction.companions 列表（含 .age 属性）；
+            为 None 时降级到 default 桶。
+
+    新增字段（R2）：
+        suggested_duration_minutes: 按 companions 投影为单值（int 或 None）；
+            **不**暴露 dict 结构给 LLM（design.md "不暴露字段名"原则）。
+    """
+    from utils.duration_helpers import get_duration_for_companions  # 局部导入避免循环
+
+    suggested_int = get_duration_for_companions(
+        p.suggested_duration_minutes, companions or []
+    )
     return {
         "id": p.id,
         "name": p.name,
@@ -101,11 +117,17 @@ def _poi_preview(p: Poi) -> dict:
         "rating": p.rating,
         "age_range": p.age_range,
         "price_range": p.price_range,
+        "suggested_duration_minutes": suggested_int,
         "review_excerpts": _format_review_excerpts(p.reviews),
     }
 
 
 def _restaurant_preview(r: Restaurant) -> dict:
+    """投影餐厅给 LLM 看（spec planning-quality-deep-review R2）。
+
+    新增字段（R2）：
+        typical_dining_min: 按 cuisine 业界基线（健康轻食 40 / 粤菜 90 / 火锅 120 等）。
+    """
     return {
         "id": r.id,
         "name": r.name,
@@ -116,6 +138,7 @@ def _restaurant_preview(r: Restaurant) -> dict:
         "opening_hours": r.opening_hours,
         "avg_price": r.avg_price,
         "rating": r.rating,
+        "typical_dining_min": r.typical_dining_min,
         "review_excerpts": _format_review_excerpts(r.reviews),
     }
 
@@ -126,6 +149,7 @@ def build_candidate_preview(
     top_k: int = 5,
     *,
     transport_preference: str = "taxi",
+    companions: list | None = None,
 ) -> dict:
     """打包候选预览给 LLM（edge_v1：不再含 commute_matrix）。
 
@@ -135,11 +159,14 @@ def build_candidate_preview(
         transport_preference: walking / taxi / bus；仅作为元信息透传给 LLM
             告知用户偏好的交通方式（assemble 自己按这个调 lookup_hop 算 hop，
             **不再**给 LLM 喂段间通勤矩阵——这是 edge_v1 与旧版的关键区别）
+        companions: IntentExtraction.companions 列表，spec R2 用于
+            `_poi_preview` 投影 SuggestedDuration dict 为单值；缺省时
+            降级到 default 桶（向后兼容旧调用方）。
 
     Returns:
         {
-          "pois": [...],
-          "restaurants": [...],
+          "pois": [...],            # 含 suggested_duration_minutes（int 投影）
+          "restaurants": [...],     # 含 typical_dining_min
           "transport_preference": "taxi"
         }
 
@@ -155,7 +182,7 @@ def build_candidate_preview(
     )[:top_k]
 
     return {
-        "pois": [_poi_preview(p) for p in pois_sorted],
+        "pois": [_poi_preview(p, companions=companions) for p in pois_sorted],
         "restaurants": [_restaurant_preview(r) for r in rests_sorted],
         "transport_preference": transport_preference,
     }
@@ -224,6 +251,7 @@ def generate_blueprint(
         restaurants,
         top_k=top_k_preview,
         transport_preference=transport_pref,
+        companions=list(intent.companions),  # spec R2: 投影 SuggestedDuration → 单值
     )
     intent_json = intent.model_dump_json()
     candidates_json = json.dumps(preview, ensure_ascii=False, indent=2)

@@ -251,7 +251,11 @@ def plan_llm_first(
 # ============================================================
 
 def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi] | None:
-    """搜 POI；首次失败放宽 +2km 再试一次。空集返 []（合法），错误返 None。"""
+    """搜 POI；首次失败放宽 +2km 再试一次。空集返 []（合法），错误返 None。
+
+    spec planning-quality-deep-review R2：放宽后回写 effective_distance_max_km
+    至 SearchPoisOutput，让下游 LLM 在 rationale 显式说明已放宽搜索。
+    """
     args = SearchPoisInput(
         distance_max_km=intent.distance_max_km,
         physical_constraints=list(intent.physical_constraints),
@@ -268,7 +272,8 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi] | None:
             return list(out.candidates)
 
     # 放宽
-    args["distance_max_km"] = float(intent.distance_max_km) + 2
+    relaxed_distance = float(intent.distance_max_km) + 2
+    args["distance_max_km"] = relaxed_distance
     tracer.emit(
         "replan_triggered",
         {
@@ -280,6 +285,10 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi] | None:
     res = _call_tool("search_pois", args, tracer)
     if res.success:
         out = SearchPoisOutput.model_validate(res.output)
+        # spec R2: 回写 effective_distance_max_km
+        out_dict = out.model_dump()
+        out_dict["effective_distance_max_km"] = relaxed_distance
+        out = SearchPoisOutput.model_validate(out_dict)
         return list(out.candidates)
     return []  # 兜底空，让 LLM 自行决定不带 POI
 

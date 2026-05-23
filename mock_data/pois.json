@@ -32,7 +32,12 @@
       "daily_quota": 200,
       "available_slots": 45
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "kid_7_12": 90,
+      "multi_gen": 75
+    },
     "reviews": [
       {
         "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
@@ -88,7 +93,12 @@
       "daily_quota": 300,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 75,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
@@ -146,7 +156,12 @@
       "daily_quota": 300,
       "available_slots": 80
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
@@ -206,7 +221,12 @@
       "daily_quota": 100,
       "available_slots": 30
     },
-    "suggested_duration_minutes": 60,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
@@ -258,7 +278,12 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 60,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "kid_3_6": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
@@ -312,7 +337,11 @@
       "daily_quota": 80,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "带老人去的，全程电梯无台阶，60+ 长辈走完一圈不累。环境也清静，没有那种年轻人扎堆的喧闹感。",
@@ -365,7 +394,11 @@
       "daily_quota": 200,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "70 岁妈妈第一次来表示满意。走道宽敞、休息长椅多，老人累了随时坐下歇会儿。这种贴心设计现在不多见了。",
@@ -423,7 +456,11 @@
       "daily_quota": 100,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 60,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
@@ -473,7 +510,11 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 60,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
@@ -526,7 +567,10 @@
       "daily_quota": 30,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75
+    },
     "reviews": [
       {
         "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
@@ -578,7 +622,11 @@
       "daily_quota": 150,
       "available_slots": 70
     },
-    "suggested_duration_minutes": 75,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
@@ -634,7 +682,11 @@
       "daily_quota": 200,
       "available_slots": 90
     },
-    "suggested_duration_minutes": 60,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
@@ -688,7 +740,10 @@
       "daily_quota": 60,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_7_12": 75
+    },
     "reviews": [
       {
         "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
@@ -741,7 +796,11 @@
       "daily_quota": 120,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_7_12": 90,
+      "multi_gen": 75
+    },
     "reviews": [
       {
         "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
@@ -792,7 +851,11 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
@@ -846,7 +909,11 @@
       "daily_quota": 40,
       "available_slots": 18
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "结婚纪念日去的，满分回忆。氛围、服务、出片都很赞。",
@@ -904,7 +971,12 @@
       "daily_quota": 200,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
@@ -960,7 +1032,11 @@
       "daily_quota": 500,
       "available_slots": 220
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
@@ -1016,7 +1092,12 @@
       "daily_quota": 60,
       "available_slots": 28
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
@@ -1068,7 +1149,11 @@
       "daily_quota": null,
       "available_slots": 9999
     },
-    "suggested_duration_minutes": 45,
+    "suggested_duration_minutes": {
+      "default": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
@@ -1125,7 +1210,11 @@
       "daily_quota": 5000,
       "available_slots": 0
     },
-    "suggested_duration_minutes": 150,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 75
+    },
     "reviews": [
       {
         "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
@@ -1181,7 +1270,11 @@
       "daily_quota": 100,
       "available_slots": 50
     },
-    "suggested_duration_minutes": 60,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "纪念日去的，氛围拉满，对方惊喜满满。细节处理得用心，仪式感到位。",
@@ -1240,7 +1333,12 @@
       "daily_quota": 80,
       "available_slots": 30
     },
-    "suggested_duration_minutes": 75,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
@@ -1297,7 +1395,12 @@
       "daily_quota": 60,
       "available_slots": 22
     },
-    "suggested_duration_minutes": 75,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
     "reviews": [
       {
         "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
@@ -1352,7 +1455,10 @@
       "daily_quota": 50,
       "available_slots": 20
     },
-    "suggested_duration_minutes": 150,
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 120
+    },
     "reviews": [
       {
         "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
@@ -1406,7 +1512,10 @@
       "daily_quota": 60,
       "available_slots": 28
     },
-    "suggested_duration_minutes": 150,
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 120
+    },
     "reviews": [
       {
         "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
@@ -1460,7 +1569,9 @@
       "daily_quota": 60,
       "available_slots": 25
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 90
+    },
     "reviews": [
       {
         "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
@@ -1514,7 +1625,9 @@
       "daily_quota": 80,
       "available_slots": 35
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 90
+    },
     "reviews": [
       {
         "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
@@ -1569,7 +1682,12 @@
       "daily_quota": 600,
       "available_slots": 280
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "senior": 90,
+      "multi_gen": 90
+    },
     "reviews": [
       {
         "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
@@ -1624,7 +1742,12 @@
       "daily_quota": 400,
       "available_slots": 180
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "senior": 90,
+      "multi_gen": 90
+    },
     "reviews": [
       {
         "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
@@ -1679,7 +1802,9 @@
       "daily_quota": 30,
       "available_slots": 12
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 60
+    },
     "reviews": [
       {
         "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
@@ -1733,7 +1858,10 @@
       "daily_quota": 40,
       "available_slots": 18
     },
-    "suggested_duration_minutes": 75,
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45
+    },
     "reviews": [
       {
         "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
@@ -1785,7 +1913,9 @@
       "daily_quota": 100,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 60
+    },
     "reviews": [
       {
         "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
@@ -1844,7 +1974,13 @@
       "daily_quota": 2000,
       "available_slots": 850
     },
-    "suggested_duration_minutes": 180,
+    "suggested_duration_minutes": {
+      "default": 180,
+      "kid_3_6": 90,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
     "reviews": [
       {
         "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
@@ -1904,7 +2040,12 @@
       "daily_quota": 200,
       "available_slots": 90
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
@@ -1961,7 +2102,12 @@
       "daily_quota": 80,
       "available_slots": 40
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
@@ -2017,7 +2163,9 @@
       "daily_quota": 200,
       "available_slots": 80
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 120
+    },
     "reviews": [
       {
         "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
@@ -2071,7 +2219,9 @@
       "daily_quota": 100,
       "available_slots": 45
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90
+    },
     "reviews": [
       {
         "text": "周末约会去的，气氛很赞，有不少角落适合两个人独处。整体格调比较精致。",
@@ -2132,7 +2282,12 @@
       "daily_quota": 60,
       "available_slots": 25
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
@@ -2194,7 +2349,12 @@
       "daily_quota": 200,
       "available_slots": 60
     },
-    "suggested_duration_minutes": 100,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "带 5 岁孩 + 70 岁外婆一起去刚刚好，全程电梯无台阶，外婆全程不累。亲子互动区适合小孩，老人安静区有老电影看。三代同堂的难得选择。",
@@ -2259,7 +2419,11 @@
       "daily_quota": 80,
       "available_slots": 30
     },
-    "suggested_duration_minutes": 90,
+    "suggested_duration_minutes": {
+      "default": 75,
+      "senior": 60,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "周末带客户 + 客户家小孩一起，环境分区很贴心：成人有商务洽谈区，孩子有专属游玩区，互不打扰。客户最后说这才是真有诚意的接待。",
@@ -2321,7 +2485,10 @@
       "daily_quota": 50,
       "available_slots": 20
     },
-    "suggested_duration_minutes": 120,
+    "suggested_duration_minutes": {
+      "default": 90,
+      "multi_gen": 60
+    },
     "reviews": [
       {
         "text": "和闺蜜约这种地方真是绝配——拍照位每个角度都能出片，但同时音量又不会被外面影响，能安心聊心事。",

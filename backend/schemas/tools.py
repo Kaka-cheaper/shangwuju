@@ -103,6 +103,15 @@ class SearchPoisOutput(ToolOutputBase):
             "渐进放宽得到候选。LLM 应在 rationale 中解释这一点。"
         ),
     )
+    effective_distance_max_km: Optional[float] = Field(
+        default=None,
+        description=(
+            "实际生效的距离上限（公里）。spec planning-quality-deep-review R2 引入。"
+            "若 search 内部因 0 候选触发距离放宽（用户原 5km → 兜底 +2km），"
+            "此字段记录实际放宽到的距离；LLM 应在 rationale 显式说明。"
+            "为 None 时表示距离严格匹配未放宽（向后兼容）。"
+        ),
+    )
 
 
 # ============================================================

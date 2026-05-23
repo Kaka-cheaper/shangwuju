@@ -89,6 +89,7 @@ class ViolationCode(str, Enum):
     RESTAURANT_FULL_UNRESOLVED = "restaurant_full_unresolved"
     DIETARY_VIOLATION = "dietary_violation"
     SOCIAL_CONTEXT_MISMATCH = "social_context_mismatch"
+    AGE_DURATION_MISMATCH = "age_duration_mismatch"  # spec planning-quality-deep-review R4
 
 
 class Severity(str, Enum):
@@ -121,6 +122,14 @@ class Violation(BaseModel):
     field_path: str = Field(
         default="",
         description='内部 dot-path 定位，如 "hops[2]" / "nodes[1]"；不进 LLM prompt',
+    )
+    expected_range: Optional[tuple[int, int]] = Field(
+        default=None,
+        description=(
+            "建议收敛区间 (lo, hi)。spec planning-quality-deep-review R4 引入。"
+            "format_violations_for_llm 拼成「建议范围 lo-hi min」自然语言喂回 LLM——"
+            "**不**暴露字段名 expected_range / nodes[i] / dot-path 给 LLM。"
+        ),
     )
 
 
@@ -513,6 +522,80 @@ def _check_hop_feasibility(
     return out
 
 
+def _check_age_aware_duration(
+    itinerary: Itinerary, intent: IntentExtraction
+) -> list[Violation]:
+    """spec planning-quality-deep-review R4：ILS 路径年龄感知单段时长 critic（镜像）。
+
+    与 `agent/blueprint.py:_age_aware_duration_critic` 业务等价，但作用对象是
+    Itinerary（已 assemble）而非 PlanBlueprint——LangGraph LLM 主路径走 blueprint
+    critic，ILS / fallback 路径走本 critic。**两者镜像防绕过**。
+
+    业务规则（与 blueprint.py 同源 _resolve_age_caps）：
+    - companions 含 ≤3 岁 → cap 45min
+    - companions 含 4-6 岁 → cap 75min
+    - companions 含 7-12 岁 → cap 120min
+    - companions 含 ≥75 岁 → cap 60min
+    - 多代际取最严
+
+    仅对 target_kind=poi 的 mid node 校验（餐厅按 typical_dining_min 是另一规则）。
+    """
+    if intent is None or not getattr(intent, "companions", None):
+        return []
+
+    # 取最严 cap（与 blueprint.py:_resolve_age_caps 同源逻辑，避免循环 import 在此重写）
+    cap_candidates: list[tuple[int, str]] = []
+    for c in intent.companions:
+        age = getattr(c, "age", None)
+        role = getattr(c, "role", "同行")
+        if not isinstance(age, int) or age < 0:
+            continue
+        if age <= 3:
+            cap_candidates.append((45, f"含 {age} 岁{role}（婴幼儿 ≤45min）"))
+        elif age <= 6:
+            cap_candidates.append((75, f"含 {age} 岁{role}（学龄前 ≤75min）"))
+        elif age <= 12:
+            cap_candidates.append((120, f"含 {age} 岁{role}（学童 ≤120min）"))
+        elif age >= 75:
+            cap_candidates.append((60, f"含 {age} 岁{role}（高龄 ≤60min）"))
+
+    if not cap_candidates:
+        return []
+
+    min_cap = min(c[0] for c in cap_candidates)
+    reason_text = "；".join(c[1] for c in cap_candidates if c[0] == min_cap)
+    expected = (max(45, min_cap - 15), min_cap)
+
+    out: list[Violation] = []
+    for idx, node in enumerate(itinerary.nodes):
+        if node.target_kind != "poi":
+            continue
+        # node duration 优先取 node.duration_min，否则用 end - start
+        duration = getattr(node, "duration_min", None)
+        if not isinstance(duration, int):
+            start_min = _parse_hhmm(getattr(node, "start_time", "")) if hasattr(node, "start_time") else None
+            end_min = _parse_hhmm(getattr(node, "end_time", "")) if hasattr(node, "end_time") else None
+            if start_min is None or end_min is None:
+                continue
+            duration = end_min - start_min
+
+        if duration > min_cap:
+            out.append(
+                Violation(
+                    code=ViolationCode.AGE_DURATION_MISMATCH,
+                    severity=Severity.CRITICAL,
+                    message=(
+                        f"{_humanize_node(idx, node)} 停留 {duration} 分钟"
+                        f"超出年龄约束（{reason_text}）"
+                    ),
+                    field_path=f"nodes[{idx}].duration_min",
+                    expected_range=expected,
+                )
+            )
+
+    return out
+
+
 def _check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
     """单个 mid node 距家距离 > intent.distance_max_km → warning。
 
@@ -561,13 +644,13 @@ def _check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Viol
 
 
 def _check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
-    """demo-aware 17:00 满座埋点：mock 餐厅在 17:00 整点是 RESTAURANT_FULL 异常埋点。
+    """demo-aware 满座埋点：mock 餐厅在「reservation_slots[time].available=False」是 RESTAURANT_FULL 异常埋点。
 
     edge_v1：从「找含 restaurant_id 的 stage」改为「找 target_kind=restaurant 的 node」。
 
-    简化策略：critic 看不到工具调用历史，只能基于「最终 itinerary 的用餐 node 时间」
-    推断。如果用餐 node start_time 正好 17:00，说明 LLM 没处理 RESTAURANT_FULL，
-    强制让它换 17:30 重做（评分项 5 异常韧性的硬要求）。
+    spec planning-quality-deep-review R4：从「写死 17:00」改为查 mock 真值——
+    在 mock 数据 `Restaurant.reservation_slots` 中查 node.start_time 对应的 slot
+    是否 `available=False`。如果是，强制让 LLM 换其它时段（不再依赖 17:00 硬编码）。
 
     通过 ENABLE_DEMO_FULL_CHECK 环境变量控制开关（默认开）。
     """
@@ -575,23 +658,39 @@ def _check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     if enabled in ("0", "false", "no", "off"):
         return []
 
+    restaurants_by_id = {r.id: r for r in _safe_load_restaurants()}
+
     out: list[Violation] = []
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind != "restaurant":
             continue
-        if (node.start_time or "").strip() == _DEMO_FULL_TIME:
-            out.append(
-                Violation(
-                    code=ViolationCode.RESTAURANT_FULL_UNRESOLVED,
-                    severity=Severity.CRITICAL,
-                    message=(
-                        f"{_humanize_node(idx, node)} 用餐时刻 17:00 是已知的高峰满座时段"
-                        "（mock 餐厅典型埋点）。请调用 check_restaurant_availability 验证实际可用性，"
-                        "或直接把用餐时间挪到 17:30 / 18:00 等空档时段。"
-                    ),
-                    field_path=f"nodes[{idx}].start_time",
-                )
+        node_time = (node.start_time or "").strip()
+        if not node_time:
+            continue
+        rest = restaurants_by_id.get(node.target_id or "")
+        if rest is None:
+            continue
+        # 查 reservation_slots[time].available
+        full_slot = next(
+            (s for s in rest.reservation_slots if s.time == node_time and not s.available),
+            None,
+        )
+        if full_slot is None:
+            continue
+
+        out.append(
+            Violation(
+                code=ViolationCode.RESTAURANT_FULL_UNRESOLVED,
+                severity=Severity.CRITICAL,
+                message=(
+                    f"{_humanize_node(idx, node)} 在 {node_time} 已满座"
+                    f"（mock 餐厅 reservation_slots 标记 available=False）。"
+                    "请调用 check_restaurant_availability 验证实际可用性，"
+                    "或换到其它有空档的时段。"
+                ),
+                field_path=f"nodes[{idx}].start_time",
             )
+        )
     return out
 
 
@@ -799,6 +898,8 @@ def validate_itinerary(
     violations.extend(_check_demo_restaurant_full(itinerary))
     violations.extend(_check_dietary(itinerary, intent))
     violations.extend(_check_social_context(itinerary, intent))
+    # spec planning-quality-deep-review R4：ILS 路径年龄感知 critic（镜像）
+    violations.extend(_check_age_aware_duration(itinerary, intent))
     return violations
 
 
@@ -809,6 +910,10 @@ def format_violations_for_llm(violations: list[Violation]) -> str:
 
     输出**不暴露 dot-path** 字段路径——LLM 只看「第 N 段」「目标点」「分钟」等
     自然语言。`Violation.field_path` 仅用于 trace / 调试，绝不进 LLM prompt。
+
+    spec planning-quality-deep-review R4：
+    - 若 violation 含 `expected_range=(lo, hi)`，message 末尾追加「（建议范围 lo-hi min）」
+    - **不**暴露字段名 `expected_range` / `nodes[i]` 等 dot-path
 
     - 0 critical → 返回空字符串（调用方据此决定不 backprompt）
     - ≥1 critical → 返回中文修复 prompt（编号 + message）
@@ -821,7 +926,11 @@ def format_violations_for_llm(violations: list[Violation]) -> str:
     lines = [f"你产出的行程方案有 {len(critical)} 处违规需要修复："]
     for i, v in enumerate(critical, 1):
         # 注意：刻意不拼接 v.field_path（design.md：不暴露 dot-path）
-        lines.append(f"{i}. {v.message}")
+        msg = v.message
+        if v.expected_range is not None:
+            lo, hi = v.expected_range
+            msg = f"{msg}（建议范围 {lo}-{hi} min）"
+        lines.append(f"{i}. {msg}")
     lines.append("请按上述建议重新调用工具或调整方案，重新输出 ItineraryResponse。")
     return "\n".join(lines)
 
