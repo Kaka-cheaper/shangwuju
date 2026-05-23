@@ -1,4 +1,4 @@
-"""tests.test_planner_hybrid —— A+C 混合规划范式回归测试（edge_v1）。
+﻿"""tests.test_planner_hybrid —— A+C 混合规划范式回归测试（edge_v1）。
 
 W2 owner = A 同学的 planner.py 主体；本测试是 owner=A 的 P2 加分项扩展，
 仅在 PLANNER_LLM_STRATEGY=hybrid（默认）路径上跑。
@@ -24,13 +24,13 @@ from dataclasses import dataclass
 
 import pytest
 
-from agent.assemble_blueprint import assemble_from_blueprint
-from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
-from agent.critics import (
+from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
+from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from agent.legacy.ils_score_critic import (
     run_critics,
 )
-from agent.planner import plan_itinerary_with_mode
-from agent.weights_llm import (
+from agent.legacy.planner_rule import plan_itinerary_with_mode
+from agent.planning.weights_llm import (
     PlanningWeights,
     _heuristic_weights,
     get_planning_weights,
@@ -164,7 +164,7 @@ def _itinerary(
         # POI 时长设置为：让餐厅自然到达时间 = dining_time
         # 起点 14:00 → home→POI hop（约 9-15min）→ POI 停留 X → POI→R hop → R
         # 简化：直接把 POI 时长设为 (dining_time - 14:00 - 30) 分钟（容差）
-        from agent.assemble_blueprint import _parse_hhmm
+        from agent.planning.blueprint.assemble_blueprint import _parse_hhmm
         target_min = _parse_hhmm(dining_time)
         start_min = _parse_hhmm("14:00")
         # POI 时长 = 总跨度 - 30min（粗估首跳 + 二跳 + buffer）；下限 30min
@@ -328,7 +328,7 @@ def test_critic_total_minutes_overflow_hard():
 
 def test_utility_distance_decreases_with_far_pois():
     """远 POI 的 utility 应低于近 POI。"""
-    from agent.planner_hybrid import _utility
+    from agent.legacy.ils_planner import _utility
     from schemas.domain import Location, Poi, PoiCapacity, Restaurant, RestaurantCapacity
 
     rest = Restaurant(
@@ -442,7 +442,7 @@ def test_hybrid_falls_back_to_rule_when_llm_returns_garbage():
 
 def test_hybrid_uses_stub_client_falls_back_to_rule():
     """stub client 走 rule 兼容路径（避免引入回归）。"""
-    from agent.llm_client_stub import StubLLMClient
+    from agent.core.llm_client_stub import StubLLMClient
 
     intent = _intent()
     result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())

@@ -1,4 +1,4 @@
-"""verify_tool_provider —— Phase 0.11 抽象层自检脚本（Agent B 交付）。
+﻿"""verify_tool_provider —— Phase 0.11 抽象层自检脚本（Agent B 交付）。
 
 跑 5 项端到端：
 1. DATA_PROVIDER=mock     → search_pois 拿到 mock 数据
@@ -20,13 +20,13 @@ import os
 import sys
 from contextlib import redirect_stdout
 
-from agent.v2.observability import (
+from agent.runtime.observability import (
     bind_session_context,
     clear_session_context,
     get_logger,
     trace_span,
 )
-from agent.v2.tool_provider import (
+from agent.runtime.tool_provider import (
     DianpingToolProviderStub,
     GaodeToolProviderStub,
     MockToolProvider,
@@ -58,7 +58,7 @@ def _restore_env(name: str, old: str | None) -> None:
 
 def _reset_observability_config() -> None:
     """清掉 observability._configure_once 的「已配置」标记，让下一次 get_logger 重读 LOG_FORMAT。"""
-    from agent.v2 import observability
+    from agent.runtime import observability
 
     if hasattr(observability._configure_once, "_done"):
         delattr(observability._configure_once, "_done")

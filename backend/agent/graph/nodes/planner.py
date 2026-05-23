@@ -1,4 +1,4 @@
-"""nodes.planner —— LLM-First Plan 节点（plan-and-execute 中的 plan 阶段）。
+﻿"""nodes.planner —— LLM-First Plan 节点（plan-and-execute 中的 plan 阶段）。
 
 复用 backend/agent/blueprint_llm.py 的 generate_blueprint + agent/weights_llm.py。
 
@@ -17,10 +17,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.blueprint_llm import generate_blueprint, BlueprintGenError
+from agent.planning.blueprint.blueprint_llm import generate_blueprint, BlueprintGenError
 from agent.graph.state import AgentState
-from agent.llm_client import get_llm_client
-from agent.weights_llm import get_planning_weights
+from agent.core.llm_client import get_llm_client
+from agent.planning.weights_llm import get_planning_weights
 
 
 def planner_node(state: AgentState) -> dict[str, Any]:

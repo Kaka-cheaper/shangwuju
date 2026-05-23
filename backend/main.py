@@ -1,4 +1,4 @@
-"""backend.main —— 晌午局 FastAPI 入口（HTTP + SSE 流式网关）。
+﻿"""backend.main —— 晌午局 FastAPI 入口（HTTP + SSE 流式网关）。
 
 接口契约：见 `backend/api_contract.md`
 - GET  /health        健康检查
@@ -201,7 +201,7 @@ app = FastAPI(
 # 可观测平台初始化（Logfire；未配 token 时降级本地控制台输出）
 # 自动 instrument Pydantic AI / OpenAI / httpx / FastAPI
 try:
-    from agent.observability_init import init_observability
+    from agent.core.observability_init import init_observability
 
     init_observability(app)
 except Exception:  # noqa: BLE001
@@ -233,7 +233,7 @@ def health() -> dict[str, str]:
         provider_display = "stub"
     else:
         try:
-            from agent.llm_client import _resolve_creds
+            from agent.core.llm_client import _resolve_creds
 
             _, _, _, provider_display = _resolve_creds(None)
         except Exception:  # noqa: BLE001
@@ -272,7 +272,7 @@ async def ready() -> dict[str, Any]:
         checks["llm"] = {"ok": True, "provider": "stub"}
     else:
         try:
-            from agent.llm_client import _resolve_creds
+            from agent.core.llm_client import _resolve_creds
 
             _, _, _, provider_display = _resolve_creds(None)
             checks["llm"] = {"ok": True, "provider": provider_display}
@@ -935,8 +935,8 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
     if use_react:
         try:
             # 探活：先验证 unified_agent 能 import（捕 import / 配置错防 sys 异常）
-            from agent.v2.orchestrator import run_react_turn
-            from agent.v2.react_agent import unified_agent  # noqa: F401  探活
+            from agent.runtime.orchestrator import run_react_turn
+            from agent.runtime.react_agent import unified_agent  # noqa: F401  探活
         except Exception as e:  # noqa: BLE001
             # ReAct 路径不可用 → fallback 旧路径
             import logging as _logging
@@ -983,8 +983,8 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             )
 
     # ---- 旧路径（USE_REACT_AGENT=0 或 ReAct 不可用时走这里）----
-    from agent.v2.conversation import get_default_store
-    from agent.v2.orchestrator import decide_turn_kind
+    from agent.runtime.conversation import get_default_store
+    from agent.runtime.orchestrator import decide_turn_kind
 
     # 取 v2 ConversationState 决定路径
     store = get_default_store()
@@ -1419,7 +1419,7 @@ async def _stub_stream(
 
     # ---- 13.5: agent_narration（暖心开场白；stub 模式走模板）----
     try:
-        from agent.narrator import generate_narration
+        from agent.intent.narrator import generate_narration
 
         narration_text = generate_narration(
             intent=intent,
@@ -1438,7 +1438,7 @@ async def _stub_stream(
 
     # ---- v2 ConversationStore 同步 hook（stub 路径也持久化让 /chat/turn 能用）----
     try:
-        from agent.v2.orchestrator import (
+        from agent.runtime.orchestrator import (
             record_planning_result,
             record_refinement_result,
         )
@@ -1606,7 +1606,7 @@ async def _refine_stream(
     original = IntentExtraction.model_validate(cached["intent"])
     refinement: RefinementOutput
     try:  # 预留：A 同学 commit refiner 后此分支生效
-        from agent.refiner import refine_intent  # type: ignore[import-not-found]
+        from agent.intent.refiner import refine_intent  # type: ignore[import-not-found]
 
         refinement = refine_intent(original, req.feedback_text or "")
     except Exception:  # noqa: BLE001 — 兜底覆盖 ImportError + 实现异常
@@ -1688,8 +1688,8 @@ def _intent_via_llm(message: str, *, user_id: str | None = None) -> IntentExtrac
     Phase 0.7：传 user_id 时 prompt 注入 persona/memory prior（"我是谁 + 学过什么"）。
     Demo 安全网：评委网络抖动或 API 限流时也能跑通。
     """
-    from agent.intent_parser import parse_intent
-    from agent.llm_client import get_llm_client
+    from agent.intent.parser import parse_intent
+    from agent.core.llm_client import get_llm_client
 
     try:
         client = get_llm_client()
@@ -1737,8 +1737,8 @@ async def _planner_stream(
     import asyncio
     import threading
 
-    from agent.planner import plan_itinerary_with_mode
-    from agent.trace import TraceRecord, Tracer
+    from agent.legacy.planner_rule import plan_itinerary_with_mode
+    from agent.core.trace import TraceRecord, Tracer
 
     seq = starting_seq
 
@@ -1852,7 +1852,7 @@ async def _planner_stream(
     narration_text: str | None = None
     if intent is not None and result is not None and result.itinerary is not None:
         try:
-            from agent.narrator import generate_narration
+            from agent.intent.narrator import generate_narration
 
             narration_text = await asyncio.to_thread(
                 generate_narration,
@@ -1875,7 +1875,7 @@ async def _planner_stream(
     # ---- v2 ConversationStore 同步 hook（跨 turn 上下文持久）----
     if intent is not None and result is not None and result.itinerary is not None:
         try:
-            from agent.v2.orchestrator import (
+            from agent.runtime.orchestrator import (
                 record_planning_result,
                 record_refinement_result,
             )
@@ -1959,7 +1959,7 @@ async def _refine_stream_real(
     # ---- 调真 refiner（A 实现）----
     original = IntentExtraction.model_validate(cached["intent"])
     try:
-        from agent.refiner import refine_intent
+        from agent.intent.refiner import refine_intent
 
         refinement = refine_intent(original, req.feedback_text or "")
     except Exception:  # noqa: BLE001 — 防 LLM 抖动；走 stub refiner 兜底
@@ -2095,7 +2095,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         # confirm 后的暖心收尾文案（"都给你搞定了"语气）
         confirm_narration: str | None = None
         try:
-            from agent.narrator import generate_narration
+            from agent.intent.narrator import generate_narration
 
             cached_intent_dict = cached.get("intent") or {}
             if cached_intent_dict:
@@ -2117,7 +2117,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
 
         # v2 ConversationStore 同步 hook（confirm 后状态升级 itinerary 含 orders）
         try:
-            from agent.v2.orchestrator import record_confirm_result
+            from agent.runtime.orchestrator import record_confirm_result
 
             final_itin = Itinerary.model_validate(itin_dict)
             await record_confirm_result(
@@ -2271,8 +2271,8 @@ async def _routed_stream_real(
     import asyncio
     import threading
 
-    from agent.router import RouterError, classify_input, fallback_decision
-    from agent.llm_client import get_llm_client
+    from agent.intent.router import RouterError, classify_input, fallback_decision
+    from agent.core.llm_client import get_llm_client
 
     # ---- 0. 心跳，防首字节超时 ----
     yield SseEvent(
@@ -2321,7 +2321,7 @@ async def _routed_stream_real(
         yield _make_chitchat_event(decision, 1)
         # v2 ConversationStore 同步：chitchat / meta 等也要写入 messages
         try:
-            from agent.v2.orchestrator import record_chitchat_result
+            from agent.runtime.orchestrator import record_chitchat_result
 
             await record_chitchat_result(
                 session_id=req.session_id,
@@ -2395,7 +2395,7 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
         itinerary_found = False
         # 路径 1：ConversationRepository（v2 路径）
         try:
-            from agent.v2.conversation import get_default_repo
+            from agent.runtime.conversation import get_default_repo
             repo = get_default_repo()
             state = await repo.get(req.session_id)
             if state and state.itinerary_snapshot:

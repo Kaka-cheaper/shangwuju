@@ -1,4 +1,4 @@
-"""verify_repository —— ConversationRepository 抽象层端到端验证（Phase 0.11）。
+﻿"""verify_repository —— ConversationRepository 抽象层端到端验证（Phase 0.11）。
 
 测试场景：
   1. SESSION_STORE=memory：get_or_create / save / get round-trip
@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 def _set_session_store(value: str) -> None:
     """切换 env + 重置单例，让下次 get_default_repo() 按新 env 解析。"""
-    from agent.v2.conversation import _reset_default_repo_for_tests
+    from agent.runtime.conversation import _reset_default_repo_for_tests
 
     os.environ["SESSION_STORE"] = value
     _reset_default_repo_for_tests()
@@ -35,7 +35,7 @@ async def case1_memory_round_trip() -> None:
     print("\n[case 1] SESSION_STORE=memory round-trip")
     _set_session_store("memory")
 
-    from agent.v2.conversation import (
+    from agent.runtime.conversation import (
         ConversationRepository,
         ConversationState,
         get_default_repo,
@@ -88,7 +88,7 @@ async def case2_redis_stub_raises() -> None:
     print("\n[case 2] SESSION_STORE=redis 所有方法抛 NotImplementedError")
     _set_session_store("redis")
 
-    from agent.v2.conversation import (
+    from agent.runtime.conversation import (
         ConversationRepository,
         get_default_repo,
     )
@@ -116,7 +116,7 @@ async def case2_redis_stub_raises() -> None:
         raise AssertionError("get 应该抛 NotImplementedError")
 
     # save
-    from agent.v2.conversation import ConversationState
+    from agent.runtime.conversation import ConversationState
 
     fake_state = ConversationState(session_id="x")
     try:
@@ -151,7 +151,7 @@ async def case3_legacy_names_still_work() -> None:
     _set_session_store("memory")
 
     # 旧风格 import
-    from agent.v2.conversation import ConversationStore, get_default_store
+    from agent.runtime.conversation import ConversationStore, get_default_store
 
     # ConversationStore 应能当类用（实例化）
     standalone = ConversationStore()
@@ -186,7 +186,7 @@ async def case4_user_switch_clears_messages() -> None:
     print("\n[case 4] 跨 user_id 切换：messages 清，session_id 保留")
     _set_session_store("memory")
 
-    from agent.v2.conversation import _reset_default_repo_for_tests, get_default_repo
+    from agent.runtime.conversation import _reset_default_repo_for_tests, get_default_repo
     from pydantic_ai.messages import ModelRequest, UserPromptPart
 
     # 完全隔离：清掉单例 + 重新 set_session_store
@@ -226,7 +226,7 @@ async def case5_invalid_session_store() -> None:
     print("\n[case 5] SESSION_STORE=postgres（未来支持）暂时应 fail fast")
     _set_session_store("postgres")
 
-    from agent.v2.conversation import get_default_repo
+    from agent.runtime.conversation import get_default_repo
 
     try:
         get_default_repo()
@@ -255,7 +255,7 @@ async def _run() -> int:
             os.environ.pop("SESSION_STORE", None)
         else:
             os.environ["SESSION_STORE"] = original
-        from agent.v2.conversation import _reset_default_repo_for_tests
+        from agent.runtime.conversation import _reset_default_repo_for_tests
 
         _reset_default_repo_for_tests()
 

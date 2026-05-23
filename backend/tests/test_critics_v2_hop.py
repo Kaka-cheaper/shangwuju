@@ -1,4 +1,4 @@
-"""tests.test_critics_v2_hop —— Wave 4 Task 5：HOP_INFEASIBLE critic 单测（edge_v1）。
+﻿"""tests.test_critics_v2_hop —— Wave 4 Task 5：HOP_INFEASIBLE critic 单测（edge_v1）。
 
 旧文件 `test_critics_v2_commute.py` 验「相邻 stage 间累积通勤」。重构后通勤是 hop，
 critic 直接看 `hop.minutes` vs `lookup_hop(from_target_id, to_target_id, ...)` 实际值。
@@ -50,7 +50,7 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 
-from agent.v2.critics_v2 import (  # noqa: E402
+from agent.planning.critic.critics_v2 import (  # noqa: E402
     Severity,
     ViolationCode,
     _check_hop_feasibility,
@@ -307,7 +307,7 @@ def test_hop_minutes_too_small_triggers_critical(profile):
 def test_in_place_hop_skipped(profile, monkeypatch):
     """同地复用的 hop（path_type=in_place）应直接跳过，不调 lookup_hop。"""
     # 用 monkeypatch 监控 lookup_hop 调用（同地段 hop 不应触发它）
-    from agent.v2 import critics_v2 as critic_mod
+    from agent.planning.critic import critics_v2 as critic_mod
 
     call_log: list[tuple] = []
     real_lookup = critic_mod.lookup_hop

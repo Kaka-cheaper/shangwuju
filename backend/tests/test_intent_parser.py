@@ -1,9 +1,9 @@
-"""test_intent_parser —— 意图解析单测（用 stub LLM）。"""
+﻿"""test_intent_parser —— 意图解析单测（用 stub LLM）。"""
 
 from __future__ import annotations
 
-from agent.intent_parser import parse_intent
-from agent.llm_client_stub import StubLLMClient
+from agent.intent.parser import parse_intent
+from agent.core.llm_client_stub import StubLLMClient
 
 
 def test_intent_parse_family_main_scene():

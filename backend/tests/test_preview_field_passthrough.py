@@ -1,4 +1,4 @@
-"""验 _poi_preview / _restaurant_preview / SearchPoisOutput 字段透传（spec R2）。
+﻿"""验 _poi_preview / _restaurant_preview / SearchPoisOutput 字段透传（spec R2）。
 
 测试矩阵：
 1. _poi_preview dict 投影：5 岁娃 → kid_3_6 桶（int 单值，不暴露 dict）
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import namedtuple
 
-from agent.blueprint_llm import (
+from agent.planning.blueprint.blueprint_llm import (
     _poi_preview,
     _restaurant_preview,
     build_candidate_preview,

@@ -1,4 +1,4 @@
-"""verify_planning_quality —— spec planning-quality-deep-review R9 端到端验证脚本。
+﻿"""verify_planning_quality —— spec planning-quality-deep-review R9 端到端验证脚本。
 
 验证 5 岁娃 / 老人 / 独处 / 商务 4 种场景下"业务合理性"3 道防线全部到位：
 1. **信息源端**：mock POI 在该客群下投影出的推荐时长落在合规区间
@@ -43,7 +43,7 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 
-from agent.blueprint import (  # noqa: E402
+from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,
@@ -249,7 +249,7 @@ def main() -> int:
         results = _run_scenario(scenario)
         for check_name, passed, msg in results:
             total += 1
-            status = "✓" if passed else "✗"
+            status = "[PASS]" if passed else "[FAIL]"
             if passed:
                 total_pass += 1
             else:
@@ -264,9 +264,9 @@ def main() -> int:
         print("\n失败项：")
         for f in failures:
             print(f)
-        print("\n要求 ≥ 95% 通过 → ✗ FAIL")
+        print("\n要求 ≥ 95% 通过 → [FAIL] FAIL")
         return 1
-    print(f"\n要求 ≥ 95% 通过 → ✓ PASS")
+    print(f"\n要求 ≥ 95% 通过 → [PASS] PASS")
     return 0
 
 

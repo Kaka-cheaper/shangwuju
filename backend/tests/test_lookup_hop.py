@@ -1,4 +1,4 @@
-"""tests.test_lookup_hop —— 边解析三级降级单测。
+﻿"""tests.test_lookup_hop —— 边解析三级降级单测。
 
 覆盖矩阵（design.md / Requirement 4 R4.1-R4.5）：
 
@@ -38,8 +38,8 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     _stub.__path__ = [str(_agent_dir)]  # 让 Python 把它当包，子模块仍按文件解析
     sys.modules["agent"] = _stub
 
-from agent import lookup_hop as lookup_hop_mod  # noqa: E402
-from agent.lookup_hop import FALLBACK_MIN, lookup_hop  # noqa: E402
+from agent.planning.commute import lookup_hop as lookup_hop_mod  # noqa: E402
+from agent.planning.commute.lookup_hop import FALLBACK_MIN, lookup_hop  # noqa: E402
 from data.loader import load_user_profile  # noqa: E402
 
 

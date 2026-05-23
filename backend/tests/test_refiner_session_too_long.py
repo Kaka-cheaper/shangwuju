@@ -1,4 +1,4 @@
-"""tests.test_refiner_session_too_long —— spec planning-quality-deep-review R8（Task 7）。
+﻿"""tests.test_refiner_session_too_long —— spec planning-quality-deep-review R8（Task 7）。
 
 验 Refiner / Feedback / Persona 三处「单段太长」反馈链路：
 
@@ -37,12 +37,12 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.feedback_detector import looks_like_feedback  # noqa: E402
-from agent.prompts.system_prompt import (  # noqa: E402
+from agent.core.feedback_detector import looks_like_feedback  # noqa: E402
+from agent.intent.prompts.intent_parser_prompt import (  # noqa: E402
     INTENT_PARSER_SYSTEM_PROMPT,
     build_intent_parser_system_prompt_with_priors,
 )
-from agent.refiner import (  # noqa: E402
+from agent.intent.refiner import (  # noqa: E402
     _extract_duration_from_feedback,
     _rule_fallback,
 )

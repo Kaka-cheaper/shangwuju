@@ -1,4 +1,4 @@
-"""验 spec planning-quality-deep-review R6+R7 主动质疑 + state 一致性修复（Task 6）。
+﻿"""验 spec planning-quality-deep-review R6+R7 主动质疑 + state 一致性修复（Task 6）。
 
 测试矩阵：
 1. critic_summary 触发 LLM 主动质疑（fake LLM 返回含「宝贝可能会累」关键词）
@@ -47,11 +47,11 @@ def _install_agent_stub() -> None:
 _install_agent_stub()
 
 
-from agent.narrator import (  # noqa: E402
+from agent.intent.narrator import (  # noqa: E402
     _template_narration,
     generate_narration,
 )
-from agent.prompts.narrator_prompt import (  # noqa: E402
+from agent.intent.prompts.narrator_prompt import (  # noqa: E402
     NARRATOR_SYSTEM_PROMPT,
     build_narrator_user_message,
 )
@@ -165,7 +165,7 @@ def _make_itinerary(
 def test_critic_summary_triggers_llm_active_query(monkeypatch) -> None:
     """LLM 路径：传入 critic_summary 时，prompt user message 含「主动质疑规则」触发指令；
     fake LLM 返回的文案被原样透传出去。"""
-    from agent import narrator as narrator_mod
+    from agent.intent import narrator as narrator_mod
 
     captured_messages: list[Any] = []
 

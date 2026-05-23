@@ -1,4 +1,4 @@
-"""verify_v2_turn —— v2 单一入口 /chat/turn + ConversationStore 端到端验证。
+﻿"""verify_v2_turn —— v2 单一入口 /chat/turn + ConversationStore 端到端验证。
 
 测试场景：
   1. 用户首次输入「家庭主线」 → /chat/turn 自动走 fresh 路径 → 行程出来
@@ -118,7 +118,7 @@ async def _run() -> int:
 
     # ---- 验证 ConversationStore 状态 ----
     print("\n[ConversationStore] 验证持久化...")
-    from agent.v2.conversation import get_default_store
+    from agent.runtime.conversation import get_default_store
 
     store = get_default_store()
     state = await store.get(session_id)

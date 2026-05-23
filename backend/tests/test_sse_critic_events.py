@@ -1,4 +1,4 @@
-"""tests.test_sse_critic_events —— Step 2：critic 闭环 SSE 事件 schema。
+﻿"""tests.test_sse_critic_events —— Step 2：critic 闭环 SSE 事件 schema。
 
 覆盖：
 1. SseEventType 含 CRITIC_VIOLATIONS / CRITIC_FIX_ATTEMPT / PLAN_FALLBACK 三个新枚举
@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from agent.v2.critics_v2 import Severity, Violation, ViolationCode
+from agent.planning.critic.critics_v2 import Severity, Violation, ViolationCode
 from schemas.sse import SseEvent, SseEventType
 
 

@@ -1,4 +1,4 @@
-"""tests.test_refiner_duration_consistency —— refiner 时长字段一致性回归测试。
+﻿"""tests.test_refiner_duration_consistency —— refiner 时长字段一致性回归测试。
 
 bug 现象（截图复现）：用户说「我只有一个小时」，refiner 的 changed_fields 显示
 「时长：[4,6] → [1,1]」，但 refined_intent.duration_hours 仍是 [4,6]。
@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 
-from agent.refiner import refine_intent, _rule_fallback, _extract_duration_from_feedback
+from agent.intent.refiner import refine_intent, _rule_fallback, _extract_duration_from_feedback
 from schemas.intent import Companion, IntentExtraction
 
 
@@ -202,7 +202,7 @@ def test_refine_intent_no_client_falls_back_correctly(monkeypatch):
     def _no_client(*args, **kwargs):
         raise ValueError("no LLM_API_KEY")
 
-    monkeypatch.setattr("agent.refiner.get_llm_client", _no_client, raising=False)
+    monkeypatch.setattr("agent.intent.refiner.get_llm_client", _no_client, raising=False)
 
     original = _intent(duration=[4, 6])
     out = refine_intent(original, "我只有一个小时")
@@ -229,7 +229,7 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
     - _resolve_time_window 接受 segments 不再 30min 下限拉爆
     - 二次裁段在 duration ≤ 2h 时启用
     """
-    from agent.planner import plan_itinerary
+    from agent.legacy.planner_rule import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",
@@ -268,7 +268,7 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
 def test_two_hour_feedback_caps_total_within_2_5_hours():
     """反馈"2 小时" + 闺蜜下午茶：受 mock 餐厅时段约束，可能裁掉用餐段；
     但总时长必须严格 ≤ 2.5h（不能像截图 4.7h 那样）。"""
-    from agent.planner import plan_itinerary
+    from agent.legacy.planner_rule import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",
@@ -303,7 +303,7 @@ def test_two_hour_feedback_caps_total_within_2_5_hours():
 
 def test_long_duration_unaffected_by_dining_cut():
     """4h 场景仍应 5 段，不被二次裁段误触发。"""
-    from agent.planner import plan_itinerary
+    from agent.legacy.planner_rule import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",

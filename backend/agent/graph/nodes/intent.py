@@ -1,4 +1,4 @@
-"""nodes.intent —— 意图抽取节点。
+﻿"""nodes.intent —— 意图抽取节点。
 
 复用 backend/agent/intent_parser.py 的 parse_intent —— 它已含 persona prior 注入。
 
@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.intent_parser import parse_intent
-from agent.llm_client import get_llm_client
+from agent.intent.parser import parse_intent
+from agent.core.llm_client import get_llm_client
 
 
 def intent_node(state: AgentState) -> dict[str, Any]:

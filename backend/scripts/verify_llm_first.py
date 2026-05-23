@@ -1,4 +1,4 @@
-"""verify_llm_first —— LLM-First Planner 真 LLM 端到端验证（问题 14）。
+﻿"""verify_llm_first —— LLM-First Planner 真 LLM 端到端验证（问题 14）。
 
 跑法：cd backend && uv run python -m scripts.verify_llm_first
 
@@ -19,10 +19,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from agent.intent_parser import parse_intent
-from agent.llm_client import get_llm_client
-from agent.planner import plan_itinerary_with_mode
-from agent.refiner import refine_intent
+from agent.intent.parser import parse_intent
+from agent.core.llm_client import get_llm_client
+from agent.legacy.planner_rule import plan_itinerary_with_mode
+from agent.intent.refiner import refine_intent
 
 
 SCENES = [

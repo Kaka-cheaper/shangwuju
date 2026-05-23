@@ -875,3 +875,18 @@
   2. **Pydantic Union 双兼容**是字段类型升级的标准动作（旧测试用旧形态 / 新形态 都能 model_validate 不破）
   3. **adversarial-review 的"风险红旗"应配合实证 grep 检查**——估算之外要有数字背书
 
+
+
+### [P1] 2026-05-23 agent/ 目录重组（spec agent-directory-restructure）
+
+- **背景**：spec planning-quality-deep-review 完成后做的目录重组，把 25 扁平 .py + v2/ + graph/ 三套并存重组为 6 子目录（core/ + intent/ + planning/ + runtime/ + graph/ + legacy/）+ `__init__.py`。
+- **关键发现**：Kiro 的 `smartRelocate` 工具**不自动更新 import 引用**（仅移动文件 + 更新 `__path__`），与 spec B design.md §smartRelocate 工具用法的假设不符。需要手工 PowerShell 批量改 absolute / relative import。
+- **防再犯**：
+  1. **新加 .py 文件前先看 AGENTS.md §3.3.1 目录树**，明确归属（core / intent / planning / runtime / graph / legacy）
+  2. **不允许在 agent/ 顶层直接加 .py**（含 except `__init__.py`）——所有业务代码都要进 6 个子目录之一
+  3. **不允许在 legacy/ 加新功能**——legacy/ 是冻结模块，仅 bug fix + schema 适配；想加新功能去 graph/nodes/ 或 planning/ 下
+  4. **新加节点须在 graph/nodes/ 下**——不允许在 graph/build.py 之外定义节点函数
+  5. **smartRelocate 工具假设清单**：移动后必须自己 grep 全仓库 `from <旧路径>` 引用 + 修复（这是 LSP 工具的限制，不是 bug）
+  6. **legacy/ 下文件顶部必须含 `# FROZEN: 详见 AGENTS.md §3.3.1` 注释**——受 `verify_legacy_frozen.py` 守护，删了会被 CI 拦
+  7. **新路径不可逆**：`tests/test_import_paths.py::test_old_paths_no_longer_importable` 通过 33 个 negative 测试拦下任何回退到旧路径的 PR
+

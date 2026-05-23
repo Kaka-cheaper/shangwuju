@@ -1,4 +1,4 @@
-"""verify_phase0_5 —— Phase 0.5 自检：并行任务基座。
+﻿"""verify_phase0_5 —— Phase 0.5 自检：并行任务基座。
 
 跑通：
 1. data.loader 函数能 import 且签名正确
@@ -13,8 +13,8 @@ import inspect
 import json
 import sys
 
-from agent.llm_client import LLMMessage
-from agent.llm_client_stub import StubLLMClient
+from agent.core.llm_client import LLMMessage
+from agent.core.llm_client_stub import StubLLMClient
 from data import loader as data_loader
 from schemas.errors import FailureReason
 from schemas.tools import (

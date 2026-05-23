@@ -1,4 +1,4 @@
-"""verify_planning —— A+C 混合范式 vs 规则范式效果对比（评分项 2 加分演示）。
+﻿"""verify_planning —— A+C 混合范式 vs 规则范式效果对比（评分项 2 加分演示）。
 
 跑法：
     cd backend && uv run python -m scripts.verify_planning
@@ -19,9 +19,9 @@ import sys
 import time
 from dataclasses import dataclass
 
-from agent.critics import run_critics
-from agent.planner import plan_itinerary, plan_itinerary_with_mode
-from agent.weights_llm import PlanningWeights, get_planning_weights
+from agent.legacy.ils_score_critic import run_critics
+from agent.legacy.planner_rule import plan_itinerary, plan_itinerary_with_mode
+from agent.planning.weights_llm import PlanningWeights, get_planning_weights
 from schemas.intent import Companion, IntentExtraction
 
 

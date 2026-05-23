@@ -1,4 +1,4 @@
-"""nodes.router —— LangGraph 输入域路由节点。
+﻿"""nodes.router —— LangGraph 输入域路由节点。
 
 复用 backend/agent/router.py 的 LLM 6 类分类逻辑。
 
@@ -15,10 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.feedback_detector import looks_like_feedback
+from agent.core.feedback_detector import looks_like_feedback
 from agent.graph.state import AgentState, RouteKind
-from agent.router import classify_input, fallback_decision
-from agent.llm_client import get_llm_client
+from agent.intent.router import classify_input, fallback_decision
+from agent.core.llm_client import get_llm_client
 
 
 def _looks_like_feedback(state: AgentState) -> bool:

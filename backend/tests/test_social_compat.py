@@ -1,4 +1,4 @@
-"""tests.test_social_compat —— Step 5：social_context 兼容矩阵 + critic 升级（edge_v1）。
+﻿"""tests.test_social_compat —— Step 5：social_context 兼容矩阵 + critic 升级（edge_v1）。
 
 覆盖：
 1. evaluate 矩阵基本判定（MATCH / BLOCKING / POOR / ACCEPTABLE）
@@ -21,14 +21,14 @@ from __future__ import annotations
 
 import pytest
 
-from agent.assemble_blueprint import assemble_from_blueprint
-from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
-from agent.v2.critics_v2 import (
+from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
+from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from agent.planning.critic.critics_v2 import (
     Severity,
     ViolationCode,
     validate_itinerary,
 )
-from agent.v2.social_compat import (
+from agent.planning.critic.social_compat import (
     CompatLevel,
     evaluate,
     evaluate_poi,

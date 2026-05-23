@@ -1,4 +1,4 @@
-"""collab.room —— 房间模型 + RoomManager + WebSocket Hub + 规划中断桥接。
+﻿"""collab.room —— 房间模型 + RoomManager + WebSocket Hub + 规划中断桥接。
 
 核心流程：
 1. 发起人 POST /room/create → RoomManager.create_room() → 返回 room_id
@@ -358,7 +358,7 @@ class RoomManager:
     async def _replan_with_refiner(self, room: Room, feedback: str) -> None:
         """用 refiner 合并约束后重新规划，带完整 LLM 上下文。"""
         from schemas.intent import IntentExtraction
-        from agent.refiner import refine_intent
+        from agent.intent.refiner import refine_intent
 
         # 还原 intent
         intent = IntentExtraction.model_validate(room.current_intent_dict)
@@ -472,8 +472,8 @@ class RoomManager:
     async def _run_rule_planner_fallback(self, room: Room, intent: Any) -> None:
         """Rule planner 兜底。"""
         try:
-            from agent.planner import plan_itinerary
-            from agent.trace import Tracer
+            from agent.legacy.planner_rule import plan_itinerary
+            from agent.core.trace import Tracer
 
             tracer = Tracer()
             result = plan_itinerary(intent, tracer=tracer)
@@ -507,9 +507,9 @@ class RoomManager:
     async def _run_rule_planner_and_broadcast(self, room: Room, user_input: str) -> None:
         """无 LangGraph 时用 rule planner 兜底（需要先解析 intent）。"""
         try:
-            from agent.intent_parser import parse_intent
-            from agent.planner import plan_itinerary
-            from agent.trace import Tracer
+            from agent.intent.parser import parse_intent
+            from agent.legacy.planner_rule import plan_itinerary
+            from agent.core.trace import Tracer
 
             intent = parse_intent(user_input)
             room.current_intent_dict = intent.model_dump()

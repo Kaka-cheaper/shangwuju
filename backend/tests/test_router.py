@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """test_router —— 输入域路由器（Phase 0.8）单测。
 
 覆盖：
@@ -21,12 +21,12 @@ from typing import Any
 
 import pytest
 
-from agent.router import (
+from agent.intent.router import (
     RouterError,
     classify_input,
     fallback_decision,
 )
-from agent.prompts.router_prompt import PRIMARY_CTAS
+from agent.intent.prompts.router_prompt import PRIMARY_CTAS
 from schemas.router import InputKind, RouterDecision
 
 

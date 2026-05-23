@@ -1,4 +1,4 @@
-"""test_e2e_refinement —— 8 场景 × 双 mode × 含/不含反馈 端到端联调。
+﻿"""test_e2e_refinement —— 8 场景 × 双 mode × 含/不含反馈 端到端联调。
 
 矩阵（4 维 = 32 跑次）：
 - 场景：S1-S8（来自 docs/01-requirements/演示场景集.md）
@@ -22,7 +22,7 @@ from __future__ import annotations
 import pytest
 
 from agent import plan_itinerary_with_mode, refine_intent
-from agent.llm_client_stub import StubLLMClient
+from agent.core.llm_client_stub import StubLLMClient
 from schemas.intent import Companion, IntentExtraction
 
 
@@ -148,7 +148,7 @@ def test_scenario_x_mode_main_path(scenario_id: str, mode: str):
     itinerary = result.itinerary
     assert itinerary is not None
     # edge_v1：中间节点按 decide_nodes 决定（不再硬要 5 段）
-    from agent.node_decider import decide_nodes
+    from agent.planning.blueprint.node_decider import decide_nodes
     expected_kinds = decide_nodes(intent)
     mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
     mid_kinds = {n.kind for n in mid_nodes}

@@ -1,4 +1,4 @@
-"""audit_review_template —— spec planning-quality-deep-review R9 评论与 type 主题匹配率审计。
+﻿"""audit_review_template —— spec planning-quality-deep-review R9 评论与 type 主题匹配率审计。
 
 背景（adversarial-review §3 漏点 3）：mock_data/pois.json 41 个 POI 的 review 文本
 是模板批量生成的，可能出现「亲子博物馆评论里说『情侣很好』」这类 type-主题不匹配，
@@ -132,7 +132,7 @@ def main() -> int:
             continue
         kw = _TYPE_THEME_KEYWORDS.get(p.type)
         if kw is None:
-            print(f"  ⚠ {p.id} ({p.type}) 无主题关键词词典，跳过")
+            print(f"  [WARN] {p.id} ({p.type}) 无主题关键词词典，跳过")
             continue
 
         poi_total = len(p.reviews)
@@ -164,9 +164,9 @@ def main() -> int:
 
     print()
     if rate < 95:
-        print(f"要求 ≥ 95% → ✗ FAIL（实际 {rate:.1f}%）")
+        print(f"要求 ≥ 95% → [FAIL] FAIL（实际 {rate:.1f}%）")
         return 1
-    print(f"要求 ≥ 95% → ✓ PASS")
+    print(f"要求 ≥ 95% → [PASS] PASS")
     return 0
 
 

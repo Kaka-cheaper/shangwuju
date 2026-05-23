@@ -1,4 +1,4 @@
-"""test_8_scenarios —— 8 个开放场景端到端集成测试（D9 + 演示场景集 §四）。
+﻿"""test_8_scenarios —— 8 个开放场景端到端集成测试（D9 + 演示场景集 §四）。
 
 为什么不用 stub LLM 跑意图解析：
 - StubLLMClient 只对家庭主场景返家庭 fixture，其他输入也固定返家庭 → 不能验证 8 场景多样性
@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.executor import execute_plan
-from agent.planner import plan_itinerary
+from agent.legacy.executor import execute_plan
+from agent.legacy.planner_rule import plan_itinerary
 from schemas.intent import Companion, IntentExtraction
 from schemas.itinerary import Itinerary
 
@@ -172,7 +172,7 @@ def test_scenario_end_to_end(scenario_id: str):
 
     # Phase 0.10（pitfalls P1-2026-05-17）→ edge_v1（Wave 7 Task 14）：
     # 中间节点按 decide_nodes 决定，不再硬要 5 段；首尾 home 由 assemble 自动补
-    from agent.node_decider import decide_nodes
+    from agent.planning.blueprint.node_decider import decide_nodes
     expected_kinds = decide_nodes(intent)
     mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
     mid_kinds = [n.kind for n in mid_nodes]

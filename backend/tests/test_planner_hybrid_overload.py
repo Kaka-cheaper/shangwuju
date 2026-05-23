@@ -1,4 +1,4 @@
-"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty。
+﻿"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty。
 
 测试矩阵（4 项）：
 1. 5 岁娃 + P033 类候选（default=180 / kid_3_6=90 / cap=75）→ utility 罚分 0.3
@@ -35,8 +35,8 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.critics import CriticReport, CriticViolation  # noqa: E402
-from agent.planner_hybrid import (  # noqa: E402
+from agent.legacy.ils_score_critic import CriticReport, CriticViolation  # noqa: E402
+from agent.legacy.ils_planner import (  # noqa: E402
     DINING_SLOTS,
     CandidatePlan,
     _classify_violation,
@@ -46,8 +46,8 @@ from agent.planner_hybrid import (  # noqa: E402
     _resolve_dynamic_dining_slots,
     _utility,
 )
-from agent.trace import Tracer  # noqa: E402
-from agent.weights_llm import PlanningWeights  # noqa: E402
+from agent.core.trace import Tracer  # noqa: E402
+from agent.planning.weights_llm import PlanningWeights  # noqa: E402
 from schemas.domain import Location, Poi, PoiCapacity, Restaurant, SuggestedDuration  # noqa: E402
 from schemas.intent import Companion, IntentExtraction  # noqa: E402
 

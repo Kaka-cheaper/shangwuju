@@ -1,4 +1,4 @@
-"""verify_edge_model —— edge_v1 端到端 4 场景验证（itinerary-edge-model-refactor Wave 8）。
+﻿"""verify_edge_model —— edge_v1 端到端 4 场景验证（itinerary-edge-model-refactor Wave 8）。
 
 本脚本是 Wave 8 门禁脚本，与 verify_schemas / verify_phase0_5 / verify_langgraph 一起跑：
 - ✓ 全过 → 后端 edge_v1 模型集成验证通过，可进入 Wave 9 浏览器实测
@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import sys
 
-from agent.assemble_blueprint import assemble_from_blueprint
-from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
-from agent.v2.critics_v2 import Severity, ViolationCode, validate_itinerary
+from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
+from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from agent.planning.critic.critics_v2 import Severity, ViolationCode, validate_itinerary
 from data.loader import load_user_profile
 from schemas.intent import Companion, IntentExtraction
 from schemas.itinerary import Itinerary

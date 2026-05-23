@@ -34,7 +34,7 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.blueprint import (  # noqa: E402
+from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,
@@ -42,7 +42,7 @@ from agent.blueprint import (  # noqa: E402
     _resolve_age_caps,
     run_blueprint_critics,
 )
-from agent.v2.critics_v2 import (  # noqa: E402
+from agent.planning.critic.critics_v2 import (  # noqa: E402
     Severity,
     ViolationCode,
     _check_age_aware_duration,

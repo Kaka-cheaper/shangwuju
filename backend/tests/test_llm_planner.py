@@ -1,4 +1,4 @@
-"""test_llm_planner —— LLM 自主规划测试（用 stub 客户端 + 双 mode 一致性）。
+﻿"""test_llm_planner —— LLM 自主规划测试（用 stub 客户端 + 双 mode 一致性）。
 
 策略：
 - StubLLMClient.chat_with_tools 返 finish_reason=stop 且无 tool_calls
@@ -16,8 +16,8 @@ from __future__ import annotations
 import pytest
 
 from agent import plan_itinerary, plan_itinerary_with_mode
-from agent.llm_client_stub import StubLLMClient
-from agent.llm_planner import plan_itinerary_llm
+from agent.core.llm_client_stub import StubLLMClient
+from agent.legacy.llm_planner import plan_itinerary_llm
 from schemas.intent import Companion, IntentExtraction
 
 
@@ -50,7 +50,7 @@ def test_llm_planner_fallback_to_rule_with_stub():
     assert result.success
     assert result.itinerary is not None
     # edge_v1：家庭场景按 decide_nodes 至少含主活动 + 用餐两类 mid node
-    from agent.node_decider import decide_nodes
+    from agent.planning.blueprint.node_decider import decide_nodes
     expected_kinds = decide_nodes(intent)
     mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
     assert len(mid_nodes) >= len(expected_kinds)
@@ -158,7 +158,7 @@ def test_llm_mode_handles_all_scenes_via_fallback(payload):
     assert result.success, f"场景 {payload['social_context']} 失败：{result.failure_detail}"
     assert result.itinerary is not None
     # edge_v1：中间节点按 decide_nodes 决定（独处放空可能仅 1 个 mid node）
-    from agent.node_decider import decide_nodes
+    from agent.planning.blueprint.node_decider import decide_nodes
     expected_kinds = decide_nodes(intent)
     mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
     assert len(mid_nodes) >= len(expected_kinds)

@@ -1,4 +1,4 @@
-"""tests.test_critics_v2 —— Wave 4 Task 5：critics_v2 兜底层综合单测（edge_v1）。
+﻿"""tests.test_critics_v2 —— Wave 4 Task 5：critics_v2 兜底层综合单测（edge_v1）。
 
 覆盖 9 项契约：
 
@@ -47,7 +47,7 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 
-from agent.v2.critics_v2 import (  # noqa: E402
+from agent.planning.critic.critics_v2 import (  # noqa: E402
     Severity,
     Violation,
     ViolationCode,

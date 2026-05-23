@@ -1,4 +1,4 @@
-"""nodes.refiner —— 反馈合并节点。
+﻿"""nodes.refiner —— 反馈合并节点。
 
 复用 backend/agent/refiner.py 的 refine_intent。
 
@@ -21,8 +21,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.llm_client import get_llm_client
-from agent.refiner import refine_intent
+from agent.core.llm_client import get_llm_client
+from agent.intent.refiner import refine_intent
 
 
 def refiner_node(state: AgentState) -> dict[str, Any]:

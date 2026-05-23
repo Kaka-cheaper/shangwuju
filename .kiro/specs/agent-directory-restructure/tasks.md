@@ -1,4 +1,4 @@
-# Implementation Plan: Agent Directory Restructure
+﻿# Implementation Plan: Agent Directory Restructure
 
 ## Overview
 
@@ -17,9 +17,9 @@
 
 ## Tasks
 
-- [ ] 1. [R2/R4] baseline 验证 + spec A 完成度核查（~0.3h）：跑 `pytest backend/tests/ -v --tb=short` 记录基线（必须全绿，0 红灯，0 错误）；跑 `python backend/scripts/verify_planning.py` + `verify_edge_model.py` 必须全绿；启动 `python -m backend.main &` + `curl http://localhost:8000/health` 必须 200；`grep -r "5 岁" backend/scripts/verify_planning_quality.py` 确认 spec A R10 验收脚本存在；读 `.kiro/specs/planning-quality-deep-review/tasks.md` 确认 8 个 task 全 `[x]`；如有任何不通过 → **立即停止 spec B**，先报告状态，等待用户确认 spec A 完结再继续；如全通过 → 打 git tag `v-spec-a-done`（用于回滚锚点）。
+- [x] 1. [R2/R4] baseline 验证 + spec A 完成度核查（~0.3h）：跑 `pytest backend/tests/ -v --tb=short` 记录基线（必须全绿，0 红灯，0 错误）；跑 `python backend/scripts/verify_planning.py` + `verify_edge_model.py` 必须全绿；启动 `python -m backend.main &` + `curl http://localhost:8000/health` 必须 200；`grep -r "5 岁" backend/scripts/verify_planning_quality.py` 确认 spec A R10 验收脚本存在；读 `.kiro/specs/planning-quality-deep-review/tasks.md` 确认 8 个 task 全 `[x]`；如有任何不通过 → **立即停止 spec B**，先报告状态，等待用户确认 spec A 完结再继续；如全通过 → 打 git tag `v-spec-a-done`（用于回滚锚点）。
 
-- [ ] 2. [R1.2/R2] 批 1：core/ 共享底座（~0.3h）：`smartRelocate` 移动 5 个文件到 `backend/agent/core/`：
+- [x] 2. [R1.2/R2] 批 1：core/ 共享底座（~0.3h）：`smartRelocate` 移动 5 个文件到 `backend/agent/core/`：
   - `backend/agent/llm_client.py` → `backend/agent/core/llm_client.py`
   - `backend/agent/llm_client_stub.py` → `backend/agent/core/llm_client_stub.py`
   - `backend/agent/observability_init.py` → `backend/agent/core/observability_init.py`
@@ -28,7 +28,7 @@
   
   目标目录由 smartRelocate 自动创建；之后创建 `backend/agent/core/__init__.py`（空文件）；跑 `pytest backend/tests/ -x --tb=short` 必须 exit 0；如失败：立即停 + 跑 `git status` 列出所有变更 + 报告失败测试名 + traceback 命中的旧 import 路径，等待用户决定回滚或继续；如成功：进入下一 task。
 
-- [ ] 3. [R1.3/R2] 批 2：intent/ 意图层 + intent/prompts/（~0.6h）：先创建 `backend/agent/intent/__init__.py` 与 `backend/agent/intent/prompts/__init__.py`（空文件，确保 smartRelocate 不报"目标目录不存在"）；之后 `smartRelocate` 移动 8 个文件：
+- [x] 3. [R1.3/R2] 批 2：intent/ 意图层 + intent/prompts/（~0.6h）：先创建 `backend/agent/intent/__init__.py` 与 `backend/agent/intent/prompts/__init__.py`（空文件，确保 smartRelocate 不报"目标目录不存在"）；之后 `smartRelocate` 移动 8 个文件：
   - `backend/agent/intent_parser.py` → `backend/agent/intent/parser.py`（**改名**）
   - `backend/agent/refiner.py` → `backend/agent/intent/refiner.py`
   - `backend/agent/router.py` → `backend/agent/intent/router.py`
@@ -40,7 +40,7 @@
   
   跑 `pytest backend/tests/ -x --tb=short` 必须 exit 0；如失败按 task 2 协议处理。
 
-- [ ] 4. [R1.4/R2] 批 3：planning/ 规划主路径（~1.0h，最复杂）：先创建 `backend/agent/planning/__init__.py` / `planning/blueprint/__init__.py` / `planning/blueprint/prompts/__init__.py` / `planning/critic/__init__.py` / `planning/commute/__init__.py`（5 个空文件）；之后 `smartRelocate` 移动 9 个文件：
+- [x] 4. [R1.4/R2] 批 3：planning/ 规划主路径（~1.0h，最复杂）：先创建 `backend/agent/planning/__init__.py` / `planning/blueprint/__init__.py` / `planning/blueprint/prompts/__init__.py` / `planning/critic/__init__.py` / `planning/commute/__init__.py`（5 个空文件）；之后 `smartRelocate` 移动 9 个文件：
   - `backend/agent/blueprint.py` → `backend/agent/planning/blueprint/blueprint.py`
   - `backend/agent/blueprint_llm.py` → `backend/agent/planning/blueprint/blueprint_llm.py`
   - `backend/agent/assemble_blueprint.py` → `backend/agent/planning/blueprint/assemble_blueprint.py`
@@ -53,7 +53,7 @@
   
   之后在 `backend/agent/planning/weights_llm.py` 文件顶部（紧跟 docstring 后）加注释 `# FROZEN: 仅 ILS 路径，不被 graph 路径消费`；跑 `pytest backend/tests/ -x --tb=short` 必须 exit 0；如失败按 task 2 协议处理。
 
-- [ ] 5. [R1.5/R2] 批 4：runtime/ Pydantic AI 框架 + runtime/tools/（~0.5h）：先创建 `backend/agent/runtime/__init__.py` 与 `backend/agent/runtime/tools/__init__.py`（空文件）；之后 `smartRelocate` 移动 9 个文件：
+- [x] 5. [R1.5/R2] 批 4：runtime/ Pydantic AI 框架 + runtime/tools/（~0.5h）：先创建 `backend/agent/runtime/__init__.py` 与 `backend/agent/runtime/tools/__init__.py`（空文件）；之后 `smartRelocate` 移动 9 个文件：
   - `backend/agent/v2/react_agent.py` → `backend/agent/runtime/react_agent.py`
   - `backend/agent/v2/output_types.py` → `backend/agent/runtime/output_types.py`
   - `backend/agent/v2/orchestrator.py` → `backend/agent/runtime/orchestrator.py`
@@ -66,7 +66,7 @@
   
   跑 `pytest backend/tests/ -x --tb=short` 必须 exit 0；之后用 `list_directory` 确认 `backend/agent/v2/` 与 `backend/agent/tools/` 已空（只剩可选的 `__pycache__/`）；如未空：手动检查是否有遗漏文件，报告并等待用户决定。
 
-- [ ] 6. [R1.7/R2/R3] 批 5：legacy/ 冻结模块 + FROZEN 标记（~0.5h）：先创建 `backend/agent/legacy/__init__.py`，写入 docstring（按 design.md §Components 提供的设计稿）；之后 `smartRelocate` 移动 7 个文件：
+- [x] 6. [R1.7/R2/R3] 批 5：legacy/ 冻结模块 + FROZEN 标记（~0.5h）：先创建 `backend/agent/legacy/__init__.py`，写入 docstring（按 design.md §Components 提供的设计稿）；之后 `smartRelocate` 移动 7 个文件：
   - `backend/agent/planner.py` → `backend/agent/legacy/planner_rule.py`（**改名**）
   - `backend/agent/planner_hybrid.py` → `backend/agent/legacy/ils_planner.py`（**改名**）
   - `backend/agent/planner_llm_first.py` → `backend/agent/legacy/llm_first_planner.py`（**改名**）
@@ -77,7 +77,7 @@
   
   之后在每个 legacy/ 下 `.py` 文件顶部（紧跟 docstring 后）加注释 `# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务`（共 7 处加注释）；`executor.py` 额外在 module docstring 末尾加一行"已被 graph/nodes/execute_finalize.py 替代"；跑 `pytest backend/tests/ -x --tb=short` 必须 exit 0。
 
-- [ ] 7. [R2.5/R3.4/R5] 批 6：清理 + AGENTS.md + verify 脚本 + 文档（~0.8h，含文档同步）：
+- [x] 7. [R2.5/R3.4/R5] 批 6：清理 + AGENTS.md + verify 脚本 + 文档（~0.8h，含文档同步）：
   - 删除空目录 `backend/agent/v2/` 和 `backend/agent/tools/` 和 `backend/agent/prompts/`（用 `Remove-Item` 含 `__pycache__`），但保留 `backend/agent/__init__.py`
   - `list_directory backend/agent/` 应仅含 `__init__.py` + 6 个子目录（`core/` / `intent/` / `planning/` / `runtime/` / `graph/` / `legacy/`），无任何顶层 `.py` 文件
   - 新建 `backend/scripts/verify_legacy_frozen.py`（按 design.md §Components 提供的设计稿，grep `legacy/` 下所有 .py 是否含 `# FROZEN` 注释）；跑 `python backend/scripts/verify_legacy_frozen.py` 必须 exit 0
@@ -85,7 +85,7 @@
   - 跑 grep 验证旧路径不再被引用：`grep -rn "from backend\.agent\.intent_parser\|from backend\.agent\.blueprint\b\|from backend\.agent\.planner\b\|from backend\.agent\.v2\.\|from backend\.agent\.tools\." backend/ --include="*.py"` 必须 0 命中（注意 `\b` 边界避免误伤 `from backend.agent.planning.blueprint`）
   - 更新 `AGENTS.md §3.3.1` 编排冻结纪律段：把目录树代码块替换为新结构（含 `agent/legacy/planner_rule.py` / `agent/legacy/ils_planner.py` / `agent/legacy/llm_first_planner.py` / `agent/legacy/llm_planner.py` / `agent/legacy/ils_score_critic.py` / `agent/legacy/executor.py` / `agent/legacy/segment_decider.py` 全列出）；保留"编排冻结纪律"含义不变；保留 MUST/MUST NOT 段不动
 
-- [ ] 8. [R2.4/R4.4/R5] 全套验收 + 一次性 commit（~0.5h）：
+- [x] 8. [R2.4/R4.4/R5] 全套验收 + 一次性 commit（~0.5h）：
   - **完整后端测试**：`pytest backend/tests/ -v --tb=short` 必须 exit 0（与 baseline 一致）；如有失败立即停 + 报告
   - **verify 脚本套**：`python backend/scripts/verify_planning.py` + `verify_edge_model.py` + `verify_legacy_frozen.py` 三个脚本必须全绿
   - **FastAPI 启动**：`python -m backend.main` 后台启动 + `curl -s http://localhost:8000/health` 必须返回 200；启动 `python -c "from backend.main import app; print('ok')"` 直接验 import

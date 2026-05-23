@@ -1,4 +1,4 @@
-"""tests.test_segment_decider —— "段=intent 函数" 决策回归。
+﻿"""tests.test_segment_decider —— "段=intent 函数" 决策回归。
 
 每个用例都对应演示场景集 §四 / 用户截图 / pitfalls.md P1-2026-05-17 的潜伏场景。
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.segment_decider import (
+from agent.legacy.segment_decider import (
     ALWAYS_INCLUDED,
     FULL_SEGMENTS,
     decide_segments,

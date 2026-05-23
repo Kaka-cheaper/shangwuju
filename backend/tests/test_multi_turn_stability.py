@@ -1,4 +1,4 @@
-"""tests.test_multi_turn_stability —— Step 10：跨 turn 反馈一致性 + 可逆收敛。
+﻿"""tests.test_multi_turn_stability —— Step 10：跨 turn 反馈一致性 + 可逆收敛。
 
 模拟用户 5+ 轮反馈，验证 refiner 在不依赖 LLM（走 _rule_fallback）的情况下
 distance_max_km / duration_hours / dietary_constraints 可逆收敛。
@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 import pytest
 
-from agent.refiner import refine_intent
+from agent.intent.refiner import refine_intent
 from schemas.intent import IntentExtraction
 
 

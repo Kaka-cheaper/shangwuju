@@ -1,4 +1,4 @@
-"""tests.test_blueprint —— Blueprint 数据结构 + 蓝图级 Critic 单元测试（edge_v1）。
+﻿"""tests.test_blueprint —— Blueprint 数据结构 + 蓝图级 Critic 单元测试（edge_v1）。
 
 蓝图（PlanBlueprint）是 LLM 在看到 POI/餐厅候选数据后，**自主决定**节点集合、
 节点顺序、每个节点停留时长、目标 id 的产物。下游算法（assemble_from_blueprint）
@@ -30,7 +30,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from agent.blueprint import (
+from agent.planning.blueprint.blueprint import (
     MAX_NODE_DURATION_MIN,
     MIN_NODE_DURATION_MIN,
     BlueprintNode,

@@ -1,4 +1,4 @@
-"""tests.test_decision_trace_integration —— Step 8：DecisionTrace 在 LangGraph 中的注入（edge_v1）。
+﻿"""tests.test_decision_trace_integration —— Step 8：DecisionTrace 在 LangGraph 中的注入（edge_v1）。
 
 覆盖：
 1. planner_node 写 alternatives_considered（dict 形式）
@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import pytest
 
-from agent.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
 from agent.graph.nodes.assemble import assemble_node
 from agent.graph.nodes.planner import _build_alternatives
 from agent.graph.state import make_initial_state
-from agent.weights_llm import PlanningWeights
+from agent.planning.weights_llm import PlanningWeights
 from data.loader import load_pois, load_restaurants, reset_cache
 from schemas.intent import IntentExtraction
 

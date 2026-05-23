@@ -1,4 +1,4 @@
-"""agent.graph.state —— LangGraph 全局 State schema。
+﻿"""agent.graph.state —— LangGraph 全局 State schema。
 
 LangGraph 的 State 是节点间共享的"工作内存"——每个节点接受 State，返回 State diff，
 框架自动 merge。本 State 复用 v2 已有的 IntentExtraction / Itinerary / Violation 等
@@ -34,12 +34,12 @@ from schemas.itinerary import Itinerary
 from schemas.router import RouterDecision
 
 # 蓝图（plan）层
-from agent.blueprint import PlanBlueprint
-from agent.weights_llm import PlanningWeights
+from agent.planning.blueprint.blueprint import PlanBlueprint
+from agent.planning.weights_llm import PlanningWeights
 
 # Critic 层（v2 critic 兼容；旧 critics 仍由 hybrid 内部使用）
 try:
-    from agent.v2.critics_v2 import Violation as CriticViolation
+    from agent.planning.critic.critics_v2 import Violation as CriticViolation
 except ImportError:
     CriticViolation = Any  # type: ignore[misc, assignment]
 

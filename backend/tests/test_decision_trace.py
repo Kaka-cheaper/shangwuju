@@ -1,4 +1,4 @@
-"""tests.test_decision_trace —— Step 4：决策可解释性 schema（edge_v1）。
+﻿"""tests.test_decision_trace —— Step 4：决策可解释性 schema（edge_v1）。
 
 覆盖：
 1. DecisionTrace 默认空时 is_empty() = True
@@ -35,9 +35,9 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     _stub.__path__ = [str(_agent_dir)]
     sys.modules["agent"] = _stub
 
-from agent import lookup_hop as _lookup_hop_mod  # noqa: E402
-from agent.assemble_blueprint import assemble_from_blueprint  # noqa: E402
-from agent.blueprint import (  # noqa: E402
+from agent.planning.commute import lookup_hop as _lookup_hop_mod  # noqa: E402
+from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint  # noqa: E402
+from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,

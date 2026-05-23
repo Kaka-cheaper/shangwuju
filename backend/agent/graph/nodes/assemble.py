@@ -1,4 +1,4 @@
-"""nodes.assemble —— 蓝图 → Itinerary 拼装节点（edge_v1）。
+﻿"""nodes.assemble —— 蓝图 → Itinerary 拼装节点（edge_v1）。
 
 复用 backend/agent/assemble_blueprint.py 的 assemble_from_blueprint。
 
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from agent.assemble_blueprint import assemble_from_blueprint
+from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
 from agent.graph.state import AgentState
 from data.loader import load_user_profile
 from schemas.domain import UserProfile

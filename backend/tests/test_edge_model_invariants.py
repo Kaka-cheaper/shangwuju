@@ -1,4 +1,4 @@
-"""tests.test_edge_model_invariants —— edge_v1 Itinerary 8 条不变量 fuzz 测试。
+﻿"""tests.test_edge_model_invariants —— edge_v1 Itinerary 8 条不变量 fuzz 测试。
 
 【任务上下文】
 
@@ -67,12 +67,12 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     _stub.__path__ = [str(_agent_dir)]  # 让 Python 把它当包，子模块按文件解析
     sys.modules["agent"] = _stub
 
-from agent import lookup_hop as _lookup_hop_mod  # noqa: E402
-from agent.assemble_blueprint import (  # noqa: E402
+from agent.planning.commute import lookup_hop as _lookup_hop_mod  # noqa: E402
+from agent.planning.blueprint.assemble_blueprint import (  # noqa: E402
     _parse_hhmm,
     assemble_from_blueprint,
 )
-from agent.blueprint import (  # noqa: E402
+from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,

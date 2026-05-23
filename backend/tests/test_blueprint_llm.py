@@ -1,4 +1,4 @@
-"""tests.test_blueprint_llm —— LLM 蓝图生成器单元测试（mock LLM, edge_v1）。
+﻿"""tests.test_blueprint_llm —— LLM 蓝图生成器单元测试（mock LLM, edge_v1）。
 
 验证：
 - 给定 intent + 候选预览 → 调 LLM 出 PlanBlueprint（仅 nodes/preferred_start_time/rationale）
@@ -32,8 +32,8 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     _stub.__path__ = [str(_agent_dir)]
     sys.modules["agent"] = _stub
 
-from agent.blueprint import BlueprintTargetKind, PlanBlueprint  # noqa: E402
-from agent.blueprint_llm import (  # noqa: E402
+from agent.planning.blueprint.blueprint import BlueprintTargetKind, PlanBlueprint  # noqa: E402
+from agent.planning.blueprint.blueprint_llm import (  # noqa: E402
     BlueprintGenError,
     build_candidate_preview,
     generate_blueprint,

@@ -1,4 +1,4 @@
-"""nodes.execute_finalize —— confirm 后下单 / 购票 / 生成转发文案（edge_v1）。
+﻿"""nodes.execute_finalize —— confirm 后下单 / 购票 / 生成转发文案（edge_v1）。
 
 interrupt(plan_ready) 后用户选了 confirm → 进本节点：
 1. reserve_restaurant（**全量遍历**所有 target_kind="restaurant" 节点；spec R6 修复）
@@ -33,8 +33,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.llm_client import get_llm_client
-from agent.narrator import generate_narration
+from agent.core.llm_client import get_llm_client
+from agent.intent.narrator import generate_narration
 from schemas.itinerary import OrderRecord
 from schemas.tools import (
     GenerateShareMessageInput,

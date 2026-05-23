@@ -1,4 +1,4 @@
-"""nodes.replan —— 双层 Replan 决策节点（Plan-and-Execute 的 Optimizer 阶段）。
+﻿"""nodes.replan —— 双层 Replan 决策节点（Plan-and-Execute 的 Optimizer 阶段）。
 
 策略：
 - 第 1-2 次违规 → llm_backprompt（回到 planner_node 让 LLM 看 critic 反馈重出蓝图）
@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from agent.graph.state import AgentState, ReplanStrategy
-from agent.llm_client import get_llm_client
+from agent.core.llm_client import get_llm_client
 
 
 _MAX_LLM_RETRIES = 2     # 前 2 次违规 → LLM backprompt；第 3 次 → ILS
@@ -106,13 +106,13 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
     # ---- 先尝试 ILS（仅 5 段完整场景适用）----
     ils_success = False
     try:
-        from agent.segment_decider import FULL_SEGMENTS, decide_segments
-        from agent.planner_hybrid import plan_hybrid
+        from agent.legacy.segment_decider import FULL_SEGMENTS, decide_segments
+        from agent.legacy.ils_planner import plan_hybrid
 
         segments = decide_segments(intent)
         if segments == FULL_SEGMENTS:
             # 5 段场景：走 ILS
-            from agent.planner import _assemble_itinerary as rule_assembler
+            from agent.legacy.planner_rule import _assemble_itinerary as rule_assembler
             client = get_llm_client()
             result = plan_hybrid(
                 intent,
@@ -140,8 +140,8 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         ).model_dump()
     )
     try:
-        from agent.planner import plan_itinerary
-        from agent.trace import Tracer
+        from agent.legacy.planner_rule import plan_itinerary
+        from agent.core.trace import Tracer
 
         tracer = Tracer()
         rule_result = plan_itinerary(intent, tracer=tracer)
@@ -178,8 +178,8 @@ def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optiona
     适配 CandidatePlan 的可选字段（main_poi / restaurant 可能为 None）。
     """
     try:
-        from agent.planner import plan_itinerary
-        from agent.trace import Tracer
+        from agent.legacy.planner_rule import plan_itinerary
+        from agent.core.trace import Tracer
 
         # 直接用 rule planner 跑完整流程（它内部会根据 segment_decider 决定段集合）
         t = tracer if isinstance(tracer, Tracer) else Tracer()

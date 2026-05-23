@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """verify_react_agent —— Phase·Agent E 验证脚本。
 
 5 场景端到端验证 ReAct 单一 Agent：
@@ -97,9 +97,9 @@ def _count_tool_calls(result: Any) -> dict[str, int]:
 
 
 async def _scenario_chat() -> tuple[bool, list[str], dict[str, Any]]:
-    from agent.v2.deps import AgentDeps
-    from agent.v2.output_types import ChatResponse
-    from agent.v2.react_agent import run_react_turn_inner
+    from agent.runtime.deps import AgentDeps
+    from agent.runtime.output_types import ChatResponse
+    from agent.runtime.react_agent import run_react_turn_inner
 
     deps = AgentDeps(user_id="demo_user", session_id="verify-react-1")
     result = await run_react_turn_inner("你是谁", deps=deps)
@@ -129,9 +129,9 @@ async def _scenario_chat() -> tuple[bool, list[str], dict[str, Any]]:
 
 
 async def _scenario_poi_qa() -> tuple[bool, list[str], dict[str, Any]]:
-    from agent.v2.deps import AgentDeps
-    from agent.v2.output_types import ChatResponse
-    from agent.v2.react_agent import run_react_turn_inner
+    from agent.runtime.deps import AgentDeps
+    from agent.runtime.output_types import ChatResponse
+    from agent.runtime.react_agent import run_react_turn_inner
 
     deps = AgentDeps(user_id="demo_user", session_id="verify-react-2")
     result = await run_react_turn_inner(
@@ -165,9 +165,9 @@ async def _scenario_poi_qa() -> tuple[bool, list[str], dict[str, Any]]:
 
 
 async def _scenario_planning() -> tuple[bool, list[str], dict[str, Any]]:
-    from agent.v2.deps import AgentDeps
-    from agent.v2.output_types import ItineraryResponse
-    from agent.v2.react_agent import run_react_turn_inner
+    from agent.runtime.deps import AgentDeps
+    from agent.runtime.output_types import ItineraryResponse
+    from agent.runtime.react_agent import run_react_turn_inner
 
     deps = AgentDeps(
         user_id="demo_user",
@@ -220,9 +220,9 @@ async def _scenario_planning() -> tuple[bool, list[str], dict[str, Any]]:
 
 
 async def _scenario_off_topic() -> tuple[bool, list[str], dict[str, Any]]:
-    from agent.v2.deps import AgentDeps
-    from agent.v2.output_types import ChatResponse
-    from agent.v2.react_agent import run_react_turn_inner
+    from agent.runtime.deps import AgentDeps
+    from agent.runtime.output_types import ChatResponse
+    from agent.runtime.react_agent import run_react_turn_inner
 
     deps = AgentDeps(user_id="demo_user", session_id="verify-react-4")
     result = await run_react_turn_inner("5+5 等于几", deps=deps)
@@ -254,9 +254,9 @@ async def _scenario_off_topic() -> tuple[bool, list[str], dict[str, Any]]:
 
 
 async def _scenario_feedback() -> tuple[bool, list[str], dict[str, Any]]:
-    from agent.v2.deps import AgentDeps
-    from agent.v2.output_types import ItineraryResponse
-    from agent.v2.react_agent import run_react_turn_inner
+    from agent.runtime.deps import AgentDeps
+    from agent.runtime.output_types import ItineraryResponse
+    from agent.runtime.react_agent import run_react_turn_inner
 
     deps = AgentDeps(
         user_id="demo_user",

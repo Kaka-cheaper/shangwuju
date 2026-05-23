@@ -1,4 +1,4 @@
-"""tests.test_reviews_ugc —— Step 9：UGC 评论 + LLM prompt 注入。
+﻿"""tests.test_reviews_ugc —— Step 9：UGC 评论 + LLM prompt 注入。
 
 覆盖：
 1. 所有 POI 至少 2 条评论（向后兼容例外：P_SOLD 售罄无评论是合理的）
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.blueprint_llm import _format_review_excerpts, build_candidate_preview
+from agent.planning.blueprint.blueprint_llm import _format_review_excerpts, build_candidate_preview
 from data.loader import load_pois, load_restaurants, reset_cache
 from schemas.domain import Review
 

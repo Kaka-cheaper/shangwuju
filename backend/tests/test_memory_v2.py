@@ -1,4 +1,4 @@
-"""tests.test_memory_v2 —— Step 7：visited targets + preferred routes 记忆。
+﻿"""tests.test_memory_v2 —— Step 7：visited targets + preferred routes 记忆。
 
 覆盖：
 1. record_visited 写入 + 时间戳
@@ -163,7 +163,7 @@ def test_search_pois_excludes_visited_id():
 
 def test_search_pois_for_intent_auto_excludes_recently_visited():
     """confirm 过 P011 后，下次 search_pois_for_intent(user_id=...) 应排除 P011。"""
-    from agent.tools.search_adapter import search_pois_for_intent
+    from agent.runtime.tools.search_adapter import search_pois_for_intent
     from schemas.intent import IntentExtraction
 
     user_id = "u_test_exclude"
@@ -191,7 +191,7 @@ def test_search_pois_for_intent_auto_excludes_recently_visited():
 
 def test_search_pois_does_not_exclude_other_kind_visited():
     """confirm 过餐厅 R007 不应影响 POI 搜索。"""
-    from agent.tools.search_adapter import search_pois_for_intent
+    from agent.runtime.tools.search_adapter import search_pois_for_intent
     from schemas.intent import IntentExtraction
 
     user_id = "u_test_kind"
@@ -225,7 +225,7 @@ def test_search_pois_does_not_exclude_other_kind_visited():
 
 def test_no_user_id_no_exclude():
     """user_id=None 时不查 memory，候选不变。"""
-    from agent.tools.search_adapter import search_pois_for_intent
+    from agent.runtime.tools.search_adapter import search_pois_for_intent
     from schemas.intent import IntentExtraction
 
     intent = IntentExtraction(

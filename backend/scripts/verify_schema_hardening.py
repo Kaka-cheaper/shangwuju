@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """verify_schema_hardening —— Phase·Agent A 验证脚本。
 
 目标：用真 LLM 跑 5 个输入样本，断言 schema 加固 + prompt 中文词典强约束生效：
@@ -151,8 +151,8 @@ def _check_no_english_in_tags(intent_dict: dict[str, Any]) -> list[str]:
 
 def _verify_intent_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
     """跑一个 IntentExtraction 样本，返回 (是否通过, 行报告列表)。"""
-    from agent.intent_parser import IntentParseError, parse_intent
-    from agent.llm_client import get_llm_client
+    from agent.intent.parser import IntentParseError, parse_intent
+    from agent.core.llm_client import get_llm_client
 
     sid = sample["id"]
     user_input = sample["input"]
@@ -266,8 +266,8 @@ def _verify_intent_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def _verify_router_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
-    from agent.llm_client import get_llm_client
-    from agent.router import RouterError, classify_input
+    from agent.core.llm_client import get_llm_client
+    from agent.intent.router import RouterError, classify_input
 
     sid = sample["id"]
     user_input = sample["input"]

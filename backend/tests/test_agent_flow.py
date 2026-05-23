@@ -1,4 +1,4 @@
-"""test_agent_flow —— 端到端：意图解析 → planner → executor。
+﻿"""test_agent_flow —— 端到端：意图解析 → planner → executor。
 
 依赖 conftest 注册的 fake_tools；不调真实 LLM（全程 stub）。
 
@@ -11,10 +11,10 @@
 
 from __future__ import annotations
 
-from agent.executor import execute_plan
-from agent.intent_parser import parse_intent
-from agent.llm_client_stub import StubLLMClient
-from agent.planner import plan_itinerary
+from agent.legacy.executor import execute_plan
+from agent.intent.parser import parse_intent
+from agent.core.llm_client_stub import StubLLMClient
+from agent.legacy.planner_rule import plan_itinerary
 
 
 FAMILY_INPUT = "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。"

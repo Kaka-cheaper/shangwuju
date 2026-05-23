@@ -1,4 +1,4 @@
-"""test_refiner —— refiner 单测（含 LLM stub + 规则化兜底两条路径）。
+﻿"""test_refiner —— refiner 单测（含 LLM stub + 规则化兜底两条路径）。
 
 策略：
 - LLM stub 返非法 JSON / 不返 refined_intent → 触发 _rule_fallback
@@ -8,8 +8,8 @@
 
 from __future__ import annotations
 
-from agent.refiner import _rule_fallback, refine_intent
-from agent.llm_client_stub import StubLLMClient
+from agent.intent.refiner import _rule_fallback, refine_intent
+from agent.core.llm_client_stub import StubLLMClient
 from schemas.intent import Companion, IntentExtraction
 
 

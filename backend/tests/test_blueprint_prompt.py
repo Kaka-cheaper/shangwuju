@@ -1,4 +1,4 @@
-"""tests.test_blueprint_prompt —— blueprint_prompt 重写后回归测试（edge_v1）。
+﻿"""tests.test_blueprint_prompt —— blueprint_prompt 重写后回归测试（edge_v1）。
 
 验证 design.md §LLM Prompt 重写要点：
 1. BLUEPRINT_SYSTEM_PROMPT 长度 ≤ 2200 字符（hard cap，spec R3 提到 2200）
@@ -46,7 +46,7 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.prompts.blueprint_prompt import (  # noqa: E402
+from agent.planning.blueprint.prompts.blueprint_prompt import (  # noqa: E402
     BLUEPRINT_SYSTEM_PROMPT,
     build_user_message,
 )
@@ -248,7 +248,7 @@ def test_build_user_message_tail_instructs_strict_json() -> None:
 
 def test_module_exports_contract() -> None:
     """blueprint_prompt 至少导出 BLUEPRINT_SYSTEM_PROMPT 与 build_user_message。"""
-    import agent.prompts.blueprint_prompt as mod
+    import agent.planning.blueprint.prompts.blueprint_prompt as mod
 
     assert hasattr(mod, "BLUEPRINT_SYSTEM_PROMPT")
     assert hasattr(mod, "build_user_message")

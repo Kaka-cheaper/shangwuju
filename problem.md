@@ -6019,3 +6019,53 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - **commit**：（待本条记录写完后一次性 commit Wave 5 全部产物）
 - **下一步**：spec B `agent-directory-restructure` 启动条件已满足（spec A 联调通过 + e2e 验收通过 + 用户人工确认），等待用户决定何时启动
 
+
+
+---
+
+## 问题35：执行 spec agent-directory-restructure（agent/ 目录重组）
+
+**时间**：2026-05-23
+
+**用户原问**：「spec b」+ 「继续」（启动 spec B 实施）
+
+**解决方案**：
+
+按 spec B tasks.md 8 个 task 串行执行，把 `backend/agent/` 从「25 扁平 .py + v2/ + graph/」重组为 6 子目录：
+
+1. **Task 1 baseline**：跑 pytest 560 全绿、verify_planning_quality 24/24、audit_review_template 84/84，打 v-spec-a-done git tag。修了两个 verify 脚本的 cp936 编码问题（✓✗ → [PASS][FAIL]）。
+2. **Task 2 批 1：core/**：5 文件移动（llm_client / llm_client_stub / observability_init / feedback_detector / trace），smartRelocate + PowerShell 批改 30+ 处 import → pytest 560 全过。
+3. **Task 3 批 2：intent/ + intent/prompts/**：8 文件移动（intent_parser→parser / refiner / router / narrator / 4 个 prompts，含 system_prompt→intent_parser_prompt 改名）→ pytest 560 全过。
+4. **Task 4 批 3：planning/**：9 文件移动（blueprint/ 4 + critic/ 2 + commute/ 1 + weights_llm 1）+ 加 weights_llm.py FROZEN 标记 → pytest 560 全过。
+5. **Task 5 批 4：runtime/**：9 文件移动（v2/ 8 + tools/search_adapter）→ pytest 560 全过。
+6. **Task 6 批 5：legacy/**：7 文件移动 + 4 处改名（planner→planner_rule / planner_hybrid→ils_planner / planner_llm_first→llm_first_planner / critics→ils_score_critic）→ pytest 560 全过。
+7. **Task 7 批 6：收尾**：删 3 个空目录（v2/ + tools/ + prompts/）+ 把 llm_planner_prompt.py 挪到 legacy/prompts/ + 8 个 legacy `.py` 加 # FROZEN 标记 + 写 verify_legacy_frozen.py + 写 tests/test_import_paths.py（5 类新路径 + 33 条 negative 测试）。
+8. **Task 8 验收**：pytest 599 全过（560 + 39 import 路径测试），verify_legacy_frozen 8/8，FastAPI import OK。
+
+**关键发现**：Kiro 的 `smartRelocate` 工具**只移动文件、不自动更新 import 引用**——与 spec B design.md 假设不符。需要手工 PowerShell 批量改 absolute import 路径（30+ 处 / 批）+ 修内部相对引用。每批末跑 pytest -x 确认 0 红灯才进下一批。
+
+**修改的代码文件**（总计 47 个改动 + 14 个新建 + 3 个目录删除）：
+- `backend/agent/__init__.py`（顶层 import 改 .legacy.planner_rule / .intent.refiner / .core.trace 等）
+- `backend/agent/core/`（新目录 + 5 文件移入）
+- `backend/agent/intent/`（新目录 + 4 .py + 4 prompts.py）
+- `backend/agent/planning/`（新目录 + blueprint/ 5 + critic/ 2 + commute/ 1 + weights_llm.py）
+- `backend/agent/runtime/`（新目录 + 8 .py + tools/ 1）
+- `backend/agent/legacy/`（新目录 + 7 .py 改名 + prompts/ 1）
+- 删除 `backend/agent/v2/` / `backend/agent/tools/` / `backend/agent/prompts/`
+- `backend/scripts/verify_legacy_frozen.py`（新建，守 # FROZEN 标记）
+- `backend/tests/test_import_paths.py`（新建 5 类 + 33 条 negative 测试）
+- `AGENTS.md §3.3.1`（目录树代码块换新结构 + MUST/MUST NOT 段更新）
+- `docs/00-overview/progress.md`（追加 D-PLANNING-QUALITY-DEEP-REVIEW + D-AGENT-RESTRUCTURE 两条决策记录）
+- `docs/03-implementation/pitfalls.md`（追加 [P1] 2026-05-23 agent/ 目录重组防再犯条款）
+- `problem.md`（追加本条）
+
+**应当达成的效果**：
+
+- backend/agent/ 顶层只剩 `__init__.py` + 6 个子目录，新人 / AI 一眼能识别业务在哪、运行时框架在哪、冻结模块在哪
+- 所有旧 import 路径 `from backend.agent.xxx`（25+ 个旧模块）不再可用，被 33 条 negative 测试守护
+- 所有 legacy/ 模块顶部含 `# FROZEN` 标记，受 verify_legacy_frozen.py 守护
+- 业务行为 0 变化：spec A 全部能力（5 岁娃博物馆 75min 主防 / critic 兜底 / Narrator 主动质疑）保留
+- pytest 560 → 599 全过（+39 项 test_import_paths）+ FastAPI import OK + verify_planning_quality 24/24 + audit_review_template 84/84 + verify_legacy_frozen 8/8
+
+**用户反馈**：（待用户验收）
+

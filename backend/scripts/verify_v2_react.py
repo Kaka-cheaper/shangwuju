@@ -1,4 +1,4 @@
-"""verify_v2_react —— Phase 0.12 ReAct 单一 Agent 端到端 SSE 验证。
+﻿"""verify_v2_react —— Phase 0.12 ReAct 单一 Agent 端到端 SSE 验证。
 
 6 个场景测 /chat/turn 在 USE_REACT_AGENT=1 下的真实行为：
   1. 闲聊 "你是谁"          → ChatResponse → chitchat_reply 不调工具
@@ -278,7 +278,7 @@ def case_5_feedback_context(client) -> tuple[bool, str]:
         )
 
     # ConversationState 校验
-    from agent.v2.conversation import get_default_repo
+    from agent.runtime.conversation import get_default_repo
 
     repo = get_default_repo()
     import asyncio

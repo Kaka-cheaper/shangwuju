@@ -1,4 +1,4 @@
-"""nodes.narrate —— 暖语气文案节点。
+﻿"""nodes.narrate —— 暖语气文案节点。
 
 复用 backend/agent/narrator.py 的 generate_narration。
 
@@ -20,8 +20,8 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.llm_client import get_llm_client
-from agent.narrator import generate_narration
+from agent.core.llm_client import get_llm_client
+from agent.intent.narrator import generate_narration
 
 
 def _build_critic_summary(critic_attempts: list[Any]) -> str:

@@ -1,4 +1,4 @@
-"""tests.test_assemble_blueprint —— 蓝图→Itinerary 拼装（edge_v1）。
+﻿"""tests.test_assemble_blueprint —— 蓝图→Itinerary 拼装（edge_v1）。
 
 assemble_from_blueprint(intent, blueprint, user_profile) 把 LLM 出的
 PlanBlueprint（仅 mid nodes + preferred_start_time）拼装为合法 Itinerary
@@ -52,12 +52,12 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 # 同步重置 lookup_hop 缓存（避免被其它测试 monkeypatch 残留污染）
-from agent import lookup_hop as _lookup_hop_mod  # noqa: E402
-from agent.assemble_blueprint import (  # noqa: E402
+from agent.planning.commute import lookup_hop as _lookup_hop_mod  # noqa: E402
+from agent.planning.blueprint.assemble_blueprint import (  # noqa: E402
     _parse_hhmm,
     assemble_from_blueprint,
 )
-from agent.blueprint import (  # noqa: E402
+from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,

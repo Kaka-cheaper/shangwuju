@@ -1,4 +1,4 @@
-"""agent —— Agent 编排层（Planner + Executor）。
+﻿"""agent —— Agent 编排层（Planner + Executor）。
 
 P2 落地内容（A 同学 owner）：
 - llm_client.py     LLM 客户端 wrapper（DeepSeek 主 / 通义备 / Stub）
@@ -15,19 +15,19 @@ P2 落地内容（A 同学 owner）：
 - HTTP/SSE 传输（在 backend/main.py）
 """
 
-from .planner import (
+from .legacy.planner_rule import (
     PlannerResult,
     plan_itinerary,
     plan_itinerary_with_mode,
     MAX_TOOL_CALLS_PER_KIND,
     MAX_TOTAL_TOOL_CALLS,
 )
-from .llm_planner import plan_itinerary_llm
-from .refiner import refine_intent, RefinementError
-from .router import classify_input, fallback_decision, RouterError
-from .intent_parser import parse_intent, IntentParseError
-from .executor import execute_plan, ExecutionResult
-from .trace import Tracer, TraceRecord
+from .legacy.llm_planner import plan_itinerary_llm
+from .intent.refiner import refine_intent, RefinementError
+from .intent.router import classify_input, fallback_decision, RouterError
+from .intent.parser import parse_intent, IntentParseError
+from .legacy.executor import execute_plan, ExecutionResult
+from .core.trace import Tracer, TraceRecord
 
 
 __all__ = [

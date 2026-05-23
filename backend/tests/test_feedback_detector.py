@@ -1,4 +1,4 @@
-"""tests/test_feedback_detector.py —— 验证 looks_like_feedback 启发式覆盖。
+﻿"""tests/test_feedback_detector.py —— 验证 looks_like_feedback 启发式覆盖。
 
 测试目的：
 - 关键词命中（"太远 / 不要 / 换" 等）
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.feedback_detector import looks_like_feedback
+from agent.core.feedback_detector import looks_like_feedback
 
 
 # ============================================================

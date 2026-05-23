@@ -1,4 +1,4 @@
-"""nodes.critic —— Itinerary 客观约束验证节点（Plan-and-Execute 中 Evaluator 阶段）。
+﻿"""nodes.critic —— Itinerary 客观约束验证节点（Plan-and-Execute 中 Evaluator 阶段）。
 
 复用 backend/agent/v2/critics_v2.py 的 validate_itinerary。
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.v2.critics_v2 import (
+from agent.planning.critic.critics_v2 import (
     Severity,
     format_violations_for_llm,
     validate_itinerary,

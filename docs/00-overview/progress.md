@@ -459,6 +459,56 @@
     - search_adapter invoke_tool 返 dict 不返对象（旧 ReAct 路径未触发的兼容性 bug）→ 加 isinstance + Poi/Restaurant.model_validate 兜底
   - 测试结果：267/267 pytest（旧测试零破坏）+ 3/3 verify_langgraph 真 LLM e2e + 4/4 smoke_langgraph_mimo + 浏览器实测主路径（含 critic backprompt 4 段→5 段）+ 反馈环（distance 5→3km / POI 切换 / 餐厅切换）全过
 
+### D-PLANNING-QUALITY-DEEP-REVIEW [2026-05-23]：spec planning-quality-deep-review 全部 8 task 落地
+
+**决定**：执行业务质量 spec A（5 wave / 8 task / +97 项测试）。
+
+**核心防御链路 7 层全部到位**：
+- mock 信息源（SuggestedDuration dict / typical_dining_min / persona pace_profile）
+- LLM 主防（BlueprintPrompt 范例 75 + 分级表 + 候选预览消费规则）
+- critic 主路径（_age_aware_duration_critic + expected_range 自然语言）
+- critic 镜像（critics_v2._check_age_aware_duration 防 ILS 路径绕过）
+- 算法 utility（_overload_penalty -0.5 项）
+- Narrator 出口（critic_summary 喂 + 主动质疑规则 + 模板兜底）
+- Refiner 反馈（"太久" → pace_profile 缩 30%）
+
+**关键决策（来自 adversarial-review §2 取舍）**：
+- D 主防 + E 兜底，**拒** A 升级 NodeDecider
+- expected_range 弱化版（自然语言"建议 45-75min"，**不**暴露字段名）
+- mock dict 升级直接原地 + Pydantic Union 双兼容，**拒** mock_data/v2/ 子目录
+- fallback 路由保留 retry_count 阶梯，**拒** F 方案 E 按违规类型路由
+- meta_critic_node 本 spec **不加**（留 spec C）
+
+**测试基线**：482 → 560 全过 + 24/24 verify_planning_quality + 84/84 audit_review_template。
+
+**5 个 commit**：5b9cef3 / b399af3 / f05ea59 / 1a74aba / f48f272。
+
+### D-AGENT-RESTRUCTURE [2026-05-23]：spec agent-directory-restructure 落地
+
+**决定**：把 `backend/agent/` 从「25 个扁平 .py + v2/ + graph/ 三套并存」重组为 6 子目录（`core/` / `intent/` / `planning/` / `runtime/` / `graph/` / `legacy/`）+ `__init__.py`。
+
+**理由**：新人 / AI Agent 接入项目时无法识别新代码该写在哪、哪些是冻结模块。spec A 落地后业务质量稳定，正是做目录重组的合适时机；hackathon 评委演示前打磨结构清晰度也是加分项（"工程整洁度"）。
+
+**前置硬约束**：
+- spec A 全部 8 task 完成 ✅
+- spec A e2e 验收（24/24 + 84/84）✅
+- v-spec-a-done git tag 打上 ✅
+
+**实施过程**：6 批次串行（core / intent / planning / runtime / legacy / 收尾），每批 smartRelocate + PowerShell 批改 import + pytest 验证。
+
+**关键发现**：smartRelocate 工具**不自动更新 import 引用**（仅移动文件 + 更新 `__path__`）——与 spec B design.md 假设不符，需要手工 PowerShell 批改 import 路径。
+
+**测试基线**：560 → 599 全过（+39 项 test_import_paths.py），FastAPI import OK。
+
+**新产物**：
+- `backend/scripts/verify_legacy_frozen.py`（守 8 个 legacy 模块的 FROZEN 标记）
+- `backend/tests/test_import_paths.py`（5 类新路径 + 33 条旧路径 negative 测试）
+- `agent/legacy/__init__.py` docstring 说明冻结纪律
+- 8 个 legacy `.py` 文件顶部加 `# FROZEN: 详见 AGENTS.md §3.3.1`
+- `agent/planning/weights_llm.py` 加 `# FROZEN: 仅 ILS 路径`
+
+**AGENTS.md §3.3.1 同步更新**：目录树代码块换为新结构 + MUST/MUST NOT 段补充新约束。
+
 ## 五、更新规则
 
 每次 session 结束前必须更新：
