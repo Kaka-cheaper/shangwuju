@@ -28,6 +28,8 @@ export const SseEventType = {
   ChitchatReply: "chitchat_reply",
   // 行程出炉时的 Agent 暖心开场白（替代套话 summary）
   AgentNarration: "agent_narration",
+  // spec algorithm-redesign R5 收尾：memory 副作用结果（前端可显示「已记住」标记）
+  MemoryPersisted: "memory_persisted",
   StreamError: "stream_error",
   Done: "done",
 } as const;

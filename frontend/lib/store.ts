@@ -139,6 +139,13 @@ export interface ChatState {
   lastRefinement: RefinementSummary | null;
   /** Phase 0.8：本次会话内收到的所有暖心回话气泡（按时序追加，不清空）。 */
   chitchatReplies: ChitchatReplyRecord[];
+  /** spec algorithm-redesign R5：narrate 末尾 memory_writer 副作用结果（前端可显示「已记住」标记）。 */
+  memoryPersisted: {
+    socialContext: string;
+    summaryPreview: string;
+    success: boolean;
+    skippedReason: string | null;
+  } | null;
 
   // UI 通知
   toasts: ToastItem[];
@@ -211,6 +218,7 @@ const initialState: Omit<
   toasts: [],
   commandPaletteOpen: false,
   narration: null,
+  memoryPersisted: null,
 };
 
 let abortController: AbortController | null = null;
@@ -783,6 +791,26 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     case "agent_narration": {
       const p = ev.payload as unknown as AgentNarrationPayload;
       set({ narration: { text: p.text, stage: p.stage } });
+      break;
+    }
+
+    case "memory_persisted": {
+      // spec algorithm-redesign R5 收尾：把 memory_writer 副作用结果落到 store
+      // 让 ItineraryCard 显示「✓ 已记住此次「家庭日常」场景偏好，下次会复用」标记
+      const p = ev.payload as {
+        social_context?: string;
+        summary_preview?: string;
+        success?: boolean;
+        skipped_reason?: string | null;
+      };
+      set({
+        memoryPersisted: {
+          socialContext: p.social_context ?? "",
+          summaryPreview: p.summary_preview ?? "",
+          success: Boolean(p.success),
+          skippedReason: p.skipped_reason ?? null,
+        },
+      });
       break;
     }
 

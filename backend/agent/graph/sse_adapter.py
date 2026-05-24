@@ -398,6 +398,16 @@ async def run_graph_stream(
                             {"text": text, "stage": "stream"},
                         )
                         seq += 1
+                    # spec algorithm-redesign R5：memory 副作用结果推 SSE
+                    # 让评委看到「Agent 已把这次行程写回用户画像，下次同场景会召回」
+                    memory_status = node_diff.get("memory_status")
+                    if memory_status is not None:
+                        yield _ev(
+                            seq,
+                            SseEventType.MEMORY_PERSISTED,
+                            memory_status,
+                        )
+                        seq += 1
 
                 # ---- execute_finalize ----
                 elif node_name == "execute_finalize":

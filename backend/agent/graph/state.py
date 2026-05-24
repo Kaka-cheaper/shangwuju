@@ -132,6 +132,9 @@ class AgentState(TypedDict, total=False):
     # ---- 暖语气 ----
     narration: Optional[str]
 
+    # ---- spec algorithm-redesign R5：memory_writer 副作用结果（用于 SSE memory_persisted 推送）----
+    memory_status: Optional[dict[str, Any]]
+
     # ---- HITL（interrupt 后等三按钮）----
     user_decision: Optional[Literal["confirm", "refine", "cancel"]]
     refine_feedback: Optional[str]

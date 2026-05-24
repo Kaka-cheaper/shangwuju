@@ -29,6 +29,7 @@ export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const intent = useChatStore((s) => s.intent);
   const narration = useChatStore((s) => s.narration);
+  const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
 
@@ -239,6 +240,16 @@ export default function ItineraryCard() {
       {narration?.text && (
         <div className="px-4 pt-3">
           <NarrationBlock text={narration.text} stage={narration.stage} />
+        </div>
+      )}
+
+      {/* spec algorithm-redesign R5：memory_writer 副作用结果（已记住此次场景偏好） */}
+      {memoryPersisted?.success && (
+        <div className="px-4 pt-2">
+          <MemoryPersistedBadge
+            socialContext={memoryPersisted.socialContext}
+            summaryPreview={memoryPersisted.summaryPreview}
+          />
         </div>
       )}
 
@@ -651,6 +662,45 @@ function NarrationBlock({
     </div>
   );
 }
+
+// ============================================================
+// MemoryPersistedBadge —— spec algorithm-redesign R5 收尾：
+// 让评委一眼看到「Agent 已把这次行程写回用户画像，下次同场景会复用」
+// ============================================================
+
+function MemoryPersistedBadge({
+  socialContext,
+  summaryPreview,
+}: {
+  socialContext: string;
+  summaryPreview: string;
+}) {
+  return (
+    <div
+      className="rounded-md border border-emerald-500/24 bg-emerald-500/6 px-3 py-2 text-[12px] text-emerald-200/95 animate-fade-in backdrop-blur-sm flex items-start gap-2"
+      style={{
+        background:
+          "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.04) 100%)",
+      }}
+    >
+      <Icons.spark
+        className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400"
+        strokeWidth={2}
+      />
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-emerald-300 tracking-tight">
+          已记住此次「{socialContext || "本"}」场景偏好
+        </div>
+        <div className="text-emerald-200/75 text-[11px] mt-0.5 line-clamp-1">
+          {summaryPreview}
+          <span className="text-emerald-400/60 ml-1">·</span>
+          <span className="text-emerald-400/60 ml-1">下次同场景会优先参考</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ============================================================
 // IntentChips —— 「为你考虑了什么」可视化（方案 C）

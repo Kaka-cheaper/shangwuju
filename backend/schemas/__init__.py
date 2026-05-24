@@ -9,6 +9,40 @@
 - 具体业务逻辑（Tool 的过滤算法、Agent 的规划策略）。
 - I/O 操作（不读 mock_data、不调 LLM API）。
 - 任何与运行时状态相关的逻辑。
+
+【13 文件分层导航（自底向上）】
+
+```
+[基础常量层]                       无依赖底座，被所有其他文件 import
+- tags.py 139行                    4 类 tag 词典 + Literal 类型（PhysicalTag / DietaryTag / ExperienceTag / SocialContext）
+- errors.py 34行                   FailureReason 8 个失败枚举
+
+[核心契约层]                       业务核心数据结构（Agent 编排层 + Tool 层 + 前端共享）
+- intent.py 171行                  IntentExtraction（§5.7 D-SoT 唯一权威）+ Companion + PaceProfile
+- domain.py 347行                  POI / Restaurant / Route / UserProfile / Review / RecentTrip / Location
+- itinerary.py 287行               ActivityNode / Hop / Itinerary（edge_v1 模型，业内通用）
+
+[扩展层]                           相对独立的子领域
+- persona.py 252行                 Persona / UserMemory / PaceProfile（Phase 0.7 个性化 prior）
+- decision_trace.py 153行          CriticAttempt / AlternativeCandidate / FallbackHop / DecisionTrace（评审可见性）
+
+[API 契约层]                       跨 4 层架构边界（HTTP / SSE / Tool I/O）
+- tools.py 274行                   8 个 Tool 的 Input / Output（OpenAI Function Calling spec 来源）
+- sse.py 90行                      SseEventType 枚举 + SseEvent（前端 EventSource 消费契约）
+- router.py 103行                  InputKind 6 类输入域路由 + RouterDecision + CtaChip
+- refine.py 68行                   RefinementInput / RefinementOutput（/chat/refine 端点）
+- planner_mode.py 66行             rule / llm 切换 + os.getenv 解析 helper（含 resolve_planner_mode）
+
+[入口层]
+- __init__.py 150行                re-export 整理（本文件）
+```
+
+【依赖单向流动】
+
+底座（tags / errors）→ 核心（intent / domain / itinerary）→ 扩展（persona / decision_trace）→ API 契约（tools / sse / router / refine / planner_mode）
+
+无循环依赖；新加 Pydantic 模型时按归属层放对应文件。如果你在「不知道放哪」时
+犹豫超过 2 分钟，先查上表对应层级——99% 情况下答案明确。
 """
 
 from schemas.tags import (

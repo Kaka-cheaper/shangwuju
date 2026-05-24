@@ -50,6 +50,11 @@ class SseEventType(str, Enum):
     # ===== Agent 暖心开场白（行程出炉时 / confirm 后） =====
     # payload = {"text": str, "stage": "stream" | "confirm"}
     AGENT_NARRATION = "agent_narration"
+    # ===== 用户画像副作用（spec algorithm-redesign R5 / TravelAgent 范式） =====
+    # narrate 末尾把当前行程写回 user_profile.json 的 recent_trips
+    # payload = {"social_context": str, "summary_preview": str, "success": bool, "skipped_reason": str | None}
+    # 仅在真实写入或显式跳过时推；幂等命中 / cancel 跳过 / 不可写路径都返 success=false 并附 skipped_reason
+    MEMORY_PERSISTED = "memory_persisted"
     # 错误（区别于 Tool 内部失败：这是流终止）
     STREAM_ERROR = "stream_error"
     # 流结束
@@ -76,6 +81,7 @@ class SseEvent(BaseModel):
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
     - CHITCHAT_REPLY   payload = RouterDecision.model_dump()
     - AGENT_NARRATION  payload = {"text": str, "stage": "stream" | "confirm"}
+    - MEMORY_PERSISTED payload = {"social_context": str, "summary_preview": str, "success": bool, "skipped_reason": str | None}
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}
     """
