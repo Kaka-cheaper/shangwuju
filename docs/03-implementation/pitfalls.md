@@ -1027,3 +1027,24 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. 这条不影响业务代码任何 hydration 校验（仅根标签生效，子树仍严格校验）
   3. 不要因为看到 hydration warning 就到处加 suppressHydrationWarning——只有根标签是浏览器扩展注入受害者
 - **优先级**：P3（不影响功能；只是 console warning 噪声；评委 demo 时打开 DevTools 会看到，影响印象）
+
+
+### [P2] 2026-05-24 mock_data 多店铺共用同坐标 → AMap marker 视觉叠加（截图只见 marker 2）
+
+- **现象**：S2 朋友热闹场景跑出 KTV(P026) → 鼎鼎鸳鸯火锅(R034) 行程，地图上只看到 marker "2"，1 号节点视觉上消失。`buildNodeCoords` 输出正确含 visibleIdx=1/2 两条数据。
+- **根因**：mock_data 中两个不同店铺共用同坐标——
+  ```
+  P026 麦霸欢唱 KTV: lat=30.273, lng=120.080  (location.name="西溪银泰")
+  R034 鼎鼎鸳鸯火锅: lat=30.273, lng=120.080  (location.name="西溪银泰")
+  ```
+  AMap.Marker 在完全相同坐标时，后画的 marker 会盖住先画的（DOM 层叠）。这是 mock_data 建设期为简化没做坐标微扰的历史遗留——西溪银泰、嘉绿苑等区域内多家店铺共用 location 字符串与坐标。
+- **解法选项**：
+  - **A（采纳）**：前端 MapOverlay 检测同坐标 → 圆弧式微扰（第 1 个原位 / 2+ 沿圆弧 0.00045 度半径均匀分布 ≈ 50m）
+  - **B（拒绝）**：mock_data 给 21 POI + 30 餐厅每个加坐标微扰——工程量 1.5h+ + 联动 routes.json + 可能让 R10 24/24 测试失败
+  - 业界标配：Mapbox Cluster / Google Maps MarkerClusterer 都有同坐标 spread 处理，A 路线对齐业界做法
+- **相关文件**：`frontend/components/MapOverlay.tsx:buildNodeCoords` 加圆弧微扰段
+- **防再犯**：
+  1. 任何地图组件都要假设「数据里多店铺共用同坐标」是常态，渲染层做防御性 spread
+  2. mock_data 建设期可不做坐标精准化（专注于业务字段），但前端必须有兜底
+  3. 圆弧微扰仅影响 marker 视觉位置，不改 itinerary.nodes 数据本身——info window / 路线段仍用原坐标
+- **优先级**：P2（不影响行程正确性；但截图只见单个 marker 让评委误以为系统漏了节点）

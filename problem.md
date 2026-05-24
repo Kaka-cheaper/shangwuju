@@ -6954,3 +6954,40 @@ backend/agent/
 - pytest / verify:all 不变（纯 jsx 属性，无功能影响）
 
 **用户反馈**：（待用户验证浏览器 console 干净后追加）
+
+
+## 问题：地图为什么只显示一个 2 号点？1 号点哪去了？
+
+**用户原问**：（贴出截图——朋友热闹场景跑 KTV → 火锅店行程，地图只见 marker "2"，左下方有路径段但没看到 1 号 marker）
+
+**解决方案**：
+
+1. **诊断**（grep mock_data）：
+   ```
+   P026 麦霸欢唱 KTV: lat=30.273, lng=120.080  (location.name="西溪银泰")
+   R034 鼎鼎鸳鸯火锅: lat=30.273, lng=120.080  (location.name="西溪银泰")
+   ```
+   两个店铺**坐标完全相同**。AMap.Marker 在同坐标会重叠，后画的 marker 2 盖住 marker 1。这是 mock_data 建设期为简化没做坐标微扰的历史遗留——同 location.name 内多店铺共用坐标。
+2. **修复**：`frontend/components/MapOverlay.tsx:buildNodeCoords` 加圆弧式微扰
+   - 检测同坐标分组（lat/lng 5 位精度 key）
+   - 第 1 个原位不动；第 2+ 沿 360° 圆弧均匀分布
+   - 半径 0.00045 度 ≈ 50m（视觉上分得开）
+   - 起始 -45° 让 2 号在 1 号右下方（视觉直觉）
+   - 业界对标：Mapbox Cluster / Google Maps MarkerClusterer 标准做法
+3. **拒绝路线 B**：改 21 POI + 30 餐厅 mock_data 坐标——工程量 1.5h+ + 联动 routes.json + 可能让 R10 测试漂；A 路线 0.3h + 0 风险
+4. **教训记入 pitfalls [P2] 2026-05-24「mock_data 多店铺共用同坐标 → AMap marker 视觉叠加」**
+
+**修改的代码文件**：
+
+- 修改：`frontend/components/MapOverlay.tsx`（buildNodeCoords 加圆弧微扰段，约 30 行）
+- 修改：`docs/03-implementation/pitfalls.md`（[P2] 2026-05-24）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- 同 location 多店铺行程地图能看到全部 marker（KTV + 火锅店两个圆点都显示）
+- 不动 mock_data 数据；info window / 路线段仍用原坐标（不影响行程语义）
+- 任何未来出现的同坐标 case 自动兜底
+- pytest / R10 24/24 不变（前端纯渲染层改动）
+
+**用户反馈**：（待用户刷新前端验证 1 号点出现后追加）

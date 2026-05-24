@@ -96,6 +96,35 @@ function buildNodeCoords(itinerary: Itinerary): NodeWithCoord[] {
       displayName: node.address || node.title,
     });
   });
+
+  // spec algorithm-redesign 收尾防御性增强（2026-05-24）：
+  // 同坐标微扰——mock_data 多个店铺常共用同坐标（同 location.name 同 lat/lng），
+  // 同坐标后画的 marker 会盖住先画的（截图复现：P026 KTV 与 R034 火锅店都标
+  // 30.273/120.080，地图上只看到 marker 2）。
+  // 给同组内第 2+ 个 marker 在屏幕上沿圆弧均匀分布微扰：
+  // - 半径约 50m（0.00045 度纬度）
+  // - 视觉上分得开，不动 itinerary.nodes 数据本身
+  // 业界地图组件（Mapbox Cluster / Google Maps MarkerClusterer）的标准做法
+  const RADIUS_DEG = 0.00045;
+  const coordKey = (lat: number, lng: number) =>
+    `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+  const coordGroups = new Map<string, NodeWithCoord[]>();
+  for (const nc of out) {
+    const key = coordKey(nc.lat, nc.lng);
+    if (!coordGroups.has(key)) coordGroups.set(key, []);
+    coordGroups.get(key)!.push(nc);
+  }
+  for (const [, group] of coordGroups) {
+    if (group.length <= 1) continue;
+    // group[0] 不动；group[1..N-1] 沿 360° 圆弧均匀分布（起始 -45° 让 2 号在右下方）
+    const n = group.length - 1;
+    for (let i = 1; i < group.length; i++) {
+      const angle = (Math.PI * 2 * (i - 1)) / n - Math.PI / 4;
+      group[i].lat = group[i].lat + RADIUS_DEG * Math.cos(angle);
+      group[i].lng = group[i].lng + RADIUS_DEG * Math.sin(angle);
+    }
+  }
+
   // 临时诊断：地图 marker 不出来 → 看是不是所有 mid node 都没 lat/lng
   if (typeof window !== "undefined") {
     // eslint-disable-next-line no-console
