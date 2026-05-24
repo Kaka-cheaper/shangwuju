@@ -1,11 +1,21 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.planner_hybrid —— A+C 混合规划范式（ILS + Critic + LLM 决策）。
+﻿"""agent.planning.planners.ils_planner —— PLANNER_LLM_STRATEGY=hybrid 子策略 + graph replan 第 3 次 ILS 兜底。
 
-⚠️ 冻结声明（2026-05-22）：
-    本文件是 PLANNER_LLM_STRATEGY=hybrid 的实现，自 LangGraph 主架构上线后**不再演进**。
-    LangGraph 第三次 replan 仍调用 plan_hybrid 作为 ILS 兜底层（参见 graph/nodes/replan.py）。
+【真实定位】
 
-    所有新功能改动应在 `agent/graph/` 下完成；ILS 算法内部修改可继续在本文件做。
+本模块是 ILS 算法兜底 planner，被以下入口消费：
+
+- `rule_planner._plan_with_hybrid`（PLANNER_LLM_STRATEGY=hybrid 时）
+- `graph/nodes/replan.py:ils_replan`（LLM 重生成失败 N 次后第 3 次兜底）
+- `tests/test_planner_hybrid.py` / `test_planner_hybrid_overload.py`
+
+ILS 算法：搜索 (POI, restaurant, time) 三元组候选 + 4 维 utility 加权打分 +
+local search + 5% 接受劣解。LangGraph 第 3 次 replan 仍调用 plan_hybrid 作为 ILS 兜底层
+（参见 graph/nodes/replan.py）。
+
+含 spec A R5 加固：
+- `_overload_penalty(poi, intent)` 单段过载强惩罚（年龄 cap 兜底）
+- `_resolve_dynamic_dining_slots(intent, segments)` 动态用餐时段
+- `_retry_with_critic_feedback` 4 类违规黑名单
 
 【spec planning-quality-deep-review R5】（Wave 4 Task 5，2026-05-23）
 
@@ -77,9 +87,9 @@ from schemas.tools import (
     SearchRestaurantsOutput,
 )
 
-from .ils_score_critic import CriticReport, run_critics
-from ..core.trace import Tracer
-from ..planning.weights_llm import PlanningWeights, get_planning_weights
+from ..critic.ils_score_critic import CriticReport, run_critics
+from ...core.trace import Tracer
+from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
 from utils.duration_helpers import get_duration_for_companions
 
@@ -185,7 +195,7 @@ def plan_hybrid(
     # ---- 步骤 0：决定中间节点集合（edge_v1：从 segment 视角切到 node 视角）----
     # decide_nodes 返回中间节点 kind 列表（["主活动", "用餐"] / ["主活动"] / ["用餐"]）；
     # 旧 decide_segments 仍兼容，但 ILS 内部直接看 nodes 更清晰。
-    from ..planning.blueprint.node_decider import KIND_DINING, KIND_MAIN, decide_nodes
+    from ..blueprint.node_decider import KIND_DINING, KIND_MAIN, decide_nodes
 
     mid_nodes = decide_nodes(intent)
     needs_poi = KIND_MAIN in mid_nodes
@@ -631,7 +641,7 @@ def _resolve_dynamic_dining_slots(
     返 tuple；空 list 时返 module 级 DINING_SLOTS 兜底（保持向后兼容）。
     """
     try:
-        from .planner_rule import _resolve_time_window
+        from agent.planning.planners.rule_planner import _resolve_time_window
     except Exception:  # pragma: no cover —— 仅在 import 顺序异常时触发
         return DINING_SLOTS
 

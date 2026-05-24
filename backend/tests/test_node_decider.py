@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.legacy.segment_decider import (
+from agent.planning.planners.segment_decider import (
     ALWAYS_INCLUDED,
     FULL_SEGMENTS,
     decide_segments,

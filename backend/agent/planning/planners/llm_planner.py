@@ -1,14 +1,18 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.llm_planner —— LLM Function Calling 自主规划循环（PLANNER_MODE=llm 时启用）。
+﻿"""agent.planning.planners.llm_planner —— PLANNER_LLM_STRATEGY=function_calling 子策略。
 
-⚠️ 冻结声明（2026-05-22）：
-    本文件是 PLANNER_LLM_STRATEGY=function_calling 的旧实现，自 LangGraph 主架构上线
-    后**不再演进**。所有新功能改动应在 `agent/graph/` 下完成。
+【真实定位】
 
-    保留理由：plan_itinerary_with_mode 多策略分发 + 真 LLM 兜底链兼容性。
+本模块是 PLANNER_LLM_STRATEGY=function_calling 的具体实现（A/B 候选）。被以下入口消费：
 
-与 agent.planner.plan_itinerary 的核心差异：
-- planner.py：规则代码写死调用顺序（rule mode，Demo 安全网）
+- `rule_planner.plan_itinerary_with_mode`（strategy="function_calling" 分支）
+- `tests/test_llm_planner.py`（4 个用例验证 function_calling 整体行为）
+
+LLM Function Calling 自主调 Tool 的旧路径，自 LangGraph 主架构上线后仍保留作为
+A/B 候选；默认 strategy 是 llm_first（详见 llm_first_planner.py）。所有 graph 主路径的
+新功能改动应在 `agent/graph/` 下完成；本文件仅做 bug fix + schema 适配。
+
+与 rule_planner.plan_itinerary 的核心差异：
+- rule_planner.py：规则代码写死调用顺序（rule mode，Demo 安全网）
 - llm_planner.py：LLM 看 8 个 Tool spec 自己决定调哪个（评分项 2 加分点）
 
 实现策略：
@@ -50,8 +54,8 @@ from schemas.tools import (
     SearchRestaurantsOutput,
 )
 
-from ..core.llm_client import FunctionCallingClient, LLMMessage
-from .planner_rule import (
+from ...core.llm_client import FunctionCallingClient, LLMMessage
+from agent.planning.planners.rule_planner import (
     DEFAULT_DINING_TIMES,
     MAX_TOOL_CALLS_PER_KIND,
     MAX_TOTAL_TOOL_CALLS,
@@ -59,8 +63,8 @@ from .planner_rule import (
     _assemble_itinerary,
     plan_itinerary,
 )
-from agent.legacy.prompts.llm_planner_prompt import LLM_PLANNER_SYSTEM_PROMPT
-from ..core.trace import Tracer
+from .prompts.llm_planner_prompt import LLM_PLANNER_SYSTEM_PROMPT
+from ...core.trace import Tracer
 from tools.registry import TOOL_REGISTRY, all_specs, invoke_tool
 
 

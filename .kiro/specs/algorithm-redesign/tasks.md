@@ -1,4 +1,4 @@
-# Implementation Plan: Algorithm Redesign (spec C)
+﻿# Implementation Plan: Algorithm Redesign (spec C)
 
 ## Overview
 
@@ -49,7 +49,7 @@
   - 新增 `backend/tests/test_tool_response_inconsistency.py`（≥ 6 项）：编造 POI ID 触发违规 / 编造 Restaurant ID 触发 / 真实 ID 不触发 / tool_results=None 时跳过 / target_kind="home" 不检查 / 多个幻觉 ID 全部捕获
   - 跑全套 pytest 必须 0 红灯
 
-- [ ] 4. [R3] ils_planner.py grounding-first 前置硬剔除（~1.5h）：在 `backend/agent/legacy/ils_planner.py`（FROZEN 模块允许加新过滤函数）加：
+- [ ] 4. [R3] ils_planner.py grounding-first 前置硬剔除（~1.5h）：在 `backend/agent/planning/planners/ils_planner.py`（FROZEN 模块允许加新过滤函数）加：
   - `_grounding_filter_poi(candidates, intent, tracer) -> list[Poi]`：剔除以下情况
     - 含 ≤6 岁同行人 + `get_duration_for_companions(poi.suggested_duration_minutes, intent.companions)` > 90min（用 spec A R2 helper）
     - 含 ≥75 岁同行人 + 主导桶 > 75min
@@ -71,7 +71,7 @@
     - prompt 用 `_SCORER_PROMPT`（见 design.md §Components 设计稿）；temperature=0.3；max_tokens=500
     - LLM 输出严格 JSON 解析（围栏剥离 + try/except）
     - 类型校验 + clip [0, 1]
-  - 升级 `backend/agent/legacy/ils_planner.py:_utility` 函数签名加 `semantic_scores: dict[str, float] | None = None` 参数（向后兼容）；公式末尾加 `score += 0.3 * semantic_scores.get(poi.id, 0.5) if poi and semantic_scores else 0`（**保留** 原 4 维 + spec A R5 _overload_penalty 不变，仅末尾追加）
+  - 升级 `backend/agent/planning/planners/ils_planner.py:_utility` 函数签名加 `semantic_scores: dict[str, float] | None = None` 参数（向后兼容）；公式末尾加 `score += 0.3 * semantic_scores.get(poi.id, 0.5) if poi and semantic_scores else 0`（**保留** 原 4 维 + spec A R5 _overload_penalty 不变，仅末尾追加）
   - 升级 `plan_hybrid` 入口：调用 `score_pois_with_llm(intent, pois, client=client)` 缓存到局部变量；后续所有 _utility 调用透传 semantic_scores 参数
   - 升级 `_local_search` / `_perturb` 内部对 _utility 的调用，把 semantic_scores 一路传下去
   - 新增 `backend/tests/test_preference_scorer.py`（≥ 4 项）：5 岁娃场景 LLM 给亲子 POI 高分 / stub 模式全 0.5 / LLM 失败时全 0.5 / JSON 解析失败兜底
@@ -113,7 +113,7 @@
       - 时长合规度 = `1 - 违规节点数 / 总节点数`（0-100 整数）
       - 距离合理度 = `exp(-(总通勤时间 - target_min)^2 / 800)`（target_min = duration_hours × 60 × 0.2）
       - 偏好匹配度 = `mean(semantic_scores)` × 100（从 task 5 的 preference_scorer 拿）
-    - 升级 `backend/agent/legacy/ils_planner.py:plan_hybrid`：返回 top_k=3 候选 + 每个候选的 `comparison_axes`
+    - 升级 `backend/agent/planning/planners/ils_planner.py:plan_hybrid`：返回 top_k=3 候选 + 每个候选的 `comparison_axes`
     - 升级 `backend/agent/graph/sse_adapter.py:_emit_itinerary_ready`：payload 加 `candidates: list[Itinerary]` + `comparison_axes: list[dict]`（保留原 itinerary 字段为主行程，向后兼容）
   - 前端：
     - 升级 `frontend/components/ComparisonView.tsx`：3 列并排卡片（mobile 改竖向滑动）+ 每张卡片底部 3 条横向 AxisBar

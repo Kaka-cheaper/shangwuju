@@ -1,5 +1,4 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.planner —— ReAct 规划主循环（Planning）。
+﻿"""agent.planner —— ReAct 规划主循环（Planning）。
 
 ⚠️ 冻结声明（2026-05-22）：
     本文件是 hackathon 早期的 rule-based ReAct 主路径，自 LangGraph 主架构上线后
@@ -64,7 +63,7 @@ from schemas.tools import (
     SearchRestaurantsOutput,
 )
 
-from ..core.trace import Tracer
+from ...core.trace import Tracer
 from tools.registry import ToolInvocationResult, invoke_tool
 
 
@@ -218,7 +217,7 @@ def plan_itinerary(
     # 旧版用 decide_segments 返「段集合」frozenset；edge_v1 起改为 decide_nodes 返「中间节点 kind 列表」。
     # 此处仍保留 segments 内部命名（兼容下游 _resolve_time_window / _assemble_itinerary 实现细节），
     # 但语义已等同于 ALWAYS_INCLUDED ∪ {主活动?} ∪ {用餐?} ∪ {转场?}。
-    from ..planning.blueprint.node_decider import decide_segments, explain_segments
+    from ..blueprint.node_decider import decide_segments, explain_segments
     segments = decide_segments(intent)
     tracer.emit("agent_thought", {"text": explain_segments(intent, segments)})
 
@@ -367,7 +366,7 @@ def _enforce_intent_duration_from_raw(
     if not intent.raw_input:
         return intent
 
-    from ..intent.refiner import _extract_duration_from_feedback
+    from ...intent.refiner import _extract_duration_from_feedback
 
     extracted = _extract_duration_from_feedback(intent.raw_input)
     if extracted is None:
@@ -1040,8 +1039,8 @@ def _assemble_itinerary(
     from data.loader import load_user_profile
     from schemas.domain import UserProfile
 
-    from ..planning.blueprint.assemble_blueprint import assemble_from_blueprint
-    from ..planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+    from ..blueprint.assemble_blueprint import assemble_from_blueprint
+    from ..blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
 
     # 决定 segments：缺省时按可用 POI/餐厅推导
     if segments is None:
@@ -1236,7 +1235,7 @@ def plan_itinerary_with_mode(
 
         client = llm_client
         if client is None:
-            from ..core.llm_client import get_llm_client
+            from ...core.llm_client import get_llm_client
             try:
                 client = get_llm_client()
             except (ValueError, RuntimeError):
@@ -1259,7 +1258,7 @@ def plan_itinerary_with_mode(
         strategy = (os.getenv("PLANNER_LLM_STRATEGY", "llm_first") or "llm_first").strip().lower()
 
         if strategy == "function_calling":
-            from .llm_planner import plan_itinerary_llm
+            from agent.planning.planners.llm_planner import plan_itinerary_llm
             return plan_itinerary_llm(intent, client=client, tracer=tracer)
 
         if strategy == "hybrid":
@@ -1287,7 +1286,7 @@ def _plan_with_hybrid(
     rule_assembler：闭包内调 rule planner 的 _estimate / _resolve_time_window /
     _assemble_itinerary 三个 helper，让 hybrid 不需要重写时间轴拼装逻辑。
     """
-    from .ils_planner import plan_hybrid, CandidatePlan
+    from agent.planning.planners.ils_planner import plan_hybrid, CandidatePlan
 
     tracer = tracer or Tracer()
     # 入口防线：与 plan_itinerary 一致，hybrid 路径也必须用 raw_input 兜底
@@ -1334,7 +1333,7 @@ def _plan_with_hybrid(
         rest_to_home = _estimate(_call_route, candidate.restaurant.id, "home")
         party_size = max(1, sum(c.count for c in intent_.companions) or 1)
         # hybrid 走完整 5 段（segments_reduced 已在 plan_hybrid 入口被剔出）
-        from ..planning.blueprint.node_decider import FULL_SEGMENTS
+        from ..blueprint.node_decider import FULL_SEGMENTS
         return _assemble_itinerary(
             main_poi=candidate.main_poi,
             chosen_restaurant=candidate.restaurant,
@@ -1403,7 +1402,7 @@ def _plan_with_llm_first(
     1. LLM 蓝图重试 N 次仍失败 → fallback hybrid
     2. hybrid 失败 → fallback rule（保 demo 兜底）
     """
-    from .llm_first_planner import plan_llm_first
+    from agent.planning.planners.llm_first_planner import plan_llm_first
 
     # 入口防线（与 plan_itinerary 一致，确保 raw_input 兜底也对 llm_first 生效）
     intent = _enforce_intent_duration_from_raw(intent, tracer)

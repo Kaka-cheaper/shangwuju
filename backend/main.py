@@ -1737,7 +1737,7 @@ async def _planner_stream(
     import asyncio
     import threading
 
-    from agent.legacy.planner_rule import plan_itinerary_with_mode
+    from agent.planning.planners.rule_planner import plan_itinerary_with_mode
     from agent.core.trace import TraceRecord, Tracer
 
     seq = starting_seq

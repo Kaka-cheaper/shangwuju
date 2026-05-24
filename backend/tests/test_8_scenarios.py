@@ -20,8 +20,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.legacy.executor import execute_plan
-from agent.legacy.planner_rule import plan_itinerary
+from agent.planning.execution.executor import execute_plan
+from agent.planning.planners.rule_planner import plan_itinerary
 from schemas.intent import Companion, IntentExtraction
 from schemas.itinerary import Itinerary
 

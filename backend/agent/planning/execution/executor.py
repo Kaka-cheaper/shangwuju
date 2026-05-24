@@ -1,5 +1,20 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.executor —— 用户确认后下发执行类 Tool。
+﻿"""agent.planning.execution.executor —— 执行类活代码（用户确认后下发 reserve / buy / share Tool）。
+
+【与 graph/nodes/execute_finalize 的关键差异】（spec D v3 task 2 实测发现）：
+
+- executor.execute_plan：用 `_extract_reserved_time(restaurant_node.note)` 解析「已为你预留 X」
+  类预留时段，**与 mock 时段严格匹配（HH:MM 整 30 分）**
+- graph/execute_finalize：直接用 `restaurant_node.start_time`（含通勤后的实际抵达时刻），
+  在 mock 严格匹配下失败
+
+两者行为**不等价**——本模块是 rule planner / ils_planner 路径下用户确认的执行入口；
+graph 路径下用户确认的执行入口是 graph/nodes/execute_finalize。
+
+【被以下入口消费】
+
+- `tests/test_agent_flow.py`（rule planner 路径主流程 → executor）
+- `tests/test_8_scenarios.py`（8 场景 reserve + share）
+- `agent/__init__.py` re-export `execute_plan` / `ExecutionResult`
 
 职责：
 - 接 Itinerary（来自 planner）+ 用户确认信号
@@ -47,7 +62,7 @@ from schemas.tools import (
     ReserveRestaurantOutput,
 )
 
-from ..core.trace import Tracer
+from ...core.trace import Tracer
 from tools.registry import ToolInvocationResult, invoke_tool
 
 

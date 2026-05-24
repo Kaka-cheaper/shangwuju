@@ -75,15 +75,30 @@ def test_runtime_imports() -> None:
     from agent.runtime.tools import search_adapter  # noqa: F401
 
 
-def test_legacy_imports() -> None:
-    """agent/legacy/ 7 个冻结模块全部可 import。"""
-    from agent.legacy.planner_rule import plan_itinerary  # noqa: F401
-    from agent.legacy.ils_planner import plan_hybrid  # noqa: F401
-    from agent.legacy.llm_first_planner import plan_llm_first  # noqa: F401
-    from agent.legacy.llm_planner import plan_itinerary_llm  # noqa: F401
-    from agent.legacy.ils_score_critic import run_critics  # noqa: F401
-    from agent.legacy.executor import execute_plan  # noqa: F401
-    from agent.legacy.segment_decider import decide_segments  # noqa: F401
+def test_planning_planners_imports() -> None:
+    """spec D v3：原 legacy/ 下的 7 个非死代码 + 1 prompt 全部解冻迁回 planning/。"""
+    from agent.planning.planners.rule_planner import (  # noqa: F401
+        plan_itinerary,
+        plan_itinerary_with_mode,
+    )
+    from agent.planning.planners.ils_planner import plan_hybrid  # noqa: F401
+    from agent.planning.planners.llm_first_planner import plan_llm_first  # noqa: F401
+    from agent.planning.planners.llm_planner import plan_itinerary_llm  # noqa: F401
+    from agent.planning.planners.segment_decider import (  # noqa: F401
+        FULL_SEGMENTS,
+        decide_segments,
+    )
+    from agent.planning.planners.prompts.llm_planner_prompt import (  # noqa: F401
+        LLM_PLANNER_SYSTEM_PROMPT,
+    )
+    from agent.planning.critic.ils_score_critic import (  # noqa: F401
+        CriticReport,
+        run_critics,
+    )
+    from agent.planning.execution.executor import (  # noqa: F401
+        ExecutionResult,
+        execute_plan,
+    )
 
 
 # ============================================================
@@ -127,6 +142,15 @@ def test_legacy_imports() -> None:
         "agent.prompts.narrator_prompt",
         "agent.prompts.blueprint_prompt",
         "agent.prompts.llm_planner_prompt",
+        # spec D v3 删除的 legacy/ 路径
+        "agent.legacy.planner_rule",
+        "agent.legacy.ils_planner",
+        "agent.legacy.llm_first_planner",
+        "agent.legacy.llm_planner",
+        "agent.legacy.segment_decider",
+        "agent.legacy.ils_score_critic",
+        "agent.legacy.executor",
+        "agent.legacy.prompts.llm_planner_prompt",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

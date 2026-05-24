@@ -21,7 +21,7 @@ load_dotenv()
 
 from agent.intent.parser import parse_intent
 from agent.core.llm_client import get_llm_client
-from agent.legacy.planner_rule import plan_itinerary_with_mode
+from agent.planning.planners.rule_planner import plan_itinerary_with_mode
 from agent.intent.refiner import refine_intent
 
 

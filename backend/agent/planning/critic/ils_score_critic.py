@@ -1,5 +1,17 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.critics —— LLM-Modulo 风格的 Critic 验证层（A+C 混合方案的 C 段，edge_v1）。
+﻿"""agent.planning.critic.ils_score_critic —— ILS 候选打分专用 critic（CriticReport / run_critics）。
+
+【与 critics_v2 的关键差异】
+
+- `critics_v2.validate_itinerary`：itinerary 全局校验（10 类 ViolationCode + 1 spec A R4 AGE_DURATION_MISMATCH）
+- `ils_score_critic.run_critics`：ILS 候选打分（hard_constraint / time_window / budget / style 4 维评分）
+
+两者维度不同，功能不重叠：前者验证 itinerary 是否合法，后者给 ILS 算法的候选解打分。
+
+【被以下入口消费】
+
+- `planning/planners/ils_planner.py` 内部调（候选打分阶段）
+- `backend/scripts/verify_planning.py` 验收脚本
+- `tests/test_planner_hybrid.py` / `test_planner_hybrid_overload.py`
 
 学术依据：[Kambhampati et al. 2024 LLMs Can't Plan, But Can Help Planning in
 LLM-Modulo Frameworks (NeurIPS 2024)] + [Kim et al. Robust Planning with
@@ -177,7 +189,7 @@ def _hard_constraint_critic(
         )
 
     # 节点 kind 完整度：按 intent 决定的 mid_nodes 判（edge_v1：不再硬要 5 段）
-    from ..planning.blueprint.node_decider import decide_nodes
+    from ..blueprint.node_decider import decide_nodes
     required_kinds = set(decide_nodes(intent))
     have_kinds = _mid_node_kinds(plan)
     missing = required_kinds - have_kinds

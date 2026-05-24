@@ -185,7 +185,7 @@
   - 类型校验 + clip [0, 1]
   - temperature=0.3；max_tokens=500
 
-**接入点**（`backend/agent/legacy/ils_planner.py`）：
+**接入点**（`backend/agent/planning/planners/ils_planner.py`）：
 
 1. `_utility` 函数签名加 `semantic_scores: dict[str, float] | None = None` 参数（向后兼容）；公式末尾加 `score += 0.3 * semantic_scores.get(poi.id, 0.5) if poi and semantic_scores else 0`（保留原 4 维 + spec A R5 _overload_penalty 不变，仅末尾追加）
 2. `plan_hybrid` 入口：调用 `score_pois_with_llm(intent, pois, client=client)` 缓存到局部变量；后续 `_utility` / `_local_search` / `_perturb` 调用透传 semantic_scores 参数
@@ -234,7 +234,7 @@ class UserProfile(BaseModel):
    - **时长合规度** = `int(100 * (1 - 违规节点数 / 总节点数))`（违规节点 = duration_min > age_caps_from_intent）
    - **距离合理度** = `int(100 * exp(-(总通勤时间 - target_min)² / 800))`（target_min = duration_hours[0] × 60 × 0.2，通勤理想占比 20%）
    - **偏好匹配度** = `int(100 * mean(semantic_scores))`（从 task 5 的 preference_scorer 输出拿；候选池为空则 70 占位）
-2. 升级 `backend/agent/legacy/ils_planner.py:plan_hybrid`：返回前 3 名 utility 排名候选 + 每个候选的 `comparison_axes`
+2. 升级 `backend/agent/planning/planners/ils_planner.py:plan_hybrid`：返回前 3 名 utility 排名候选 + 每个候选的 `comparison_axes`
 3. 升级 `backend/agent/graph/sse_adapter.py:_emit_itinerary_ready`：payload 加 `candidates: list[Itinerary]` + `comparison_axes: list[dict]`（保留原 itinerary 字段为主行程，向后兼容）
 
 **前端**（`frontend/components/ComparisonView.tsx`）：

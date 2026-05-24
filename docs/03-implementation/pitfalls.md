@@ -890,3 +890,48 @@
   6. **legacy/ 下文件顶部必须含 `# FROZEN: 详见 AGENTS.md §3.3.1` 注释**——受 `verify_legacy_frozen.py` 守护，删了会被 CI 拦
   7. **新路径不可逆**：`tests/test_import_paths.py::test_old_paths_no_longer_importable` 通过 33 个 negative 测试拦下任何回退到旧路径的 PR
 
+
+
+---
+
+## [P0] 2026-05-24 目录重组前必须做两步独立审计——grep 完整引用 + 实测行为等价性
+
+**问题域**：架构 / 目录重组（spec B / spec D 教训汇总）
+
+**现象**：
+
+spec B `agent-directory-restructure` 把 8 个 .py 文件甩进 `legacy/` 时，没盘点真实引用：
+
+- 漏看相对引用 `from .X import` / `from ..X import`
+- 漏看内部链式调用（函数体内 `from .X import Y`）
+- 把 4 个生产路径（含 PLANNER_LLM_STRATEGY 三档子策略 + ils_planner 依赖）误归 legacy
+
+spec D 起草时编排者犯了**两次**审计错误：
+
+- v1 误判 3 个真死代码（只 grep absolute import）
+- v2 误判 1 个真死代码（假设 executor 与 graph/execute_finalize 等价但未实测）
+- v3 task 2 实测 fail 后发现 executor 行为不等价（前者解析 `note` 中预留时段，后者用 `start_time`，mock 严格匹配下失败），修正为 0 个真死代码
+
+**根因**：
+
+- 「我以为是死代码」不能凭直觉/grep absolute import 一种方式判断
+- 「等价路径已存在」不能只看函数名相似 / docstring 说明
+- spec B + spec D 起草共犯 3 次审计错误模式：信赖单一证据来源
+
+**防再犯**：
+
+未来任何重组 spec 启动前必须做**两步独立审计**：
+
+1. **grep 完整引用关系**（4 类模板覆盖）：
+   - absolute import：`from agent.X.Y import Z`
+   - relative import：`from .Y import Z` / `from ..Y import Z`
+   - 函数体内链式：函数体内 `from .Y import Z`（grep 时不能只看 module 顶部）
+   - 字符串引用：`importlib.import_module("X.Y")` / `__import__("X.Y")`
+
+2. **实测行为等价性**：任何「等价路径已存在」的删除假设都必须 pytest 实测，不能只看函数名相似 / docstring 说明。具体步骤：
+   - 把待删模块作为 baseline（保留），把替代模块挂到原入口
+   - 跑全套 pytest + verify_*.py 端到端验证
+   - 任何一个测试 fail = 行为不等价 = 不能删
+
+**优先级**：P0（架构级，影响 spec 实施成败 + 业务行为正确性）
+

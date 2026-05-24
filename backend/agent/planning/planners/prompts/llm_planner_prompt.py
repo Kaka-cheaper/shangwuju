@@ -1,5 +1,4 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""llm_planner_prompt —— LLM Function Calling 自主规划提示词。
+﻿"""agent.planning.planners.prompts.llm_planner_prompt —— LLM Function Calling 自主规划提示词。
 
 与 prompts/system_prompt.py 的 PLANNER_SYSTEM_PROMPT 区别：
 - 那个是给规则化 planner 看的「人话指南」（实际不会驱动 Tool 调用）

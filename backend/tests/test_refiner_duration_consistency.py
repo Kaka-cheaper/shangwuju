@@ -229,7 +229,7 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
     - _resolve_time_window 接受 segments 不再 30min 下限拉爆
     - 二次裁段在 duration ≤ 2h 时启用
     """
-    from agent.legacy.planner_rule import plan_itinerary
+    from agent.planning.planners.rule_planner import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",
@@ -268,7 +268,7 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
 def test_two_hour_feedback_caps_total_within_2_5_hours():
     """反馈"2 小时" + 闺蜜下午茶：受 mock 餐厅时段约束，可能裁掉用餐段；
     但总时长必须严格 ≤ 2.5h（不能像截图 4.7h 那样）。"""
-    from agent.legacy.planner_rule import plan_itinerary
+    from agent.planning.planners.rule_planner import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",
@@ -303,7 +303,7 @@ def test_two_hour_feedback_caps_total_within_2_5_hours():
 
 def test_long_duration_unaffected_by_dining_cut():
     """4h 场景仍应 5 段，不被二次裁段误触发。"""
-    from agent.legacy.planner_rule import plan_itinerary
+    from agent.planning.planners.rule_planner import plan_itinerary
 
     intent = IntentExtraction(
         start_time="today_afternoon",

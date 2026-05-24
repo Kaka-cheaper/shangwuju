@@ -26,10 +26,10 @@ import pytest
 
 from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
 from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
-from agent.legacy.ils_score_critic import (
+from agent.planning.critic.ils_score_critic import (
     run_critics,
 )
-from agent.legacy.planner_rule import plan_itinerary_with_mode
+from agent.planning.planners.rule_planner import plan_itinerary_with_mode
 from agent.planning.weights_llm import (
     PlanningWeights,
     _heuristic_weights,
@@ -328,7 +328,7 @@ def test_critic_total_minutes_overflow_hard():
 
 def test_utility_distance_decreases_with_far_pois():
     """远 POI 的 utility 应低于近 POI。"""
-    from agent.legacy.ils_planner import _utility
+    from agent.planning.planners.ils_planner import _utility
     from schemas.domain import Location, Poi, PoiCapacity, Restaurant, RestaurantCapacity
 
     rest = Restaurant(

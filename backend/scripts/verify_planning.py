@@ -19,8 +19,8 @@ import sys
 import time
 from dataclasses import dataclass
 
-from agent.legacy.ils_score_critic import run_critics
-from agent.legacy.planner_rule import plan_itinerary, plan_itinerary_with_mode
+from agent.planning.critic.ils_score_critic import run_critics
+from agent.planning.planners.rule_planner import plan_itinerary, plan_itinerary_with_mode
 from agent.planning.weights_llm import PlanningWeights, get_planning_weights
 from schemas.intent import Companion, IntentExtraction
 

@@ -526,3 +526,21 @@
 - **Dx**：第 x 个决策项（D0 / D1 / D-default-1 / D-known-1 等）
 - **Px**：第 x 个 pitfall（见 `pitfalls.md`）
 - **MVP-x**：MVP 定义里第 x 个里程碑
+
+
+### D-LEGACY-CLEANUP [2026-05-24]：spec legacy-cleanup-and-honest-naming 落地（v3 修正版）
+
+**决定**：删除误导的 `legacy/` 目录——0 个真死代码（v1 误判 3 / v2 误判 1 / v3 实测后修正为 0），7 个非死代码 + 1 prompt 全部解冻迁回 `planning/planners/` + `planning/critic/` + `planning/execution/`。
+
+**理由**：spec B 起草时把 8 个文件甩进 legacy/ 没盘点真实引用，导致 4 个 PLANNER_LLM_STRATEGY 三档子策略生产路径（含默认值 llm_first）被错误冻结；spec D 起草编排者**两次**犯审计错误（v1 漏相对引用 / v2 漏实测行为等价）。最终 v3 修正为 0 删除 + 7 解冻 + 新建 `planning/planners/` + `planning/execution/` 子目录。spec B 5 子目录骨架保留；冻结纪律改为按 `graph/build.py` 拓扑稳定（而非按文件位置）。
+
+**实施结果**：
+
+- `legacy/` 整个目录删除（含 prompts/ 子目录）+ `verify_legacy_frozen.py` 删除
+- 7 个 .py + 1 prompt 解冻迁移；所有 `# FROZEN` 注释移除（除 `weights_llm.py` 保留）
+- `AGENTS.md §3.3.1` 重写：标题「编排层目录纪律」（不再叫「冻结纪律」）+ 目录树更新 + MUST/MUST NOT 段删除 4 条 legacy 相关条款
+- 测试基线：560 → 607（新增 8 项 import_paths 新路径 + 8 项 legacy 反向断言）；verify_planning_quality 24/24 / verify_edge_model 4/4 / FastAPI app load 全过
+
+**永久教训**（pitfalls.md [P0] 2026-05-24）：
+
+未来重组前必须做**两步独立审计**：(1) grep 完整引用关系（含 absolute / relative `from .X` / 内部链式 / 字符串引用 4 类模板）；(2) 实测行为等价性（任何「等价路径已存在」的删除假设都必须 pytest 实测）。

@@ -17,7 +17,7 @@ import pytest
 
 from agent import plan_itinerary, plan_itinerary_with_mode
 from agent.core.llm_client_stub import StubLLMClient
-from agent.legacy.llm_planner import plan_itinerary_llm
+from agent.planning.planners.llm_planner import plan_itinerary_llm
 from schemas.intent import Companion, IntentExtraction
 
 

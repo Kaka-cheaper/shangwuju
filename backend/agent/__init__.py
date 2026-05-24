@@ -15,18 +15,18 @@ P2 落地内容（A 同学 owner）：
 - HTTP/SSE 传输（在 backend/main.py）
 """
 
-from .legacy.planner_rule import (
+from .planning.planners.rule_planner import (
     PlannerResult,
     plan_itinerary,
     plan_itinerary_with_mode,
     MAX_TOOL_CALLS_PER_KIND,
     MAX_TOTAL_TOOL_CALLS,
 )
-from .legacy.llm_planner import plan_itinerary_llm
+from .planning.planners.llm_planner import plan_itinerary_llm
 from .intent.refiner import refine_intent, RefinementError
 from .intent.router import classify_input, fallback_decision, RouterError
 from .intent.parser import parse_intent, IntentParseError
-from .legacy.executor import execute_plan, ExecutionResult
+from .planning.execution.executor import execute_plan, ExecutionResult
 from .core.trace import Tracer, TraceRecord
 
 

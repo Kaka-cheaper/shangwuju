@@ -11,10 +11,10 @@
 
 from __future__ import annotations
 
-from agent.legacy.executor import execute_plan
+from agent.planning.execution.executor import execute_plan
 from agent.intent.parser import parse_intent
 from agent.core.llm_client_stub import StubLLMClient
-from agent.legacy.planner_rule import plan_itinerary
+from agent.planning.planners.rule_planner import plan_itinerary
 
 
 FAMILY_INPUT = "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。"

@@ -80,7 +80,7 @@
 
 #### Acceptance Criteria
 
-1. WHEN `backend/agent/legacy/ils_planner.py:_query_pois` 升级 THEN 函数 SHALL 在 `SearchPoisOutput` 解析后 + 返回前加一层硬约束过滤 `_grounding_filter(candidates, intent) -> list[Poi]`，剔除以下情况：
+1. WHEN `backend/agent/planning/planners/ils_planner.py:_query_pois` 升级 THEN 函数 SHALL 在 `SearchPoisOutput` 解析后 + 返回前加一层硬约束过滤 `_grounding_filter(candidates, intent) -> list[Poi]`，剔除以下情况：
    - 含 ≤6 岁同行人 + POI 的 suggested_duration_minutes 主导桶（kid_3_6 取 default 兜底）严格大于 90min
    - 含 ≥75 岁同行人 + 主导桶严格大于 75min
    - POI.distance_km > intent.distance_max_km + 1.0（与 _utility 物理可行性快检对齐）
@@ -106,8 +106,8 @@
    - `score_pois_with_llm(intent, pois, *, client) -> dict[str, float]`：批量调一次 LLM，返回 `{poi_id: 0-1 浮点}`
    - prompt 输入：intent 自然语言 + POI 列表（id/name/category/tags/rating/context），prompt 末尾要求 LLM 输出严格 JSON `{"scores": {"P001": 0.85, ...}}`
    - LLM 调用失败 / JSON 解析失败时返回所有 POI 默认 0.5 分（不阻断 ILS 主路径）
-2. WHEN `backend/agent/legacy/ils_planner.py:_utility` 公式升级 THEN 函数 SHALL 接受新参数 `semantic_scores: dict[str, float] | None = None`（向后兼容）；公式末尾追加 `+ 0.3 * semantic_scores.get(poi.id, 0.5) if semantic_scores else 0`（保留原 4 维 + _overload_penalty 不变）。
-3. WHEN `backend/agent/legacy/ils_planner.py:plan_hybrid` 升级 THEN 入口处 SHALL 在 `_query_pois` 后调用一次 `score_pois_with_llm`，缓存结果传给 `_utility` / `_local_search` / `_perturb`。
+2. WHEN `backend/agent/planning/planners/ils_planner.py:_utility` 公式升级 THEN 函数 SHALL 接受新参数 `semantic_scores: dict[str, float] | None = None`（向后兼容）；公式末尾追加 `+ 0.3 * semantic_scores.get(poi.id, 0.5) if semantic_scores else 0`（保留原 4 维 + _overload_penalty 不变）。
+3. WHEN `backend/agent/planning/planners/ils_planner.py:plan_hybrid` 升级 THEN 入口处 SHALL 在 `_query_pois` 后调用一次 `score_pois_with_llm`，缓存结果传给 `_utility` / `_local_search` / `_perturb`。
 4. WHEN 模型未配置 LLM API key（`LLM_PROVIDER=stub` 模式）THEN `score_pois_with_llm` SHALL 返回所有 POI 默认 0.5 分（保持 stub 可跑通 demo）。
 5. WHEN ILS 总耗时增加 THEN 单次 LLM 批量打分 SHALL 控制在 ≤ 3 秒（DeepSeek-V3 30 个 POI 批量调用经验值），不破 spec A 已锁的 latency 预算。
 6. WHEN 新增测试 `tests/test_preference_scorer.py` + `tests/test_utility_with_semantic.py` THEN 覆盖 ≥ 6 项：5 岁娃场景 LLM 给亲子 POI 高分 / 商务场景给网红 POI 低分 / LLM 失败时全 0.5 / stub 模式跳过 / utility 加项数学正确性 / cache 命中。
@@ -168,7 +168,7 @@
 #### Acceptance Criteria
 
 1. WHEN `frontend/components/ComparisonView.tsx` 升级 THEN 组件 SHALL 接受 `candidates: list[Itinerary]`（默认 3 个）+ 显式 emit `ComparisonAxes` 评分（轴 1：时长合规度 / 轴 2：距离合理度 / 轴 3：偏好匹配度，每轴 0-100 分整数）。
-2. WHEN ILS 主路径升级 THEN `backend/agent/legacy/ils_planner.py:plan_hybrid` SHALL 返回前 3 名 utility 排名候选（不只 1 名最优），格式 `list[Itinerary]` 而非单 `Itinerary`；spec A 已经部分实现（保留 `top_k` 参数），spec C 把默认 `top_k=3` 锁死。
+2. WHEN ILS 主路径升级 THEN `backend/agent/planning/planners/ils_planner.py:plan_hybrid` SHALL 返回前 3 名 utility 排名候选（不只 1 名最优），格式 `list[Itinerary]` 而非单 `Itinerary`；spec A 已经部分实现（保留 `top_k` 参数），spec C 把默认 `top_k=3` 锁死。
 3. WHEN 主路径返回 3 候选 THEN `graph/sse_adapter.py:_to_sse` 的 `itinerary_ready` event SHALL payload 含 `candidates: list[Itinerary]` + `comparison_axes: list[ComparisonAxes]`（每候选一组评分）。
 4. WHEN `frontend/components/ComparisonView.tsx` 渲染 THEN 评委 SHALL 看到 3 列并排卡片 + 每张卡片底部 3 条横向评分条；用户点击一张卡片切换为「主行程」，其他 2 张缩回 thumbnail。
 5. WHEN 用户在 ComparisonView 切换主行程 THEN 不发起新的 LLM 调用（只是前端状态切换），延迟 < 100ms；切换后 IntentSummary / ToolTracePanel / ItineraryCard 同步更新。

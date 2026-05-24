@@ -106,13 +106,13 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
     # ---- 先尝试 ILS（仅 5 段完整场景适用）----
     ils_success = False
     try:
-        from agent.legacy.segment_decider import FULL_SEGMENTS, decide_segments
-        from agent.legacy.ils_planner import plan_hybrid
+        from agent.planning.planners.segment_decider import FULL_SEGMENTS, decide_segments
+        from agent.planning.planners.ils_planner import plan_hybrid
 
         segments = decide_segments(intent)
         if segments == FULL_SEGMENTS:
             # 5 段场景：走 ILS
-            from agent.legacy.planner_rule import _assemble_itinerary as rule_assembler
+            from agent.planning.planners.rule_planner import _assemble_itinerary as rule_assembler
             client = get_llm_client()
             result = plan_hybrid(
                 intent,
@@ -140,7 +140,7 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         ).model_dump()
     )
     try:
-        from agent.legacy.planner_rule import plan_itinerary
+        from agent.planning.planners.rule_planner import plan_itinerary
         from agent.core.trace import Tracer
 
         tracer = Tracer()
@@ -178,7 +178,7 @@ def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optiona
     适配 CandidatePlan 的可选字段（main_poi / restaurant 可能为 None）。
     """
     try:
-        from agent.legacy.planner_rule import plan_itinerary
+        from agent.planning.planners.rule_planner import plan_itinerary
         from agent.core.trace import Tracer
 
         # 直接用 rule planner 跑完整流程（它内部会根据 segment_decider 决定段集合）

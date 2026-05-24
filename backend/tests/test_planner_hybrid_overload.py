@@ -35,8 +35,8 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.legacy.ils_score_critic import CriticReport, CriticViolation  # noqa: E402
-from agent.legacy.ils_planner import (  # noqa: E402
+from agent.planning.critic.ils_score_critic import CriticReport, CriticViolation  # noqa: E402
+from agent.planning.planners.ils_planner import (  # noqa: E402
     DINING_SLOTS,
     CandidatePlan,
     _classify_violation,

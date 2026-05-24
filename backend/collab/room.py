@@ -472,7 +472,7 @@ class RoomManager:
     async def _run_rule_planner_fallback(self, room: Room, intent: Any) -> None:
         """Rule planner 兜底。"""
         try:
-            from agent.legacy.planner_rule import plan_itinerary
+            from agent.planning.planners.rule_planner import plan_itinerary
             from agent.core.trace import Tracer
 
             tracer = Tracer()
@@ -508,7 +508,7 @@ class RoomManager:
         """无 LangGraph 时用 rule planner 兜底（需要先解析 intent）。"""
         try:
             from agent.intent.parser import parse_intent
-            from agent.legacy.planner_rule import plan_itinerary
+            from agent.planning.planners.rule_planner import plan_itinerary
             from agent.core.trace import Tracer
 
             intent = parse_intent(user_input)

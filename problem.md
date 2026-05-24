@@ -6514,3 +6514,60 @@ backend/agent/
 - pitfalls.md 加 1 条 [P0] 防再犯：「目录重组前必须 grep 真实引用，明确『主路径 / 活 fallback / 死代码』三类」
 - 用户可决定下一步：(a) 启动 spec D 实施（task 1 baseline 验证 + 后续 4 task 串行推进，2.7h 完成）；(b) 用户先 review spec D 三件套提修改意见；(c) spec D + spec C 顺序串行启动（spec D 完成 → 启动 spec C）
 
+
+---
+
+## 问题：spec D legacy-cleanup-and-honest-naming 实施完成（v3 修正版）
+
+**用户原问**：「冻结层有用吗？我觉得是不是应该融合或者把功能拆出来？这个 legacy 不应该在真正的工程项目中出现」+ 选 a 路线启动 spec D 实施
+
+**起草版本三次修正历程（编排者自己审计错误两次，user 独立审查指出一次）**：
+
+```text
+| 版本     | 真死代码数 | 错误根因                                              | 修正者                |
+|---------|-----------|----------------------------------------------------|---------------------|
+| spec D v1| 3         | 只 grep absolute import，漏看相对引用                  | user 第一次审查指出   |
+| spec D v2| 1         | 假设「executor 与 graph/execute_finalize 等价」未实测   | task 2 实测 fail 后发现|
+| spec D v3| **0**     | executor 用 _extract_reserved_time(note)，graph 用 start_time，mock 严格匹配下不等价 | 现状（已落地）|
+```
+
+**实施结果**（task 1-4 全部完成，一次性原子 commit 待跑）：
+
+- **0 个真死代码删除**（v3 修正后）
+- **7 个非死代码 + 1 prompt 全部解冻迁回**：
+  - `legacy/planner_rule.py` → `planning/planners/rule_planner.py`（重命名 + 主路径活代码）
+  - `legacy/ils_planner.py` → `planning/planners/ils_planner.py`（PLANNER_LLM_STRATEGY=hybrid + graph replan 兜底）
+  - `legacy/llm_first_planner.py` → `planning/planners/llm_first_planner.py`（PLANNER_LLM_STRATEGY=llm_first **默认值** 核心）
+  - `legacy/llm_planner.py` → `planning/planners/llm_planner.py`（PLANNER_LLM_STRATEGY=function_calling 子策略）
+  - `legacy/segment_decider.py` → `planning/planners/segment_decider.py`（ils_planner 依赖）
+  - `legacy/prompts/llm_planner_prompt.py` → `planning/planners/prompts/llm_planner_prompt.py`
+  - `legacy/ils_score_critic.py` → `planning/critic/ils_score_critic.py`（ILS 候选打分专用 critic）
+  - `legacy/executor.py` → `planning/execution/executor.py`（**新建 execution/ 子目录**——与 graph/execute_finalize 行为不等价）
+- **新建 2 个子目录**：`planning/planners/` + `planning/execution/`
+- **删除**：`legacy/` 整个目录 + `verify_legacy_frozen.py` + `legacy/__init__.py` + `legacy/prompts/__init__.py` + 所有 # FROZEN 注释（除 weights_llm.py 保留）
+
+**测试 / 验收**：
+
+- pytest：**607 passed + 1 skipped + 0 failed**（baseline 599 + 新增 8 项 import_paths）
+- verify_planning_quality.py：**24/24 100%**（spec A R10 验收）
+- verify_planning.py / verify_edge_model.py：全绿
+- FastAPI app load：✓
+- grep 验证：除 test_import_paths 反向断言外 **0 处 legacy 引用**
+
+**修改的代码文件**（数量统计）：
+
+- 新建：`planning/planners/` 目录 + 7 文件 + `planning/execution/` 目录 + 1 文件 + 2 个 __init__.py + planners/prompts/__init__.py
+- 删除：legacy/ 整个目录 + verify_legacy_frozen.py
+- 修改路径：12 处外部消费方 import 路径（main.py / collab/room.py / agent/__init__.py / agent/graph/nodes/replan.py / agent/planning/planners/llm_planner.py / agent/planning/planners/ils_planner.py / 5 个测试 / 2 个 verify 脚本）
+- 修改文档：`AGENTS.md §3.3.1`（目录树重写 + MUST/MUST NOT 段更新）
+- 修改 spec C 三件套：`.kiro/specs/algorithm-redesign/{requirements,design,tasks}.md`（ils_planner 路径锚点替换）
+- 同步：`docs/03-implementation/pitfalls.md` + `docs/00-overview/progress.md` + `problem.md`（本条）
+
+**应当达成的效果**：
+
+- legacy/ 目录从仓库消失；命名诚实（rule_planner 在 planners/ 而不是 legacy/；executor 在 execution/）
+- 编排冻结纪律改为按 graph/build.py 拓扑稳定（而非按文件位置）
+- spec C 实施时 R3+R4 改动锚点干净（直接改 planning/planners/ils_planner.py，不撞任何冻结条款）
+- pitfalls.md 加 1 条 [P0] 防再犯：「目录重组前必须做两步独立审计：(1) grep 完整引用关系（含相对引用 + 内部链式调用）；(2) 实测行为等价性。spec B 起草时漏 (1)；spec D 起草 v1 漏 (1)；spec D 起草 v2 漏 (2)；v3 实测后修正为 0 个死代码。永久教训：grep + 实测两步都做完再决定能不能删」
+- 用户可决定下一步：(a) 启动 spec C 实施；(b) 用户先 review spec C 三件套（已被本 spec 同步）
+

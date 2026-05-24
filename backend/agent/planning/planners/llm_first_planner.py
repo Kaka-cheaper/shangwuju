@@ -1,12 +1,19 @@
-﻿# FROZEN: 详见 AGENTS.md §3.3.1，仅 fallback / safety-net，不改业务
-"""agent.planner_llm_first —— LLM-First Planner 主流程（按 problem.md 问题 14 设计）。
+﻿"""agent.planning.planners.llm_first_planner —— PLANNER_LLM_STRATEGY=llm_first（默认）核心生产路径。
 
-⚠️ 冻结声明（2026-05-22）：
-    本文件是 plan_itinerary_with_mode("llm") 的子策略实现，自 LangGraph 主架构上线
-    后**不再演进**。所有新功能改动应在 `agent/graph/` 下完成。
+【真实定位】
 
-    保留理由：LangGraph blueprint_llm + assemble_blueprint 节点复用了本文件抽象出的
-    PlanBlueprint / Critic backprompt 范式。
+本模块是 PLANNER_LLM_STRATEGY=llm_first 子策略的具体实现，**是 env 默认值** 时的核心生产路径。
+被 `rule_planner._plan_with_llm_first` 内部调（PLANNER_LLM_STRATEGY=llm_first 时）。
+
+LLM-First Planner（产品级架构，参考 problem.md 问题 14 + 15 的 LLM-First 重构）：
+- 阶段 1：候选搜索（4 级降级 + 距离放宽）
+- 阶段 2：LLM 蓝图生成（PlanBlueprint）
+- 阶段 3：critic backprompt 重试（≤2 次）
+- 阶段 4：拼装 Itinerary
+- 阶段 5：失败 fallback 链 → hybrid → rule
+
+LangGraph blueprint_llm + assemble_blueprint 节点复用了本文件抽象出的 PlanBlueprint / Critic
+backprompt 范式；所有 graph 主路径的新功能改动应在 `agent/graph/` 下完成。
 
 完整范式（参考 ItiNera EMNLP 2024 + LLM-Modulo NeurIPS 2024）：
 
@@ -57,11 +64,11 @@ from schemas.tools import (
     SearchRestaurantsOutput,
 )
 
-from ..planning.blueprint.assemble_blueprint import assemble_from_blueprint
-from ..planning.blueprint.blueprint import PlanBlueprint, run_blueprint_critics
-from ..planning.blueprint.blueprint_llm import BlueprintGenError, generate_blueprint
-from ..core.llm_client import LLMClient
-from ..core.trace import Tracer
+from ..blueprint.assemble_blueprint import assemble_from_blueprint
+from ..blueprint.blueprint import PlanBlueprint, run_blueprint_critics
+from ..blueprint.blueprint_llm import BlueprintGenError, generate_blueprint
+from ...core.llm_client import LLMClient
+from ...core.trace import Tracer
 from tools.registry import ToolInvocationResult, invoke_tool
 
 
