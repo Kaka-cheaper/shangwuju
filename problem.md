@@ -6165,3 +6165,88 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - 总字数 24400 中文字（Agent1=6800 + Agent2=5950 + Agent3=5648 + Agent4=5910），落在用户要求的产品级深度区间
 - 用户可决定：(a) 进入 Phase 2 派联合审查 sub-agent 做 8 维度交叉对照矩阵；(b) 进入 Phase 3 编排者做项目需求 × 范式对齐分析；(c) 是否需要派第二批 4 个调研（DeepTravel / Planner-R1 RL / TTDP-TOPTW-ILS / 商业产品对标）以补强 RL 路径与商业落地证据
 
+
+---
+
+## 问题：Phase 1 第二批补强——并行 4 sub-agent 调研 RL / 经典 OR / multi-agent+RAG / 商业产品 4 范式
+
+**用户原问**：「b」（选 B 路线：第一批 4 范式不够，先派第二批 4 个补强调研，把样本量从 4 范式扩到 8 范式后再做交叉对照）
+
+**前置纪律**（同 Phase 1 第一批，每个 sub-agent prompt 内强制约束）：
+
+1. 不读其他 sub-agent 报告（防自我合理化偏见）
+2. 必须基于一手资料（arxiv 论文 PDF / abs + GitHub 源码 / 官方 blog / 工程师博客）
+3. 数学公式 / 复杂度 / leaderboard 数字必须有出处，推断显式标 `⚠`
+4. 任何超过 30 词的连续摘抄需重写（内容合规）
+5. 报告章节结构严格对齐 Agent 1（数据出处 / 维度 1-4 / 陷阱清单 5 题 / 关键洞察 / 复用评分 / 建议 / 阅读笔记）
+6. 字数 5500-7000，必须中文，所有表格放进 ```text 代码块
+7. 每个 sub-agent 必读 1-3 份**项目代码**，不允许写「待确认」
+8. 写完后各自 git commit
+
+**4 份报告的核心结论**：
+
+```text
+| Sub-agent           | 范式覆盖                                    | 整体复用 | 一句话结论                                                            | commit  |
+|---------------------|--------------------------------------------|----------|----------------------------------------------------------------------|---------|
+| Agent 5 / RL 路径    | DeepTravel + STAR + TripScore + ChinaTravel| 3/10     | RL 整体不可行（推理路径替换 30+ 人天），但 critics_v2 加 to_reward / 加 TOOL_RESPONSE_INCONSISTENCY 是 1-2 个高 ROI 借鉴点 | aa7c8a4 |
+| Agent 6 / 经典 OR    | TTDP / TOPTW / OP / Vansteenwegen / Gunawan| 7/10     | 与 TOPTW 同构度 ≥85%；当前 ils_planner.py 是「ILS 思想 + 3 槽位简化 + 业务规则增强」非教科书实现；spec C 升级为 ItiNera 范式（LLM-Modulo + ILS 兜底） | 6d76dda |
+| Agent 7 / multi-agent+RAG| TravelAgent / TP-RAG / Vaiage / TriFlow / Aimpoint / DocentPro| 7/10 | 项目已具备 5 真 agent 拓扑；最高 ROI 改造点是借鉴 TravelAgent 三层约束 schema（hard/soft/commonsense）扩 user_profile.json，2 人日完成 | 2d242c6 |
+| Agent 8 / 商业产品   | 携程 TripGenie / 大众点评 / 美团 / Google Ask Maps / NAVITIME / Foursquare | 7/10 | 「半日 + 一句话 + 决策可见」三件事所有商业产品**没有任何一个同时具备**——本项目产品差异化窗口；UX 借鉴 > 算法借鉴 | 4607698 |
+```
+
+**Phase 1 全 8 范式复用评分汇总**（含第一批 4 个）：
+
+```text
+| 范式                              | 整体复用 | 关键洞察                                                                |
+|----------------------------------|----------|------------------------------------------------------------------------|
+| Agent 1 / Google AI Trip Ideas   | 3/10     | 多日范式三件套（DP/Set Packing/LS）半日单城市退化；grounding-first 8/10 |
+| Agent 2 / ITINERA                | 3/10     | cluster + 分层 TSP 半日 4-6 节点退化；定向借鉴 RD 输入分解 + LLM 语义打分 |
+| Agent 3 / LLM-Modulo             | **8/10** | **当前 graph 与 GTC 循环 1:1 同构（事实上的同构系统）**——spec C 范式 anchor |
+| Agent 4 / TravelPlanner          | 3/10     | commonsense vs hard 分类 + reward shaping 思想可借鉴；Planner-R1 RL/SAT-SMT 不可行 |
+| Agent 5 / RL 路径                 | 3/10     | DeepTravel/STAR 整体不可行；critic 加 to_reward + TOOL_RESPONSE_INCONSISTENCY 单点改造 |
+| Agent 6 / 经典 OR (TTDP/TOPTW/OP)| **7/10** | **同构度 ≥85%；ItiNera 范式（LLM-Modulo + ILS 兜底）是 spec C 直接抄的工业派蓝本** |
+| Agent 7 / multi-agent + RAG      | **7/10** | 项目已具 5 真 agent 拓扑；TravelAgent 三层约束 schema 扩 user_profile.json 是最高 ROI 改造 |
+| Agent 8 / 商业产品                | 7/10     | UX 借鉴 9/10 / 算法借鉴 3/10；「半日+一句话+决策可见」是市场窗口        |
+```
+
+**8 范式独立调研后浮现的 6 条交叉印证结论**（4+4 范式互相验证）：
+
+1. **「LLM-only 路径不可行」是行业铁律**——TravelPlanner 0.6%、GPT-5 21.2%、Vaiage 6.8（无 strategy 时）多份独立数据点同源指向；spec C 不能走纯 LLM 端到端
+2. **「LLM 出意图 + 算法/规则出可行性」是 8 范式最大公约数**——Google grounding-first / ITINERA LLM-语义+OR-空间 / LLM-Modulo GTC + sound critic / TravelPlanner rule-based evaluator / 经典 OR LLM-as-scorer / TravelAgent 三层 critic / 商业产品 LLM 抽参 + RAG
+3. **晌午局当前 graph/build.py 与 LLM-Modulo Figure 1 + ItiNera 4 阶段同构**——Agent 3 + Agent 6 独立得出此结论，spec C 应以 LLM-Modulo + ItiNera 为范式 anchor
+4. **半日 + 单城市 + 4-6 节点场景下，重型算法（DP/Set Packing/LS/cluster+分层 TSP/RL/ALNS/MILP）全部过度工程**——Agent 1+2+5+6 独立验证；当前 ILS 是合适粒度
+5. **mock_data 42 POI + 45 餐厅规模下 vector RAG 是过度工程**——结构化 KG 检索是正确粒度（Agent 7 论证）；RL agent 也用不上（数据规模差 100×）
+6. **「半日 + 一句话 + 决策可见」三件事是商业产品全空缺的市场窗口**——Agent 8 横向比对 5 商业产品全部缺至少 1 件；项目 ToolTracePanel + DecisionTraceCard 是 hackathon 评分杀手锏
+
+**spec C 范式收敛建议**（4+4 调研合议结果）：
+
+```text
+| 决策点                | 建议                                                     | 出处依据                              |
+|----------------------|---------------------------------------------------------|--------------------------------------|
+| 主架构范式            | LLM-Modulo + ItiNera 风格（LLM 出方案 → ILS 解 → critic 验）| Agent 3 (8/10) + Agent 6 (7/10)       |
+| 是否换算法            | 不换；保留 ils_planner.py + critics_v2 + graph 拓扑      | Agent 5 + Agent 6 + Agent 7          |
+| 是否做 RL             | 否（ROI 极低 / 推理路径替换不可承受）                      | Agent 5 (3/10)                       |
+| 是否做 vector RAG     | 否（mock 规模 42 POI 不需要）                              | Agent 7 (RAG 子项 3/10)               |
+| 最高 ROI 单点改造 1   | critics_v2 加 to_reward() + 加 TOOL_RESPONSE_INCONSISTENCY  | Agent 5                              |
+| 最高 ROI 单点改造 2   | user_profile.json 扩三层 schema（hard/soft/commonsense）+ recent_trips | Agent 7                  |
+| 最高 ROI 单点改造 3   | _utility 4 维加权和升级为 LLM 出 single profit score（ItiNera 风格）| Agent 6                       |
+| Demo UX 借鉴          | 携程 LUI 浮标 + NAVITIME 三候选并列                        | Agent 8                              |
+| 路演故事              | 「半日 + 一句话 + 决策可见」三件事差异化窗口               | Agent 8                              |
+```
+
+**修改的代码文件**：
+
+- 新建（已 commit aa7c8a4）：`.kiro/specs/algorithm-redesign/research/agent-5-rl-paths/report.md`（5716 中文字 + 项目代码 3 份一手阅读）
+- 新建（已 commit 6d76dda）：`.kiro/specs/algorithm-redesign/research/agent-6-or-ttdp/report.md`（6500 中文字 + 9 份 OR 一手资料）
+- 新建（已 commit 2d242c6）：`.kiro/specs/algorithm-redesign/research/agent-7-multi-agent-rag/report.md`（6192 中文字 + 6 论文 + 1 benchmark）
+- 新建（已 commit 4607698）：`.kiro/specs/algorithm-redesign/research/agent-8-commercial/report.md`（约 6500 中文字 + 5 商业产品深挖）
+- `problem.md`（追加本条，本次主线 commit）
+
+**应当达成的效果**：
+
+- Phase 1 全 8 范式调研完成（4+4），样本量足够支撑 spec C 范式收敛决策
+- 8 份独立报告交叉印证强度高（每 sub-agent 不读其他报告）
+- 总字数累计 ≈ 49000 中文字（Agent1=6800 + Agent2=5950 + Agent3=5648 + Agent4=5910 + Agent5=5716 + Agent6=6500 + Agent7=6192 + Agent8=6500），落在产品级深度区间
+- spec C 范式收敛已有明确建议（LLM-Modulo + ItiNera 主架构 + 3 个最高 ROI 单点改造 + 2 个 UX 借鉴 + 1 个差异化叙事）
+- 用户可决定下一步：(a) 进入 Phase 2 派独立 sub-agent 做 8 维度联合审查矩阵；(b) 跳过联合审查，进 Phase 3 编排者做项目需求 × 范式对齐分析；(c) 进 Phase 4 派 3 个并行 sub-agent 各设计单一范式深化的候选 spec C
+
