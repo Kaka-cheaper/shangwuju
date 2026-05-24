@@ -6356,3 +6356,71 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - 独立第二意见 7 项改造清单 + 8 项绝对不做清单，是 spec C 范式收敛的最终决策依据
 - 用户可决定下一步：(a) 进 Phase 3 编排者亲自做项目需求 × 范式对齐分析（不派 sub-agent）；(b) 跳过 Phase 3，直接进 Phase 4 派 3 个并行 sub-agent 各设计 1 个深化候选 spec C；(c) 用户基于本次 7 项必做 + 8 项不做清单**直接拍板范式收敛**，由编排者写 spec C requirements + design
 
+
+---
+
+## 问题：基于联合审查独立第二意见，写 spec C `algorithm-redesign` 三件套
+
+**用户原问**：「a」（选 A 路线：用户基于联合审查的 7 项必做 + 8 项不做清单 + 5 条隐藏冲突取舍直接拍板范式收敛，由编排者写 spec C 三件套）
+
+**spec C 主架构**：**LLM-Modulo（5+ 份合议）+ ItiNera-style 分工（2 份合议）+ TravelAgent 三层 schema（3+ 份合议）三联混合**——是 Phase 2 联合审查独立第二意见 §7.1 的精确表述（修正了编排者前一轮「LLM-Modulo + ItiNera 4+4 合议」的 cherry-picking 嫌疑）。
+
+**8 个 Requirement + 9 个 Task 摘要**：
+
+```text
+| #  | Requirement                                       | ROI 来源                            | Task | 工时   |
+|----|--------------------------------------------------|------------------------------------|------|--------|
+| R1 | critics_v2 加 compute_reward + CRITIC_FEEDBACK_MODE 三档 | Agent 5 (7/10) + Agent 3 ablation  | T2   | 1.0h   |
+| R2 | 新增 TOOL_RESPONSE_INCONSISTENCY ViolationCode     | Agent 5 (8/10) + DeepTravel 数据点 | T3   | 0.8h   |
+| R3 | ils_planner.py grounding-first 前置硬剔除           | Agent 1 (8/10) + Agent 6 工业派    | T4   | 1.5h   |
+| R4 | _utility 末尾加 LLM 语义打分（ItiNera-style）        | Agent 6 (9/10) + Agent 2 PPR       | T5   | 2.0h   |
+| R5 | user_profile.json 扩三层 schema + memory_writer    | Agent 7 (8.5/10) + Agent 2 RD      | T6   | 2.5h   |
+| R6 | ChatDock + ToolTracePanel 双层折叠                 | Agent 8 LUI + 隐藏冲突 1 取舍       | T7   | 1.0h   |
+| R7 | ComparisonView 三候选 + 三轴评分                    | Agent 8 NAVITIME + Agent 6 印证     | T8   | 2.0h   |
+| R8 | 防再犯条款（4 条 [P0]）+ 文档同步                    | 联合审查 §七 §7.4 八项不做清单     | T9   | 1.0h   |
+```
+
+总工时 12.1h ≈ 1.5-2 人日（hackathon 时间盒可承受）+ 0 GPU。
+
+**5 条隐藏冲突的 spec C 取舍方案**：
+
+```text
+| 冲突                          | spec C 落地方案                                                  |
+|-------------------------------|----------------------------------------------------------------|
+| LUI vs ToolTracePanel         | ChatDock + ToolTracePanel 双层折叠（默认收起 + Cmd+K / 点击展开）   |
+| pinpoint-all vs first-only    | env flag CRITIC_FEEDBACK_MODE 三档（默认 pinpoint-all 向后兼容）   |
+| 候选池前置剥离 vs critic 兜底 | 硬约束（年龄 cap / 闭店 / 距离）走 grounding-first 前置剥离；软约束（dietary / distance warning）走 critic backprompt——显式分层 |
+| max_iter 4 vs 10              | 保持 4（latency-bound，spec C 不变）；演示阶段引入流式 SSE 是后期优化 |
+| 商业算法 vs UX 借鉴            | 算法层不学（黑盒）；仅借鉴 UX（LUI + 三候选 + 意图回写）           |
+```
+
+**8 项「绝对不要做」固化为 R8 防再犯条款**：
+
+- ❌ RL 微调（DeepTravel / Planner-R1 整体复用）
+- ❌ Google 多日 DP/set packing/local search 三件套
+- ❌ ITINERA cluster + 分层 TSP
+- ❌ ALNS / MILP exact 求解器
+- ❌ vector RAG 替换 mock_data
+- ❌ 新增 agent 角色（10+）
+- ❌ 商业产品算法借鉴（黑盒 + 工程量天文数字）
+- ❌ 增加 LLM 调用次数预算到 10（违反 latency-bound）
+
+**修改的代码文件**：
+
+- 新建（已 commit 9224284）：
+  - `.kiro/specs/algorithm-redesign/requirements.md`（242 行；8 Requirement + Glossary + Out of Scope + 启动检查清单）
+  - `.kiro/specs/algorithm-redesign/design.md`（479 行；三联混合架构图 + 6 个 Component 改动锚点 + Data Models + 8 个 Property + Testing Strategy + Error Handling + Decisions Log + Risk Assessment + Estimated Effort + Out of Scope）
+  - `.kiro/specs/algorithm-redesign/tasks.md`（238 行；9 个 task + Wave 拓扑 + 启动检查清单 C1-C5 + Risk & Mitigation 表）
+- `problem.md`（追加本条，本次主线 commit 待跑）
+
+**期间踩的坑**：
+
+1. **PowerShell `Set-Content -Encoding UTF8` 对中文 design.md 整体编码损坏**：用 regex `-replace` 改 design.md 时整文件中文乱码（PowerShell 的 UTF-8 处理与 fs_write 工具不同）。修复：`delete_file` + 用 fs_write 重建。**教训**：spec 文档（含中文）不要用 PowerShell `Set-Content` 改写；用 fs_write / str_replace / fs_append 工具（已是 pitfalls 题中之意）
+2. **Kiro file watcher diagnostic 缓存延迟**：写完文件后 getDiagnostics 仍报「Missing required heading」，但实际文件正确。**教训**：spec 文档 diagnostic 警告不阻断任务，文件实际内容正确即可；不要为了消 warning 反复编辑
+
+**应当达成的效果**：
+
+- 算法重构 spec C 三件套就位，含 8 个 Requirement / 9 个 Task / 5 条隐藏冲突取舍 / 4 条防再犯条款
+- 用户可决定下一步：(a) 直接启动 spec C 实施（按 task 1 的 baseline 验证 + spec A/B 完成度核查）；(b) 用户先 review spec C requirements/design/tasks 三件套，提修改意见后再启动；(c) 暂不启动，先把当前 demo 跑评审现场（spec A + B 已经够 demo），spec C 留给比赛后做产品化升级
+- spec C 与 spec A（业务质量）+ spec B（目录重组）正交，不重叠不冲突；spec A/B 已落地的 470+ pytest 在 spec C 落地后不破
+
