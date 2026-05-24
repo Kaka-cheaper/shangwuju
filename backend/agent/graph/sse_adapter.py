@@ -338,6 +338,40 @@ async def run_graph_stream(
                         {"text": "ILS 算法兜底重排中……"},
                     )
                     seq += 1
+                    # spec execution-quality-review M2：把 ils_replan_node 写回的
+                    # fallback_chain 增量推 PLAN_FALLBACK，让评委看到「ILS → rule」/「rule → give_up」整链
+                    new_chain = node_diff.get("fallback_chain") or []
+                    if len(new_chain) > len(last_fallback_chain):
+                        # 仅推增量（避免重复）
+                        for hop_dict in new_chain[len(last_fallback_chain):]:
+                            from_stage = hop_dict.get("from_stage", "ils")
+                            to_stage = hop_dict.get("to_stage", "give_up")
+                            reason = hop_dict.get("reason", "")
+                            yield _ev(
+                                seq,
+                                SseEventType.PLAN_FALLBACK,
+                                {"from": from_stage, "to": to_stage, "reason": reason},
+                            )
+                            seq += 1
+                            # 同时推一条 agent_thought 让评委看到中文文案
+                            stage_label = {
+                                "rule": "rule planner 安全兜底",
+                                "give_up": "保留当前最佳方案（已尝试所有策略）",
+                            }.get(to_stage, to_stage)
+                            yield _ev(
+                                seq,
+                                SseEventType.AGENT_THOUGHT,
+                                {"text": f"已切换 {stage_label}"},
+                            )
+                            seq += 1
+                    # 如果 ils_replan 写回了 itinerary（rule 兜底成功），推进度提示
+                    if node_diff.get("itinerary") is not None and not node_diff.get("has_critical", True):
+                        yield _ev(
+                            seq,
+                            SseEventType.AGENT_THOUGHT,
+                            {"text": "兜底方案已就绪，进入文案生成"},
+                        )
+                        seq += 1
 
                 # ---- assemble ----
                 # 注：不推 ITINERARY_READY—— assemble 只是中间状态（critic 还要验），

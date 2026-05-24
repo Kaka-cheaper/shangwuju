@@ -2514,5 +2514,382 @@
         "helpful_count": 14
       }
     ]
+  },
+  {
+    "id": "P051",
+    "name": "云栖商务私享茶馆",
+    "type": "商务茶馆",
+    "location": {
+      "name": "钱江世纪城东塔",
+      "lat": 30.252,
+      "lng": 120.218
+    },
+    "distance_km": 3.2,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.7,
+    "price_range": [
+      180,
+      380
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "安静聊天",
+      "低强度",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 30,
+      "kid_7_12": 45,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "包间安静私密，茶艺师态度专业，与客户洽谈不会被打扰，茶具也很有质感，符合高端会面调性。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-22",
+        "helpful_count": 18
+      },
+      {
+        "text": "下午两点带客户来这边，预约 90 分钟刚好，环境光线柔和，谈完后给客户的印象很正式。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-08",
+        "helpful_count": 11
+      }
+    ]
+  },
+  {
+    "id": "P052",
+    "name": "钱塘汇 · 商务雪茄厅",
+    "type": "雪茄会所",
+    "location": {
+      "name": "钱江新城核心区",
+      "lat": 30.246,
+      "lng": 120.215
+    },
+    "distance_km": 3.5,
+    "opening_hours": "14:00-23:00",
+    "rating": 4.6,
+    "price_range": [
+      280,
+      580
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "高人均",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 0,
+      "kid_7_12": 0,
+      "senior": 60,
+      "multi_gen": 0
+    },
+    "reviews": [
+      {
+        "text": "国内少有的高规格雪茄环境，恒温恒湿橱窗、专业割烟器、单独通风，与外籍客户会面非常合适。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "高人均"
+        ],
+        "visited_at": "2026-04-30",
+        "helpful_count": 22
+      },
+      {
+        "text": "环境真的很有商务感，唯一缺点就是不能带小朋友，但跟客户单独聊天非常合适。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "商务体面",
+          "礼仪感"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "P053",
+    "name": "西湖云顶 · 高端会客中心",
+    "type": "会客中心",
+    "location": {
+      "name": "杭州大厦顶层",
+      "lat": 30.26,
+      "lng": 120.165
+    },
+    "distance_km": 4.0,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.8,
+    "price_range": [
+      220,
+      480
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "拍照友好",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 0,
+      "kid_7_12": 30,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "29 楼俯瞰整个西湖+市中心夜景，玻璃幕墙落地大窗，会客厅 6 人间预约即可，茶水点心都很精致。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 26
+      },
+      {
+        "text": "夜景太赞了，与重要客户合影背景一流，正式商务接待最高规格。",
+        "rating": 4.5,
+        "user_age_bucket": "70后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-10",
+        "helpful_count": 14
+      }
+    ]
+  },
+  {
+    "id": "P054",
+    "name": "玫瑰花谷 · 纪念日影像馆",
+    "type": "影像馆",
+    "location": {
+      "name": "西湖文化广场",
+      "lat": 30.29,
+      "lng": 120.17
+    },
+    "distance_km": 3.8,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.9,
+    "price_range": [
+      380,
+      880
+    ],
+    "tags": [
+      "拍照友好",
+      "礼仪感",
+      "亲密情侣",
+      "网红打卡",
+      "室内"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 30,
+      "kid_7_12": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "结婚纪念日去拍的，老板娘很会调动情绪，玫瑰布景与灯光都精致，相册当天就能给电子版。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 31
+      },
+      {
+        "text": "纪念日带媳妇来拍照，客片很自然，不会矫情，关键是 75 分钟就能拍完不累，节奏正好。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "拍照友好",
+          "礼仪感"
+        ],
+        "visited_at": "2026-05-15",
+        "helpful_count": 17
+      }
+    ]
+  },
+  {
+    "id": "P055",
+    "name": "时光胶囊 · 私人订制纪念馆",
+    "type": "私人定制",
+    "location": {
+      "name": "中山中路历史街区",
+      "lat": 30.265,
+      "lng": 120.17
+    },
+    "distance_km": 3.3,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.8,
+    "price_range": [
+      280,
+      680
+    ],
+    "tags": [
+      "礼仪感",
+      "亲密情侣",
+      "拍照友好",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 24,
+      "available_slots": 9
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 0,
+      "kid_7_12": 60,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "私人定制纪念盒、写时光信、拍胶片照，仪式感拉满。我和老公的 5 周年就是来这做的，非常推荐。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-04-18",
+        "helpful_count": 28
+      },
+      {
+        "text": "民国老建筑改造，很有杭州味道，店主夫妇都很有耐心，会帮你设计每个纪念环节。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-05",
+        "helpful_count": 13
+      }
+    ]
+  },
+  {
+    "id": "P056",
+    "name": "湖畔星辉 · 纪念日游艇下午茶",
+    "type": "游艇茶歇",
+    "location": {
+      "name": "西湖游船码头",
+      "lat": 30.245,
+      "lng": 120.15
+    },
+    "distance_km": 4.5,
+    "opening_hours": "13:00-21:00",
+    "rating": 4.9,
+    "price_range": [
+      480,
+      1280
+    ],
+    "tags": [
+      "礼仪感",
+      "拍照友好",
+      "亲密情侣",
+      "高人均",
+      "户外"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 20,
+      "available_slots": 7
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "湖面游艇上喝下午茶，三层精致点心架配香槟，远看雷峰塔近看孤山，纪念日仪式感天花板。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-01",
+        "helpful_count": 35
+      },
+      {
+        "text": "求婚选这里成功率 100%，船上有提琴手和摄影师，最关键是西湖夕阳真的美。",
+        "rating": 4.8,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 22
+      }
+    ]
   }
 ]

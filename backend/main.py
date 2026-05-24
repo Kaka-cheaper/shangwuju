@@ -171,6 +171,25 @@ class ChatConfirmRequest(BaseModel):
     decision: str = Field(..., pattern="^(confirm|reject|modify)$")
     modifications: Optional[dict[str, Any]] = None
     user_id: Optional[str] = Field(default=None, max_length=64)
+    # spec execution-quality-review R2：execution Tool 的 hallucination 防护白名单
+    # 规划阶段 ItineraryReady 中所有 target_id 由 backend 写入；前端在 confirm 时回传
+    # 让 reserve_restaurant / buy_ticket 等执行类工具仅能在该白名单内派发。
+    # 攻击向量：LLM 在多轮反馈中编造 R999 / 用代词指代触发执行类工具调错对象。
+    # 设计：可选字段（向后兼容），缺省时不做白名单校验（demo 短路径不破）。
+    allowed_restaurant_ids: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "前端从 ItineraryReady 收到的合法餐厅 ID 集合；"
+            "传入后 reserve_restaurant 仅能在该集合内派发"
+        ),
+    )
+    allowed_poi_ids: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "前端从 ItineraryReady 收到的合法 POI ID 集合；"
+            "传入后 buy_ticket 仅能在该集合内派发"
+        ),
+    )
 
 
 def _resolve_user_id(
@@ -2019,12 +2038,29 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         yield emit(SseEventType.DONE, {})
         return
 
+    # spec execution-quality-review R2：白名单校验（hallucination 防护）
+    # stub 默认拿 R001；如果前端传入 allowed_restaurant_ids 且不含 R001 → 拒绝
+    target_restaurant_id = "R001"
+    if req.allowed_restaurant_ids is not None and target_restaurant_id not in req.allowed_restaurant_ids:
+        yield emit(
+            SseEventType.STREAM_ERROR,
+            {
+                "reason": "hallucination_blocked",
+                "detail": (
+                    f"reserve_restaurant 目标 {target_restaurant_id} 不在合法白名单 "
+                    f"{req.allowed_restaurant_ids}；可能是 AI 在多轮反馈中编造的，已拦截"
+                ),
+            },
+        )
+        yield emit(SseEventType.DONE, {})
+        return
+
     # reserve_restaurant
     yield emit(
         SseEventType.TOOL_CALL_START,
         {
             "tool": "reserve_restaurant",
-            "input": {"restaurant_id": "R001", "time": "17:30", "party_size": 3},
+            "input": {"restaurant_id": target_restaurant_id, "time": "17:30", "party_size": 3},
         },
     )
     await _delay(320)

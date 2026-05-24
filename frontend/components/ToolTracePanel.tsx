@@ -132,8 +132,11 @@ export default function ToolTracePanel() {
   // ============================================================
   // spec algorithm-redesign R6：双层折叠（外层整体折叠 + 内层 Epic 折叠）
   // ============================================================
-  // 默认 panelExpanded=false（避免 SSR hydration mismatch）；初次挂载后从
-  // localStorage 读取。streaming 开始时自动展开（让评委看到决策过程实时进展）。
+  // 默认 panelExpanded=false 避免 SSR hydration mismatch；初次挂载后从
+  // localStorage 读取。
+  // spec execution-quality-review M3：默认行为升级为「展开」——
+  // 评委 5 分钟 demo 内看到 Tool 调用链是 Tool 编排 25% 评分项的可见性救命稻草；
+  // 仅当 localStorage 显式记录 "false"（用户主动收起过）才保持收起。
   const [panelExpanded, setPanelExpanded] = useState(false);
 
   useEffect(() => {
@@ -142,7 +145,8 @@ export default function ToolTracePanel() {
       const saved = window.localStorage.getItem(
         "shangwuju.tooltrace.expanded",
       );
-      if (saved === "true") setPanelExpanded(true);
+      // M3：默认展开（未设过 / 显式 "true"）；仅 "false" 时才保持收起
+      if (saved !== "false") setPanelExpanded(true);
     } catch {
       // 静默忽略
     }

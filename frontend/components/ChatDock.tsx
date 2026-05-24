@@ -57,6 +57,10 @@ export default function ChatDock() {
   const thoughts = useChatStore((s) => s.thoughts);
   const chitchatReplies = useChatStore((s) => s.chitchatReplies);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  // spec execution-quality-review M3：工具调用 badge 让评委在 dock 收起态也能看到
+  // Agent 决策过程的统计（Tool 编排 25% 评分项的 demo 闭环可见性）
+  const toolCallsCount = useChatStore((s) => s.toolCalls.length);
+  const replansCount = useChatStore((s) => s.replans.length);
 
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<DockMode>("collapsed");
@@ -539,6 +543,39 @@ export default function ChatDock() {
               </span>
             )}
           </button>
+
+          {/* spec execution-quality-review M3：Tool 调用 + replan 计数 badge */}
+          {/* 让评委在 dock 收起态也看到「Agent 调了 N 个 Tool / 触发了 R 次重规划」 */}
+          {(toolCallsCount > 0 || replansCount > 0) && (
+            <div
+              className={cn(
+                "shrink-0 hidden md:inline-flex items-center gap-1.5 h-[44px] px-2 rounded-md",
+                "border border-white/[0.06] bg-white/[0.02]",
+                "text-[10px] text-ink-500 tracking-tight tabular-nums",
+              )}
+              title={
+                replansCount > 0
+                  ? `Agent 调用了 ${toolCallsCount} 个工具，触发 ${replansCount} 次重规划`
+                  : `Agent 调用了 ${toolCallsCount} 个工具`
+              }
+            >
+              <Icons.spark
+                className="w-3 h-3 text-brand-400"
+                strokeWidth={2}
+              />
+              <span>
+                <span className="text-ink-700 font-semibold">{toolCallsCount}</span> 工具
+              </span>
+              {replansCount > 0 && (
+                <>
+                  <span className="text-ink-400/60">·</span>
+                  <span>
+                    <span className="text-amber-400 font-semibold">{replansCount}</span> 重规划
+                  </span>
+                </>
+              )}
+            </div>
+          )}
 
           <textarea
             ref={textareaRef}

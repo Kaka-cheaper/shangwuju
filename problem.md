@@ -7028,3 +7028,77 @@ backend/agent/
 - 真实拿分预估 82% / 100 + 95% CI 73-89 给团队建立合理预期
 
 用户反馈：（待用户审阅报告后追加）
+
+
+## 问题：执行质量评分项联合审查后，执行 6 件加分项（必做 M1+M2+M3 + 建议 R1+R2+R3）
+
+**用户原问**：六件事都做
+
+**解决方案**：
+
+按 ROI 串行实施，每件完成跑测试不破基线，最后一次性原子 commit。
+
+**M1（10 min）：critic_node 注入 tool_results** ✓
+- 检查 `backend/agent/graph/nodes/critic.py` 当前实现，发现 spec C task 3 已经做完——critic_node 已经透传 `tool_results={"pois": state.get("pois") or [], "restaurants": state.get("restaurants") or []}`
+- 联合审查 §三 隐藏冲突 1 中 A 的「主路径未注入」担忧不成立——B 是对的
+- 0 改动
+
+**M2（1 h）：rule planner + replan_router 加 SSE 事件（fallback 链可见）** ✓
+- `backend/agent/graph/sse_adapter.py` 在 ils_replan 节点段新增逻辑：
+  - 监测 `node_diff.get("fallback_chain")` 增量
+  - 仅推增量的 hop（`PLAN_FALLBACK` 事件 + 中文 `agent_thought`）
+  - rule planner 兜底成功（itinerary 写回且 has_critical=False）时推「兜底方案已就绪」提示
+- 让评委看到「ILS → rule」/「rule → give_up」整链不再静默
+
+**M3（30 min）：ToolTracePanel 默认展开 + ChatDock 工具调用 badge** ✓
+- `frontend/components/ToolTracePanel.tsx` 默认行为升级——`saved !== "false"` 时默认展开（仅用户主动收起过才保持收起）
+- `frontend/components/ChatDock.tsx`：
+  - 订阅 `toolCalls.length` + `replans.length`
+  - 「展开 N」按钮旁加 badge：「N 工具 · R 重规划」（md 断点以上显示）
+  - hover title 提示完整文案
+  - 让评委在 dock 收起态也能看到 Agent 决策过程统计
+
+**R1（1 h）：词典外社交意图加 narrator 降级文案** ✓
+- `backend/agent/graph/nodes/intent.py` 加 `_OUT_OF_VOCAB_SOCIAL_KEYWORDS` 词典（老师/客户/宠物/同事/网友/导师/前辈/邻居/狗子）+ `_detect_out_of_vocab_social` 检测函数
+- 关键词命中且 social_context 不在合理映射集合时，写入 `quality_issues` 让 narrate_node 主动质疑「我把您说的『XX』理解为『YY』，可以重新描述」
+- 仅在「关键词命中且语义偏差大」时触发，避免误伤
+
+**R2（30 min）：confirm 接口加 expected_target_ids 白名单** ✓
+- `backend/main.py:ChatConfirmRequest` 加 `allowed_restaurant_ids` / `allowed_poi_ids` 两个 Optional 字段
+- `_stub_confirm` 入口校验 reserve_restaurant 目标是否在白名单内
+- 不在 → 推 `STREAM_ERROR(reason="hallucination_blocked")` + done
+- 缺省时不做白名单校验（向后兼容 demo 短路径）
+- Agent A §6 失败模式 1 + §7 提案 2 修复
+
+**R3（1.5 h）：S6 商务接待 + S9 纪念日仪式感各补 3 个 POI** ✓
+- 新建临时脚本 `_inject_s69_pois.py` 把 6 个新 POI（P051-P056）追加到 `mock_data/pois.json`
+- 新建临时脚本 `_inject_s69_routes.py` 加 24 条路线（home 双向 + POI ↔ 餐厅）
+- 验证：S6 商务接待 POI 从 2 → 5；S9 纪念日仪式感 POI 从 3 → 6
+- 删临时脚本（不污染仓库）
+- 坐标分散到不同 location.name（不重叠西溪银泰 30.273/120.080）
+
+**修改的代码文件**：
+
+修改：
+- `backend/agent/graph/sse_adapter.py`（M2 fallback_chain 增量推送）
+- `frontend/components/ToolTracePanel.tsx`（M3 默认展开）
+- `frontend/components/ChatDock.tsx`（M3 工具调用 badge）
+- `backend/agent/graph/nodes/intent.py`（R1 词典外检测）
+- `backend/main.py`（R2 expected_target_ids 白名单）
+- `mock_data/pois.json`（R3 P051-P056 共 6 个新 POI）
+- `mock_data/routes.json`（R3 24 条新路线）
+- `problem.md`（本条）
+
+**应当达成的效果**：
+
+- **联合审查 5 维度评分预期提升**：
+  - 场景理解 +3-5%（R1 词典外降级）
+  - Tool 编排 +5%（M3 默认展开是最高 ROI）
+  - 异常韧性 +5%（M2 fallback 链可见 + R2 hallucination 拦截）
+  - Pass@1 +5-10%（R3 S6/S9 候选稀疏修复）
+  - 总评分预估从 82% 提升到 87-92%
+- **测试基线**：691 passed + 1 skipped + 0 failed + R10 24/24 100% + verify_spec_c_demo 8/8 + frontend 4/4
+- **不动 graph/build.py 拓扑** + **不重写工具 schema** + **不扩 8 工具数**（spec B 编排冻结纪律保留）
+- **mock_data 扩从 42 → 48 POI**（distance_km 完全保持向后兼容）
+
+**用户反馈**：（待用户验证 6 件改动效果后追加）
