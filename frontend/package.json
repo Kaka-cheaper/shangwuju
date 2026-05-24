@@ -4,13 +4,16 @@
   "private": true,
   "description": "晌午局前端：Next.js 14 App Router + TypeScript + Tailwind",
   "scripts": {
+    "predev": "node scripts/clean-next.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/clean-next.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "clean:next": "node scripts/clean-next.mjs",
     "verify:all": "node scripts/verify-all.mjs"
   },
   "dependencies": {

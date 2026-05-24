@@ -974,3 +974,26 @@ spec D 起草时编排者犯了**两次**审计错误：
 - spec C 实施 commit `v-spec-c-done`（task 1-9 端到端落地 + 9 项防再犯固化）
 
 **优先级**：P0（架构级铁律，任何破坏会让 spec C 三联混合主架构失效）
+
+
+### [P2] 2026-05-24 Windows + pnpm + Next.js standalone 模式触发 EPERM 启动失败
+
+- **现象**：`pnpm dev` 报错 `Error: EPERM: operation not permitted, scandir 'frontend/.next/standalone/node_modules/react'`，next dev 起不来。pnpm test 没问题，仅 dev / build 触发。
+- **根因**（多因合一）：
+  1. `next.config.mjs` 配置 `output: "standalone"`（为 FC 部署体积优化）—— build 时把 `node_modules` copy 进 `.next/standalone/`
+  2. pnpm 的 `node_modules` 是软链 / 硬链结构（不是真实文件），copy 进 `.next/standalone/` 后保留只读位
+  3. Windows 下 Next 启动时的 `recursive-delete` 撞到只读位的硬链 → EPERM
+  4. 业界已知：Next.js issue #29773 / pnpm issue #2829
+- **解法**：
+  1. 新建 `frontend/scripts/clean-next.mjs`：fs.rm force + chmod 0o777 兜底删除
+  2. `package.json` 加 `predev` / `prebuild` 钩子自动跑 clean-next.mjs（用户不需要手动）
+  3. 暴露 `pnpm clean:next` 让用户能手动跑
+  4. 失败时友好提示 3 个常见原因（dev 进程占用 / 编辑器锁文件 / 杀毒实时扫描）
+- **相关文件**：
+  - `frontend/scripts/clean-next.mjs`（新建）
+  - `frontend/package.json`（加 predev / prebuild / clean:next 三个脚本）
+- **防再犯**：
+  1. **任何 Windows + pnpm + Next.js standalone 项目**，第一时间加 predev/prebuild 钩子
+  2. 不要去掉 `output: "standalone"`——它是 FC 部署体积优化（500MB → 80MB），删掉镜像膨胀更糟
+  3. dev 模式遇到 EPERM 不要怀疑代码 → 先关另一个 dev 进程 / 重启编辑器 / 杀毒白名单
+- **优先级**：P2（不影响 demo 真跑通；只是开发流程卡顿；team 成员第二次踩会浪费 30+ 分钟排查）

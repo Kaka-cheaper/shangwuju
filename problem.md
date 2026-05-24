@@ -6866,3 +6866,33 @@ backend/agent/
 - **工时实际 2h**（注释 0.5h + SSE 0.5h + 前端 1.0h）≤ 总预估 3h
 
 **用户反馈**：（待用户验收后追加）
+
+
+## 问题：Windows 下 pnpm dev 触发 EPERM .next/standalone/node_modules/react 启动失败
+
+**用户原问**：（贴出 Next.js 启动报错日志，EPERM scandir .next/standalone/node_modules/react）
+
+**解决方案**：
+
+1. **根因分析**：next.config.mjs 启用 `output: "standalone"`（FC 部署体积优化，500MB→80MB）+ pnpm 软链 node_modules 结构 + Windows 只读位 → Next 启动时 recursive-delete 删不掉 .next/standalone/node_modules（业界已知 Next.js issue #29773 / pnpm issue #2829）
+2. **修复**：
+   - 新建 `frontend/scripts/clean-next.mjs`（fs.rm force + 失败时降级 chmod 0o777 兜底删除）
+   - `package.json` 加 `predev` / `prebuild` 自动钩子（用户不感知）+ `clean:next` 手动入口
+   - 失败时友好提示 3 个常见原因（dev 进程占用 / 编辑器锁文件 / 杀毒实时扫描）
+3. **不动 next.config.mjs**：保留 standalone 配置（删了镜像体积膨胀更糟，FC 部署受影响）
+4. **手动清理验证**：`node scripts/clean-next.mjs` 一次跑通，输出「.next/ 已清理」
+
+**修改的代码文件**：
+
+- 新建：`frontend/scripts/clean-next.mjs`（强删脚本）
+- 修改：`frontend/package.json`（加 predev / prebuild / clean:next 三个 scripts）
+- 修改：`docs/03-implementation/pitfalls.md`（[P2] 2026-05-24 防再犯）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- `pnpm dev` 直接能起，不再撞 EPERM
+- 团队成员第二次遇到不需要花 30+ 分钟查 issue tracker
+- 不破 FC 部署的 standalone 镜像优化路径
+
+**用户反馈**：（待用户验证 pnpm dev 能起后追加）
