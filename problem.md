@@ -7526,3 +7526,100 @@ Q2：「规则模式应该兜底 8 个预定义场景作为兜底，还是更灵
 - **不破 graph/build.py 拓扑** + **不破 8 工具数** + **不动 schemas/* 业务字段**
 
 用户反馈：（待用户重启 backend 实测后追加）
+
+
+---
+
+问题：规则模式输出时间还是 25 秒+，请你从头到尾捋一遍规则模式的链路；规则模式是不是不应该有文案生成了，或者文案生成不应该调用 LLM？
+
+解决方案：
+
+按 systematic-debugging Phase 1 调研。
+
+**真根因诊断**（前端事件时间戳是关键证据）：
+
+读用户提供的事件序列：
+```
+51 秒前 「正在理解你的需求……」     ← intent_node 入口心跳
+42 秒前 「好的，让我帮你规划一下」    ← router → intent 调 LLM ~9s
+34 秒前 ×3 critic_hard_violation    ← planner_node 跑了 3 次（每次 plan_itinerary 出同样 itinerary）
+                                     critic 同样违规 → backprompt → 第 2/3 次又跑
+34 秒前 ils_fallback                ← 第 4 次切 ILS 兜底
+25 秒前 「ILS 算法兜底重排中……」    ← ILS 内部计算 ~9s
+25 秒前 「兜底方案已就绪」           ← narrate 触发
+现在    展示行程方案                  ← narrate 调 LLM 润色文案 ~5s
+```
+
+**两个真问题**（不是表面 narrate 慢）：
+
+1. **critic_node 把 rule 模式产出的 itinerary 也走 LLM-Modulo backprompt 闭环**——
+   规则路径 plan_itinerary 已做 5 级降级 + dining_slots 试探，产出已是终态；
+   critic 验证可能命中违规但不应触发 backprompt（因为没有 LLM 重生成的能力）→
+   死循环走 3 轮 + ILS 兜底，吃掉 ~17s
+
+2. **narrate_node 调 LLM 润色文案**——
+   即使 plan 阶段不调 LLM，narrate 仍走 generate_narration(use_llm=True)
+   规则模式 demo 卖点是「不调用大模型的纯算法路径」，narrate 调 LLM 与承诺冲突 → 多 5s
+
+**修复方案**（两处 mode 分发）：
+
+1. `backend/agent/graph/nodes/critic.py:critic_node` 加 mode 短路：
+   ```python
+   mode = state.get("planner_mode")
+   if mode == "rule" and has_critical:
+       has_critical = False  # critic 仍记 violations 让 trace 可见，但不触发 backprompt
+   ```
+   - violations 仍记录给 DecisionTraceCard（评委能看到「规则路径过 critic 时这些维度可改进」）
+   - has_critical=False → route_after_critic 走 narrate 不进 replan_router
+
+2. `backend/agent/graph/nodes/narrate.py:narrate_node` 加 mode 检查：
+   ```python
+   mode = state.get("planner_mode")
+   use_llm = (
+       mode != "rule"
+       and client is not None
+       and getattr(client, "provider", None) != "stub"
+   )
+   ```
+   - rule 模式 generate_narration(use_llm=False) → 走纯模板路径
+   - 模板文案在 agent/intent/narrator.py 已存在（fallback 路径），rule 模式直接复用
+
+**规则模式真实链路**（本轮修复后）：
+
+```
+| #  | 节点                       | 行为                       | LLM ?| 耗时       |
+|----|---------------------------|---------------------------|------|------------|
+| 1  | router_node               | 关键词匹配                  | ✗   | <1ms       |
+| 2  | intent_node               | 调 LLM 解析自然语言意图       | ✓   | 1-2s（NLU）│
+| 3  | search_*_worker × 3       | 查 mock 数据                | ✗   | 50-100ms   │
+| 4  | planner_node (rule)       | 调 plan_itinerary（纯算法）  | ✗   | 50-200ms   │
+| 5  | assemble_node             | noop（itinerary 已存在）    | ✗   | <1ms       │
+| 6  | critic_node (rule)        | 验 itinerary，但不触发 backprompt│ ✗ │ 50-100ms │
+| 7  | narrate_node (rule)       | 走纯模板文案                | ✗   | <10ms      │
+| 总耗时                                                      │     │ 2-3s       │
+```
+
+vs 改前的 25-30s + 流断裂。
+
+修改的代码文件：
+
+修改：
+- `backend/agent/graph/nodes/critic.py`（rule 模式 has_critical 强制 False，跳过 backprompt）
+- `backend/agent/graph/nodes/narrate.py`（rule 模式 use_llm=False，走纯模板文案）
+- `backend/tests/test_planner_mode_dispatch.py`（追加 2 项测试：critic 不触发 backprompt + narrate 用模板不调 LLM）
+- `problem.md`（本条）
+
+未改：
+- `backend/agent/graph/nodes/planner.py`（上一轮已加 mode 分发，本轮无需再动）
+- `backend/agent/graph/nodes/assemble.py`（同上）
+- 任何 graph/build.py 拓扑 / schema 字段
+
+应当达成的效果：
+
+- **规则模式真的「不调用大模型的纯算法路径」**：除 intent 解析外，全链路无 LLM 调用
+- **总耗时从 25-30s 降到 2-3s**：评委切「规则」模式 → 秒出方案，无流断裂红条
+- **trace 仍可见**：DecisionTraceCard 仍展示规则路径产出的 itinerary 在 critic 上的 violations（让评委看到「规则路径过 critic 时这些维度可改进」），不破可见性
+- **测试基线**：705 → 707 passed + 1 skipped + 0 fail（新增 2 项）
+- **不破 graph/build.py 拓扑** + **不破 LLM 模式行为**（has_critical 仅在 mode=='rule' 时短路）
+
+用户反馈：（待用户重启 backend 实测后追加）

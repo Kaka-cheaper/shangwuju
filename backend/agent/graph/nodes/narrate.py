@@ -85,8 +85,12 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         return {"narration": None}
 
     client = get_llm_client()
+    # spec interaction-experience-review：规则模式下 narrate **不调 LLM 润色**，
+    # 走纯模板文案——保持「规则模式 = 不调用大模型的纯算法路径」承诺一致
+    mode = state.get("planner_mode")
     use_llm = (
-        client is not None
+        mode != "rule"
+        and client is not None
         and getattr(client, "provider", None) != "stub"
     )
 

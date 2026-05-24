@@ -59,6 +59,17 @@ def critic_node(state: AgentState) -> dict[str, Any]:
         },
     )
     has_critical = any(v.severity == Severity.CRITICAL for v in violations)
+
+    # spec interaction-experience-review：规则模式产出的 itinerary 已经过 plan_itinerary
+    # 内部的 5 级降级 + dining_slots 试探，不应再走 LLM-Modulo critic backprompt 闭环——
+    # 这是「规则模式 = 不调用大模型」承诺的一部分。critic violations 仍然记录给 trace 看见，
+    # 但 has_critical 强制为 False 让流程走 narrate 不再回 planner。
+    mode = state.get("planner_mode")
+    if mode == "rule" and has_critical:
+        # 仍记录 violations 让 DecisionTraceCard 能看到「规则路径过 critic 时这些维度可改进」
+        # 但不触发 backprompt（rule 路径产物即终态）
+        has_critical = False
+
     feedback = format_violations_for_llm(violations) if has_critical else None
 
     # Step 8：累积 critic_attempts 到 trace

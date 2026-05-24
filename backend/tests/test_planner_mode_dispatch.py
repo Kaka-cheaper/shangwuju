@@ -164,3 +164,78 @@ def test_assemble_node_noop_when_itinerary_exists_and_no_blueprint():
     result = assemble_node(state)
     # noop：返空 dict，不写 itinerary 字段，state 中已有 itinerary 保留
     assert "itinerary" not in result or result == {}
+
+
+
+# ============================================================
+# rule 模式不再走 critic backprompt 闭环（spec interaction-experience-review fix）
+# ============================================================
+
+
+def test_critic_node_rule_mode_skips_backprompt_even_when_violations_critical():
+    """rule 模式 critic 命中违规时不应触发 has_critical=True 让流程回 planner。
+
+    规则路径产出的 itinerary 已经过 plan_itinerary 内部的 5 级降级 + dining_slots 试探，
+    再走 LLM-Modulo backprompt 闭环只会让 LLM 调用 3+ 次 + ILS 兜底，与「规则模式不调 LLM」
+    承诺冲突。critic 仍记录 violations 让 trace 可见，但 has_critical 强制 False。
+    """
+    from agent.graph.nodes.critic import critic_node
+    from agent.intent.parser import parse_intent
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.planning.planners.rule_planner import plan_itinerary
+
+    client = StubLLMClient()
+    intent = parse_intent("今天下午想出去玩", client=client)
+    plan_result = plan_itinerary(intent)
+    assert plan_result.success and plan_result.itinerary is not None
+
+    state = {
+        "intent": intent,
+        "itinerary": plan_result.itinerary,
+        "planner_mode": "rule",
+        "user_id": "demo_user",
+    }
+
+    result = critic_node(state)
+    # 不论 violations 是否为空，rule 模式下 has_critical 都应是 False
+    assert result["has_critical"] is False, (
+        f"rule 模式 critic 不应触发 backprompt，"
+        f"实际 has_critical={result['has_critical']}, violations={len(result['violations'])} 条"
+    )
+    # critic_feedback_text 也应为 None（不发 backprompt）
+    assert result.get("critic_feedback_text") is None
+
+
+def test_narrate_node_rule_mode_uses_template_not_llm():
+    """rule 模式 narrate 不调 LLM 润色文案，走纯模板文案。"""
+    from agent.graph.nodes.narrate import narrate_node
+    from agent.intent.parser import parse_intent
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.planning.planners.rule_planner import plan_itinerary
+    from unittest.mock import patch, MagicMock
+
+    client = StubLLMClient()
+    intent = parse_intent("今天下午想出去玩", client=client)
+    plan_result = plan_itinerary(intent)
+    assert plan_result.success and plan_result.itinerary is not None
+
+    state = {
+        "intent": intent,
+        "itinerary": plan_result.itinerary,
+        "planner_mode": "rule",
+        "user_id": "demo_user",
+    }
+
+    # 验证 generate_narration 被调时 use_llm=False
+    with patch("agent.graph.nodes.narrate.generate_narration") as mock_narration:
+        mock_narration.return_value = "（mock 模板文案）"
+        result = narrate_node(state)
+        assert mock_narration.call_count == 1
+        # use_llm 是 keyword 参数，从 kwargs 取
+        kwargs = mock_narration.call_args.kwargs
+        assert kwargs.get("use_llm") is False, (
+            f"rule 模式 narrate 应该 use_llm=False，实际 {kwargs}"
+        )
+
+    # narrate 主输出仍要返回（不阻断流程）
+    assert "narration" in result
