@@ -6250,3 +6250,109 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - spec C 范式收敛已有明确建议（LLM-Modulo + ItiNera 主架构 + 3 个最高 ROI 单点改造 + 2 个 UX 借鉴 + 1 个差异化叙事）
 - 用户可决定下一步：(a) 进入 Phase 2 派独立 sub-agent 做 8 维度联合审查矩阵；(b) 跳过联合审查，进 Phase 3 编排者做项目需求 × 范式对齐分析；(c) 进 Phase 4 派 3 个并行 sub-agent 各设计单一范式深化的候选 spec C
 
+
+
+---
+
+问题：Phase 2 联合审查独立 sub-agent 任务——为 spec C 算法重构调研做最后防偏见关，对 Phase 1 完成的 8 份范式调研报告做 8 维度横向交叉对照矩阵 + 真/表/隐三类共识清单。
+解决方案：
+1. 完整阅读 8 份范式调研报告（Agent 1 Google / Agent 2 ITINERA / Agent 3 LLM-Modulo / Agent 4 TravelPlanner / Agent 5 RL / Agent 6 经典 OR / Agent 7 multi-agent + RAG / Agent 8 商业产品；总计约 5.5 万字）。
+2. 撰写联合审查报告 `.kiro/specs/algorithm-redesign/research/joint-review/report.md`（约 8942 中文字）：
+   - 一、64 格 8 维度 × 8 范式横向矩阵（输入 schema / 中间链路 / LLM 协作 / 失败处理 / 数据规模 / soundness / 落地代价 / 半日单城 demo 适配）
+   - 二、7 条真共识（≥ 4 份独立报告印证；其中 1 条边缘 3.5 份）
+   - 三、4 条表面共识（字面同 ≠ 语义同：critic 验证 / 决策可见 / 多次调用 / 用户画像）
+   - 四、5 条隐藏冲突（LUI vs ToolTracePanel / pinpoint vs first-only / 候选池过滤 vs critic 兜底 / max_iter 4 vs 10 / 商业算法 vs UX 借鉴）
+   - 五、8 维度 1-8 名排名总表（Agent 3 在 4 个维度第一；Agent 5 在 4 个维度第八）
+   - 六、编排风险独立评估（200-300 字，明确指出「4+4 合议」cherry-picking 嫌疑、「6 条交叉印证」夸大嫌疑、读项目代码 = 范式偏见）
+   - 七、独立第二意见 spec C 收敛建议（与编排者 3 处明显不同：三联混合主架构 / pinpoint env flag / LUI vs ToolTracePanel 双层折叠）
+   - 八、20 条 8 份报告关键页码索引
+3. 严守纪律：未读项目代码（仅引用子报告对项目代码的转述）；不引入 8 份报告外的新数据；表格全部放代码块；不出现「优秀 / 全面 / 精彩」赞美词。
+修改的代码文件：
+- 新增：`.kiro/specs/algorithm-redesign/research/joint-review/report.md`（415 行）
+应当达成的效果：为 spec C 设计阶段提供独立第二意见，避免编排者偏见；明确指出 7 条真共识 + 4 条表面共识 + 5 条隐藏冲突，给 spec C 决策者提供可追溯的语义谱系。Commit hash: 52e3f61
+
+---
+
+## 问题：Phase 2 联合审查——独立 sub-agent 8 维度交叉对照矩阵
+
+**用户原问**：「a」（选 A 路线：派 1 个独立 sub-agent 做 8 维度联合审查矩阵，作为 8 份独立调研后防自我合理化偏见的最后一道关）
+
+**纪律设计**：与 Phase 1 各 sub-agent 防互看相反——本次审查 sub-agent **必须读完全部 8 份调研报告做横向比较**，但**禁止读项目代码**保持纯范式视角，避免被项目现状牵着鼻子走。其角色定位是**质疑而非总结**——找漏洞、找冲突、找编排偏见，不为编排者背书。
+
+**核心交付物**：
+
+```text
+| 交付物                          | 数量    | 说明                                              |
+|--------------------------------|--------|--------------------------------------------------|
+| 8 维度 × 8 范式横向矩阵         | 64 格  | 每格 30-80 字关键事实，分两半（输入/算法/LLM/失败 + 数据/sound/落地/适配）|
+| 真共识清单（≥4 份印证）          | 7 条   | 含 1 条边缘（3.5 份印证）独立标注                       |
+| 表面共识清单（字面同含义不同）  | 4 条   | "critic 验证" 7 种实际所指；"决策可见" LUI vs ToolTrace 矛盾 |
+| 隐藏冲突清单（互斥论断）         | 5 条   | LUI vs ToolTracePanel / pinpoint vs first-only / 候选池过滤 vs critic / max_iter 4 vs 10 / 商业算法 vs UX |
+| 8 维度排名总表                  | 8 表   | 每维度 1-8 名 + 关键差异化点；Agent 3 在 4 维第一、Agent 5 在 4 维第八 |
+| 编排风险独立评估                | 580 字 | 4 条独立评估，明确指出 cherry-picking 与夸大嫌疑       |
+| 独立第二意见 spec C 收敛建议    | 7.1-7.5| 与编排者明显 3 处不同（三联混合 / pinpoint env flag / LUI 双层折叠） |
+```
+
+**审查发现的关键不同点（独立审查 vs 编排者前一轮）**：
+
+```text
+| #  | 编排者前一轮表述                              | 独立审查修正                                                           |
+|----|---------------------------------------------|----------------------------------------------------------------------|
+| 1  | 「LLM-Modulo + ItiNera 4+4 合议主架构」        | ItiNera 仅 Agent 2+6 两份直接支持；其余 3 份是「精神相近不同实现」。准确表述应是「LLM-Modulo（5+ 合议）+ ItiNera-style 分工（2 份）+ TravelAgent 三层 schema（3+ 份）三联混合」 |
+| 2  | 「6 条交叉印证结论」                           | 严格 5-6 条扎实，1 条接近阈值（user_profile 三层仅 3 份直接 + 1 份隐含质疑） |
+| 3  | 「3 个最高 ROI 单点改造并列」                  | _utility 改 LLM single profit 仅 2 份直接支持，并列「最高 ROI」语气过强  |
+| 4  | 编排者读项目代码深 = 范式偏见                   | Agent 3 与编排者「不需要换范式」一致；但 Agent 5/8 的反向声音（架构与主流路径形态不同）在编排中可能被过滤 |
+```
+
+**5 条隐藏冲突的取舍建议**：
+
+```text
+| 冲突                              | 取舍建议                                                            |
+|-----------------------------------|-------------------------------------------------------------------|
+| LUI 浮标 vs ToolTracePanel         | ChatDock + ToolTracePanel 双层折叠（默认收起 + 按需展开），不能"既要又要"全展开 |
+| pinpoint-all vs first-only        | 默认 pinpoint-all（论文证据等价），加 env flag CRITIC_FEEDBACK_MODE 做 A/B |
+| 候选池前置剥离 vs critic 事后兜底  | 硬约束（年龄 cap / 闭店）走前置剥离（Agent 1 路线）；软约束（调性 / 距离）走 critic backprompt（Agent 3 路线）——显式分层 |
+| max_iter 4 vs 10                  | 保持 4（latency-bound 决策；评委 30 秒红线）；演示阶段引入流式 SSE 让评委每轮看 critic 反馈进度——把 60 秒"无响应"变成"4 轮迭代"反增强可见性 |
+| 商业产品借鉴范围                   | 算法层不学（黑盒）；UX 层学（LUI / 三候选 / 意图回写）——必须分层               |
+```
+
+**独立第二意见 spec C 7 项必做改造（按 ROI 排）**：
+
+```text
+| 序  | 改造项                                                       | 来源 + ROI                          | 估算代价      |
+|-----|------------------------------------------------------------|----------------------------------|------------|
+| 1   | user_profile.json 扩 TravelAgent 三层 + memory_writer 节点 | Agent 7 (8.5/10) + Agent 2 (6/10)   | 0.5-2 人日 |
+| 2   | critics_v2 加 compute_reward(violations) → float            | Agent 5 (7/10)                      | 0.5 人日 + 单测 |
+| 3   | Agent 1 grounding-first：_overload_penalty 升级为前置硬剔除 | Agent 1 (8/10)                      | 1 个 wave (4-6h) |
+| 4   | _utility 末尾加 LLM 语义打分项（保留原 4 维不替换）         | Agent 2 + Agent 6 (7-9/10)         | 1-2 人日   |
+| 5   | TOOL_RESPONSE_INCONSISTENCY 加进 ViolationCode             | Agent 5 (8/10)                      | 0.5 人日 + 单测 |
+| 6   | 前端 ChatDock + ToolTracePanel 双层折叠                     | Agent 8 + 隐藏冲突 1                 | 1 人日 纯前端 |
+| 7   | ComparisonView 强化使用——3 候选 + 三轴评分                  | Agent 8 + NAVITIME 借鉴               | 1-2 人日 纯前端 |
+```
+
+总改造代价 5-10 人日 + 0 GPU——hackathon 时间盒可承受。
+
+**绝对不要做的**（明显过度工程或不可行）：
+
+- ❌ Agent 5 RL 整体复用（30+ 人天 + GPU $500，与决策可见性矛盾）
+- ❌ Agent 1 DP / set packing / local swap 三件套（单日场景全部退化）
+- ❌ Agent 2 cluster + 分层 TSP（节点 4-6 时数学失效）
+- ❌ Agent 6 ALNS / MILP exact（n=87 极小规模；MILP 业务约束难表达）
+- ❌ Agent 7 vector RAG 替换 mock_data（mock 42 POI 用 vector 过度工程）
+- ❌ Agent 7 新增 agent 角色（10+，当前 5 个真 agent 已达论文规模）
+- ❌ Agent 8 商业产品算法借鉴（黑盒 + 工程量天文数字）
+- ❌ 增加 LLM 调用次数预算到 10（违反 latency-bound 决策；评委 30 秒红线）
+
+**修改的代码文件**：
+
+- 新建（已 commit 52e3f61）：`.kiro/specs/algorithm-redesign/research/joint-review/report.md`（8942 中文字 + 64 格矩阵 + 7+4+5 三类清单）
+- `problem.md`（追加本条，本次主线 commit）
+
+**应当达成的效果**：
+
+- Phase 1 全 8 范式调研后做最后一道防偏见关——独立审查 sub-agent 给出与编排者明确 3 处不同的判断
+- 真共识 7 条（修正了编排者的「6 条交叉印证」夸大）
+- 表面共识 4 条 + 隐藏冲突 5 条——这 9 条是编排者前一轮**完全没注意到**的盲点
+- 独立第二意见 7 项改造清单 + 8 项绝对不做清单，是 spec C 范式收敛的最终决策依据
+- 用户可决定下一步：(a) 进 Phase 3 编排者亲自做项目需求 × 范式对齐分析（不派 sub-agent）；(b) 跳过 Phase 3，直接进 Phase 4 派 3 个并行 sub-agent 各设计 1 个深化候选 spec C；(c) 用户基于本次 7 项必做 + 8 项不做清单**直接拍板范式收敛**，由编排者写 spec C requirements + design
+
