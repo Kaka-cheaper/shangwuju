@@ -6424,3 +6424,93 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 - 用户可决定下一步：(a) 直接启动 spec C 实施（按 task 1 的 baseline 验证 + spec A/B 完成度核查）；(b) 用户先 review spec C requirements/design/tasks 三件套，提修改意见后再启动；(c) 暂不启动，先把当前 demo 跑评审现场（spec A + B 已经够 demo），spec C 留给比赛后做产品化升级
 - spec C 与 spec A（业务质量）+ spec B（目录重组）正交，不重叠不冲突；spec A/B 已落地的 470+ pytest 在 spec C 落地后不破
 
+
+---
+
+## 问题：legacy/ 目录在工程项目中名实不符——开 spec D 解构 + 删除
+
+**用户原问**：「冻结层有用吗？我觉得是不是应该融合或者把功能拆出来？这个 legacy 不应该在真正的工程项目中出现」+ 「a」（选 A 路线：开 spec D 做方案 B 解构）
+
+**事实独立审查**（不是直觉，先 grep 真实引用）：
+
+```text
+| 类别                     | 模块                                          | 真实定位             | 当前位置 |
+|-------------------------|----------------------------------------------|--------------------|---------|
+| 主路径活代码（不是 legacy） | planner_rule.py                              | main.py:1740 真链路核心+ collab/replan + 5 测试主功能 | legacy/ |
+| 活的 fallback             | ils_planner.py + segment_decider.py          | graph/replan.py 第 3 次 ILS 兜底 | legacy/ |
+| ILS 路径专用 critic       | ils_score_critic.py                          | ILS 候选打分（与 critics_v2 维度不同） | legacy/ |
+| 真死代码（应删）          | llm_first_planner.py / llm_planner.py / executor.py | 0 引用 / 仅自身测试 / 与 graph/execute_finalize 等价 | legacy/ |
+```
+
+**核心问题**（user 独立指出）：
+
+1. spec B 没盘点真实引用就把 8 个文件全甩进 legacy/——`planner_rule.py` 是主路径核心，叫它 legacy 严重误导
+2. AGENTS.md §3.3.1 「legacy/ 不能加新功能」与 spec C R3+R4 必须改 ils_planner 矛盾
+3. 真死代码（3 个）混在里面，让真正的活 fallback 模糊
+
+**spec D 主架构**：删除 legacy/ + 4 类解构
+
+```text
+backend/agent/
+├── core/                  （spec B 不动）
+├── intent/                （spec B 不动）
+├── planning/
+│   ├── blueprint/         （spec B 不动）
+│   ├── critic/
+│   │   ├── critics_v2.py  （spec B 不动）
+│   │   ├── social_compat.py
+│   │   └── ils_score_critic.py  ← 从 legacy/ 搬来
+│   ├── commute/           （spec B 不动）
+│   ├── planners/          ← spec D 新建
+│   │   ├── rule_planner.py        ← 重命名自 legacy/planner_rule.py（主路径活代码）
+│   │   ├── ils_planner.py         ← 搬自 legacy/（活 fallback）
+│   │   └── segment_decider.py     ← 搬自 legacy/
+│   └── weights_llm.py     （spec B 不动；# FROZEN 保留）
+├── runtime/               （spec B 不动）
+└── graph/                 （spec B 不动）
+（legacy/ 整个目录已删；verify_legacy_frozen.py 已删）
+```
+
+**5 个 Task 工时**：
+
+```text
+| Task | 内容                                       | 工时   |
+|------|------------------------------------------|--------|
+| T1   | baseline + spec A/B 完成度核查 + git tag    | 0.2h   |
+| T2   | 删除 3 个真死代码（含 prompts 孤儿）         | 0.6h   |
+| T3   | smartRelocate 4 处迁移 + docstring 改写     | 0.8h   |
+| T4   | 删除 legacy/ 目录 + verify_legacy_frozen.py | 0.3h   |
+| T5   | 改造 3 个测试 + AGENTS.md / spec C / 文档同步 + commit | 0.8h |
+| 总计 |                                            | 2.7h   |
+```
+
+**5 个 Requirement 摘要**：
+
+```text
+| #  | Requirement                                       | 关键改动                                |
+|----|--------------------------------------------------|----------------------------------------|
+| R1 | 删除 3 个真死代码                                 | llm_first_planner / llm_planner / executor + prompts 孤儿|
+| R2 | 解冻 4 个非死代码到 planning/ 子目录              | rule_planner / ils_planner / segment_decider / ils_score_critic|
+| R3 | 删除 legacy/ 整个目录 + verify_legacy_frozen.py    | 5 处目录 / 文件 / __init__ 全删          |
+| R4 | AGENTS.md §3.3.1 编排冻结纪律重写                  | 删 4 条 MUST NOT + 加 1 条 planners/ 说明|
+| R5 | spec C 锚点同步 + 防再犯条款 + 文档同步            | spec C 4 处锚点改 + pitfalls + progress + problem|
+```
+
+**前置硬约束**：spec D 必须在 spec C 实施启动前完成。理由：spec C R3+R4 锚点是 ils_planner.py，如果 spec C 先做、spec D 再做要返工 2 次 import 路径迁移。
+
+**修改的代码文件**：
+
+- 新建（已 commit 7ee638d）：
+  - `.kiro/specs/legacy-cleanup-and-honest-naming/requirements.md`（171 行；5 Requirement + Glossary + Out of Scope + 启动检查清单）
+  - `.kiro/specs/legacy-cleanup-and-honest-naming/design.md`（413 行；目录树对比 + 4 个 Component + Property 6 项 + Testing Strategy + Decisions Log + Risk Assessment + Estimated Effort）
+  - `.kiro/specs/legacy-cleanup-and-honest-naming/tasks.md`（188 行；5 task 严格串行 + 启动检查清单 C1-C5 + Risk & Mitigation 表）
+- `problem.md`（追加本条，本次主线 commit 待跑）
+
+**应当达成的效果**：
+
+- spec D 三件套就位，等用户拍板启动
+- spec D 完成后：legacy/ 目录从仓库消失；命名诚实（rule_planner.py 在 planners/ 而不是 legacy/）；冻结纪律改为按 graph/build.py 拓扑稳定（而非按文件位置）
+- spec C 实施时 R3+R4 改动锚点干净（直接改 planning/planners/ils_planner.py，不撞任何冻结条款）
+- pitfalls.md 加 1 条 [P0] 防再犯：「目录重组前必须 grep 真实引用，明确『主路径 / 活 fallback / 死代码』三类」
+- 用户可决定下一步：(a) 启动 spec D 实施（task 1 baseline 验证 + 后续 4 task 串行推进，2.7h 完成）；(b) 用户先 review spec D 三件套提修改意见；(c) spec D + spec C 顺序串行启动（spec D 完成 → 启动 spec C）
+
