@@ -7367,3 +7367,58 @@ memory_writer.py:122 自身的判定逻辑是对的（`success = bool(user_decis
 ⚠ **用户操作要求**：本轮修改在 backend 进程内存里没生效——需要重启 backend dev server 后再点 S1 验证。
 
 用户反馈：（待用户重启 backend 实测后追加）
+
+
+---
+
+问题：memory 是不是和现有的偏好画像功能重复了？
+
+解决方案：
+
+调研结论先回答：**不重复，是 3 层渐进个性化，但 demo 视觉上容易让评委误以为重复**。
+
+3 层数据结构对照：
+- ① Persona（写死 mock 档案，5 个人设）：意图解析 prior 注入「你是新手爸爸」
+- ② UserMemory（进程内 dict + tag 计数器）：confirm 累加 / refine 扣分；展示在右上 PreferencesPanel
+- ③ RecentTrip（mock_data/user_profile.json 磁盘自然语言摘要）：跨 session 召回；展示在 MemoryPersistedBadge
+
+它们互补不重复：
+- ① + ② 是 paper-classic「prior + posterior 加权合并」（compute_priors `persona × 0.3 + memory × 0.7`），同维度的粗细两层
+- ③ 是 TravelAgent NeurIPS'24 范式的「跨 session 自然语言记忆」，**不参与 tag 加权计算**，由 LLM 直接读 summary 自然语言段
+- 三者接近 zero overlap：① 是「你是谁」，② 是「你近期什么 tag 偏好」，③ 是「你上次具体做了什么」
+
+但用户感觉重复 → 选了**方案 B**（最便宜的解，工时 0.3h）：改 MemoryPersistedBadge 文案让分工对评委秒懂。
+
+文案变化：
+
+```
+旧：「✓ 已记住此次「情侣亲密」场景偏好」
+    summary 预览 · 下次同场景会优先参考
+
+新：「✓ 已写入「情侣亲密」场景的跨 session 召回库」
+    summary 预览 · user_profile.json 自然语言记忆，与「偏好画像」的 tag 统计互补
+```
+
+新文案的好处：
+- 评委一眼看到「跨 session 召回库」+「自然语言记忆」两个关键词，与右侧「偏好画像」面板的「tag 统计」明确分工
+- 路演讲到此处时演讲者可顺势说：「这就是 TravelAgent NeurIPS'24 三层 schema 中的 commonsense 层——业界论文做的事我们也做了」
+- 「user_profile.json」这个具体文件名让评委知道是磁盘持久化（区别于右侧面板的进程内 dict）
+- 「与「偏好画像」的 tag 统计互补」直接化解「重复了吗」的困惑
+
+修改的代码文件：
+
+修改：
+- `frontend/components/ItineraryCard.tsx`（MemoryPersistedBadge 主标题 + 副文案改写，2 行字符替换）
+- `problem.md`（本条）
+
+未改：
+- 任何后端 schema / 数据流（业务逻辑零变化）
+- PreferencesPanel（保持「偏好画像」面板原文案，分工已清晰）
+
+应当达成的效果：
+
+- 评委看到方案就绪页面（注：本来就不会显示徽章了，迁移到 confirm 后才出现）→ 点「确认并预约」→ 出现新文案徽章
+- 新文案传达「这是另一层独立创新（跨 session 自然语言记忆 / TravelAgent 范式）」而非「重复造轮子」
+- 前端 verify:all 4/4 通过；不动后端 / SSE / store
+
+用户反馈：（待用户重启前端实测后追加）

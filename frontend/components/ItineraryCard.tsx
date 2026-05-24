@@ -689,12 +689,14 @@ function MemoryPersistedBadge({
       />
       <div className="flex-1 min-w-0">
         <div className="font-medium text-emerald-300 tracking-tight">
-          已记住此次「{socialContext || "本"}」场景偏好
+          已写入「{socialContext || "本"}」场景的跨 session 召回库
         </div>
         <div className="text-emerald-200/75 text-[11px] mt-0.5 line-clamp-1">
           {summaryPreview}
           <span className="text-emerald-400/60 ml-1">·</span>
-          <span className="text-emerald-400/60 ml-1">下次同场景会优先参考</span>
+          <span className="text-emerald-400/60 ml-1">
+            user_profile.json 自然语言记忆，与「偏好画像」的 tag 统计互补
+          </span>
         </div>
       </div>
     </div>
