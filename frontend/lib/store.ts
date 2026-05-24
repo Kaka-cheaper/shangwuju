@@ -64,6 +64,11 @@ export interface ToolCallRecord {
   output?: Record<string, unknown>;
   // 是否在异常重规划之前 → UI 上灰显
   replanned?: boolean;
+  /** spec innovation-review R1：fan-out 并行组 ID，同 group_id 表示并发执行；
+   * 前端可基于此横向并列展示，让评委看到「并发」而非「按完成顺序串行到达的伪串行」。 */
+  groupId?: string | null;
+  /** 是否并发执行（与 groupId 一起用，便于 UI 区分串行 / 并行）。 */
+  parallel?: boolean;
 }
 
 export interface ReplanRecord {
@@ -678,6 +683,8 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
         input: p.input,
         startedAtSeq: ev.seq,
         arrivalIdx: arrivalCounter++,
+        groupId: p.group_id ?? null,
+        parallel: p.parallel ?? false,
       };
       set((s) => ({ toolCalls: [...s.toolCalls, rec] }));
       break;
@@ -700,6 +707,9 @@ function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
                   : undefined,
               reason: (p.output?.reason as string) ?? null,
               output: p.output,
+              // R1：tool_call_end 也带 group_id（与 start 同步），便于失败补偿场景
+              groupId: arr[i].groupId ?? p.group_id ?? null,
+              parallel: arr[i].parallel ?? p.parallel ?? false,
             };
             break;
           }

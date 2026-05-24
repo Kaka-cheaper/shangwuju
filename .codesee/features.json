@@ -18,7 +18,7 @@
     {
       "id": "discovery",
       "name": "候选发现",
-      "summary": "Plan-and-Execute 的 execute 阶段：4 worker 并行调 8 工具（POI / 餐厅 / 路线 / 画像）",
+      "summary": "Plan-and-Execute 的 execute 阶段：3 worker 并行调 8 工具（POI / 餐厅 / 画像）+ 路线估算 worker 路线图",
       "order": 1,
       "importance": "core",
       "tags": []
@@ -503,7 +503,7 @@
     {
       "id": "f-execute-parallel",
       "name": "并行候选发现",
-      "summary": "Plan-and-Execute 的 execute 阶段：4 worker 同时跑（搜地点 / 搜餐厅 / 取画像 / 路线粗估），3 倍于 ReAct 串行",
+      "summary": "Plan-and-Execute 的 execute 阶段：3 worker 同时跑（搜地点 / 搜餐厅 / 取画像）+ split-per-worker state key 防 reducer 覆盖；estimate_routes_worker 是 14h 切高德时的路线图",
       "epicId": "discovery",
       "triggers": [
         { "kind": "event", "detail": "intent / refiner 完成后多边并发" }
@@ -774,7 +774,7 @@
           "id": "add_nodes",
           "name": "注册节点",
           "role": "compute",
-          "note": "router / chitchat / intent / refiner / 4 worker / collect / planner / assemble / critic / replan_router / ils_replan / narrate / execute_finalize",
+          "note": "router / chitchat / intent / refiner / 3 worker / collect / planner / assemble / critic / replan_router / ils_replan / narrate / execute_finalize",
           "refs": [{ "file": "backend/agent/graph/build.py", "lines": [75, 110] }]
         },
         {

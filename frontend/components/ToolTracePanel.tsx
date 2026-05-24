@@ -287,6 +287,23 @@ function EpicBlock({
 }) {
   const { epic, items, totalDurationMs, callCount, hasReplan, hasInProgress, hasFail } = bucket;
 
+  // R1：检测同 epic 内的并发组——同 groupId 且 parallel=true 的 tool 数 ≥ 2
+  // 这是「3 worker fan-out 真并行」的可见性证据
+  const parallelGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of items) {
+      if (it.kind !== "tool") continue;
+      const gid = it.tool.groupId;
+      if (gid && it.tool.parallel) {
+        counts.set(gid, (counts.get(gid) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries()).filter(([, n]) => n >= 2);
+  }, [items]);
+  const fanoutBadgeText = parallelGroups.length
+    ? `🔀 并发 ${parallelGroups.map(([, n]) => n).join("+")}`
+    : null;
+
   // 头部状态色
   const headerAccent = hasInProgress
     ? "text-brand-400"
@@ -320,6 +337,14 @@ function EpicBlock({
         <span className="text-[10px] text-ink-500 truncate flex-1 min-w-0">
           {epic.hint}
         </span>
+        {fanoutBadgeText && (
+          <span
+            className="text-[10px] text-brand-300 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/10 border border-brand-500/30"
+            title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
+          >
+            {fanoutBadgeText}
+          </span>
+        )}
         <span className="flex items-center gap-1.5 shrink-0">
           {hasInProgress && (
             <Loader2

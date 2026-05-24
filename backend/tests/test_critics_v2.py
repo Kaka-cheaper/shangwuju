@@ -617,3 +617,55 @@ def test_demo_full_check_disabled_no_trigger_at_17_00(monkeypatch):
     violations = validate_itinerary(itinerary, intent)
     codes = [v.code for v in violations]
     assert ViolationCode.RESTAURANT_FULL_UNRESOLVED not in codes
+
+
+# ============================================================
+# 测试 12：CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3）
+# ============================================================
+
+
+def test_capacity_violated_when_party_size_exceeds_table():
+    """intent.capacity_requirement=6 / R001 仅 2/4 桌 → critical。"""
+    intent = _make_intent()
+    intent.capacity_requirement = 6  # ≥6 人
+
+    itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001: 2/4 only
+    violations = validate_itinerary(itinerary, intent)
+    capacity_violations = [
+        v for v in violations
+        if v.code == ViolationCode.CAPACITY_REQUIREMENT_VIOLATED
+        and v.severity == Severity.CRITICAL
+    ]
+
+    assert capacity_violations, (
+        f"R001 仅含 2/4 桌但同行 6 人 → 应触发 CAPACITY_REQUIREMENT_VIOLATED，"
+        f"实际 violations={[v.code for v in violations]}"
+    )
+    msg = capacity_violations[0].message
+    assert "桌型" in msg, f"违规消息应含「桌型」字样：{msg}"
+    # 不暴露 dot-path
+    assert "target_id" not in msg, f"违规消息不暴露字段名：{msg}"
+
+
+def test_capacity_no_trigger_when_le_4():
+    """capacity_requirement=4 → 不触发（4 人桌业界默认有）。"""
+    intent = _make_intent()
+    intent.capacity_requirement = 4
+
+    itinerary = _make_legal_itinerary(restaurant_id="R001")
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes, (
+        f"capacity_requirement=4 不应触发 critic，实际 codes={codes}"
+    )
+
+
+def test_capacity_no_trigger_when_none():
+    """capacity_requirement=None（同行 ≤3 人不必填）→ 不触发。"""
+    intent = _make_intent()
+    intent.capacity_requirement = None
+
+    itinerary = _make_legal_itinerary(restaurant_id="R001")
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes

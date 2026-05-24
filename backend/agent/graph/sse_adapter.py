@@ -166,7 +166,8 @@ async def run_graph_stream(
                         )
                         seq += 1
 
-                # ---- 4 个搜索 worker → 合成 tool_call_start + tool_call_end ----
+                # ---- 3 个搜索 worker（fan-out 并行组）→ 合成 tool_call_start + tool_call_end ----
+                # spec innovation-review R1：加 group_id 让前端可识别同 fan-out 组并横向并列展示
                 elif node_name in (
                     "search_pois_worker",
                     "search_restaurants_worker",
@@ -177,10 +178,16 @@ async def run_graph_stream(
                         "search_restaurants_worker": "search_restaurants",
                         "get_user_profile_worker": "get_user_profile",
                     }[node_name]
+                    fanout_group = "fanout-execute"  # 同 fan-out 组所有 worker 共用
                     yield _ev(
                         seq,
                         SseEventType.TOOL_CALL_START,
-                        {"tool": tool_name, "input": {}},
+                        {
+                            "tool": tool_name,
+                            "input": {},
+                            "group_id": fanout_group,
+                            "parallel": True,
+                        },
                     )
                     seq += 1
                     # 合成 end（结果数量摘要）
@@ -202,7 +209,13 @@ async def run_graph_stream(
                     yield _ev(
                         seq,
                         SseEventType.TOOL_CALL_END,
-                        {"tool": tool_name, "output": out_summary, "duration_ms": 0},
+                        {
+                            "tool": tool_name,
+                            "output": out_summary,
+                            "duration_ms": 0,
+                            "group_id": fanout_group,
+                            "parallel": True,
+                        },
                     )
                     seq += 1
 

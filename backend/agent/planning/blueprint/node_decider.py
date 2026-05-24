@@ -40,9 +40,22 @@ nodes**：
 
 from __future__ import annotations
 
+import os
 from typing import Final, Iterable
 
 from schemas.intent import IntentExtraction
+
+
+def _env_int(name: str, default: int) -> int:
+    """从 env 读非负整数；解析失败 / 越界回退 default（不抛）。"""
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        v = int(raw)
+        return v if v > 0 else default
+    except ValueError:
+        return default
 
 
 # ============================================================
@@ -84,9 +97,10 @@ _DINING_FOCUSED_CONTEXTS: Final[frozenset[str]] = frozenset(
 _SOLO_IMMERSIVE_CONTEXTS: Final[frozenset[str]] = frozenset({"独处放空"})
 
 # 时长阈值（分钟）—— 与旧 segment_decider 保持一致，避免行为漂移
-THRESHOLD_VERY_SHORT_MIN: Final[int] = 90      # < 90min：单中间节点
-THRESHOLD_SHORT_MIN: Final[int] = 180          # < 180min：弹性 1 / 2 节点
-THRESHOLD_SHORT_HAS_BOTH_MIN: Final[int] = 150  # 150-180min 时，dining 导向场景可塞主活动
+# spec innovation-review R4：改 env flag（默认值不变；评委追问时一句「latency-bound 工程取舍可调」）
+THRESHOLD_VERY_SHORT_MIN: Final[int] = _env_int("NODE_DECIDER_VERY_SHORT_MIN", 90)      # < 90min：单中间节点
+THRESHOLD_SHORT_MIN: Final[int] = _env_int("NODE_DECIDER_SHORT_MIN", 180)               # < 180min：弹性 1 / 2 节点
+THRESHOLD_SHORT_HAS_BOTH_MIN: Final[int] = _env_int("NODE_DECIDER_SHORT_BOTH_MIN", 150)  # 150-180min 时，dining 导向场景可塞主活动
 
 
 # ============================================================

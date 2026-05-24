@@ -1,21 +1,22 @@
 ﻿"""nodes.execute —— Plan-and-Execute 中的 execute 阶段（并行调候选搜索）。
 
-通过 LangGraph Send API 并行触发 4 个搜索 worker（POI / 餐厅 / 用户画像 / 路线估算）。
-每个 worker 负责调一个工具，结果合并到 State。
+通过 LangGraph 并行触发 3 个搜索 worker（POI / 餐厅 / 用户画像），结果合并到 State。
 
 并行实现：
 - search_pois_worker        → state["pois"] / state["pois_relaxed_tags"]
 - search_restaurants_worker → state["restaurants"] / state["restaurants_relaxed_tags"]
 - get_user_profile_worker    → state["user_profile"]
-- estimate_routes_worker     → state["routes"]（先粗估常用 home→候选 POI 距离）
+
+路线图（暂未实现，14h 切高德时一并落地，spec D 已规划）：
+- estimate_routes_worker     → state["routes"]（粗估常用 home→候选 POI 距离）
 
 为什么 relaxed_tags 分两个 key（pois_*/restaurants_*）：
 - LangGraph 默认 reduce 是覆盖，多 worker 同写一个 key 会冲突
 - 业务上 POI / 餐厅的放宽路径是独立信号，分开存便于前端区分展示
 
 注意：
-- 路线估算要等 POI 已选定后才能精确估，这里先粗估「home → top-K POI / top-K 餐厅」
-  缓存进 routes，等蓝图出后 assemble 直接查
+- 当前 routes 在 assemble 阶段直接调 lookup_hop（routes.json mock 命中 + haversine 兜底），
+  够用；estimate_routes_worker 在切真高德时落地（届时 routes 提前缓存收益显著）
 - 任何 worker 失败不阻塞其他 worker（容忍空候选，让 replan 兜）
 """
 

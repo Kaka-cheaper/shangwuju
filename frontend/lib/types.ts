@@ -48,12 +48,19 @@ export interface SseEvent<P = Record<string, unknown>> {
 export interface ToolCallStartPayload {
   tool: string;
   input: Record<string, unknown>;
+  /** spec innovation-review R1：fan-out 并行组 ID（前端识别同组 worker 并横向并列展示）。 */
+  group_id?: string | null;
+  /** 是否并发执行。 */
+  parallel?: boolean;
 }
 
 export interface ToolCallEndPayload {
   tool: string;
   output: Record<string, unknown> & { success?: boolean; reason?: FailureReason };
   duration_ms?: number;
+  /** spec innovation-review R1：fan-out 并行组 ID（与 ToolCallStartPayload 同源）。 */
+  group_id?: string | null;
+  parallel?: boolean;
 }
 
 export interface ReplanTriggeredPayload {

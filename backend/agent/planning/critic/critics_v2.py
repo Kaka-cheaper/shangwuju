@@ -91,6 +91,7 @@ class ViolationCode(str, Enum):
     SOCIAL_CONTEXT_MISMATCH = "social_context_mismatch"
     AGE_DURATION_MISMATCH = "age_duration_mismatch"  # spec planning-quality-deep-review R4
     TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2
+    CAPACITY_REQUIREMENT_VIOLATED = "capacity_requirement_violated"  # spec innovation-review M3
 
 
 class Severity(str, Enum):
@@ -180,6 +181,7 @@ CODE_WEIGHTS: dict[ViolationCode, float] = {
     ViolationCode.NODES_INCOMPLETE: 1.5,
     ViolationCode.TIMELINE_INCONSISTENT: 1.5,
     ViolationCode.TOOL_RESPONSE_INCONSISTENCY: 1.5,  # spec algorithm-redesign R2：hallucination 等同 macro 级
+    ViolationCode.CAPACITY_REQUIREMENT_VIOLATED: 1.5,  # spec innovation-review M3：≥5 人桌型不够等同 macro 级
     ViolationCode.DIETARY_VIOLATION: 0.8,
     ViolationCode.DISTANCE_EXCEEDED: 0.8,
 }
@@ -785,6 +787,64 @@ def _check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     return out
 
 
+def _check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+    """spec innovation-review M3：capacity_requirement critic（≥6 人但餐厅无 8 人桌型）。
+
+    业务背景：
+    - intent.capacity_requirement 由意图层设置，同行 ≥4 时必填（schemas/intent.py:144）
+    - mock Restaurant.capacity 字段含 two/four/six/eight + private_room 五种桌型存在性
+    - 当 capacity_requirement ≥ 6 但餐厅 six=False 且 eight=False 且 private_room=False
+      → 桌型不够，必须 backprompt LLM 换餐厅
+
+    设计纪律：
+    - 仅对 target_kind=restaurant 节点校验
+    - 无 capacity_requirement 或 ≤ 4 → 跳过（4 人桌业界默认有）
+    - 餐厅 load 失败 → 跳过（无数据不误伤）
+    - severity=CRITICAL（≥6 人没桌等于不能就餐，比 dietary warning 严重）
+    """
+    cap_req = getattr(intent, "capacity_requirement", None)
+    if cap_req is None or cap_req <= 4:
+        return []
+
+    restaurants_by_id = {r.id: r for r in _safe_load_restaurants()}
+    if not restaurants_by_id:
+        return []
+
+    out: list[Violation] = []
+    for idx, node in enumerate(itinerary.nodes):
+        if node.target_kind != "restaurant":
+            continue
+        rid = node.target_id
+        if not rid or rid not in restaurants_by_id:
+            continue
+        rest = restaurants_by_id[rid]
+        cap = rest.capacity
+
+        # 判定够不够：≥6 人 → 需要 six/eight/private_room 至少一种
+        if cap_req >= 6:
+            has_seat = cap.six or cap.eight or cap.private_room
+            if has_seat:
+                continue
+        else:  # 5 人——four 桌坐不下，需要 six/eight/private_room
+            has_seat = cap.six or cap.eight or cap.private_room
+            if has_seat:
+                continue
+
+        out.append(
+            Violation(
+                code=ViolationCode.CAPACITY_REQUIREMENT_VIOLATED,
+                severity=Severity.CRITICAL,
+                message=(
+                    f"{_humanize_node(idx, node)}（{rest.name}）桌型不够 {cap_req} 人就餐"
+                    f"（仅 2/4 人桌，无 6 人桌 / 8 人桌 / 包间）。"
+                    "请换支持大桌或包间的餐厅。"
+                ),
+                field_path=f"nodes[{idx}].target_id",
+            )
+        )
+    return out
+
+
 def _check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
     """用餐 node 餐厅 tags 是否覆盖 intent.dietary_constraints。
 
@@ -1047,6 +1107,7 @@ def validate_itinerary(
     9. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
     10. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
     11. TOOL_RESPONSE_INCONSISTENCY（spec algorithm-redesign R2，仅 tool_results 提供时）
+    12. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
 
     Args:
         itinerary:    要校验的方案（已通过 Pydantic 构造）。
@@ -1074,6 +1135,8 @@ def validate_itinerary(
     violations.extend(_check_age_aware_duration(itinerary, intent))
     # spec algorithm-redesign R2：tool 响应一致性（hallucination 防护）
     violations.extend(_check_tool_consistency(itinerary, tool_results))
+    # spec innovation-review M3：capacity_requirement critic（≥5 人桌型校验）
+    violations.extend(_check_capacity(itinerary, intent))
     return violations
 
 

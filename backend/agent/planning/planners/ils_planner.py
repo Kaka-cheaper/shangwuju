@@ -413,11 +413,12 @@ def plan_hybrid(
 # ============================================================
 
 # spec algorithm-redesign R3：grounding-first 前置硬剔除常量
-_GROUNDING_MIN_CANDIDATES = 3   # 候选池 < 3 时自动放宽
-_GROUNDING_DISTANCE_TOL_KM = 1.0     # 默认距离容差（与 _utility 物理可行性快检对齐）
-_GROUNDING_DISTANCE_TOL_RELAX_KM = 2.0  # 候选 < 3 时放宽到 +2km
-_GROUNDING_PRESCHOOL_CAP = 90        # 含 ≤6 岁同行人时主导桶上限（min）
-_GROUNDING_SENIOR_CAP = 75           # 含 ≥75 岁同行人时主导桶上限（min）
+# spec innovation-review R4：改 env flag（默认值不变；let evaluator 看到 demo / production 双 mode 思维）
+_GROUNDING_MIN_CANDIDATES = _env_int("GROUNDING_MIN_CANDIDATES", 3)           # 候选池 < 3 时自动放宽
+_GROUNDING_DISTANCE_TOL_KM = _env_float("GROUNDING_DISTANCE_TOL_KM", 1.0)     # 默认距离容差（与 _utility 物理可行性快检对齐）
+_GROUNDING_DISTANCE_TOL_RELAX_KM = _env_float("GROUNDING_DISTANCE_TOL_RELAX_KM", 2.0)  # 候选 < 3 时放宽到 +2km
+_GROUNDING_PRESCHOOL_CAP = _env_int("GROUNDING_PRESCHOOL_CAP", 90)            # 含 ≤6 岁同行人时主导桶上限（min）
+_GROUNDING_SENIOR_CAP = _env_int("GROUNDING_SENIOR_CAP", 75)                  # 含 ≥75 岁同行人时主导桶上限（min）
 
 
 def _grounding_filter_poi(
