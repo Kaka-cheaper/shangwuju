@@ -141,4 +141,48 @@ def execute_finalize_node(state: AgentState) -> dict[str, Any]:
     }
     if confirm_narration:
         out_state["narration"] = confirm_narration
+
+    # spec algorithm-redesign R5（迁移自 narrate_node，2026-05-25 用户反馈）
+    # 「已记住此次场景偏好」应该是用户**确认预约**后才记住——不是方案就绪就记住。
+    # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律），
+    # 只把副作用挂位从 narrate（方案就绪）迁到 execute_finalize（用户确认下单后），与 memory_writer
+    # 的 success=bool(user_decision == "confirm") 语义对齐。
+    # 失败时 try/except 吞掉异常，不阻断 finalize 主输出。
+    try:
+        from agent.planning.memory_writer import persist_memory
+
+        # finalize 节点的 state 中 user_decision 一定是 "confirm"（cancel/refine 不进本节点）
+        # 但仍把 user_decision 显式补一下，避免 memory_writer 内部因字段缺失误判
+        finalize_state = dict(state)
+        finalize_state.setdefault("user_decision", "confirm")
+        finalize_state["itinerary"] = new_itin  # 用更新后含 orders 的 itinerary
+
+        memory_client = get_llm_client()
+        ok = persist_memory(finalize_state, client=memory_client)
+        social_ctx = getattr(intent, "social_context", "") or ""
+        try:
+            mid_kinds = [
+                ("活动" if n.target_kind == "poi" else "用餐")
+                for n in new_itin.nodes
+                if n.target_kind in ("poi", "restaurant")
+            ]
+            summary_preview = (
+                f"{social_ctx}场景 · " + " → ".join(mid_kinds)
+                if mid_kinds
+                else f"{social_ctx}场景"
+            )
+        except Exception:
+            summary_preview = social_ctx
+        out_state["memory_status"] = {
+            "social_context": social_ctx,
+            "summary_preview": summary_preview[:80],
+            "success": bool(ok),
+            "skipped_reason": None if ok else "duplicate_within_5min",
+        }
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).debug(
+            "execute_finalize_node: persist_memory side-effect failed: %s", exc
+        )
+
     return out_state

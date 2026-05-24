@@ -445,16 +445,8 @@ async def run_graph_stream(
                             {"text": text, "stage": "stream"},
                         )
                         seq += 1
-                    # spec algorithm-redesign R5：memory 副作用结果推 SSE
-                    # 让评委看到「Agent 已把这次行程写回用户画像，下次同场景会召回」
-                    memory_status = node_diff.get("memory_status")
-                    if memory_status is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.MEMORY_PERSISTED,
-                            memory_status,
-                        )
-                        seq += 1
+                    # 注：MEMORY_PERSISTED 推送已迁到 execute_finalize 段（2026-05-25）
+                    # 产品语义：用户确认预约后才记住偏好；方案就绪不应触发
 
                 # ---- execute_finalize ----
                 elif node_name == "execute_finalize":
@@ -464,6 +456,17 @@ async def run_graph_stream(
                             seq,
                             SseEventType.ITINERARY_READY,
                             itin.model_dump(),
+                        )
+                        seq += 1
+                    # spec algorithm-redesign R5：memory 副作用结果推 SSE
+                    # 让评委看到「Agent 已把这次行程写回用户画像，下次同场景会召回」
+                    # 2026-05-25 修正：从 narrate 段迁到此处，与「确认预约后才记住」产品语义对齐
+                    memory_status = node_diff.get("memory_status")
+                    if memory_status is not None:
+                        yield _ev(
+                            seq,
+                            SseEventType.MEMORY_PERSISTED,
+                            memory_status,
                         )
                         seq += 1
 

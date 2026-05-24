@@ -1,9 +1,12 @@
-"""spec algorithm-redesign R5 收尾：narrate_node memory_status diff + MEMORY_PERSISTED SSE 序列化。
+"""spec algorithm-redesign R5：memory_status diff + MEMORY_PERSISTED SSE 序列化。
+
+【2026-05-25 修正】memory 副作用挂位从 narrate_node 迁到 execute_finalize_node
+对应产品语义：「已记住此次场景偏好」应该是用户**确认预约**后才记住，方案就绪不应触发。
 
 测试覆盖：
-- narrate_node 返 state diff 含 memory_status 字段（confirm 路径）
+- execute_finalize_node 返 state diff 含 memory_status 字段（confirm 路径，唯一进入路径）
 - memory_status 含 social_context / summary_preview / success / skipped_reason
-- cancel 路径 memory_status.success == False + skipped_reason="user_cancelled"
+- narrate_node 主路径**不再**返 memory_status（cancel 路径 narrate 也走，但不写 memory）
 - MEMORY_PERSISTED 在 SseEventType 枚举里（前端可消费）
 
 不调真 LLM；用 stub client + tempfile profile。
@@ -27,6 +30,7 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 
+from agent.graph.nodes.execute_finalize import execute_finalize_node  # noqa: E402
 from agent.graph.nodes.narrate import narrate_node  # noqa: E402
 from schemas.sse import SseEventType  # noqa: E402
 from tests.test_critics_v2 import _make_intent, _make_legal_itinerary  # noqa: E402
@@ -66,16 +70,19 @@ def mock_user_profile_path(tmp_path, monkeypatch):
     load_user_profiles.cache_clear()
 
 
-def test_narrate_node_returns_memory_status_on_confirm(
+def test_finalize_node_returns_memory_status_on_confirm(
     mock_user_profile_path, monkeypatch
 ):
-    """confirm 路径下 narrate_node 返 memory_status.success=True"""
-    # 让 narrate_node 内的 get_llm_client 返 stub
+    """confirm 路径下 execute_finalize_node 返 memory_status.success=True
+
+    新语义（2026-05-25 修正）：用户确认预约后才记住偏好，不是方案就绪就记住。
+    """
+    # 让 finalize_node 内的 get_llm_client 返 stub
     stub_client = MagicMock()
     stub_client.provider = "stub"
 
     monkeypatch.setattr(
-        "agent.graph.nodes.narrate.get_llm_client",
+        "agent.graph.nodes.execute_finalize.get_llm_client",
         lambda: stub_client,
     )
 
@@ -88,8 +95,10 @@ def test_narrate_node_returns_memory_status_on_confirm(
         "user_id": "demo_user",
     }
 
-    result = narrate_node(state)
-    assert "memory_status" in result, "narrate_node 应返 memory_status diff"
+    result = execute_finalize_node(state)
+    assert "memory_status" in result, (
+        "execute_finalize_node 应返 memory_status diff（confirm 路径产品语义）"
+    )
     ms = result["memory_status"]
     assert ms["social_context"] == "家庭日常"
     assert isinstance(ms["summary_preview"], str)
@@ -100,10 +109,14 @@ def test_narrate_node_returns_memory_status_on_confirm(
     assert ms["skipped_reason"] is None
 
 
-def test_narrate_node_returns_memory_status_on_cancel(
+def test_narrate_node_does_not_persist_memory(
     mock_user_profile_path, monkeypatch
 ):
-    """cancel 路径 → memory_status.success=False + skipped_reason='user_cancelled'"""
+    """narrate_node（方案就绪）**不应**触发 persist_memory 副作用——产品语义错误。
+
+    防再犯：用户在 2026-05-25 反馈「已记住此次场景偏好应该是确认预约后才记住」，
+    曾经的 narrate 节点提前触发 memory 写入是错误的产品语义。
+    """
     stub_client = MagicMock()
     stub_client.provider = "stub"
     monkeypatch.setattr(
@@ -113,28 +126,29 @@ def test_narrate_node_returns_memory_status_on_cancel(
 
     intent = _make_intent(social_context="家庭日常")
     itinerary = _make_legal_itinerary()
+    # 模拟用户尚未确认（user_decision 为 None；narrate 节点应该不关心此字段）
     state = {
         "intent": intent,
         "itinerary": itinerary,
-        "user_decision": "cancel",
         "user_id": "demo_user",
     }
 
     result = narrate_node(state)
-    assert "memory_status" in result
-    ms = result["memory_status"]
-    assert ms["success"] is False
-    assert ms["skipped_reason"] == "user_cancelled"
+    assert "memory_status" not in result, (
+        f"narrate_node 不应返 memory_status，实际 result keys={list(result.keys())}"
+    )
+    # narrate 仍要返主输出
+    assert "narration" in result or "itinerary" in result
 
 
-def test_narrate_node_summary_preview_format(
+def test_finalize_node_summary_preview_format(
     mock_user_profile_path, monkeypatch
 ):
     """summary_preview 含「social_context · 节点序列」格式"""
     stub_client = MagicMock()
     stub_client.provider = "stub"
     monkeypatch.setattr(
-        "agent.graph.nodes.narrate.get_llm_client",
+        "agent.graph.nodes.execute_finalize.get_llm_client",
         lambda: stub_client,
     )
 
@@ -147,7 +161,7 @@ def test_narrate_node_summary_preview_format(
         "user_id": "demo_user",
     }
 
-    result = narrate_node(state)
+    result = execute_finalize_node(state)
     preview = result["memory_status"]["summary_preview"]
     # legal_itinerary 含 1 个 poi + 1 个 restaurant 中间节点
     assert "活动" in preview or "用餐" in preview

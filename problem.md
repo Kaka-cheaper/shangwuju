@@ -7311,3 +7311,59 @@ backend/agent/
 ⚠ **用户操作要求**：本轮 P0 修复在 backend 进程内存里没生效——需要你**重启 backend dev server**（关闭当前 uvicorn → 重新跑 .venv/Scripts/python -m uvicorn main:app --reload）后再点 LLM 模式 S1 验证。pitfalls P2-2026-05-24「backend dev 进程未重启」永久教训提醒。
 
 用户反馈：（待用户重启 backend 实测后追加）
+
+
+---
+
+问题：「已记住此次场景偏好」应该是用户**确认预约**后才记住，不是方案就绪就记住
+
+解决方案：
+
+按 systematic-debugging Phase 1 根因调查后修复（不直接 fix）。
+
+**根因诊断**：
+
+读 `agent/graph/nodes/narrate.py:144-184`，发现 spec C task 6 落地时把 `persist_memory` 副作用调用挂在 narrate_node 末尾——但 narrate_node 在 critic 通过 / give_up 后立刻执行（方案就绪），**早于** execute_finalize_node（用户点确认预约后调起的图执行）。
+
+产品语义错误：
+- narrate 阶段：方案刚拼好，用户还没看到，更没确认 → 不应该「记住偏好」
+- execute_finalize 阶段：用户看完方案点了「确认并预约」，下单成功 → 才应该「记住偏好」
+
+memory_writer.py:122 自身的判定逻辑是对的（`success = bool(user_decision == "confirm")`），但 narrate_node 在 user_decision 还是 None 时就调用了 persist_memory，导致 success=False 的草稿被写入 recent_trips（污染用户画像 + 显示「已记住」与产品语义不一致）。
+
+**修复方案**（路径 B，不动 graph/build.py 拓扑）：
+
+1. `agent/graph/nodes/narrate.py`：删除 persist_memory 副作用调用 + memory_status 返回字段（保留 narrate 主输出 narration / itinerary）
+2. `agent/graph/nodes/execute_finalize.py`：在末尾加 persist_memory 调用 + memory_status 返回字段（仅 confirm 路径可达此节点）
+3. `agent/graph/sse_adapter.py`：MEMORY_PERSISTED SSE 推送从 narrate 段迁到 execute_finalize 段；narrate 段保留注释说明迁移原因
+4. `tests/test_memory_persisted_sse.py`：3 项测试从 narrate 改成 execute_finalize；新增 1 项「narrate_node 不应触发 persist_memory」防再犯测试
+5. **不动** `agent/planning/memory_writer.py`（user_decision 判定逻辑本来就对）+ **不动** `graph/build.py` 拓扑（spec B 锁的编排冻结纪律）
+
+**测试基线**：
+- pytest 698 passed + 1 skipped + 0 fail（不变；4 项 memory_persisted 测试改逻辑后全过）
+- spec C demo 8/8 通过（demo_memory_writer 直接测 persist_memory，不走 narrate / finalize 节点，不受迁移影响）
+
+修改的代码文件：
+
+修改：
+- `backend/agent/graph/nodes/narrate.py`（删 persist_memory 副作用 + memory_status 返回）
+- `backend/agent/graph/nodes/execute_finalize.py`（末尾加 persist_memory + memory_status 返回）
+- `backend/agent/graph/sse_adapter.py`（MEMORY_PERSISTED 推送从 narrate 段迁到 execute_finalize 段）
+- `backend/tests/test_memory_persisted_sse.py`（重写 4 项测试覆盖新挂位 + 防再犯测试）
+- `problem.md`（本条）
+
+未改：
+- `agent/planning/memory_writer.py`（user_decision 判定逻辑本来就对）
+- `graph/build.py`（spec B 拓扑冻结纪律）
+- `mock_data/user_profile.json`（demo 副作用，已 git checkout 回滚）
+
+应当达成的效果：
+
+- **产品语义对齐**：用户点「确认并预约」前不会看到「已记住此次场景偏好」徽章；点确认后下单成功才显示
+- **demo 视觉**：方案就绪时只看到「行程方案 / 已为你考虑了 / 时间轴」，**不再**看到 emerald MemoryPersistedBadge
+- 用户点确认按钮 → confirm 流跑 execute_finalize → memory_status SSE 推送 → 前端 MemoryPersistedBadge 出现
+- **不破前端兼容**：SSE 事件类型 / payload 字段全不变，前端 store / ItineraryCard 零改动
+
+⚠ **用户操作要求**：本轮修改在 backend 进程内存里没生效——需要重启 backend dev server 后再点 S1 验证。
+
+用户反馈：（待用户重启 backend 实测后追加）

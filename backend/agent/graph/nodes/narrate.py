@@ -138,47 +138,14 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
 
     # spec algorithm-redesign R5：narrate 主逻辑末尾的副作用——回写 user_profile.json
     # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律）
-    # 失败时 try/except 吞掉异常，不阻断 narrate 主输出
-    memory_status: dict[str, Any] | None = None
-    try:
-        from agent.planning.memory_writer import persist_memory
-
-        ok = persist_memory(state, client=client)
-        social_ctx = getattr(intent, "social_context", "") or ""
-        # 给前端 SSE 看的 summary 预览（不调 LLM，从节点序列拼）
-        try:
-            mid_kinds = [
-                ("活动" if n.target_kind == "poi" else "用餐")
-                for n in (new_itinerary.nodes if new_itinerary else [])
-                if n.target_kind in ("poi", "restaurant")
-            ]
-            summary_preview = (
-                f"{social_ctx}场景 · " + " → ".join(mid_kinds)
-                if mid_kinds
-                else f"{social_ctx}场景"
-            )
-        except Exception:
-            summary_preview = social_ctx
-        memory_status = {
-            "social_context": social_ctx,
-            "summary_preview": summary_preview[:80],
-            "success": bool(ok),
-            "skipped_reason": None
-            if ok
-            else (
-                "duplicate_within_5min"
-                if state.get("user_decision") != "cancel"
-                else "user_cancelled"
-            ),
-        }
-    except Exception as exc:
-        # 防御性：永不阻断主流程
-        import logging
-        logging.getLogger(__name__).debug(
-            "narrate_node: persist_memory side-effect failed: %s", exc
-        )
-
+    #
+    # 【pitfalls 2026-05-25 修正】
+    # 旧实现：narrate（方案就绪后）就触发 persist_memory——产品语义错误
+    # 用户反馈：「已记住此次场景偏好应该是我确认预约后才记住」——方案没确认就持久化偏好
+    # 是不是合适的语义？显然不是。
+    #
+    # 新实现：persist_memory 副作用迁到 execute_finalize_node（confirm 路径）；narrate 节点
+    # 不再触发 memory 写入。这与 memory_writer.py 的「user_decision != 'confirm' 时
+    # success=False」语义对齐，让「记住」与「下单」两个动作绑同一触发点。
     result: dict[str, Any] = {"narration": text, "itinerary": new_itinerary}
-    if memory_status is not None:
-        result["memory_status"] = memory_status
     return result
