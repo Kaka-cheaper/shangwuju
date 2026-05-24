@@ -413,6 +413,11 @@ export interface HealthResponse {
   version: string;
   llm_provider: string;
   planner_mode?: PlannerMode;
+  /**
+   * 当前是否启用真 planner 链路。"1" 表示已配置 LLM 凭证；"0" 表示走 stub。
+   * （main.py:_use_real_planner 解析结果）
+   */
+  planner_real?: string;
 }
 
 // ============================================================

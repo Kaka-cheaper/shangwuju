@@ -17,6 +17,8 @@ import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ConstraintFeed from "./ConstraintFeed";
 import ItineraryCard from "./ItineraryCard";
+import MockModeBadge from "./MockModeBadge";
+import OfflineReadyBadge from "./OfflineReadyBadge";
 import PlannerModeBadge from "./PlannerModeBadge";
 import PreferencesPanel from "./PreferencesPanel";
 import QuickScenarios from "./QuickScenarios";
@@ -142,6 +144,8 @@ export default function HomeView() {
             </button>
             <UserSwitcher />
             <PlannerModeBadge />
+            <MockModeBadge />
+            <OfflineReadyBadge />
             <span
               className="hidden lg:inline mono text-[11px] text-ink-400 truncate max-w-[140px]"
               title={`当前会话 ID：${sessionId}`}

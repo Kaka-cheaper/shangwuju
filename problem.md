@@ -7686,3 +7686,76 @@ vs 改前的 25-30s + 流断裂。
 - 评委 demo 时 confirm 阶段视觉是「接续之前」而不是「从头来一遍」
 
 用户反馈：（待用户重启前端实测后追加）
+
+
+---
+
+问题：加分项（代码结构模块化 / 一键部署简便 / 方案可行性高 优选 MockAPI）评委导向审查 + 必做 3 项
+
+解决方案：
+
+按上一轮交互体验审查的同步骤：先全面调研给评估报告，再做必修 3 项。
+
+**调研结论**（落 `.kiro/specs/bonus-points-review/report.md`，约 6000 字）：
+
+实现深度 92/100 / 评委可见性 70/100 / Gap -22。三个子项中：
+- ① 代码结构模块化：实现 9.5/10（6 子目录 + 13 文件 5 层 + 5 个 Protocol 抽象层 + graph 拓扑冻结纪律）；可见性 7/10
+- ② 一键部署简便：实现 9.5/10（docker-compose 3 服务 + multi-stage Dockerfile + ci.yml 3 jobs + /health + /ready + /auth/info + /legal/* + Logfire OTEL）；可见性 8/10 ★最好
+- ③ 方案可行性高（MockAPI）：实现 9/10（48 POI + 45 餐厅 + 241 路线 + 174 UGC 评论 + Pydantic extra="forbid" + 14 项 pytest 断言固化数据规模 + 5 级降级 + 3 个 Provider 实现）；可见性 6/10 ★最差（评委误以为「mock = 玩具」）
+
+**必修 3 项**（1.5h，按 systematic-debugging Phase 4 单一变更原则）：
+
+**M1：顶栏「mock 数据源」徽章 + hover tooltip**
+
+- 新增 `frontend/components/MockModeBadge.tsx`：与 PlannerModeBadge 同样的低饱和 chip 风格（emerald 状态点 + ink 灰底）
+- hover tooltip：「接入 48 个活动地点、45 家餐厅、241 条路线，嵌入 174 条真实评论，全部经 Pydantic 严格校验。切换到真实 API 简便，业务代码无需改动。」
+- 文案哲学：让数字说话（48/45/241/174）；不暴露「extra='forbid'」「Protocol 抽象层」等评委不熟的内部 keyword；不标具体小时数（说「切换简便」即可）
+
+**M2：路演大纲 Page 8.5 加 5 个评委可现场验证的 URL 表**
+
+- `docs/07-pitch/路演大纲.md` Page 8.5 「这不是 Demo，是真上线伏笔」框架内追加 5 行表：GET /health（当前模式 + LLM provider）/ /ready（三层探活）/ /scenarios（8 演示场景）/ /auth/info（OAuth 接入位状态）/ /legal/terms（用户协议占位）
+- 让评委现场验证不止是话术——可直接打开浏览器访问 5 个 URL 看实际响应
+
+**M3：顶栏「断网继续运行」徽章**
+
+- 新增 `frontend/components/OfflineReadyBadge.tsx`：仅 plannerMode === "rule" + /health 探活成功时显示；amber 状态点
+- 主标语：「断网继续运行」
+- hover tooltip：「演示韧性时可断网验证：当前是规则模式，意图理解之外不依赖大模型与外部网络」
+- 上一轮 spec interaction-experience-review 的 A+C 双范式真落地（rule 模式不调 LLM 走纯算法路径）的真演示卖点暴露给评委
+
+**配套修改**：
+
+- `frontend/lib/types.ts:HealthResponse` 加可选字段 `planner_real?: string`（"1"/"0"，从 main.py:_use_real_planner 透传）
+- `frontend/components/HomeView.tsx`：顶栏 import + 挂 MockModeBadge + OfflineReadyBadge（PlannerModeBadge 之后）
+
+**测试基线**：
+
+- 后端 pytest：707 passed + 1 skipped + 0 fail（不变；本轮无后端改动）
+- 前端 verify:all：lint / typecheck / vitest / build 4/4 通过
+
+修改的代码文件：
+
+新建：
+- `.kiro/specs/bonus-points-review/report.md`（评委导向审查报告，约 6000 字）
+- `frontend/components/MockModeBadge.tsx`（M1）
+- `frontend/components/OfflineReadyBadge.tsx`（M3）
+
+修改：
+- `frontend/components/HomeView.tsx`（M1+M3 挂载）
+- `frontend/lib/types.ts:HealthResponse`（加 planner_real 字段）
+- `docs/07-pitch/路演大纲.md`（M2 Page 8.5 加 5 个 URL 表）
+- `problem.md`（本条）
+
+未改：
+- 任何 backend / agent / schemas / mock_data（本评分项无需后端改动）
+- 任何 graph/build.py 拓扑
+
+应当达成的效果：
+
+- **「方案可行性高（MockAPI）」可见性 6/10 → 8.5/10**：评委 hover「mock 数据源」徽章秒懂规模 + 严谨度
+- **「断网继续运行」上一轮 A+C 双范式真演示卖点暴露**：评委切到「规则」模式时第三个徽章亮起，秒懂离线韧性
+- **路演 Page 8.5 加 5 个 URL 表**：评委可现场打开浏览器验证「不是 PPT」
+- **预期评分**：4.4 / 5（88%）→ 4.6-4.7 / 5（92-94%）
+- **不破任何后端 / 测试基线**
+
+用户反馈：（待用户重启前端实测后追加）
