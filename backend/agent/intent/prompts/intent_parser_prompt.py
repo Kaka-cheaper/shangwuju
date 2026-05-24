@@ -328,7 +328,57 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
    - 用户输入暗示更紧/更松节奏（"快速逛逛" / "慢慢走"）→ 按用户输入覆盖对应字段
    - 用户输入完全无节奏暗示 → 直接采用档案默认值（让下游 critic / planner 有 prior）
 """
-    return INTENT_PARSER_SYSTEM_PROMPT + addendum
+    # spec algorithm-redesign R5：user_profile.json 三层 schema 召回（dietary_preference / recent_trips）
+    profile_addendum = _build_user_profile_addendum()
+
+    return INTENT_PARSER_SYSTEM_PROMPT + addendum + profile_addendum
+
+
+def _build_user_profile_addendum() -> str:
+    """从 mock_data/user_profile.json 拿 dietary_preference + recent_trips 注入 prompt。
+
+    spec algorithm-redesign R5（TravelAgent / TriFlow 范式）：
+    - dietary_preference 自然语言段落：让 LLM 在搜索餐厅时自然考虑
+    - recent_trips：让 LLM 复用上次同 social_context 场景的成功模板
+
+    设计纪律：
+    - 失败兜底返空字符串（不阻断 intent parser）
+    - 仅注入摘要级信息（不暴露 user_id / 经纬度等敏感字段）
+    """
+    try:
+        from data.loader import load_user_profile
+        profile = load_user_profile()
+    except Exception:
+        return ""
+
+    if profile is None:
+        return ""
+
+    parts: list[str] = []
+
+    # dietary_preference 段
+    dietary = getattr(profile, "dietary_preference", None)
+    if dietary:
+        parts.append(f"\n【用户饮食偏好（自然语言，仅用于搜餐厅时参考）】\n{dietary}")
+
+    # recent_trips 段
+    recent = getattr(profile, "recent_trips", None) or []
+    if recent:
+        # 仅取最新 2 条（避免 prompt 过长）
+        recent_lines = []
+        for trip in recent[:2]:
+            sc = getattr(trip, "social_context", "") or ""
+            summary = getattr(trip, "summary", "") or ""
+            recent_lines.append(f"  - 「{sc}」场景：{summary}")
+        if recent_lines:
+            parts.append(
+                "\n【用户最近行程（用于推断未明示偏好；不直接复用具体场所）】\n"
+                + "\n".join(recent_lines)
+            )
+
+    if not parts:
+        return ""
+    return "\n" + "\n".join(parts) + "\n"
 
 
 def _format_pace_prior_section(pace: PaceProfile | None) -> str:

@@ -139,6 +139,11 @@ agent/                  ← 6 子目录 + __init__（spec agent-directory-restru
 - 涉及 prompt 的改动按归属：意图层 prompt 在 `agent/intent/prompts/`；蓝图 prompt 在 `agent/planning/blueprint/prompts/`；planner LLM Function Calling prompt 在 `agent/planning/planners/prompts/`
 - 加新文件前先确认归属（参考上面目录树）；不允许在 `agent/` 顶层加 `.py` 文件（除 `__init__.py`）
 - `planning/planners/` + `planning/execution/` 下的模块按真实定位区分——`rule_planner.py` 是主路径分发器，`ils_planner.py` 是 PLANNER_LLM_STRATEGY=hybrid + graph replan 兜底，`llm_first_planner.py` 是 PLANNER_LLM_STRATEGY=llm_first（默认）核心，`llm_planner.py` 是 function_calling 子策略，`segment_decider.py` 是 ils_planner 依赖，`execution/executor.py` 是用户确认后的执行类 Tool 派发（与 `graph/execute_finalize` 不等价——前者解析 note 中的预留时段，后者用 start_time）。改动这些文件不需要走「冻结口子」流程，但要遵守 graph/build.py 拓扑不动的纪律
+- **spec C `algorithm-redesign` 落地新增模块归属**（2026-05-24）：
+  - `planning/preference_scorer.py`：LLM 语义打分（ItiNera EMNLP'24 范式）；失败兜底全 0.5；被 ils_planner.plan_hybrid 调用一次缓存
+  - `planning/memory_writer.py`：用户画像副作用回写；`persist_memory(state)` 由 `graph/nodes/narrate.py:narrate_node` 末尾调用（路径 B：不动 graph 拓扑）
+  - `planning/comparison_axes.py`：三轴评分（duration_compliance / distance_rationality / preference_match）；纯函数，无 LLM 调用
+  - critics_v2.py 加 `CRITIC_FEEDBACK_MODE` / `TOOL_RESPONSE_INCONSISTENCY` 不破冻结纪律——这是同一个 critic 文件内的扩展，不是新增 critic 文件
 
 **MUST NOT**：
 

@@ -90,6 +90,7 @@ class ViolationCode(str, Enum):
     DIETARY_VIOLATION = "dietary_violation"
     SOCIAL_CONTEXT_MISMATCH = "social_context_mismatch"
     AGE_DURATION_MISMATCH = "age_duration_mismatch"  # spec planning-quality-deep-review R4
+    TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2
 
 
 class Severity(str, Enum):
@@ -151,6 +152,96 @@ _DISTANCE_TOLERANCE_KM: float = 0.5
 
 # demo-aware 17:00 满座埋点
 _DEMO_FULL_TIME: str = "17:00"
+
+
+# ============================================================
+# spec algorithm-redesign R1：reward 计算 + 反馈模式权重
+# ============================================================
+#
+# LLM-Modulo 范式（参考 .kiro/specs/algorithm-redesign/research/agent-3-llm-modulo）
+# 把 critic 视为「dense scalar reward 提供者」，为未来 RL 路径预留挂钩；
+# 当前主路径仍走 pinpoint-all（默认）的人话 backprompt。
+#
+# 权重设计（来自 .kiro/specs/algorithm-redesign/design.md §Components 决策点 1）：
+# - SEVERITY_WEIGHTS：CRITICAL 是 WARNING 的 5 倍——反映 critical 必须 replan，
+#   warning 仅日志的实际影响差距
+# - CODE_WEIGHTS：macro 级（结构性、节点完整性、时序、tool 幻觉）取 1.5，
+#   细粒度（饮食、距离）取 0.8，其余 1.0——避免「100 个 warning 加起来反而比
+#   1 个 critical 还重」的逆优先级失败模式
+
+SEVERITY_WEIGHTS: dict[Severity, float] = {
+    Severity.CRITICAL: 1.0,
+    Severity.WARNING: 0.2,
+}
+
+# 注意：CODE_WEIGHTS 用 dict.get(code, 1.0) 兜底——新加 ViolationCode 时不必同步更新
+CODE_WEIGHTS: dict[ViolationCode, float] = {
+    ViolationCode.INVARIANT_BROKEN: 1.5,
+    ViolationCode.NODES_INCOMPLETE: 1.5,
+    ViolationCode.TIMELINE_INCONSISTENT: 1.5,
+    ViolationCode.TOOL_RESPONSE_INCONSISTENCY: 1.5,  # spec algorithm-redesign R2：hallucination 等同 macro 级
+    ViolationCode.DIETARY_VIOLATION: 0.8,
+    ViolationCode.DISTANCE_EXCEEDED: 0.8,
+}
+
+# 反馈模式有效值（_get_feedback_mode 校验用）
+_VALID_FEEDBACK_MODES = frozenset({"pinpoint-all", "first-only", "reward"})
+
+
+def compute_reward(violations: list[Violation]) -> float:
+    """把 violations 列表压成单个标量 reward（≤ 0，越接近 0 越好）。
+
+    公式：``-Σ SEVERITY_WEIGHTS[v.severity] * CODE_WEIGHTS.get(v.code, 1.0)``
+
+    用途：
+    - 当前主路径不消费此值（backprompt 走 format_violations_for_llm）
+    - CRITIC_FEEDBACK_MODE=reward 时由调用方读取（占位，本 spec 不接 RL）
+    - 未来 spec D 若做 RL 路径实验直接 hook 此函数
+
+    Args:
+        violations: validate_itinerary 输出（可能为空）
+
+    Returns:
+        非正数标量；空列表返 0.0；多违规累加
+
+    示例：
+        - 空列表 → 0.0
+        - 单条 CRITICAL + INVARIANT_BROKEN(1.5) → -1.5
+        - 单条 WARNING + DISTANCE_EXCEEDED(0.8) → -0.16
+        - 1 critical + 2 warning → 三者之和的负值
+    """
+    if not violations:
+        return 0.0
+
+    total = 0.0
+    for v in violations:
+        sev_w = SEVERITY_WEIGHTS.get(v.severity, 1.0)
+        code_w = CODE_WEIGHTS.get(v.code, 1.0)
+        total += sev_w * code_w
+    return -total
+
+
+def _get_feedback_mode() -> str:
+    """从 env CRITIC_FEEDBACK_MODE 读三档模式，越界回退 pinpoint-all。
+
+    三档：
+    - pinpoint-all（默认）：返完整违规列表给 LLM（与 spec C 之前行为一致）
+    - first-only：仅第一条 critical（节省 token 30-50%，sub-agent 实验路径）
+    - reward：返空字符串（dense scalar 模式，由调用方独立调 compute_reward）
+
+    任何其它值（typo / 大小写错乱 / 空字符串）→ fallback pinpoint-all + stderr warn。
+    """
+    raw = os.getenv("CRITIC_FEEDBACK_MODE", "pinpoint-all").strip().lower()
+    if raw in _VALID_FEEDBACK_MODES:
+        return raw
+    # 越界值 → fallback + stderr warning（避免静默错配置）
+    import sys
+    print(
+        f"[critics_v2] CRITIC_FEEDBACK_MODE={raw!r} 不在 "
+        f"{sorted(_VALID_FEEDBACK_MODES)} 范围，回退到 pinpoint-all。",
+        file=sys.stderr,
+    )
+    return "pinpoint-all"
 
 
 # ============================================================
@@ -855,6 +946,82 @@ def _fmt_hhmm(total: int) -> str:
 
 
 # ============================================================
+# spec algorithm-redesign R2：tool 响应一致性 critic（hallucination 防护）
+# ============================================================
+
+
+def _check_tool_consistency(
+    itinerary: Itinerary,
+    tool_results: dict | None,
+) -> list[Violation]:
+    """验 itinerary 中 POI/Restaurant target_id 是否在工具实际返回的候选池里。
+
+    防护场景：LLM 编造一个不存在的 POI ID（如 "P999"），蓝图 critic 通不过结构性检查
+    但 target_id 实际不在搜索结果里——这是典型 hallucination，必须 backprompt。
+
+    Args:
+        itinerary: 待验证方案
+        tool_results: dict 包含候选池，约定 key：
+            - "pois": list[Poi]（可能为空 / 缺失）
+            - "restaurants": list[Restaurant]
+            为 None 时跳过（向后兼容旧调用）；候选池为空时跳过（避免 stub mode 误报）
+
+    Returns:
+        Violation 列表；每个不在候选池的 target_id 单独发一条 CRITICAL
+
+    设计纪律：
+    - 错误 message **不**暴露字段名（不写 "target_id"），用「方案中『XX』不在候选池中」
+    - target_kind=home 不检查（home 不来自工具）
+    - tool_results=None 或两个候选池都为空 → 跳过（stub mode / 无候选场景）
+    """
+    if tool_results is None:
+        return []
+
+    pois = tool_results.get("pois") or []
+    restaurants = tool_results.get("restaurants") or []
+
+    if not pois and not restaurants:
+        # 候选池为空——可能是 stub mode 或候选耗尽，避免误报
+        return []
+
+    poi_ids = {getattr(p, "id", None) for p in pois}
+    restaurant_ids = {getattr(r, "id", None) for r in restaurants}
+
+    out: list[Violation] = []
+    for idx, node in enumerate(itinerary.nodes):
+        target_kind = node.target_kind
+        if target_kind not in ("poi", "restaurant"):
+            continue
+        target_id = node.target_id
+        if not target_id:
+            continue
+
+        valid_ids = poi_ids if target_kind == "poi" else restaurant_ids
+        if not valid_ids:
+            # 该类候选池为空，跳过（避免「只查了 POI 没查餐厅」时误报餐厅节点）
+            continue
+        if target_id in valid_ids:
+            continue
+
+        # 不在候选池——可能是 hallucination
+        kind_label = "POI" if target_kind == "poi" else "餐厅"
+        title = node.title or target_id
+        out.append(
+            Violation(
+                code=ViolationCode.TOOL_RESPONSE_INCONSISTENCY,
+                severity=Severity.CRITICAL,
+                message=(
+                    f"{_humanize_node(idx, node)}：方案中的{kind_label}「{title}」"
+                    "不在候选池中，可能是 AI 编造的，请重新规划，"
+                    f"只在工具实际返回的{kind_label}候选里挑选。"
+                ),
+                field_path=f"nodes[{idx}].target_id",
+            )
+        )
+    return out
+
+
+# ============================================================
 # 主入口
 # ============================================================
 
@@ -864,6 +1031,7 @@ def validate_itinerary(
     intent: IntentExtraction,
     *,
     user_id: str = "demo_user",
+    tool_results: dict | None = None,
 ) -> list[Violation]:
     """跑全套 critic 检查。返回 violations 列表（可能为空）。
 
@@ -877,11 +1045,15 @@ def validate_itinerary(
     7. RESTAURANT_FULL_UNRESOLVED（demo-aware）
     8. DIETARY_VIOLATION（warning）
     9. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
+    10. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
+    11. TOOL_RESPONSE_INCONSISTENCY（spec algorithm-redesign R2，仅 tool_results 提供时）
 
     Args:
-        itinerary: 要校验的方案（已通过 Pydantic 构造）。
-        intent:    用户意图，提供 duration_hours / distance_max_km / dietary 等约束。
-        user_id:   用于查 UserProfile（含 home_location / transport_preference）。
+        itinerary:    要校验的方案（已通过 Pydantic 构造）。
+        intent:       用户意图，提供 duration_hours / distance_max_km / dietary 等约束。
+        user_id:      用于查 UserProfile（含 home_location / transport_preference）。
+        tool_results: 可选；包含 {"pois": list, "restaurants": list} 候选池快照，
+                      用于 hallucination 防护检查。None 时跳过此检查（向后兼容）。
 
     Returns:
         Violation 列表；调用方据 severity 决定是否 backprompt / replan。
@@ -900,11 +1072,22 @@ def validate_itinerary(
     violations.extend(_check_social_context(itinerary, intent))
     # spec planning-quality-deep-review R4：ILS 路径年龄感知 critic（镜像）
     violations.extend(_check_age_aware_duration(itinerary, intent))
+    # spec algorithm-redesign R2：tool 响应一致性（hallucination 防护）
+    violations.extend(_check_tool_consistency(itinerary, tool_results))
     return violations
 
 
 def format_violations_for_llm(violations: list[Violation]) -> str:
     """把 critical violations 格式化成给 LLM 的 backprompt 消息。
+
+    【三档反馈模式（spec algorithm-redesign R1）】
+
+    通过 env `CRITIC_FEEDBACK_MODE` 切换：
+
+    - **pinpoint-all（默认）**：完整违规列表（与 spec C 之前行为一致）
+    - **first-only**：仅第一条 critical（节省 token 30-50%，第二意见探索）
+    - **reward**：返空字符串（dense scalar 模式，配合 compute_reward 用，
+      调用方需独立调用 compute_reward 取 reward 值）
 
     【人话约束（design.md 强约束）】
 
@@ -922,6 +1105,15 @@ def format_violations_for_llm(violations: list[Violation]) -> str:
     critical = [v for v in violations if v.severity == Severity.CRITICAL]
     if not critical:
         return ""
+
+    mode = _get_feedback_mode()
+    if mode == "reward":
+        # reward 模式：调用方独立调 compute_reward；此函数返空让主路径不 backprompt
+        return ""
+
+    if mode == "first-only":
+        # 仅第一条 critical
+        critical = critical[:1]
 
     lines = [f"你产出的行程方案有 {len(critical)} 处违规需要修复："]
     for i, v in enumerate(critical, 1):
@@ -941,4 +1133,8 @@ __all__ = [
     "Violation",
     "validate_itinerary",
     "format_violations_for_llm",
+    # spec algorithm-redesign R1：reward 计算 + 三档反馈模式
+    "SEVERITY_WEIGHTS",
+    "CODE_WEIGHTS",
+    "compute_reward",
 ]

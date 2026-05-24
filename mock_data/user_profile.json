@@ -6,5 +6,25 @@
     "lng": 120.075
   },
   "default_budget": 300.0,
-  "transport_preference": "taxi"
+  "transport_preference": "taxi",
+  "dietary_preference": "喜欢健康轻食、避免油腻、对辣度敏感；偶尔尝试日式料理；不爱重口味川菜。家有 5 岁孩，餐厅最好有儿童餐和不那么吵的环境。",
+  "social_context_history": [
+    "家庭日常",
+    "情侣亲密",
+    "独处放空"
+  ],
+  "recent_trips": [
+    {
+      "timestamp": "2026-05-18T14:30:00Z",
+      "social_context": "家庭日常",
+      "summary": "学龄前儿童亲子博物馆下午茶半日方案：先逛博物馆约 1 小时，再到附近健康轻食餐厅用晚餐，整体节奏轻松不赶。",
+      "success": true
+    },
+    {
+      "timestamp": "2026-05-11T15:00:00Z",
+      "social_context": "情侣亲密",
+      "summary": "西湖边咖啡馆 + 桂花酒店下午茶组合，氛围安静适合纪念日聊天，餐后散步看夕阳。",
+      "success": true
+    }
+  ]
 }

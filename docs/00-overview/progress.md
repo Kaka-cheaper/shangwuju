@@ -544,3 +544,30 @@
 **永久教训**（pitfalls.md [P0] 2026-05-24）：
 
 未来重组前必须做**两步独立审计**：(1) grep 完整引用关系（含 absolute / relative `from .X` / 内部链式 / 字符串引用 4 类模板）；(2) 实测行为等价性（任何「等价路径已存在」的删除假设都必须 pytest 实测）。
+
+
+- **D-ALGO-REDESIGN** [2026-05-24]：算法层从「事实上的 LLM-Modulo 同构系统」升级为「显式三联混合产品级骨架」（spec algorithm-redesign）
+  - 候选：A 维持现状（critics_v2 已有 9+1 类违规，看着够用）/ B RL 路径整体复用（DeepTravel / Planner-R1）/ C 三联混合（LLM-Modulo + ItiNera + TravelAgent，本决策）/ D vector RAG 替代 mock_data
+  - 选择：C
+  - 理由：8 sub-agent Phase 1+2 范式调研 + 独立 sub-agent Phase 2 联合审查交叉对照 8 维度矩阵，独立第二意见明确指出主架构应为「LLM-Modulo（5+ 合议）+ ItiNera-style 分工（2 份）+ TravelAgent 三层 schema（3+ 份）三联混合」；联合审查 §7.4 共识否决 RL 整体复用 / Google 多日 DP / ITINERA cluster / ALNS+MILP / vector RAG 等 8 项「绝对不要做」。详见 `.kiro/specs/algorithm-redesign/research/joint-review/report.md`。
+  - 影响（spec C 9 个 task 全部完成 + commit `v-spec-c-done`）：
+    - **Task 2**：critics_v2.py 加 `compute_reward` + `CRITIC_FEEDBACK_MODE` 三档（pinpoint-all 默认 / first-only / reward dense scalar）+ SEVERITY_WEIGHTS / CODE_WEIGHTS macro/micro 分级
+    - **Task 3**：critics_v2.py 加 `TOOL_RESPONSE_INCONSISTENCY` ViolationCode（hallucination 防护）+ `_check_tool_consistency` + critic_node 透传 tool_results
+    - **Task 4**：ils_planner.py 加 `_grounding_filter_poi` / `_grounding_filter_restaurant`（前置硬剔除：≤6 岁 + 90min cap / ≥75 岁 + 75min cap / 距离 +1km / 营业状态 + 候选 < 3 自动放宽）
+    - **Task 5**：新建 `agent/planning/preference_scorer.py`（LLM 语义打分 ItiNera 范式）+ `_utility` 末尾 `+ 0.3 * semantic_scores.get(poi.id, 0.5)`（保留 spec A R5 _overload_penalty 不变）
+    - **Task 6**：UserProfile 三层 schema（dietary_preference / social_context_history / recent_trips）+ `agent/planning/memory_writer.py`（threading.Lock 跨平台 + 5 分钟去重 + 5 条上限 + 隐私脱敏）+ narrate_node 末尾副作用调用 + intent parser 注入 dietary 自然语言 + recent_trips 召回最新 2 条
+    - **Task 7**：ChatDock 加 localStorage 持久化（默认 collapsed 避免 SSR mismatch）+ Cmd+K / Ctrl+K 召唤 + ESC 同步清除；ToolTracePanel 双层折叠（外层「查看 Agent 决策过程（N 步）」+ 内层 Epic 折叠 + streaming 自动展开）
+    - **Task 8**：新建 `agent/planning/comparison_axes.py`（三轴评分：duration_compliance / distance_rationality / preference_match 0-100 整数）；前端 ComparisonView 三候选切换 UX 留作后续增量
+    - **Task 9**：pitfalls.md `[P0] 2026-05-24 spec C 算法重构「绝对不要做」清单` 8 项防再犯条款固化；progress.md 本条；problem.md 追加；AGENTS.md §3.3.1 加新增模块归属说明
+  - 评分项影响：
+    - 创新性：从「中」升「高」（显式三联混合 + 9 类→11 类 ViolationCode + LLM 语义打分项）
+    - 完整性：从「高」升「更高」（hallucination 防护 + 5 重防御链：grounding-first / utility penalty / critic / 三轴评分 / dense reward）
+    - 应用效果：从「高」升「高+」（5 岁娃 196min 反例从「critic 兜底」升级为「grounding 前置剔除 + utility penalty + critic 三重」）
+    - 商业价值：从「高」升「高+」（recent_trips 跨 session 召回 + dietary 自然语言注入 = TravelAgent 范式产品级特征）
+  - 测试矩阵（spec C 落地后）：**687 passed + 1 skipped + 0 failed** + R10 verify_planning_quality 24/24 100% + 前端 verify:all 4/4
+  - 学术依据：
+    - LLM-Modulo (Kambhampati NeurIPS 2024) `arxiv 2402.01817` —— 5+ sub-agent 合议（最高复用）
+    - ItiNera (Tang et al EMNLP 2024) —— LLM 决主观 + 算法决客观
+    - TravelAgent (Chen et al NeurIPS 2024) + TriFlow (Wang et al 2024) —— 三层用户画像 + memory 召回
+    - Vansteenwegen 2009 (TOPTW + ILS) —— 启发式搜索骨架（保留）
+  - **绝对不要做的 8 项**（联合审查 §7.4 + spec C 防再犯）：详见 pitfalls.md `[P0] 2026-05-24 spec C 算法重构「绝对不要做」清单`

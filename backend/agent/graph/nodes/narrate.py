@@ -136,4 +136,18 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         )
         new_itinerary = itinerary.model_copy(update={"decision_trace": new_trace})
 
+    # spec algorithm-redesign R5：narrate 主逻辑末尾的副作用——回写 user_profile.json
+    # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律）
+    # 失败时 try/except 吞掉异常，不阻断 narrate 主输出
+    try:
+        from agent.planning.memory_writer import persist_memory
+
+        persist_memory(state, client=client)
+    except Exception as exc:
+        # 防御性：永不阻断主流程
+        import logging
+        logging.getLogger(__name__).debug(
+            "narrate_node: persist_memory side-effect failed: %s", exc
+        )
+
     return {"narration": text, "itinerary": new_itinerary}

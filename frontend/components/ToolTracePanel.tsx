@@ -129,6 +129,47 @@ export default function ToolTracePanel() {
     if (streaming) setCollapsed(new Set());
   }, [streaming]);
 
+  // ============================================================
+  // spec algorithm-redesign R6：双层折叠（外层整体折叠 + 内层 Epic 折叠）
+  // ============================================================
+  // 默认 panelExpanded=false（避免 SSR hydration mismatch）；初次挂载后从
+  // localStorage 读取。streaming 开始时自动展开（让评委看到决策过程实时进展）。
+  const [panelExpanded, setPanelExpanded] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem(
+        "shangwuju.tooltrace.expanded",
+      );
+      if (saved === "true") setPanelExpanded(true);
+    } catch {
+      // 静默忽略
+    }
+  }, []);
+
+  // streaming 开始 → 自动展开（demo 评委看决策过程）
+  useEffect(() => {
+    if (streaming) setPanelExpanded(true);
+  }, [streaming]);
+
+  const togglePanel = () => {
+    setPanelExpanded((cur) => {
+      const next = !cur;
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            "shangwuju.tooltrace.expanded",
+            next ? "true" : "false",
+          );
+        }
+      } catch {
+        // 静默忽略
+      }
+      return next;
+    });
+  };
+
   // 早返必须放在所有 hook 后面，否则违反 Rules of Hooks
   if (!toolCalls.length && !replans.length && !streaming) {
     return null;
@@ -153,8 +194,24 @@ export default function ToolTracePanel() {
           className="absolute top-0 left-0 right-0 h-px shimmer-bar"
         />
       )}
-      <div className="px-4 py-3 border-b border-white/[0.06] flex items-center justify-between">
+      <button
+        type="button"
+        onClick={togglePanel}
+        className={cn(
+          "w-full px-4 py-3 border-b border-white/[0.06] flex items-center justify-between",
+          "hover:bg-white/[0.02] transition-colors duration-150 cursor-pointer text-left",
+        )}
+        aria-expanded={panelExpanded}
+        aria-label={panelExpanded ? "收起 Agent 决策过程" : "展开 Agent 决策过程"}
+      >
         <div className="flex items-center gap-1.5">
+          <ChevronDown
+            className={cn(
+              "w-3 h-3 text-ink-500 shrink-0 transition-transform duration-200",
+              !panelExpanded && "-rotate-90",
+            )}
+            strokeWidth={2.5}
+          />
           <Sparkles
             className={cn(
               "w-3.5 h-3.5 transition-colors",
@@ -163,7 +220,7 @@ export default function ToolTracePanel() {
             strokeWidth={2}
           />
           <span className="text-[12px] font-medium text-ink-900 tracking-tight">
-            Agent 思考链路
+            {panelExpanded ? "Agent 思考链路" : `查看 Agent 决策过程（${totalCalls} 步）`}
           </span>
         </div>
         <div className="text-[11px] text-ink-500 mono">
@@ -175,25 +232,27 @@ export default function ToolTracePanel() {
             </>
           )}
         </div>
-      </div>
+      </button>
 
-      <div className="px-3 py-2.5 space-y-1.5">
-        {buckets.length === 0 && streaming && (
-          <div className="px-2 py-1.5 flex items-center gap-1.5 text-xs text-ink-400 italic">
-            <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2} />
-            <span>等待 Agent 调用 Tool...</span>
-          </div>
-        )}
+      {panelExpanded && (
+        <div className="px-3 py-2.5 space-y-1.5 animate-collapse-in overflow-hidden">
+          {buckets.length === 0 && streaming && (
+            <div className="px-2 py-1.5 flex items-center gap-1.5 text-xs text-ink-400 italic">
+              <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2} />
+              <span>等待 Agent 调用 Tool...</span>
+            </div>
+          )}
 
-        {buckets.map((bucket) => (
-          <EpicBlock
-            key={bucket.epic.id}
-            bucket={bucket}
-            collapsed={collapsed.has(bucket.epic.id)}
-            onToggle={() => toggle(bucket.epic.id)}
-          />
-        ))}
-      </div>
+          {buckets.map((bucket) => (
+            <EpicBlock
+              key={bucket.epic.id}
+              bucket={bucket}
+              collapsed={collapsed.has(bucket.epic.id)}
+              onToggle={() => toggle(bucket.epic.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

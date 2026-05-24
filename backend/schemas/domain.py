@@ -281,8 +281,39 @@ class Route(BaseModel):
 # UserProfile（用户画像）
 # ============================================================
 
+
+class RecentTrip(BaseModel):
+    """spec algorithm-redesign R5：最近行程记录（用于跨 session 召回）。
+
+    引入 TravelAgent / TriFlow 范式的「short-term memory」：每次行程完成后由
+    `narrate_node._persist_memory` 副作用追加一条；意图解析阶段把匹配 social_context
+    的最新 1 条注入 prompt（"用户上次「家庭」场景的行程：{summary}"）。
+
+    字段约束：
+    - timestamp：ISO 8601 字符串（"2026-05-24T15:30:00Z"）
+    - social_context：与 IntentExtraction.social_context 同词典
+    - summary：脱敏后的自然语言摘要（不含具体年龄数字 / 经纬度 / 真实地址）
+    - success：用户最终是否确认下单
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: str = Field(..., description="ISO 8601 时间戳")
+    social_context: str = Field(..., description="场景，与 IntentExtraction.social_context 同词典")
+    summary: str = Field(
+        ...,
+        max_length=500,
+        description="脱敏摘要（不含真实年龄数字 / 地址 / 经纬度）",
+    )
+    success: bool = Field(default=False, description="用户最终是否确认下单")
+
+
 class UserProfile(BaseModel):
-    """硬编码用户画像。**绝不**包含 scene_type / relation_type 字段。"""
+    """硬编码用户画像。**绝不**包含 scene_type / relation_type 字段。
+
+    spec algorithm-redesign R5：扩三层 schema 加召回能力（TravelAgent 范式）。
+    新增 3 个字段全部 Optional 默认 None，向后兼容旧 user_profile.json（仅 4 字段）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -293,4 +324,24 @@ class UserProfile(BaseModel):
     )
     transport_preference: str = Field(
         default="taxi", description="交通偏好：walking / taxi / bus"
+    )
+
+    # spec algorithm-redesign R5：三层 schema 加召回（向后兼容默认 None）
+    dietary_preference: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description=(
+            "自然语言饮食偏好（50-100 字段落），如「喜欢健康轻食、避免油腻、对辣度敏感」；"
+            "由 intent parser 注入 prompt 让 LLM 在搜索餐厅时考虑"
+        ),
+    )
+    social_context_history: Optional[list[str]] = Field(
+        default=None,
+        max_length=20,
+        description="历史触发过的 social_context 列表（去重）；用于偏好统计",
+    )
+    recent_trips: Optional[list[RecentTrip]] = Field(
+        default=None,
+        max_length=10,
+        description="最近行程列表（按 timestamp 降序）；上限 5 条由 memory_writer 维护",
     )

@@ -255,8 +255,37 @@ def plan_hybrid(
     poi_top = pois[:CANDIDATE_TOP_K] if pois else []
     rest_top = restaurants[:CANDIDATE_TOP_K] if restaurants else []
 
+    # ---- 步骤 2.5：LLM 语义打分（spec algorithm-redesign R4，ItiNera 范式）----
+    # 失败兜底全 0.5；stub 模式直接返全 0.5；ILS 主路径不阻断。
+    semantic_scores: dict[str, float] = {}
+    if poi_top:
+        try:
+            from agent.planning.preference_scorer import score_pois_with_llm
+
+            semantic_scores = score_pois_with_llm(intent, poi_top, client=client)
+            if semantic_scores:
+                tracer.emit(
+                    "agent_thought",
+                    {
+                        "text": (
+                            f"LLM 语义打分（ItiNera 范式）：{len(semantic_scores)} 个 POI；"
+                            f"分数范围 [{min(semantic_scores.values()):.2f}, "
+                            f"{max(semantic_scores.values()):.2f}]"
+                        ),
+                    },
+                )
+        except Exception as exc:  # 防御性兜底
+            tracer.emit(
+                "agent_thought",
+                {"text": f"LLM 语义打分失败（{exc}），fallback 全 0.5"},
+            )
+            semantic_scores = {p.id: 0.5 for p in poi_top}
+
     # ---- 步骤 3：贪心初始解（utility 最高的 POI×餐厅×17:00）----
-    initial = _greedy_init(poi_top, rest_top, intent, weights, tracer, dining_slots)
+    initial = _greedy_init(
+        poi_top, rest_top, intent, weights, tracer, dining_slots,
+        semantic_scores=semantic_scores,
+    )
     if initial is None:
         return HybridResult(
             success=False,
@@ -283,7 +312,10 @@ def plan_hybrid(
         # 扰动：随机换 POI / 换餐厅 / 移时段三选一
         perturbed = _perturb(current, poi_top, rest_top, rng, dining_slots)
         # 局部搜索：在邻域内贪心改进（仅用 utility，不查可订位）
-        improved = _local_search(perturbed, poi_top, rest_top, intent, weights, dining_slots)
+        improved = _local_search(
+            perturbed, poi_top, rest_top, intent, weights, dining_slots,
+            semantic_scores=semantic_scores,
+        )
         s = improved.utility
         if s > best_score:
             best, best_score = improved, s
@@ -380,6 +412,192 @@ def plan_hybrid(
 # 候选生成（直接调真 Tool；trace 里也会留下 tool_call_start/end）
 # ============================================================
 
+# spec algorithm-redesign R3：grounding-first 前置硬剔除常量
+_GROUNDING_MIN_CANDIDATES = 3   # 候选池 < 3 时自动放宽
+_GROUNDING_DISTANCE_TOL_KM = 1.0     # 默认距离容差（与 _utility 物理可行性快检对齐）
+_GROUNDING_DISTANCE_TOL_RELAX_KM = 2.0  # 候选 < 3 时放宽到 +2km
+_GROUNDING_PRESCHOOL_CAP = 90        # 含 ≤6 岁同行人时主导桶上限（min）
+_GROUNDING_SENIOR_CAP = 75           # 含 ≥75 岁同行人时主导桶上限（min）
+
+
+def _grounding_filter_poi(
+    candidates: list[Poi],
+    intent: IntentExtraction,
+    tracer: Tracer,
+) -> list[Poi]:
+    """spec algorithm-redesign R3：POI 候选 grounding-first 前置硬剔除。
+
+    在 ILS 看到候选之前就剔除明显违规的项，避免 utility 计算 / LLM 语义打分浪费在
+    「5 岁娃 196min」「打烊 POI」这类候选上。与 `_overload_penalty` / critic 主路径
+    构成三重防线：grounding（前置硬剔）→ utility penalty（搜索期）→ critic（兜底）。
+
+    剔除规则：
+    - 含 ≤6 岁同行人 + 投影后 suggested_duration > 90min（学龄前/婴幼儿主导桶）
+    - 含 ≥75 岁同行人 + 投影后 suggested_duration > 75min（高龄主导桶）
+    - poi.distance_km > intent.distance_max_km + 1.0
+    - getattr(poi, "business_status", "open") in {"closed", "permanent_closed"}
+
+    放宽机制：
+    - 过滤后候选池 < 3 → 仅保留距离 +2.0km / 营业状态过滤，跳过 age cap
+      （避免「严过滤把候选剃光」让 ILS 拿不到任何候选；hackathon demo 安全网）
+
+    每剔除一个候选 emit `tracer.emit("grounding_filtered", {poi_id, reason})`。
+    """
+    if not candidates:
+        return candidates
+
+    # 推主导桶 cap（取最严）
+    has_preschool = any(
+        c.age is not None and c.age <= 6 for c in (intent.companions or [])
+    )
+    has_senior = any(
+        c.age is not None and c.age >= 75 for c in (intent.companions or [])
+    )
+
+    # 距离上限
+    max_km = intent.distance_max_km if intent.distance_max_km else 999.0
+
+    def _evaluate_strict(poi: Poi) -> Optional[str]:
+        """返 None 表示通过；返字符串表示剔除原因（用于 tracer / 日志）"""
+        # 距离硬上限
+        if poi.distance_km > max_km + _GROUNDING_DISTANCE_TOL_KM:
+            return f"距家 {poi.distance_km:.1f}km 超 {max_km:.1f}km + 容差 1.0km"
+        # 营业状态
+        status = getattr(poi, "business_status", "open") or "open"
+        if status in ("closed", "permanent_closed"):
+            return f"营业状态={status}"
+        # age cap：投影 suggested_duration（与 _overload_penalty 同源逻辑）
+        suggested_raw = getattr(poi, "suggested_duration_minutes", None)
+        if suggested_raw is None:
+            return None
+        if isinstance(suggested_raw, (int, SuggestedDuration)):
+            try:
+                suggested = get_duration_for_companions(
+                    suggested_raw, intent.companions if intent else []
+                )
+            except Exception:
+                suggested = None
+        else:
+            suggested = None
+        if suggested is None:
+            return None
+        if has_preschool and suggested > _GROUNDING_PRESCHOOL_CAP:
+            return f"含 ≤6 岁同行人，POI 主导时长 {suggested}min > 90min cap"
+        if has_senior and suggested > _GROUNDING_SENIOR_CAP:
+            return f"含 ≥75 岁同行人，POI 主导时长 {suggested}min > 75min cap"
+        return None
+
+    def _evaluate_relaxed(poi: Poi) -> Optional[str]:
+        """放宽模式：仅检查距离 + 营业状态，跳过 age cap"""
+        if poi.distance_km > max_km + _GROUNDING_DISTANCE_TOL_RELAX_KM:
+            return f"距家 {poi.distance_km:.1f}km 超 {max_km:.1f}km + 放宽容差 2.0km"
+        status = getattr(poi, "business_status", "open") or "open"
+        if status in ("closed", "permanent_closed"):
+            return f"营业状态={status}"
+        return None
+
+    # 第一轮：严过滤
+    filtered: list[Poi] = []
+    rejected: list[tuple[str, str]] = []
+    for poi in candidates:
+        reason = _evaluate_strict(poi)
+        if reason is None:
+            filtered.append(poi)
+        else:
+            rejected.append((poi.id, reason))
+
+    # 候选池 < 3 → 自动放宽（仅距离 + 营业状态）
+    if len(filtered) < _GROUNDING_MIN_CANDIDATES:
+        tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"grounding-first POI 严过滤后仅剩 {len(filtered)} 项 "
+                    f"< 阈值 {_GROUNDING_MIN_CANDIDATES}，触发放宽机制（仅距离 +2km / 营业状态）"
+                ),
+            },
+        )
+        filtered = []
+        rejected = []
+        for poi in candidates:
+            reason = _evaluate_relaxed(poi)
+            if reason is None:
+                filtered.append(poi)
+            else:
+                rejected.append((poi.id, reason))
+
+    # 上报剔除轨迹
+    for poi_id, reason in rejected:
+        tracer.emit(
+            "grounding_filtered",
+            {"poi_id": poi_id, "reason": reason},
+        )
+    return filtered
+
+
+def _grounding_filter_restaurant(
+    candidates: list[Restaurant],
+    intent: IntentExtraction,
+    tracer: Tracer,
+) -> list[Restaurant]:
+    """spec algorithm-redesign R3：餐厅 grounding-first 前置硬剔除。
+
+    仅过滤距离 + 营业状态（餐厅 typical_dining_min 不区分客群桶，无 age cap）。
+    满座由 critic 路径处理（不在 grounding 层剔除——demo 异常韧性需要保留满座候选
+    让 17:00 → 17:30 替换链路被评委看到）。
+    """
+    if not candidates:
+        return candidates
+
+    max_km = intent.distance_max_km if intent.distance_max_km else 999.0
+
+    filtered: list[Restaurant] = []
+    rejected: list[tuple[str, str]] = []
+    for rest in candidates:
+        if rest.distance_km > max_km + _GROUNDING_DISTANCE_TOL_KM:
+            rejected.append(
+                (rest.id, f"距家 {rest.distance_km:.1f}km 超 {max_km:.1f}km + 容差 1.0km")
+            )
+            continue
+        status = getattr(rest, "business_status", "open") or "open"
+        if status in ("closed", "permanent_closed"):
+            rejected.append((rest.id, f"营业状态={status}"))
+            continue
+        filtered.append(rest)
+
+    # 候选 < 3 → 放宽到 +2km（餐厅没 age cap，没法再降）
+    if len(filtered) < _GROUNDING_MIN_CANDIDATES:
+        tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"grounding-first 餐厅严过滤后仅剩 {len(filtered)} 项 "
+                    f"< 阈值 {_GROUNDING_MIN_CANDIDATES}，触发放宽（距离 +2km）"
+                ),
+            },
+        )
+        filtered = []
+        rejected = []
+        for rest in candidates:
+            if rest.distance_km > max_km + _GROUNDING_DISTANCE_TOL_RELAX_KM:
+                rejected.append(
+                    (rest.id, f"距家 {rest.distance_km:.1f}km 超 +2km 放宽容差")
+                )
+                continue
+            status = getattr(rest, "business_status", "open") or "open"
+            if status in ("closed", "permanent_closed"):
+                rejected.append((rest.id, f"营业状态={status}"))
+                continue
+            filtered.append(rest)
+
+    for rest_id, reason in rejected:
+        tracer.emit(
+            "grounding_filtered",
+            {"restaurant_id": rest_id, "reason": reason},
+        )
+    return filtered
+
+
 def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
     args = SearchPoisInput(
         distance_max_km=intent.distance_max_km,
@@ -404,7 +622,9 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
     if not res.success:
         return []
     out = SearchPoisOutput.model_validate(res.output)
-    return list(out.candidates)
+    candidates = list(out.candidates)
+    # spec algorithm-redesign R3：grounding-first 前置硬剔除
+    return _grounding_filter_poi(candidates, intent, tracer)
 
 
 def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaurant]:
@@ -431,7 +651,9 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
     if not res.success:
         return []
     out = SearchRestaurantsOutput.model_validate(res.output)
-    return list(out.candidates)
+    candidates = list(out.candidates)
+    # spec algorithm-redesign R3：grounding-first 前置硬剔除（仅距离 + 营业状态）
+    return _grounding_filter_restaurant(candidates, intent, tracer)
 
 
 # ============================================================
@@ -518,11 +740,17 @@ def _utility(
     dining_time: str,
     intent: IntentExtraction,
     w: PlanningWeights,
+    semantic_scores: dict[str, float] | None = None,
 ) -> tuple[float, str | None]:
     """加权效用函数（适配可选维度）。
 
     四维度归一化到 [0, 1] 后按权重求和。
     返回 (score, fail_detail)；fail_detail 非 None 表示该候选已物理不可行。
+
+    spec algorithm-redesign R4：末尾追加 LLM 语义打分项
+    `+ 0.3 * semantic_scores.get(poi.id, 0.5)`（仅 POI 维度；餐厅由
+    dietary 硬约束 + spec A R7 social_compat 处理）。
+    semantic_scores=None 时不加项（向后兼容；spec A 测试基线不破）。
     """
     # ---- comfort：标签匹配 + 评分 + 年龄适配 ----
     poi_tag_hit = len(set(poi.tags) & set(intent.physical_constraints)) if poi else 0
@@ -587,6 +815,11 @@ def _utility(
     # 让 ILS 算法层先于 critic 主动跳过（保留原 4 维不变，仅末尾追加项）。
     score -= 0.5 * _overload_penalty(poi, intent)
 
+    # spec algorithm-redesign R4：LLM 语义打分（ItiNera EMNLP'24 范式）
+    # 仅 POI 维度叠加；semantic_scores=None 时不加项（向后兼容）
+    if poi is not None and semantic_scores is not None:
+        score += 0.3 * semantic_scores.get(poi.id, 0.5)
+
     # 物理可行性快检
     fail = None
     if poi and poi.distance_km > intent.distance_max_km + 1.0:
@@ -608,8 +841,11 @@ def _make_candidate(
     intent: IntentExtraction,
     w: PlanningWeights,
     backup: list[Poi],
+    semantic_scores: dict[str, float] | None = None,
 ) -> CandidatePlan:
-    score, fail = _utility(poi, rest, dining_time, intent, w)
+    score, fail = _utility(
+        poi, rest, dining_time, intent, w, semantic_scores=semantic_scores
+    )
     return CandidatePlan(
         main_poi=poi,
         restaurant=rest,
@@ -673,6 +909,7 @@ def _greedy_init(
     w: PlanningWeights,
     tracer: Tracer,  # noqa: ARG001
     dining_slots: tuple[str, ...] = DINING_SLOTS,
+    semantic_scores: dict[str, float] | None = None,
 ) -> Optional[CandidatePlan]:
     """从候选中取 utility 最高且 feasible 的作为初始解。
 
@@ -683,6 +920,8 @@ def _greedy_init(
 
     `dining_slots` spec planning-quality-deep-review R5：调用方传入动态时段；
     缺省时退化为 module 级 DINING_SLOTS（向后兼容旧调用方）。
+
+    `semantic_scores` spec algorithm-redesign R4：LLM 语义打分加项；None 时不加。
     """
     best: Optional[CandidatePlan] = None
 
@@ -691,7 +930,10 @@ def _greedy_init(
         for poi in pois:
             for rest in rests:
                 for slot in dining_slots:
-                    cand = _make_candidate(poi, rest, slot, intent, w, pois)
+                    cand = _make_candidate(
+                        poi, rest, slot, intent, w, pois,
+                        semantic_scores=semantic_scores,
+                    )
                     if not cand.feasible:
                         continue
                     if best is None or cand.utility > best.utility:
@@ -699,7 +941,10 @@ def _greedy_init(
     elif pois:
         # 仅主活动：POI 单维度
         for poi in pois:
-            cand = _make_candidate(poi, None, "", intent, w, pois)
+            cand = _make_candidate(
+                poi, None, "", intent, w, pois,
+                semantic_scores=semantic_scores,
+            )
             if not cand.feasible:
                 continue
             if best is None or cand.utility > best.utility:
@@ -708,7 +953,10 @@ def _greedy_init(
         # 仅用餐：餐厅 × 时段
         for rest in rests:
             for slot in dining_slots:
-                cand = _make_candidate(None, rest, slot, intent, w, [])
+                cand = _make_candidate(
+                    None, rest, slot, intent, w, [],
+                    semantic_scores=semantic_scores,
+                )
                 if not cand.feasible:
                     continue
                 if best is None or cand.utility > best.utility:
@@ -848,16 +1096,19 @@ def _local_search(
     intent: IntentExtraction,
     w: PlanningWeights,
     dining_slots: tuple[str, ...] = DINING_SLOTS,
+    semantic_scores: dict[str, float] | None = None,
 ) -> CandidatePlan:
     """在 seed 邻域内贪心改进：枚举每个可用维度的所有候选，选 utility 最高的。"""
     best = _make_candidate(
-        seed.main_poi, seed.restaurant, seed.dining_time, intent, w, pois
+        seed.main_poi, seed.restaurant, seed.dining_time, intent, w, pois,
+        semantic_scores=semantic_scores,
     )
     # 枚举 POI 维度（如果有）
     if pois and seed.main_poi is not None:
         for poi in pois:
             cand = _make_candidate(
-                poi, seed.restaurant, seed.dining_time, intent, w, pois
+                poi, seed.restaurant, seed.dining_time, intent, w, pois,
+                semantic_scores=semantic_scores,
             )
             if cand.feasible and cand.utility > best.utility:
                 best = cand
@@ -865,7 +1116,8 @@ def _local_search(
     if rests and seed.restaurant is not None:
         for rest in rests:
             cand = _make_candidate(
-                best.main_poi, rest, best.dining_time, intent, w, pois
+                best.main_poi, rest, best.dining_time, intent, w, pois,
+                semantic_scores=semantic_scores,
             )
             if cand.feasible and cand.utility > best.utility:
                 best = cand
@@ -873,7 +1125,8 @@ def _local_search(
     if seed.dining_time:
         for slot in dining_slots:
             cand = _make_candidate(
-                best.main_poi, best.restaurant, slot, intent, w, pois
+                best.main_poi, best.restaurant, slot, intent, w, pois,
+                semantic_scores=semantic_scores,
             )
             if cand.feasible and cand.utility > best.utility:
                 best = cand

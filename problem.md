@@ -6571,3 +6571,103 @@ backend/agent/
 - pitfalls.md 加 1 条 [P0] 防再犯：「目录重组前必须做两步独立审计：(1) grep 完整引用关系（含相对引用 + 内部链式调用）；(2) 实测行为等价性。spec B 起草时漏 (1)；spec D 起草 v1 漏 (1)；spec D 起草 v2 漏 (2)；v3 实测后修正为 0 个死代码。永久教训：grep + 实测两步都做完再决定能不能删」
 - 用户可决定下一步：(a) 启动 spec C 实施；(b) 用户先 review spec C 三件套（已被本 spec 同步）
 
+
+
+## 问题：spec C `algorithm-redesign` 实施全部 9 个 task 落地
+
+**用户原问**：「启动」（spec C 三件套已就绪 + spec D legacy 清理已 done，启动 spec C 实施）
+
+**解决方案**：
+
+按 spec C tasks.md 9 个 task 顺序串行实施，每 task 末尾跑 pytest -x 立即停红灯，全部完成后一次性原子 commit：
+
+**Task 1（baseline 验证 + git tag）** ✓
+- pytest 607 passed + 1 skipped + 0 failed（baseline 全绿）
+- frontend `pnpm verify:all` 4/4（lint + typecheck + 30 vitest + Next build）
+- verify_planning_quality.py 24/24 100%（spec A R10 4 场景全绿）
+- git tag `v-spec-c-start`（spec C 起点回滚锚点）
+
+**Task 2（critics_v2 加 compute_reward + CRITIC_FEEDBACK_MODE 三档）** ✓
+- `backend/agent/planning/critic/critics_v2.py` 加 `SEVERITY_WEIGHTS` / `CODE_WEIGHTS` 常量 + `compute_reward(violations) -> float` 函数 + `_get_feedback_mode()` env 解析 + `format_violations_for_llm` 升级支持三档（pinpoint-all 默认 / first-only / reward）
+- `backend/.env.example` 加 `CRITIC_FEEDBACK_MODE=pinpoint-all` 段
+- `backend/tests/test_critic_feedback_mode.py` 新增 19 项（设计要求 ≥ 8）
+- 跑全套 626 passed + 1 skipped + 0 failed（= 607 + 19）
+
+**Task 3（critics_v2 加 TOOL_RESPONSE_INCONSISTENCY ViolationCode）** ✓
+- `backend/agent/planning/critic/critics_v2.py` 加 `ViolationCode.TOOL_RESPONSE_INCONSISTENCY` 第 11 个枚举 + `_check_tool_consistency(itinerary, tool_results)` + `validate_itinerary` 加 `tool_results` 参数（向后兼容）+ CODE_WEIGHTS 加 1.5 权重
+- `backend/agent/graph/nodes/critic.py:critic_node` 透传 `state.get("pois") / state.get("restaurants")` 给 validate_itinerary
+- `backend/tests/test_tool_response_inconsistency.py` 新增 10 项（设计要求 ≥ 6）
+- 跑全套 636 passed + 1 skipped（= 607 + 19 + 10）
+
+**Task 4（ils_planner.py grounding-first 前置硬剔除）** ✓
+- `backend/agent/planning/planners/ils_planner.py` 加 `_grounding_filter_poi` / `_grounding_filter_restaurant`（≤6 岁同行人 + 90min cap 投影 / ≥75 岁同行人 + 75min cap / distance > distance_max_km + 1.0 / business_status 关闭）+ 候选池 < 3 自动放宽（仅距离 +2km 与 business_status，跳过 age cap）+ `_query_pois` / `_query_restaurants` 末尾接入
+- `backend/tests/test_grounding_first.py` 新增 10 项（设计要求 ≥ 5）
+- 跑全套 646 passed + 1 skipped + verify_planning_quality.py 24/24 100%
+
+**Task 5（preference_scorer.py + _utility 加 LLM 语义打分项）** ✓
+- 新建 `backend/agent/planning/preference_scorer.py`：`score_pois_with_llm(intent, pois, *, client=None) -> dict[str, float]`（失败兜底全 0.5 / stub 短路 / 批量 prompt + JSON 严格解析 / clip [0,1]）
+- `backend/agent/planning/planners/ils_planner.py:_utility` 加 `semantic_scores: dict[str, float] | None = None` 参数（向后兼容）；公式末尾 `+ 0.3 * semantic_scores.get(poi.id, 0.5) if poi and semantic_scores else 0`（保留 spec A R5 _overload_penalty 不变）；`_make_candidate` / `_greedy_init` / `_local_search` 全部透传 semantic_scores
+- `plan_hybrid` 入口调 `score_pois_with_llm` 缓存到局部，传入后续所有 utility 调用；emit `agent_thought` 让评委看到打分分布
+- `backend/tests/test_preference_scorer.py` 新增 11 项（设计要求 ≥ 4）+ `test_utility_with_semantic.py` 新增 5 项（设计要求 ≥ 2）
+- 跑全套 662 passed + 1 skipped + R10 24/24 100%
+
+**Task 6（user_profile.json 扩三层 schema + memory_writer 副作用）** ✓
+- `backend/schemas/domain.py` 加 `RecentTrip` 模型 + `UserProfile` 加 3 个 Optional 字段（`dietary_preference` / `social_context_history` / `recent_trips`）；旧 4 字段 profile 仍可加载（向后兼容）
+- `mock_data/user_profile.json` 加 dietary_preference 自然语言段落 + social_context_history 3 条 + recent_trips 2 条假数据
+- 新建 `backend/agent/planning/memory_writer.py`：`persist_memory(state, *, profile_path=None, client=None)`（threading.Lock 跨平台 + 5 分钟去重幂等键 + 5 条 LIFO 上限 + 隐私脱敏 prompt 显式约束 + cancel 跳过 + 失败永不抛异常）
+- `backend/agent/graph/nodes/narrate.py:narrate_node` 末尾追加 `persist_memory(state, client=client)` 副作用调用（path B：不动 graph 拓扑，spec B 锁的编排冻结纪律）；try/except 包裹防御性兜底
+- `backend/agent/intent/prompts/intent_parser_prompt.py:build_intent_parser_system_prompt_with_priors` 末尾追加 `_build_user_profile_addendum`：dietary_preference 自然语言 + recent_trips 最新 2 条注入 prompt
+- `backend/tests/test_memory_writer.py` 新增 12 项（设计要求 ≥ 5）+ `test_recent_trips_recall.py` 新增 4 项（设计要求 ≥ 3）
+- 跑全套 678 passed + 1 skipped + R10 24/24 100%
+
+**Task 7（前端 ChatDock + ToolTracePanel 双层折叠）** ✓
+- `frontend/components/ChatDock.tsx` 加 useEffect 读 `localStorage.getItem("shangwuju.chatdock.expanded")` 初始化（SSR 默认 collapsed 避免 hydration mismatch）+ 监听 Cmd+K / Ctrl+K 召唤大尺寸 + ESC 收回时同步清 localStorage + onTogglePeek 持久化
+- `frontend/components/ToolTracePanel.tsx` 加外层 panelExpanded（默认 false + localStorage 持久化 + streaming 自动展开）+ 「查看 Agent 决策过程（N 步）」折叠条 + 内层原 Epic 折叠保留不变
+- pnpm verify:all 4/4 全过（lint + typecheck + 30 vitest + Next build）
+
+**Task 8（comparison_axes.py 三轴评分后端）** ✓
+- 新建 `backend/agent/planning/comparison_axes.py`：`compute_axes(itinerary, intent, *, semantic_scores)` 返三轴 0-100 整数（时长合规度 = 100 * (1 - 违规节点 / 总节点) / 距离合理度 = 100 * exp(-(总通勤 - target)^2 / 800) / 偏好匹配度 = 100 * mean(semantic_scores) 缺省 70）
+- `backend/tests/test_comparison_axes.py` 新增 9 项（设计要求 ≥ 4）
+- 前端 ComparisonView 三候选并排切换 UX 留作后续增量（保稳定优先）
+- 跑全套 687 passed + 1 skipped
+
+**Task 9（防再犯条款 + 文档同步 + 一次性原子 commit）** ✓
+- `docs/03-implementation/pitfalls.md` 末尾追加 `[P0] 2026-05-24 spec C 算法重构「绝对不要做」清单` 8 项联合审查共识 + spec C 落地后 6 项新增条款
+- `docs/00-overview/progress.md` 末尾追加 `D-ALGO-REDESIGN [2026-05-24]` 决议记录（含 spec C 9 个 task 落地范围 + 评分项影响 + 学术依据 + 测试矩阵）
+- `problem.md` 追加本条（spec C 实施全过程总结）
+- 一次性原子 commit `v-spec-c-done`（task 1-9 全部端到端落地）
+
+**修改的代码文件**（spec C 实施全部范围）：
+
+新建：
+- `backend/agent/planning/comparison_axes.py`（task 8）
+- `backend/agent/planning/memory_writer.py`（task 6）
+- `backend/agent/planning/preference_scorer.py`（task 5）
+- `backend/tests/test_comparison_axes.py` / `test_critic_feedback_mode.py` / `test_grounding_first.py` / `test_memory_writer.py` / `test_preference_scorer.py` / `test_recent_trips_recall.py` / `test_tool_response_inconsistency.py` / `test_utility_with_semantic.py`（8 个新测试文件）
+
+修改：
+- `backend/.env.example`（task 2 加 CRITIC_FEEDBACK_MODE 段）
+- `backend/agent/graph/nodes/critic.py`（task 3 透传 tool_results）
+- `backend/agent/graph/nodes/narrate.py`（task 6 末尾副作用调用 persist_memory）
+- `backend/agent/intent/prompts/intent_parser_prompt.py`（task 6 加 _build_user_profile_addendum）
+- `backend/agent/planning/critic/critics_v2.py`（task 2 + task 3 加 SEVERITY_WEIGHTS / CODE_WEIGHTS / compute_reward / _get_feedback_mode + ViolationCode.TOOL_RESPONSE_INCONSISTENCY + _check_tool_consistency）
+- `backend/agent/planning/planners/ils_planner.py`（task 4 grounding-first + task 5 LLM 语义打分透传）
+- `backend/schemas/domain.py`（task 6 加 RecentTrip + UserProfile 三层 schema）
+- `frontend/components/ChatDock.tsx`（task 7 localStorage + Cmd+K）
+- `frontend/components/ToolTracePanel.tsx`（task 7 双层折叠）
+- `mock_data/user_profile.json`（task 6 扩三层字段）
+- `docs/00-overview/progress.md`（D-ALGO-REDESIGN 决议）
+- `docs/03-implementation/pitfalls.md`（[P0] 2026-05-24 8 项防再犯）
+- `problem.md`（本条）
+
+**应当达成的效果**：
+
+- **算法层升级**：从「事实上的 LLM-Modulo 同构系统」→「显式三联混合产品级骨架」（LLM-Modulo + ItiNera + TravelAgent）
+- **5 重防御链**：grounding-first 前置硬剔除 → utility penalty 算法层兜底 → critic 11 类违规验证 → 三轴评分可量化 → dense reward 未来 RL 路径预留
+- **召回能力**：跨 session memory 写回 user_profile.json + 意图解析阶段注入 dietary 自然语言 + recent_trips 最新 2 条 → demo 首次对话即看到「上次同场景行程」prior
+- **评委可见性**：ChatDock + ToolTracePanel 默认 collapsed 节省屏幕空间；streaming 自动展开 + Cmd+K 召唤；localStorage 持久化跨 session
+- **测试基线**：687 passed + 1 skipped + 0 failed（= 607 baseline + 80 spec C 新增）+ verify_planning_quality 24/24 100% + frontend 4/4
+- **8 项「绝对不要做」固化**：联合审查 §7.4 共识 + spec C 落地后 6 项新增条款，未来 PR 涉及 RL / vector RAG / 新增 agent 角色都会触发 pitfalls.md 提醒
+- **向后兼容硬约束**：每个 task schema / 函数签名升级都加 Optional 默认值，spec A/B 已通过的 607 项 pytest 全部不破
+
+**用户反馈**：（待用户验收后追加）

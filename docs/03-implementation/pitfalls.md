@@ -935,3 +935,42 @@ spec D 起草时编排者犯了**两次**审计错误：
 
 **优先级**：P0（架构级，影响 spec 实施成败 + 业务行为正确性）
 
+
+
+### [P0] 2026-05-24 spec C 算法重构「绝对不要做」清单（联合审查 §7.4 + 8 维度交叉对照）
+
+> 本条不是技术 Bug，是**架构选型铁律**——任何后续 PR / spec 涉及「算法重构 / 范式升级」时必须严格执行。
+
+**触发场景**：未来任何人想引入 RL / vector RAG / 新 agent 角色 / 多日 DP / ALNS 等"看起来很高级"的算法，**必须**先回头读联合审查 §7.4 与本条防再犯。
+
+**绝对不要做的 8 项**（联合审查 8 sub-agent 一致拒绝）：
+
+```
+| 编号 | 不要做的事                                           | 拒绝理由（联合审查依据）                              |
+|------|----------------------------------------------------|----------------------------------------------------|
+| 1    | RL 整体复用（DeepTravel / Planner-R1）              | 30+ 人天 + GPU $500；Hackathon ROI 极低                |
+| 2    | Google 多日 DP / set packing                        | 半日单城范式退化；分日规划公式数学失效                |
+| 3    | ITINERA cluster + 分层 TSP                          | 节点 4-6 时数学失效；过度工程                          |
+| 4    | ALNS + MILP exact 搜索                              | n=87 极小规模过度工程                                  |
+| 5    | vector RAG 替代 mock_data                           | 42 POI 用 vector RAG 是「拿火箭打蚊子」                |
+| 6    | 新增 agent 角色（10+）                               | 当前 5 个已达 ItiNera 论文规模上限                    |
+| 7    | 商业产品算法借鉴黑盒（TripGenie / 美团 / NAVITIME）  | 工程量天文数字 + IP 风险                              |
+| 8    | 升 max_iter 到 10                                   | 与 Demo latency 30s 红线冲突                          |
+```
+
+**新增条款（spec C 落地后）**：
+
+- ✓ critic 升级走 single-file 内扩展（critics_v2.py 加 ViolationCode / compute_reward / mode），**不**新增 critic 文件
+- ✓ LLM 语义打分独立模块 preference_scorer.py（任何失败兜底全 0.5，**永不**阻断 ILS 主路径）
+- ✓ user_profile 三层 schema 加召回（dietary_preference / social_context_history / recent_trips），**全 Optional 默认 None** 向后兼容
+- ✓ memory_writer 副作用挂在 narrate_node 末尾（路径 B），**不动** graph/build.py 拓扑（spec B 锁的编排冻结纪律）
+- ✓ CRITIC_FEEDBACK_MODE 默认保持 pinpoint-all（向后兼容），reward / first-only 仅占位实验路径
+- ✓ grounding-first 与 _overload_penalty 双重防御不删旧（spec A R5 utility 减分机制保留作兜底）
+
+**依据**：
+- `.kiro/specs/algorithm-redesign/research/joint-review/report.md` §7.4「绝对不要做」清单
+- `.kiro/specs/algorithm-redesign/research/agent-{1-8}/report.md` 8 sub-agent 共识
+- `.kiro/specs/algorithm-redesign/{requirements,design,tasks}.md` 落地规约
+- spec C 实施 commit `v-spec-c-done`（task 1-9 端到端落地 + 9 项防再犯固化）
+
+**优先级**：P0（架构级铁律，任何破坏会让 spec C 三联混合主架构失效）

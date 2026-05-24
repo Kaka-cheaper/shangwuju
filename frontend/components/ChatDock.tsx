@@ -64,6 +64,57 @@ export default function ChatDock() {
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   // ============================================================
+  // spec algorithm-redesign R6：localStorage 持久化 + Cmd+K 召唤
+  // ============================================================
+  // 默认 collapsed（避免 SSR hydration mismatch）；初次挂载后从 localStorage 读取
+  // 用户在前一次 session 里手动展开过 → 本次启动直接展开
+  // 评委教学：Cmd+K（Mac）/ Ctrl+K（Win）随时召唤 ChatDock 大尺寸
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = window.localStorage.getItem("shangwuju.chatdock.expanded");
+      if (saved === "true") {
+        const fullH = Math.max(
+          260,
+          Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
+        );
+        setManualHeight(fullH);
+        setMode("peek");
+      }
+    } catch {
+      // localStorage 不可用（隐私模式 / SSR）→ 静默忽略
+    }
+  }, []);
+
+  // Cmd+K / Ctrl+K 召唤大尺寸 ChatDock
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const fullH = Math.max(
+          260,
+          Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
+        );
+        setManualHeight(fullH);
+        setMode("peek");
+        try {
+          window.localStorage.setItem(
+            "shangwuju.chatdock.expanded",
+            "true",
+          );
+        } catch {
+          // 静默忽略
+        }
+        // 自动 focus 输入框
+        setTimeout(() => textareaRef.current?.focus(), 50);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // ============================================================
   // 拖动调整高度
   //   - manualHeight=null：跟随 mode 自动高度（112 / 340）
   //   - manualHeight=数字：用户拖过，覆盖自动逻辑
@@ -180,6 +231,17 @@ export default function ChatDock() {
       if (e.key === "Escape") {
         setManualHeight(null);
         setMode("collapsed");
+        // spec algorithm-redesign R6：同步清除 localStorage 标记
+        try {
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(
+              "shangwuju.chatdock.expanded",
+              "false",
+            );
+          }
+        } catch {
+          // 静默忽略
+        }
       }
     };
     window.addEventListener("keydown", onKey);
@@ -258,6 +320,16 @@ export default function ChatDock() {
       // 已经在大尺寸 → 收回 collapsed
       setManualHeight(null);
       setMode("collapsed");
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            "shangwuju.chatdock.expanded",
+            "false",
+          );
+        }
+      } catch {
+        // 静默
+      }
     } else {
       // 拉到 70vh
       const fullH = Math.max(
@@ -266,6 +338,16 @@ export default function ChatDock() {
       );
       setManualHeight(fullH);
       setMode("peek");
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            "shangwuju.chatdock.expanded",
+            "true",
+          );
+        }
+      } catch {
+        // 静默
+      }
     }
   };
 

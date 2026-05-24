@@ -46,7 +46,18 @@ def critic_node(state: AgentState) -> dict[str, Any]:
             ),
         }
 
-    violations = validate_itinerary(itinerary, intent, user_id=state.get("user_id") or "demo_user")
+    violations = validate_itinerary(
+        itinerary,
+        intent,
+        user_id=state.get("user_id") or "demo_user",
+        # spec algorithm-redesign R2：透传候选池快照给 _check_tool_consistency
+        # 检查 itinerary.nodes[*].target_id 是否在 execute 阶段并行写入的 pois / restaurants 里
+        # （execute_node 把 search_pois / search_restaurants 结果写到 state.pois / state.restaurants）
+        tool_results={
+            "pois": state.get("pois") or [],
+            "restaurants": state.get("restaurants") or [],
+        },
+    )
     has_critical = any(v.severity == Severity.CRITICAL for v in violations)
     feedback = format_violations_for_llm(violations) if has_critical else None
 
