@@ -7102,3 +7102,58 @@ backend/agent/
 - **mock_data 扩从 42 → 48 POI**（distance_km 完全保持向后兼容）
 
 **用户反馈**：（待用户验证 6 件改动效果后追加）
+
+
+---
+
+问题：作为「技术创新评分」审查 sub-agent H，输出反向对照报告——找平庸点 + 业界已被超越的伪创新 + 评委挑战点
+解决方案：基于 backend/agent + backend/tools + mock_data + 演示场景集 + pitfalls + 8 份范式调研 + execution-quality joint-review + agent-D attack-surface 交叉对照证据，写 5300+ 字（中文计字）反向对照报告。10 节结构齐全：①一句话结论（中等偏上 + 评委首次最致命挑战）；②12 行「真创新 vs 伪创新」清单含 file:line；③6 条业界已超越伪创新（grounding-first / critic backprompt / 动态时间 / 多约束拆解 / LangGraph fan-out / 双 mode）；④7 条评委攻击点表（含原话 + 30 秒回应方案）；⑤代码层平庸标志（写死常量 7 处 + 启发式 if 2 处 + mock 特殊化 + 路演不一致 3 条 + narrator 模板）；⑥pitfalls 已识别的伪创新风险 8 行交叉对照；⑦真创新 Top 5（age-aware / 双层折叠 / memory_writer 路径 B / 中文社交 9 选 1 / TOOL_RESPONSE_INCONSISTENCY）；⑧demo 翻车 3 类；⑨加分提案 3 条（必做/建议/不要做）；⑩评委 5 句话速记卡。表格全用代码块、数字带论文出处、与 E/F/G 严格不重复证据。
+修改的代码文件：.kiro/specs/innovation-review/agent-H-anti-pattern/report.md（新建，5476 中文字符）
+应当达成的效果：spec H 联合审查可消费的反向对照素材；评委追问伪创新点时团队有 5 句话速记卡可背；路演大纲页 5 / 附录问答储备表可据本报告 §九.1 增补 1 行业界对标 + 3 行问答储备
+
+
+---
+
+问题：技术创新维度审查的 4 sub-agent 已交付 E/F/G/H 4 份报告，请派第 5 个联合审查 sub-agent 输出独立第二意见到 .kiro/specs/innovation-review/joint-review/report.md，要求只读 4 份报告 + 2 份 joint-review 模板（不读项目代码避免 echo），≥8000 中文字，10 节齐全（一句话结论 + 12 维度交叉矩阵 + 真共识/表面共识/隐藏冲突 + 4 sub-agent 各 ≥3 盲点 + 评委 Top 3 攻破点 + 加分项 4 类 + 业界对标 5×6 + 沉默风险 ≥3 + 路演 5 句话答辩 + 真创新 vs 营销话术 ≥8 行 + 与 spec C/execution-quality 双 meta-tradeoff），表格全在代码块。
+
+解决方案：
+
+1. 第一次外派 general-task-execution sub-agent 被取消（user 操作）；改为 AI 主笔直接读 4 份报告全文（E 5800 字 + F 6000 字 + G 5400 字 + H 5300 字）+ 借用 execution-quality joint-review 头几节作格式参考，撰写一份 9201 中文字（71932 总字符 / 883 行）独立第二意见报告
+2. 报告核心独立判断：
+   - 创新维度独立打分 78% / 95% CI 65-88%（建设性 sub-agent E/F/G 算术平均 80% → 攻击性 sub-agent H 65% → 联合审查取中点偏 H 15-20% 修正后 78%）
+   - 期望评委评分 13-15/20（按 a 产品评委 16-18 / b 论文评委 13-15 / c LangGraph 评委 10-13 三桶加权）
+   - 14 天剩余时间盒最重要 3 件事 ≤ 2.5h：路演大纲改 4→3 worker（M1）+ 业界引用速记卡 3 行（M2）+ capacity_requirement critic 落地（M3）+ S6/S9 候选稀疏验证（沉默风险 #1 缓解）
+3. 报告结构 10 节齐全 + 附 §自检：
+   - §一 独立打分（创新等级中偏强 + 创新可信度 78% / 95% CI 65-88% + 评委评分预估按技术栈分桶）
+   - §二 12 维度交叉对照矩阵（每维度真创新 / 中等创新 / 平庸 / 伪创新 4 选 1）
+   - §三 真共识 6 条 + 表面共识 5 条 + 隐藏冲突 5 条（每条带取舍方案）
+   - §四 4 sub-agent 各 4 个盲点（共 16 条）
+   - §五 评委 Top 3 攻破点（4 worker 营销 / LLM-Modulo 同源破除 / narrator 模板 grep）
+   - §六 加分项 4 类（必做 3 / 建议 4 / 单方提议 6 / 绝对不要做 12）
+   - §七 业界对标 6 维度 × 6 范式（含 ItiNera/TravelPlanner/TravelAgent/Google/LangGraph/我们）
+   - §八 3 个沉默风险（mock_data 三重叠加 + 路演脚本 4 套口径 + narrator 攻击面低估）
+   - §九 路演脚本（30 秒 89 字主话术 + 5 句话每句 ≤25 字 + 绝不能说 3 词「Pass@1 80-85% / 业界 SOTA / 4 worker」）
+   - §十 95% CI 拿分预估（上界 88% / 期望 78% / 下界 65%）+ 与 spec C joint-review meta-tradeoff（算法层 vs 创新层评委不同）+ 与执行质量 joint-review meta-tradeoff（创新比执行低 4 个百分点 / CI 宽 5 个点 / 不拖累但都靠提升评委可见性）+ 真创新 vs 营销话术 12 行清单
+4. 严格遵守 stage 范围：仅 5 份报告 + problem.md 增量；不带 image.png / 评审.md / .agents/ / .codesee/hooks/ / .kiro/hooks/ / backend/exp_log*
+
+修改的代码文件：
+
+新建：
+- `.kiro/specs/innovation-review/joint-review/report.md`（联合审查独立第二意见，9201 中文字 / 883 行）
+
+修改：
+- `problem.md`（本条 + 上一条 H sub-agent 完成记录）
+
+未改：
+- 任何 backend/* / frontend/* / mock_data/* / docs/* / AGENTS.md（严格遵守 sub-agent 不副作用纪律）
+- pitfalls.md（无新增「防再犯」级技术警示）
+
+应当达成的效果：
+
+- 团队拿到 9201 字独立第二意见报告，明确「创新维度独立打分 78% / 期望评委评分 13-15/20」基线
+- 路演大纲优先级三件事清单（路演大纲改 + capacity critic + S6 验证）≤ 2.5h，比执行质量审查 6 件加分项 4.7h 工时少一半
+- 路演 30 秒主话术 + 5 句话答辩 + 绝不能说 3 词被固化在 §九，团队只背一套不再被 4 sub-agent 5 句话堆叠混淆
+- 与 spec C / execution-quality 双 joint-review 形成完整三元 meta-tradeoff（算法 / 执行 / 创新），每个维度独立评估 + 交叉印证
+- innovation-review/ 5 份报告（E/F/G/H + joint-review）一次性原子 commit 入仓，stage 范围零污染（无 image.png / 评审.md / .agents/ / backend/exp_log* 等 untracked 杂物）
+
+用户反馈：（待用户审阅 joint-review 报告后追加）
