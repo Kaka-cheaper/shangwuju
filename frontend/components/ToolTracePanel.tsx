@@ -99,6 +99,10 @@ export default function ToolTracePanel() {
   const toolCalls = useChatStore((s) => s.toolCalls);
   const replans = useChatStore((s) => s.replans);
   const streaming = useChatStore((s) => s.streaming);
+  // confirm 阶段是接续之前规划好的链路继续往下走，UI 不应像首轮那样
+  // 重置折叠 / 强制展开 / 显示「等待 Agent 调用 Tool...」占位——保持 UX 连续。
+  const streamPhase = useChatStore((s) => s.streamPhase);
+  const isFreshStreaming = streaming && streamPhase === "stream";
 
   // 1. 按 arrivalIdx 合并 toolCalls + replans 到时间线
   const timeline: Item[] = useMemo(
@@ -124,10 +128,11 @@ export default function ToolTracePanel() {
 
   // 3. 折叠状态
   const [collapsed, setCollapsed] = useState<Set<EpicId>>(new Set());
-  // 当 streaming 重新开始时（新一轮），重置折叠状态让所有 epic 可见
+  // 当 streaming 重新开始时（**仅首轮**），重置折叠状态让所有 epic 可见。
+  // confirm / refine 阶段是接续，不重置（保留用户上一次的折叠选择）。
   useEffect(() => {
-    if (streaming) setCollapsed(new Set());
-  }, [streaming]);
+    if (isFreshStreaming) setCollapsed(new Set());
+  }, [isFreshStreaming]);
 
   // ============================================================
   // spec algorithm-redesign R6：双层折叠（外层整体折叠 + 内层 Epic 折叠）
@@ -153,9 +158,10 @@ export default function ToolTracePanel() {
   }, []);
 
   // streaming 开始 → 自动展开（demo 评委看决策过程）
+  // **仅首轮**展开；confirm 阶段不强制展开，保留用户的折叠选择
   useEffect(() => {
-    if (streaming) setPanelExpanded(true);
-  }, [streaming]);
+    if (isFreshStreaming) setPanelExpanded(true);
+  }, [isFreshStreaming]);
 
   const togglePanel = () => {
     setPanelExpanded((cur) => {
@@ -240,7 +246,7 @@ export default function ToolTracePanel() {
 
       {panelExpanded && (
         <div className="px-3 py-2.5 space-y-1.5 animate-collapse-in overflow-hidden">
-          {buckets.length === 0 && streaming && (
+          {buckets.length === 0 && isFreshStreaming && (
             <div className="px-2 py-1.5 flex items-center gap-1.5 text-xs text-ink-400 italic">
               <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2} />
               <span>等待 Agent 调用 Tool...</span>

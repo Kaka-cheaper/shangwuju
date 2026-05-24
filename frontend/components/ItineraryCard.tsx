@@ -48,18 +48,21 @@ export default function ItineraryCard() {
   const [refineOpen, setRefineOpen] = useState(false);
 
   // 聚光灯：itinerary 从 null/无 → 有时触发一次性脉冲
+  // confirm 阶段是接续不重置，spotlight 不应触发（保留 demo UX 连续）
   const [spotlight, setSpotlight] = useState(false);
   const prevHadItinerary = useRef(false);
+  const streamPhase = useChatStore((s) => s.streamPhase);
   useEffect(() => {
     const has = !!itinerary;
-    if (has && !prevHadItinerary.current) {
+    if (has && !prevHadItinerary.current && streamPhase !== "confirm") {
       setSpotlight(true);
       const timer = setTimeout(() => setSpotlight(false), 2400);
       prevHadItinerary.current = true;
       return () => clearTimeout(timer);
     }
     if (!has) prevHadItinerary.current = false;
-  }, [itinerary]);
+    if (has && !prevHadItinerary.current) prevHadItinerary.current = true;
+  }, [itinerary, streamPhase]);
 
   // ============================================================
   // 时间轴 stagger 动画（R1）：schedule 逐条"长出来"
@@ -98,21 +101,34 @@ export default function ItineraryCard() {
   const [visibleCount, setVisibleCount] = useState(0);
   const [animating, setAnimating] = useState(false);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 跨 itinerary 持久化的「已经跑过 stagger 的总段数」
+  // 用途：confirm / refine 后 itinerary 整体替换（含 orders / share_message），但
+  // 时间轴本身没变 → 不应再跑一遍 stagger。仅在「段数真的变化」时才重启动画。
+  const lastAnimatedTotalRef = useRef<number>(0);
 
   useEffect(() => {
     if (!itinerary) {
       setVisibleCount(0);
       setAnimating(false);
+      lastAnimatedTotalRef.current = 0;
       return;
     }
     const total = visibleEntries.length;
     if (total === 0) {
       setVisibleCount(0);
       setAnimating(false);
+      lastAnimatedTotalRef.current = 0;
       return;
     }
 
-    // 重启动画：从 0 开始
+    // 段数与上次跑过的 stagger 一致 → 不重启动画（confirm 阶段进来走这条）
+    if (total === lastAnimatedTotalRef.current) {
+      setVisibleCount(total);
+      setAnimating(false);
+      return;
+    }
+
+    // 重启动画：从 0 开始（首次或 refine 后段数变化）
     setAnimating(true);
     setVisibleCount(0);
     const delay = total <= 2 ? 200 : 400;
@@ -124,6 +140,7 @@ export default function ItineraryCard() {
       if (idx >= total) {
         setAnimating(false);
         animTimerRef.current = null;
+        lastAnimatedTotalRef.current = total;
       } else {
         animTimerRef.current = setTimeout(tick, delay);
       }

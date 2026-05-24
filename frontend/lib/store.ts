@@ -119,6 +119,15 @@ export interface ChatState {
   // 流式状态
   streaming: boolean;
   streamError: string | null;
+  /**
+   * 当前流式阶段：让 UI 知道这是首次规划 / 用户确认 / 反馈重规划。
+   * - "idle"     : 没有进行中的流
+   * - "stream"   : 首次规划（点 S1-S8 / 输入框 / Cmd+K 触发的 /chat/stream）
+   * - "confirm"  : 用户点「确认并预约」触发的 /chat/confirm（接续之前的链路，
+   *               不应让 ToolTracePanel / ItineraryCard 重置成「从头流式显示」状态）
+   * - "refine"   : 用户点「说说哪不对」触发的 /chat/refine
+   */
+  streamPhase: "idle" | "stream" | "confirm" | "refine";
 
   // 聊天与中间过程
   messages: ChatMessage[];
@@ -210,6 +219,7 @@ const initialState: Omit<
   preferences: null,
   streaming: false,
   streamError: null,
+  streamPhase: "idle",
   messages: [],
   intent: null,
   toolCalls: [],
@@ -282,6 +292,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       streaming: true,
       streamError: null,
+      streamPhase: "stream",
       intent: null,
       toolCalls: [],
       replans: [],
@@ -349,7 +360,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               });
             }
           }
-          set({ streaming: false });
+          set({ streaming: false, streamPhase: "idle" });
         },
       },
       undefined,
@@ -363,7 +374,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     abortController?.abort();
     abortController = new AbortController();
-    set({ streaming: true, streamError: null });
+    // confirm 流不重置 toolCalls / replans / thoughts / itinerary——
+    // 这是接续之前规划好的链路继续往下走，UI 上应保留前一阶段的事件展示，
+    // 仅追加 confirm 阶段的 reserve_restaurant / generate_share_message / memory_persisted。
+    set({ streaming: true, streamError: null, streamPhase: "confirm" });
 
     await streamSse(
       `${API_BASE}/chat/confirm`,
@@ -391,7 +405,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               ],
             }));
           }
-          set({ streaming: false });
+          set({ streaming: false, streamPhase: "idle" });
           // Phase 0.7：confirm 后异步刷偏好（让评委看到 accepted_tags 累加）
           get().refreshPreferences().catch(() => {});
         },
@@ -418,6 +432,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((s) => ({
       streaming: true,
       streamError: null,
+      streamPhase: "refine",
       toolCalls: [],
       replans: [],
       thoughts: [],
@@ -474,7 +489,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               }));
             }
           }
-          set({ streaming: false });
+          set({ streaming: false, streamPhase: "idle" });
           // Phase 0.7：refine 后刷偏好（rejected_tags 可能 +1）
           get().refreshPreferences().catch(() => {});
         },
@@ -488,6 +503,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController?.abort();
     set((s) => ({
       streaming: false,
+      streamPhase: "idle",
       cancelled: true,
       messages: [
         ...s.messages,

@@ -7623,3 +7623,66 @@ vs 改前的 25-30s + 流断裂。
 - **不破 graph/build.py 拓扑** + **不破 LLM 模式行为**（has_critical 仅在 mode=='rule' 时短路）
 
 用户反馈：（待用户重启 backend 实测后追加）
+
+
+---
+
+问题：确认预约后还会触发一次思考链路的刷新，虽然是接着之前规划好的链路继续往下走，但是不应该刷新这个界面，刷新的话就是从头开始了，应该直接从候选发现开始就行了，不应该再重复从头流式显示一遍
+
+解决方案：
+
+按 systematic-debugging Phase 1 调研根因。
+
+**真根因诊断**：
+
+后端 `/chat/confirm` 走的是 `_stub_confirm` 而非 `run_graph_stream`——它**只推 reserve_restaurant + generate_share_message + itinerary_ready + done 几个事件**，不会重新跑 router → intent → execute 整条 LangGraph。
+
+但前端表现「从头流式显示一遍」的真原因有 3 处：
+
+1. **ToolTracePanel useEffect 重置展开状态**：confirm 时 streaming 重新变 true → 「streaming 时强制展开 + 重置折叠」effect 重跑 → 用户感觉面板被重置成「全部展开 / 等待 Tool」状态
+2. **ItineraryCard stagger 重启**：`useEffect deps=[itinerary]`，confirm 后 ITINERARY_READY 推回**含 orders / share_message 的新 itinerary**对象引用变了 → stagger 从 visibleCount=0 重跑 → 用户感觉时间轴段重新逐条出现
+3. **spotlight 聚光灯**：理论上 confirm 阶段 itinerary 一直存在，prevHadItinerary.current 始终 true 不触发 spotlight；这一项实际不变
+
+**修复方案**（让 store 区分 phase + 让 UI 据此判断要不要重置 / 重跑动画）：
+
+1. `frontend/lib/store.ts` 加 `streamPhase: "idle" | "stream" | "confirm" | "refine"` 字段
+   - sendMessage → "stream"
+   - confirm → "confirm"
+   - refine → "refine"
+   - cancel + onDone → "idle"
+   - confirm 流不再重置 toolCalls / replans / thoughts / itinerary（之前已是这样，但现在加 phase 让 UI 能识别）
+
+2. `frontend/components/ToolTracePanel.tsx` 加 `isFreshStreaming = streaming && streamPhase === "stream"` 派生
+   - 「重置折叠」effect 改为依赖 isFreshStreaming（confirm/refine 不重置）
+   - 「自动展开」effect 同上
+   - 「等待 Agent 调用 Tool...」占位符仅在 isFreshStreaming + 空 buckets 时显示
+
+3. `frontend/components/ItineraryCard.tsx` 加 `lastAnimatedTotalRef` 跨 itinerary 持久化
+   - stagger useEffect：段数与上次跑过 stagger 的总数一致 → 不重启动画（confirm 时 visibleEntries 总数不变）
+   - 段数变化（refine 后段数可能变）→ 仍重启动画
+   - spotlight 加 streamPhase !== "confirm" 守卫（即使 prev 误判也不触发脉冲）
+
+**测试基线**：
+
+- 前端 verify:all 4/4 通过（lint / typecheck / vitest / build）
+- 后端无改动（_stub_confirm 推送链路已是「接续」语义）
+
+修改的代码文件：
+
+修改：
+- `frontend/lib/store.ts`（streamPhase 字段 + sendMessage/confirm/refine/cancel 设置 phase）
+- `frontend/components/ToolTracePanel.tsx`（isFreshStreaming 派生 + 3 处 effect/UI 守卫）
+- `frontend/components/ItineraryCard.tsx`（lastAnimatedTotalRef stagger 守卫 + spotlight phase 守卫）
+- `problem.md`（本条）
+
+未改：
+- 后端任何路径（_stub_confirm 推送链路本身就是接续语义）
+- 任何 schema / SSE 字段
+
+应当达成的效果：
+
+- 用户点「确认并预约」→ ToolTracePanel 保持原折叠状态 + 不显示「等待 Tool」占位
+- ITINERARY_READY 重推时时间轴不再 stagger 重跑（视觉上是「订单卡 + 转发文案」追加而非全卡片重新构建）
+- 评委 demo 时 confirm 阶段视觉是「接续之前」而不是「从头来一遍」
+
+用户反馈：（待用户重启前端实测后追加）
