@@ -3755,5 +3755,528 @@
       }
     ],
     "typical_dining_min": 90
+  },
+  {
+    "id": "R046",
+    "name": "老王烧烤摊 · 路边宵夜",
+    "cuisine": "烧烤",
+    "location": {
+      "name": "湖滨夜市",
+      "lat": 30.255,
+      "lng": 120.165
+    },
+    "distance_km": 4.7,
+    "opening_hours": "18:00-03:00",
+    "avg_price": 50,
+    "rating": 4.4,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "18:30",
+        "available": true,
+        "queue_minutes": 5
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "19:30",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "20:00",
+        "available": true,
+        "queue_minutes": 20
+      },
+      {
+        "time": "21:00",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "22:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "烟火气",
+      "夜宵"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "signature_dishes": [
+      "五花肉串",
+      "孜然羊肉",
+      "烤茄子"
+    ],
+    "recommendation_reason": "路边摊烟火气，人均 50 兄弟撸串首选",
+    "reviews": [
+      {
+        "text": "兄弟几个聚会就来这吃。便宜量大，喝着啤酒撸串聊到深夜。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-15",
+        "helpful_count": 42
+      },
+      {
+        "text": "夜宵宝藏。下班路过经常来，老板娘记得每个老顾客的口味。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "夜宵"
+        ],
+        "visited_at": "2026-04-30",
+        "helpful_count": 18
+      }
+    ],
+    "typical_dining_min": 75
+  },
+  {
+    "id": "R047",
+    "name": "兰州牛肉面 · 老味道",
+    "cuisine": "面食",
+    "location": {
+      "name": "学院路",
+      "lat": 30.27,
+      "lng": 120.135
+    },
+    "distance_km": 3.2,
+    "opening_hours": "07:00-22:00",
+    "avg_price": 35,
+    "rating": 4.6,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "11:30",
+        "available": true,
+        "queue_minutes": 5
+      },
+      {
+        "time": "12:00",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 5
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 0
+      }
+    ],
+    "tags": [
+      "快捷",
+      "实惠",
+      "面食"
+    ],
+    "suitable_for": [
+      "同学重聚",
+      "独处放空",
+      "朋友热闹"
+    ],
+    "signature_dishes": [
+      "招牌牛肉面",
+      "牛肉小菜",
+      "卤蛋"
+    ],
+    "recommendation_reason": "校门口经典牛肉面，学生党高频选择",
+    "reviews": [
+      {
+        "text": "来杭州读书四年，每周必吃一次。老板手工拉面有筋道，汤头香。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "实惠"
+        ],
+        "visited_at": "2026-05-10",
+        "helpful_count": 33
+      },
+      {
+        "text": "和室友打卡很多次，人均 30 多吃饱，性价比顶。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "快捷"
+        ],
+        "visited_at": "2026-04-18",
+        "helpful_count": 21
+      }
+    ],
+    "typical_dining_min": 30
+  },
+  {
+    "id": "R048",
+    "name": "蜀香串串 · 麻辣自助",
+    "cuisine": "川菜",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.246,
+      "lng": 120.169
+    },
+    "distance_km": 4.3,
+    "opening_hours": "11:00-23:00",
+    "avg_price": 55,
+    "rating": 4.5,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 20
+      },
+      {
+        "time": "18:30",
+        "available": true,
+        "queue_minutes": 25
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "20:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "麻辣",
+      "热闹",
+      "实惠",
+      "社交"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "signature_dishes": [
+      "牛肉串串",
+      "毛肚串串",
+      "鸭肠串串"
+    ],
+    "recommendation_reason": "麻辣串串自助，朋友局气氛爆棚",
+    "reviews": [
+      {
+        "text": "和大学同学聚餐去的。一桌人吃 300 多，味道辣得过瘾。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "麻辣"
+        ],
+        "visited_at": "2026-05-08",
+        "helpful_count": 28
+      },
+      {
+        "text": "同事下班一起来。人均 50 多管够，毛肚和牛肉是必点。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "实惠"
+        ],
+        "visited_at": "2026-04-22",
+        "helpful_count": 15
+      }
+    ],
+    "typical_dining_min": 75
+  },
+  {
+    "id": "R049",
+    "name": "学生小火锅 · 一人一锅",
+    "cuisine": "火锅",
+    "location": {
+      "name": "学院路",
+      "lat": 30.272,
+      "lng": 120.138
+    },
+    "distance_km": 3.5,
+    "opening_hours": "11:00-22:00",
+    "avg_price": 65,
+    "rating": 4.4,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 20
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "实惠",
+      "学生友好",
+      "火锅"
+    ],
+    "suitable_for": [
+      "同学重聚",
+      "朋友热闹",
+      "独处放空"
+    ],
+    "signature_dishes": [
+      "招牌肥牛锅",
+      "鸳鸯小锅",
+      "酸菜白肉"
+    ],
+    "recommendation_reason": "一人一锅自助小火锅，学生党高频去处",
+    "reviews": [
+      {
+        "text": "学校旁边吃过最划算的火锅。一个人一份，不用迁就别人口味。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "实惠"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 24
+      },
+      {
+        "text": "和室友 4 个人一起来过。锅底浓郁，菜品新鲜，一人一锅各吃各的。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "学生友好"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 16
+      }
+    ],
+    "typical_dining_min": 70
+  },
+  {
+    "id": "R050",
+    "name": "东京拉面 · 札幌味噌",
+    "cuisine": "日料",
+    "location": {
+      "name": "嘉里中心",
+      "lat": 30.269,
+      "lng": 120.149
+    },
+    "distance_km": 4.0,
+    "opening_hours": "11:30-22:00",
+    "avg_price": 65,
+    "rating": 4.7,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "11:30",
+        "available": true,
+        "queue_minutes": 5
+      },
+      {
+        "time": "12:00",
+        "available": true,
+        "queue_minutes": 20
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 5
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 10
+      }
+    ],
+    "tags": [
+      "日料",
+      "拉面",
+      "实惠"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚",
+      "独处放空"
+    ],
+    "signature_dishes": [
+      "札幌味噌拉面",
+      "豚骨叉烧拉面",
+      "煎饺"
+    ],
+    "recommendation_reason": "正宗札幌味噌，单人来 60 多吃饱",
+    "reviews": [
+      {
+        "text": "中午下班一个人吃过几次。汤头浓郁，叉烧入口即化。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "日料"
+        ],
+        "visited_at": "2026-05-11",
+        "helpful_count": 19
+      },
+      {
+        "text": "和朋友约了几次工作日午餐。出餐快，价格在合理区间内。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拉面"
+        ],
+        "visited_at": "2026-04-15",
+        "helpful_count": 11
+      }
+    ],
+    "typical_dining_min": 35
+  },
+  {
+    "id": "R051",
+    "name": "首尔鸡先生 · 韩式炸鸡啤酒",
+    "cuisine": "西餐",
+    "location": {
+      "name": "湖滨银泰",
+      "lat": 30.254,
+      "lng": 120.163
+    },
+    "distance_km": 4.6,
+    "opening_hours": "16:00-02:00",
+    "avg_price": 75,
+    "rating": 4.5,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "19:00",
+        "available": true,
+        "queue_minutes": 25
+      },
+      {
+        "time": "20:00",
+        "available": true,
+        "queue_minutes": 30
+      },
+      {
+        "time": "21:00",
+        "available": true,
+        "queue_minutes": 15
+      },
+      {
+        "time": "22:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "热闹",
+      "夜宵",
+      "啤酒",
+      "炸鸡"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚",
+      "情侣亲密"
+    ],
+    "signature_dishes": [
+      "首尔半半炸鸡",
+      "蜂蜜芥末炸鸡",
+      "韩式炸年糕"
+    ],
+    "recommendation_reason": "韩式炸鸡 + 啤酒，朋友夜宵神搭配",
+    "reviews": [
+      {
+        "text": "周末和朋友一起来，炸鸡香脆，啤酒爽。气氛热烈，K 歌前必吃。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-14",
+        "helpful_count": 35
+      },
+      {
+        "text": "下班和同事来吃过几次。半半口味很会选，喝啤酒聊天合适。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "夜宵"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 14
+      }
+    ],
+    "typical_dining_min": 80
   }
 ]

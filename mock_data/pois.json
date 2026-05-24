@@ -2891,5 +2891,183 @@
         "helpful_count": 22
       }
     ]
+  },
+  {
+    "id": "P057",
+    "name": "8 号台球俱乐部 · 私房包房",
+    "type": "台球厅",
+    "location": {
+      "name": "湖滨银泰",
+      "lat": 30.255,
+      "lng": 120.164
+    },
+    "distance_km": 4.5,
+    "opening_hours": "13:00-02:00",
+    "rating": 4.5,
+    "price_range": [
+      60,
+      120
+    ],
+    "tags": [
+      "夜场",
+      "热闹",
+      "社交",
+      "可饮酒"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 30,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周五晚和兄弟打几局台球。包房有沙发，喝啤酒聊天很爽。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-09",
+        "helpful_count": 26
+      },
+      {
+        "text": "最近常和同事来打。包房足够大、桌面平整、灯光也舒服。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "社交"
+        ],
+        "visited_at": "2026-04-18",
+        "helpful_count": 12
+      }
+    ]
+  },
+  {
+    "id": "P058",
+    "name": "枪林弹雨 · 真人 CS 馆",
+    "type": "真人 CS",
+    "location": {
+      "name": "城西银泰",
+      "lat": 30.292,
+      "lng": 120.075
+    },
+    "distance_km": 5.4,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "price_range": [
+      80,
+      150
+    ],
+    "tags": [
+      "运动",
+      "热闹",
+      "团队",
+      "户外"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 22
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 0,
+      "kid_7_12": 90,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "8 个老同学组团来玩。装备真，地形丰富，玩了 2 小时累瘫但很爽。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "团队"
+        ],
+        "visited_at": "2026-04-26",
+        "helpful_count": 31
+      },
+      {
+        "text": "公司团建去过。组队对抗有意思，比窝在 KTV 强多了。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "运动"
+        ],
+        "visited_at": "2026-03-30",
+        "helpful_count": 18
+      }
+    ]
+  },
+  {
+    "id": "P059",
+    "name": "复古机厅 · 80s 街机",
+    "type": "复古街机",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.247,
+      "lng": 120.168
+    },
+    "distance_km": 4.2,
+    "opening_hours": "12:00-23:00",
+    "rating": 4.7,
+    "price_range": [
+      30,
+      60
+    ],
+    "tags": [
+      "怀旧",
+      "拍照友好",
+      "室内",
+      "灯光氛围"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 30,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "复古街机一晚上玩了三十多枚币。和女朋友双人通关泡泡龙超有 feel。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "怀旧"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 24
+      },
+      {
+        "text": "和闺蜜约着拍照打卡。霓虹灯墙拍出来很出片，街机本身很多童年记忆。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-20",
+        "helpful_count": 17
+      }
+    ]
   }
 ]

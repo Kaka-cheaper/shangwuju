@@ -1685,5 +1685,334 @@
     "walking_minutes": 14,
     "taxi_minutes": 6,
     "bus_minutes": 11
+  },
+  {
+    "from_location": "home",
+    "to_location": "R046",
+    "walking_minutes": 35,
+    "taxi_minutes": 9,
+    "bus_minutes": 24
+  },
+  {
+    "from_location": "R046",
+    "to_location": "home",
+    "walking_minutes": 35,
+    "taxi_minutes": 9,
+    "bus_minutes": 24
+  },
+  {
+    "from_location": "home",
+    "to_location": "R047",
+    "walking_minutes": 22,
+    "taxi_minutes": 6,
+    "bus_minutes": 16
+  },
+  {
+    "from_location": "R047",
+    "to_location": "home",
+    "walking_minutes": 22,
+    "taxi_minutes": 6,
+    "bus_minutes": 16
+  },
+  {
+    "from_location": "home",
+    "to_location": "R048",
+    "walking_minutes": 28,
+    "taxi_minutes": 7,
+    "bus_minutes": 19
+  },
+  {
+    "from_location": "R048",
+    "to_location": "home",
+    "walking_minutes": 28,
+    "taxi_minutes": 7,
+    "bus_minutes": 19
+  },
+  {
+    "from_location": "home",
+    "to_location": "R049",
+    "walking_minutes": 24,
+    "taxi_minutes": 6,
+    "bus_minutes": 17
+  },
+  {
+    "from_location": "R049",
+    "to_location": "home",
+    "walking_minutes": 24,
+    "taxi_minutes": 6,
+    "bus_minutes": 17
+  },
+  {
+    "from_location": "home",
+    "to_location": "R050",
+    "walking_minutes": 26,
+    "taxi_minutes": 7,
+    "bus_minutes": 18
+  },
+  {
+    "from_location": "R050",
+    "to_location": "home",
+    "walking_minutes": 26,
+    "taxi_minutes": 7,
+    "bus_minutes": 18
+  },
+  {
+    "from_location": "home",
+    "to_location": "R051",
+    "walking_minutes": 33,
+    "taxi_minutes": 8,
+    "bus_minutes": 23
+  },
+  {
+    "from_location": "R051",
+    "to_location": "home",
+    "walking_minutes": 33,
+    "taxi_minutes": 8,
+    "bus_minutes": 23
+  },
+  {
+    "from_location": "home",
+    "to_location": "P057",
+    "walking_minutes": 32,
+    "taxi_minutes": 8,
+    "bus_minutes": 22
+  },
+  {
+    "from_location": "P057",
+    "to_location": "home",
+    "walking_minutes": 32,
+    "taxi_minutes": 8,
+    "bus_minutes": 22
+  },
+  {
+    "from_location": "home",
+    "to_location": "P058",
+    "walking_minutes": 38,
+    "taxi_minutes": 10,
+    "bus_minutes": 26
+  },
+  {
+    "from_location": "P058",
+    "to_location": "home",
+    "walking_minutes": 38,
+    "taxi_minutes": 10,
+    "bus_minutes": 26
+  },
+  {
+    "from_location": "home",
+    "to_location": "P059",
+    "walking_minutes": 30,
+    "taxi_minutes": 8,
+    "bus_minutes": 21
+  },
+  {
+    "from_location": "P059",
+    "to_location": "home",
+    "walking_minutes": 30,
+    "taxi_minutes": 8,
+    "bus_minutes": 21
+  },
+  {
+    "from_location": "P026",
+    "to_location": "R046",
+    "walking_minutes": 6,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P026",
+    "to_location": "R051",
+    "walking_minutes": 4,
+    "taxi_minutes": 2,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P026",
+    "to_location": "R048",
+    "walking_minutes": 12,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P027",
+    "to_location": "R046",
+    "walking_minutes": 8,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P027",
+    "to_location": "R050",
+    "walking_minutes": 6,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "R046",
+    "walking_minutes": 5,
+    "taxi_minutes": 2,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "R051",
+    "walking_minutes": 4,
+    "taxi_minutes": 2,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "R031",
+    "walking_minutes": 6,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "R048",
+    "walking_minutes": 14,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P058",
+    "to_location": "R049",
+    "walking_minutes": 18,
+    "taxi_minutes": 6,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P058",
+    "to_location": "R050",
+    "walking_minutes": 16,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P058",
+    "to_location": "R047",
+    "walking_minutes": 20,
+    "taxi_minutes": 7,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P059",
+    "to_location": "R048",
+    "walking_minutes": 6,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P059",
+    "to_location": "R046",
+    "walking_minutes": 12,
+    "taxi_minutes": 4,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P059",
+    "to_location": "R051",
+    "walking_minutes": 14,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P024",
+    "to_location": "R046",
+    "walking_minutes": 8,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P024",
+    "to_location": "R051",
+    "walking_minutes": 10,
+    "taxi_minutes": 4,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P025",
+    "to_location": "R048",
+    "walking_minutes": 5,
+    "taxi_minutes": 2,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P025",
+    "to_location": "R049",
+    "walking_minutes": 18,
+    "taxi_minutes": 6,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P013",
+    "to_location": "R046",
+    "walking_minutes": 9,
+    "taxi_minutes": 4,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P013",
+    "to_location": "R051",
+    "walking_minutes": 11,
+    "taxi_minutes": 4,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P014",
+    "to_location": "R047",
+    "walking_minutes": 12,
+    "taxi_minutes": 4,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P014",
+    "to_location": "R049",
+    "walking_minutes": 14,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "P059",
+    "walking_minutes": 8,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P059",
+    "to_location": "P057",
+    "walking_minutes": 8,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P057",
+    "to_location": "P026",
+    "walking_minutes": 6,
+    "taxi_minutes": 3,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "P058",
+    "to_location": "P026",
+    "walking_minutes": 28,
+    "taxi_minutes": 8,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "R047",
+    "to_location": "R046",
+    "walking_minutes": 16,
+    "taxi_minutes": 5,
+    "bus_minutes": 0
+  },
+  {
+    "from_location": "R049",
+    "to_location": "R046",
+    "walking_minutes": 18,
+    "taxi_minutes": 6,
+    "bus_minutes": 0
   }
 ]
