@@ -997,3 +997,18 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. 不要去掉 `output: "standalone"`——它是 FC 部署体积优化（500MB → 80MB），删掉镜像膨胀更糟
   3. dev 模式遇到 EPERM 不要怀疑代码 → 先关另一个 dev 进程 / 重启编辑器 / 杀毒白名单
 - **优先级**：P2（不影响 demo 真跑通；只是开发流程卡顿；team 成员第二次踩会浪费 30+ 分钟排查）
+
+
+### [P2] 2026-05-24 backend dev 进程未重启 → SSE 截断错误反向暴露 enum 名碎片
+
+- **现象**：浏览器 demo 显示「流出错: graph_execution_failed: MEMORY_PERSISTED」，伴随完整行程卡片正常渲染（itinerary_ready 之前的事件全到，仅末端 narrate / memory_persisted 段挂）。直接调 Python `run_graph_stream` 调试脚本则 0 错误（31 事件全推送）。
+- **根因**：Python dev server **不像 Next.js 有 hot-reload**——uvicorn 启动后整个 agent / schemas 模块全部缓存进内存，**磁盘改代码不重启不生效**。spec C 收尾 commit 同时改了 schemas/sse.py（加 MEMORY_PERSISTED enum）+ sse_adapter.py（推送）+ narrate.py（返 memory_status diff），用户浏览器测试时 backend 进程是 commit 前启动的旧版本，graph 内部不识别新 enum 导致 KeyError，被 sse_adapter 的 `except Exception as e: ... str(e)[:200]` 截断成无意义碎片 "MEMORY_PERSISTED"。
+- **解法**：
+  1. 关 backend dev server → 重启 → 浏览器刷新
+  2. 升级 sse_adapter 的 except 块：log.exception 完整 traceback + SSE detail 写「ErrorType: message @ traceback 末帧」（不再只截 200 字符无上下文）
+- **相关文件**：`backend/agent/graph/sse_adapter.py:run_graph_stream` except 块
+- **防再犯**：
+  1. **改任何 schemas / agent / graph 模块后，第一时间重启 backend dev server**（不要只刷新前端）
+  2. 写「截断错误信息」时永远附「错误类型 + 末帧函数+行号」，避免 detail 只剩枚举名 / key 名碎片
+  3. uvicorn `--reload` 参数虽能 hot-reload，但 LangGraph 编译图缓存 / 模块级单例（如 ConversationRepository）reload 后状态会漂——demo 期建议手动重启
+- **优先级**：P2（不影响 demo 真跑通；只是开发调试时的诡异表象，不知者会怀疑代码逻辑问题浪费 30+ 分钟排查）

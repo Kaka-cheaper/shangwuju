@@ -6896,3 +6896,35 @@ backend/agent/
 - 不破 FC 部署的 standalone 镜像优化路径
 
 **用户反馈**：（待用户验证 pnpm dev 能起后追加）
+
+
+## 问题：浏览器 demo 显示「流出错: graph_execution_failed: MEMORY_PERSISTED」
+
+**用户原问**：（贴出截图，行程卡片正常显示但末端有「流出错」红条，detail 写 "MEMORY_PERSISTED"）
+
+**解决方案**：
+
+1. **诊断**：
+   - 写独立 Python 调试脚本（`scripts/debug_sse_memory.py` 临时）直接调 `run_graph_stream`，31 个事件全部正常推送（含 seq=29 memory_persisted + seq=30 done），代码层 0 错误
+   - 看 tasklist：5 个 python 进程在跑，最大的 PID 28212（115MB）是 backend dev server 旧进程
+   - 结论：**backend 进程是 spec C 收尾 commit 之前启动的旧版本**，磁盘代码已更新但内存里还是老的 schemas / agent / graph 模块。Python dev server 不像 Next.js 有 hot-reload，uvicorn 启动后模块缓存进内存。
+2. **修复**：
+   - 用户操作：关掉 backend dev server → 重启 → 浏览器刷新
+   - 代码防御：升级 `backend/agent/graph/sse_adapter.py:run_graph_stream` 的 except 块——log.exception 写完整 traceback + SSE detail 改成「ErrorType: message @ traceback 末帧函数+行号」（不再只截 200 字符），下次截断错误能看到真根因
+3. **教训记入 pitfalls**：[P2] 2026-05-24 「backend dev 进程未重启 → SSE 截断错误反向暴露 enum 名碎片」永久条款，含 3 条防再犯（重启纪律 / 错误信息附 traceback / uvicorn --reload 在 LangGraph 编译图场景不可靠）
+4. **清理**：删调试用的 `scripts/debug_sse_memory.py` 临时文件，避免污染仓库 untracked 列表
+
+**修改的代码文件**：
+
+- 修改：`backend/agent/graph/sse_adapter.py`（except 块增强：log.exception + 完整 traceback 末帧附在 SSE detail）
+- 修改：`docs/03-implementation/pitfalls.md`（[P2] 2026-05-24 后端进程重启纪律）
+- 修改：`problem.md`（本条）
+- 删除：`backend/scripts/debug_sse_memory.py`（临时调试脚本）
+
+**应当达成的效果**：
+
+- 用户重启 backend 后浏览器 demo 不再有「流出错」红条；memory_persisted 事件正常推送让 ItineraryCard 显示「✓ 已记住此次「家庭日常」场景偏好」
+- 下次任何 sse_adapter 截断错误都能看到 ErrorType + 末帧定位，而不是孤立的 enum 名碎片
+- pytest 691/691 全过；R10 24/24 100%；前端 4/4 不变
+
+**用户反馈**：（待用户重启 backend 后验证）

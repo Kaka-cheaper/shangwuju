@@ -433,10 +433,29 @@ async def run_graph_stream(
                     final_itinerary = node_diff["itinerary"]
 
     except Exception as e:  # noqa: BLE001
+        # 防御性：把完整 traceback 写日志，避免只看到「detail = 截断后的无意义碎片」
+        # 历史教训：用户截图显示 "graph_execution_failed: MEMORY_PERSISTED" 这种碎片
+        # 难以定位真因（实际是 backend dev 进程未重启 / Python 模块编译缓存）
+        import logging
+        import traceback as _tb
+
+        logging.getLogger(__name__).exception(
+            "graph stream raised: %s: %s", type(e).__name__, str(e)[:200]
+        )
+        # SSE detail 写完整 type + message（不再只截 str(e) —— 会把
+        # MEMORY_PERSISTED 这种枚举名 / KeyError 的 key 名暴露当成"错误内容"误导）
+        detail = f"{type(e).__name__}: {str(e)[:300]}"
+        # 加 1 行 traceback 摘要（最近 1 帧函数名 + 行号），仍控制在 SSE payload 体积内
+        try:
+            tb_summary = _tb.format_exc(limit=1).splitlines()[-2:]
+            tb_short = " | ".join(s.strip() for s in tb_summary)
+            detail = f"{detail} @ {tb_short[:200]}"
+        except Exception:  # pragma: no cover
+            pass
         yield _ev(
             seq,
             SseEventType.STREAM_ERROR,
-            {"reason": "graph_execution_failed", "detail": str(e)[:200]},
+            {"reason": "graph_execution_failed", "detail": detail[:500]},
         )
         seq += 1
 
