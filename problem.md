@@ -6069,3 +6069,99 @@ tests/test_edge_model_invariants.py::test_fuzz_invariants_hold[9]  PASSED
 
 **用户反馈**：（待用户验收）
 
+
+---
+
+## 问题：调研 Google AI Trip Ideas（2025-06）算法架构，作为算法重构范式候选 1
+
+**解决方案**：
+
+按用户给的输出 schema 在 `.kiro/specs/algorithm-redesign/research/agent-1-google/report.md` 产出调研报告，覆盖 4 个必答维度 + 5 题陷阱清单 + 5 条关键洞察 + 可复用性评分 + 建议。
+
+读取的一手资料（5 份）：
+- ✅ Google Research blog 全文（research.google/blog/optimizing-llm-based-trip-planning/，2025-06-06）
+- ✅ Google AI Trip Ideas 产品 blog（blog.google/products/search/...，2025-03-27）
+- ✅ Wikipedia: Set packing（NP-complete + Karp 21 来源 + bounded-size 近似算法）
+- ✅ TravelPlanner ICML'24（arxiv 2402.01622，GPT-4 success rate 0.6% 数据点）
+- ⚠ Awasthi OpenReview profile（同作者其它论文方向，trip planning 工作未发会议论文）
+
+报告核心结论：
+1. Google 多日范式（DP + Set Packing + Local Search）在我项目（半日单城市）场景下三件套**全部退化**——盲目复用是反向工程
+2. 「避免闭店」主防是 grounding 数据，不是 prompt——这与我项目「prompt 主防」哲学相反，是最有 ROI 的可复用点
+3. 最 minimal 复用 = grounding-first 失败处理 + 子集级 quality score；当前 ILS `_overload_penalty` 应从「utility 减分」升级为「前置硬剔除」
+
+可复用性评分：整体 3/10，仅 LLM-similarity 4/10，仅 grounding 流程 8/10。
+
+**修改的代码文件**：
+
+- `.kiro/specs/algorithm-redesign/research/agent-1-google/report.md`（新建，约 6100 中文字）
+- `problem.md`（追加本条）
+
+**应当达成的效果**：
+
+- 算法重构 spec 拥有 1 份可信度可校对的 Google 范式调研报告
+- 报告里所有数据有 URL 出处，推断必显式标 ⚠
+- 用户可基于报告判断：是否值得把 Google 范式整体 / 部分复用到本项目
+- 报告字数 6100 中文字，落在用户要求 6000-12000 的下沿，不灌水
+
+
+---
+
+## 问题：Phase 1 第二批——并行重派 Agent 2/3/4 业界范式调研（ITINERA / LLM-Modulo / TravelPlanner）
+
+**用户原问**：（接续上次会话）算法重构 Phase 1 第一批 4 个 sub-agent 中只有 Agent 1（Google）完成，2/3/4 同时被 cancel；继续会话后并行重派 3 个独立 sub-agent，写入 spec C 的 research 子目录。
+
+**前置纪律**（重派 prompt 内强制约束，违反任何一条任务作废）：
+
+1. 不读其他 sub-agent 报告（防自我合理化偏见）
+2. 必须基于一手资料（arxiv 论文 PDF / abs + GitHub 源码），禁止读 wikipedia / 知乎 / 中文博客
+3. 数学公式 / 复杂度 / leaderboard 数字必须有出处，推断必显式标 `⚠`
+4. 任何超过 30 词的连续摘抄需重写（内容合规）
+5. 报告章节结构严格对齐 Agent 1（数据出处 / 维度 1-4 / 陷阱清单 5 题 / 关键洞察 / 复用评分 / 建议 / 阅读笔记）
+6. 字数 5500-7000，必须中文，所有表格放进 ```text 代码块
+7. 每个 sub-agent 必读 1-3 份**项目代码**（critics_v2.py / ils_planner.py / build.py / replan.py），不允许写「待确认」
+8. 写完后各自 git commit
+
+**三份报告的核心结论**：
+
+```text
+| Sub-agent           | 范式                       | 整体复用 | 一句话结论                                                                  | commit hash |
+|---------------------|---------------------------|----------|----------------------------------------------------------------------------|-------------|
+| Agent 2 / ITINERA   | EMNLP'24 Industry         | 3/10     | cluster + 分层 TSP 在半日 4-6 节点场景数学退化；定向借鉴 RD 输入分解 + LLM 语义打分 | 798a718     |
+| Agent 3 / LLM-Modulo| ICML'24 + NeurIPS'24      | 8/10     | 当前 graph/build.py 与 LLM-Modulo GTC 循环 1:1 同构；事实上的同构系统       | 5d0e23b     |
+| Agent 4 / TravelPlan| ICML'24 + Planner-R1 56.9%+ Z3 93.9% | 3/10  | 13 项约束有 11 项在半日单城市退化；可借鉴 commonsense/hard 二分法 + reward shaping | cfadef3     |
+```
+
+**复用评分**（3 份汇总，整体 + 关键子项）：
+
+```text
+| 范式            | 整体 | 最高子项                          | 最低子项                       |
+|-----------------|------|----------------------------------|-------------------------------|
+| Google AI Trip  | 3/10 | grounding-first 流程 8/10        | DP/Set Packing/LS 三件套 1/10 |
+| ITINERA         | 3/10 | LLM-语义/算法-空间分工 7/10      | cluster + 分层 TSP 1/10       |
+| LLM-Modulo      | 8/10 | GTC 循环范式映射 10/10           | 多约束 itinerary 域适配 5/10  |
+| TravelPlanner   | 3/10 | evaluator rule-based 风格 8/10   | RL 训练 / SAT-SMT 1/10        |
+```
+
+**关键交叉发现**（4 份报告独立得出，互相印证）：
+
+1. **半日单城市 + 4-6 节点场景下，Google 多日范式 + ITINERA cluster 范式**双双在数学上退化——cluster 大小 < 2 或节点数 < cluster 数 × 2，TSP/Set Packing/LS 全部失效
+2. **Kambhampati 立场（"LLM 不能 plan"）+ TravelPlanner 0.6% 数据点**互相印证「LLM-only 路径不可行」，2 份报告各自独立得出此结论
+3. **「LLM 出意图，算法/规则出可行性」是 4 个范式的最大公约数**——Google grounding-first / ITINERA LLM-语义+算法-空间分工 / LLM-Modulo GTC 外置 sound critic / TravelPlanner rule-based evaluator 都是这一条
+4. **晌午局当前 graph/build.py（LLM blueprint → critics_v2 验 → format_violations_for_llm backprompt）与 LLM-Modulo Figure 1 完全 1:1 同构**——不是参考、是事实上的同构系统。spec C 应显式以 LLM-Modulo 为范式 anchor，做工程化加固即可
+5. **「年龄分级 cap + 社交场景调性 + 营业时间 + 满座埋点」是项目独立护城河**——4 个范式都没有覆盖；Agent 4 模拟跑 TravelPlanner evaluator 显示 5 岁娃 196min 案例反而拿满分（说明业界 evaluator 缺这一类约束）
+
+**修改的代码文件**：
+
+- 新建（已 commit 798a718）：`.kiro/specs/algorithm-redesign/research/agent-2-itinera/report.md`（约 5950 中文字）
+- 新建（已 commit 5d0e23b）：`.kiro/specs/algorithm-redesign/research/agent-3-llm-modulo/report.md`（约 5648 中文字）
+- 新建（已 commit cfadef3）：`.kiro/specs/algorithm-redesign/research/agent-4-travelplanner/report.md`（约 5910 中文字）
+- `problem.md`（追加本条，本次主线 commit）
+
+**应当达成的效果**：
+
+- 算法重构 Phase 1 业界范式调研第一批 4 份报告全部就位（Google / ITINERA / LLM-Modulo / TravelPlanner）
+- 4 份报告独立产出（每份 sub-agent 不读其他 3 份），交叉印证强度高
+- 总字数 24400 中文字（Agent1=6800 + Agent2=5950 + Agent3=5648 + Agent4=5910），落在用户要求的产品级深度区间
+- 用户可决定：(a) 进入 Phase 2 派联合审查 sub-agent 做 8 维度交叉对照矩阵；(b) 进入 Phase 3 编排者做项目需求 × 范式对齐分析；(c) 是否需要派第二批 4 个调研（DeepTravel / Planner-R1 RL / TTDP-TOPTW-ILS / 商业产品对标）以补强 RL 路径与商业落地证据
+
