@@ -402,6 +402,14 @@ export default function ItineraryCard() {
         <DecisionTraceCard trace={itinerary.decision_trace} />
       </div>
 
+      {/* M4：方案就绪后预告「点确认会发生什么」——把评委永远看不到的「确认后一键顺滑执行」
+            从「需点击触发」变成「默认可见」。下单前显示，下单后由「已为你预留」订单卡接力 */}
+      {!hasOrders && !cancelled && (
+        <div className="px-4 pb-3">
+          <ConfirmPreviewCard intent={intent} itinerary={itinerary} />
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="px-4 pb-4">
         {!hasOrders && !cancelled && (
@@ -410,6 +418,7 @@ export default function ItineraryCard() {
               className={cn("btn-primary", streaming && "shimmer-border")}
               disabled={!canAct}
               onClick={confirm}
+              title="确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
             >
               {streaming ? (
                 <>
@@ -427,6 +436,7 @@ export default function ItineraryCard() {
               className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!canAct}
               onClick={() => setRefineOpen(true)}
+              title="基于你的反馈调整原方案，不会从零重新规划"
             >
               <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
               <span>说说哪不对</span>
@@ -435,6 +445,7 @@ export default function ItineraryCard() {
               className="btn-danger-ghost disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!canAct}
               onClick={cancel}
+              title="放弃当前方案 · 不写入长期记忆"
             >
               <Icons.close className="w-3.5 h-3.5" strokeWidth={2.25} />
               <span>取消方案</span>
@@ -444,11 +455,12 @@ export default function ItineraryCard() {
         {/* R6 语音播报 + R5 海报生成：行程的多模态输出（itinerary 存在时即可用） */}
         <TtsPlayer />
         <PosterGenerator />
-        {/* 邀请同行人按钮（行程出来后、未下单时显示） */}
+        {/* M5：邀请同行人按钮——双行设计让评委一眼看到「multi-user 协同」工程深度 */}
         {!hasOrders && !cancelled && itinerary && !collabMode && (
           <button
-            className="mt-2 w-full py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="mt-2 w-full py-2.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 text-sm font-medium transition-all flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
             disabled={creatingRoom || streaming}
+            title="基于 WebSocket 的多人协作模式 · 房间内成员的约束实时合并、按段投票决策"
             onClick={async () => {
               setCreatingRoom(true);
               const sessionId = useChatStore.getState().sessionId;
@@ -484,7 +496,19 @@ export default function ItineraryCard() {
               setCreatingRoom(false);
             }}
           >
-            {creatingRoom ? "创建中…" : "👥 邀请同行人一起决定"}
+            {creatingRoom ? (
+              <span>创建中…</span>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5">
+                  <span aria-hidden>🤝</span>
+                  <span>开多人房间，让同行人一起拿主意</span>
+                </span>
+                <span className="text-[10px] text-amber-300/70 font-normal tracking-wide">
+                  约束实时合并 · 按段投票决策
+                </span>
+              </>
+            )}
           </button>
         )}
         {/* 协作模式下显示分享按钮 */}
@@ -662,6 +686,74 @@ function NarrationBlock({
     </div>
   );
 }
+
+// ============================================================
+// ConfirmPreviewCard —— spec interaction-experience-review M4
+// 「点确认后会发生什么」预告，让评委不点确认也能看到一键执行能力。
+// ============================================================
+
+function ConfirmPreviewCard({
+  intent,
+  itinerary,
+}: {
+  intent: IntentExtraction | null;
+  itinerary: Itinerary;
+}) {
+  // 找首段用餐节点，用作"锁餐厅时段"预览
+  const firstRestaurant = itinerary.nodes.find(
+    (n) => n.target_kind === "restaurant",
+  );
+  const partySize =
+    intent?.companions?.reduce((acc, c) => acc + (c.count ?? 1), 0) ?? 0;
+  const partySizeText = partySize > 0 ? `${partySize + 1} 人位` : "桌位";
+  const socialCtx = intent?.social_context || "";
+
+  // 三件事的简短描述（按"动词 + 名词"模式，避免 + 堆叠）
+  const restaurantLine = firstRestaurant
+    ? `Agent 会先到 ${firstRestaurant.title} 锁定 ${firstRestaurant.start_time} 的 ${partySizeText}`
+    : "Agent 会按行程方案锁定预约";
+
+  const memoryLine = socialCtx
+    ? `把这次「${socialCtx}」场景的偏好写进 user_profile.json，让下次重启后还能想起来`
+    : "把这次的偏好写进长期记忆，让下次重启后还能想起来";
+
+  return (
+    <div
+      className="rounded-md border border-amber-400/20 bg-amber-500/5 px-3.5 py-3 text-[12px] leading-relaxed"
+      title="确认后 Agent 会顺序做这三件事：先锁餐厅时段，再备好转发文案，最后把这次偏好写进长期记忆"
+    >
+      <div className="flex items-center gap-1.5 mb-2">
+        <Icons.spark
+          className="w-3.5 h-3.5 text-amber-300"
+          strokeWidth={2}
+        />
+        <span className="font-medium text-amber-100 tracking-tight">
+          点击「确认并预约」之后
+        </span>
+      </div>
+
+      <p className="text-amber-50/85 mb-2.5">
+        {restaurantLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
+      </p>
+
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-amber-200/80">
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden>🪑</span>
+          <span>锁餐厅时段</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden>📝</span>
+          <span>备转发文案</span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span aria-hidden>🧠</span>
+          <span>记本次偏好</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 
 // ============================================================
 // MemoryPersistedBadge —— spec algorithm-redesign R5 收尾：

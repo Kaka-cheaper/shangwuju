@@ -86,6 +86,12 @@ class AgentState(TypedDict, total=False):
     session_id: str
     scenario_id: Optional[str]
 
+    # ---- 双范式切换（spec interaction-experience-review）----
+    # "rule" 走纯规则路径（不调 LLM，毫秒级出方案，断网也能跑）
+    # "llm" 走 LLM-First Planner（默认；让大模型自己拿主意）
+    # None  默认行为（保留向后兼容；当前等同 "llm"）
+    planner_mode: Optional[Literal["rule", "llm"]]
+
     # ---- 跨 turn 消息历史（Pydantic AI / LangGraph 标准） ----
     messages: Annotated[list[BaseMessage], add_messages]
 
@@ -157,6 +163,7 @@ def make_initial_state(
     user_id: str = "demo_user",
     session_id: str = "sess_default",
     scenario_id: Optional[str] = None,
+    planner_mode: Optional[str] = None,
 ) -> AgentState:
     """构造干净的 AgentState（list 字段都给空数组，避免 None 报错）。"""
     return AgentState(
@@ -164,6 +171,7 @@ def make_initial_state(
         user_id=user_id,
         session_id=session_id,
         scenario_id=scenario_id,
+        planner_mode=planner_mode if planner_mode in ("rule", "llm") else None,
         messages=[],
         pois=[],
         restaurants=[],

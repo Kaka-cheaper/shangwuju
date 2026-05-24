@@ -7422,3 +7422,107 @@ memory_writer.py:122 自身的判定逻辑是对的（`success = bool(user_decis
 - 前端 verify:all 4/4 通过；不动后端 / SSE / store
 
 用户反馈：（待用户重启前端实测后追加）
+
+
+---
+
+问题：规则模式下还是会出现流断裂问题，规则模式实际上是不是不应该调用 LLM？规则模式应该兜底 8 个预定义场景作为兜底，还是更灵活的场景？
+
+解决方案：
+
+按 systematic-debugging Phase 1 调查根因。
+
+**根因诊断**：
+
+读 `backend/main.py:_use_real_planner` + `backend/agent/graph/sse_adapter.py:run_graph_stream` + `backend/agent/graph/nodes/planner.py:planner_node`，发现「规则模式」是营销话术——前端 PlannerModeBadge 切换的 mode 值只透传到 HTTP 响应头 `X-Planner-Mode`，没传到 LangGraph state，**planner_node 从来没读 mode 决策**，只读 PLANNER_LLM_STRATEGY 决定走 llm_first / hybrid / function_calling。
+
+具体表现：
+- PLANNER_MODE=rule 切换 → 顶栏 chip 红 → 但 LangGraph 还是 intent_node（调 LLM）+ planner_node（调 LLM 出 weights / blueprint）+ assemble + critic + narrate（调 LLM）
+- 慢路径（preference_scorer LLM 卡死 / blueprint LLM 重试）依然会走 → 用户看到的 30s+ 流断裂在「规则模式」下也会复现
+- 用户的怀疑「规则模式应该是纯算法路径」精准命中
+
+设计应当：意图理解保留 LLM（NLU 任务规则做不好），规划决策走纯规则路径（plan_itinerary 不调 LLM；50ms 级出方案）。
+
+**修复方案**（A+C 组合，不动 graph/build.py 拓扑，路径 B）：
+
+1. `backend/agent/graph/state.py:AgentState` 加 `planner_mode: Optional[Literal["rule", "llm"]]` 字段；`make_initial_state` 加 planner_mode 参数（默认 None 向后兼容；越界值 fallback None）
+
+2. `backend/agent/graph/sse_adapter.py:run_graph_stream` 加 planner_mode 参数透传到 initial state
+
+3. `backend/main.py` LangGraph 路径调 run_graph_stream 时透传 mode（与现有 `resolve_planner_mode(header, env)` 解析的 mode 一致）
+
+4. `backend/agent/graph/nodes/planner.py:planner_node` 加 mode 分发：
+   - mode="rule" → 调 `_planner_node_rule`（直接调 plan_itinerary 出 itinerary，blueprint=None）
+   - mode="llm" / None（默认）→ 现行 LLM-First 路径不变（向后兼容）
+   - 失败 fallback：plan_itinerary 失败时返回 itinerary=None，由 replan_router 决定 fallback
+
+5. `backend/agent/graph/nodes/assemble.py:assemble_node` 加 noop 短路：state.itinerary 已存在 + blueprint=None → 返空 dict 不再二次拼装
+
+6. `frontend/components/PlannerModeBadge.tsx` tooltip 文案改写——评委导向 + 不点名具体 LLM 品牌：
+   - rule: "不调用大模型的纯算法路径，毫秒级出方案，断网也能跑（模式可随时切换 · 大模型不可用时自动回到规则路径）"
+   - llm: "让大模型自己拿主意，看它怎么权衡你的多个偏好（模式可随时切换 · 大模型不可用时自动回到规则路径）"
+
+7. ItineraryCard 三按钮 / ConfirmPreviewCard tooltip 移除工程内部 keyword（reserve_restaurant Tool / spec 0.6 R3 / memory_writer 副作用 等）：
+   - 「确认并预约」: "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
+   - 「说说哪不对」: "基于你的反馈调整原方案，不会从零重新规划"
+   - 「取消方案」: "放弃当前方案 · 不写入长期记忆"
+   - ConfirmPreviewCard tooltip: "确认后 Agent 会顺序做这三件事：先锁餐厅时段，再备好转发文案，最后把这次偏好写进长期记忆"
+
+**测试基线**：
+
+- 新增 `backend/tests/test_planner_mode_dispatch.py` 7 项测试：
+  - make_initial_state accepts rule / llm / 越界值 fallback None / 默认 None 4 项
+  - planner_node rule 模式直接产 itinerary blueprint=None
+  - planner_node rule 模式 mock 验证不调 get_llm_client（核心承诺：不调用大模型）
+  - assemble_node noop when itinerary exists and no blueprint
+- pytest 全套：698 → 705 passed + 1 skipped + 0 fail
+- 前端 verify:all：lint / typecheck / vitest / build 4/4 通过
+
+**回答用户的两个问题**：
+
+Q1：「规则模式实际上是不是不应该调用 LLM」
+- 答：**规划阶段不应该调 LLM，意图理解阶段还是要调**（合理工程决策）
+- 「意图理解」是 NLU 任务，规则化做不好（写 if "下午"/if "孩子" 太脆弱）
+- 「规划决策」是组合搜索，规则化能做好（有 8 工具 + tag 词典 + 5 级降级）
+- rule 模式实际表现：intent_node（LLM 1-2s）→ planner_node（无 LLM 50ms）→ assemble noop → critic（无 LLM）→ narrate（可选 LLM 文案润色）→ done，**总耗时 ~2-3s，无慢路径**
+
+Q2：「规则模式应该兜底 8 个预定义场景作为兜底，还是更灵活的场景？」
+- 答：**支持任意场景**（更灵活）
+- 8 场景 fixture 在 _stub_stream（fallback 兜底）里实现，那是「LLM + rule 全失败时的最后防线」
+- rule_planner.plan_itinerary 是真规则化 ReAct，对**任意自然语言输入**都能跑：意图 → search_pois → search_restaurants → check_availability → 5 级降级 → 拼装
+- 评委即兴扔「下午想看猫」也能跑通——约束通过 search 工具的 tag 词典 + 搜索 API 体现，与 LLM 模式无差别只是少了语义打分
+
+修改的代码文件：
+
+新建：
+- `backend/tests/test_planner_mode_dispatch.py`（7 项 mode 分发集成测试）
+- `.kiro/specs/interaction-experience-review/`（上一轮报告目录已存在）
+
+修改：
+- `backend/agent/graph/state.py`（AgentState.planner_mode 字段 + make_initial_state 参数）
+- `backend/agent/graph/sse_adapter.py:run_graph_stream`（加 planner_mode 参数透传到 initial state）
+- `backend/main.py`（LangGraph 路径调 run_graph_stream 时透传 mode）
+- `backend/agent/graph/nodes/planner.py`（加 _planner_node_rule + mode 分发）
+- `backend/agent/graph/nodes/assemble.py`（noop 短路：itinerary 已存在 + blueprint=None）
+- `frontend/components/PlannerModeBadge.tsx`（tooltip 文案改写：去工程 keyword + 不点名 LLM 品牌）
+- `frontend/components/ItineraryCard.tsx`（三按钮 + ConfirmPreviewCard tooltip 文案改写）
+- `frontend/components/ChatDock.tsx`（M2 badge 文案：「Agent 跑了 N 步 · 自我修正 K 次」+ tooltip「LangGraph 主路径 · 11 节点拓扑」，上一轮已落地）
+- `frontend/components/DecisionTraceCard.tsx`（M1 默认展开 + 标题改「决策链路 · 看 Agent 怎么想的」，上一轮已落地）
+- `frontend/components/CollabBar.tsx`（「房间内 N 人，K 个约束待合并」，上一轮 M5 已落地）
+- `problem.md`（本条）
+
+未改：
+- `graph/build.py`（spec B 拓扑冻结）
+- `mock_data/user_profile.json`（demo 副作用，git checkout 回滚）
+
+应当达成的效果：
+
+- **rule 模式真的是「不调用大模型的纯算法路径」**：评委切到「规则」模式 → 50ms 级出方案 → 无流断裂红条
+- **llm 模式保持「让大模型自己拿主意」**：用户看到 LLM 思考过程 → 慢但更准
+- **demo 现场可拔网线演示韧性**：「规则」模式下断网仍能跑（intent_node 用 stub client + planner_node 用 plan_itinerary 全本地）
+- **评委评分项 4「商业可行性」加分**：双范式真落地不是营销
+- **评委评分项 5「异常韧性」加分**：「LLM 不可用时业务不停」真落地
+- **测试基线**：705 passed + 1 skipped + 0 fail（698 + 7 新增）+ 前端 4/4
+- **不破 graph/build.py 拓扑** + **不破 8 工具数** + **不动 schemas/* 业务字段**
+
+用户反馈：（待用户重启 backend 实测后追加）

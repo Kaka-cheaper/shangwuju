@@ -58,10 +58,17 @@ async def run_graph_stream(
     session_id: str,
     user_id: str = "demo_user",
     scenario_id: str | None = None,
+    planner_mode: str | None = None,
 ) -> AsyncIterator[SseEvent]:
     """跑一次 LangGraph，按节点完成顺序推送 SseEvent。
 
     main.py 直接 yield 本生成器的结果即可。
+
+    Args:
+        planner_mode: "rule" / "llm" / None。
+            - "rule" 走纯规则路径（不调 LLM；毫秒级出方案；spec interaction-experience-review）
+            - "llm"  走 LLM-First Planner（默认；让大模型自己拿主意）
+            - None   保持 LangGraph 主架构默认（向后兼容；当前等同 "llm"）
     """
     graph = get_compiled_graph()
     initial = make_initial_state(
@@ -69,6 +76,7 @@ async def run_graph_stream(
         user_id=user_id,
         session_id=session_id,
         scenario_id=scenario_id,
+        planner_mode=planner_mode,
     )
     config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 

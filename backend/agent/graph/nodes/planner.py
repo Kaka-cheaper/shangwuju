@@ -31,6 +31,13 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     pois = state.get("pois") or []
     restaurants = state.get("restaurants") or []
 
+    # spec interaction-experience-review：双范式分发
+    # rule 模式 → 纯规则路径（不调 LLM，毫秒级出方案）
+    # llm 模式（默认）→ 现行 LLM-First 路径
+    mode = state.get("planner_mode")
+    if mode == "rule":
+        return _planner_node_rule(state, intent)
+
     if not pois or not restaurants:
         # 候选为空时让上层 fallback 到 ILS 或 rule（在 replan_router 处理）
         return {
@@ -70,6 +77,43 @@ def planner_node(state: AgentState) -> dict[str, Any]:
         "blueprint": blueprint,
         "plan_attempt": (state.get("plan_attempt") or 0) + 1,
         "alternatives": alternatives,
+    }
+
+
+def _planner_node_rule(state: AgentState, intent) -> dict[str, Any]:
+    """规则模式：直接调 plan_itinerary 出完整 itinerary，跳过 LLM 蓝图 + assemble 阶段。
+
+    设计哲学（spec interaction-experience-review）：
+    - 不调用任何 LLM（无 weights / blueprint / preference_scorer）
+    - 毫秒级出方案，断网也能跑（评委 demo 现场可拔网线演示）
+    - 与 LLM 模式产物完全 schema 等价：Itinerary 含 nodes + hops + schedule
+    - 走完整 critic 流程：critic_node 仍可验证规则路径产出的 itinerary
+
+    失败兜底：plan_itinerary 失败时返回 itinerary=None，由 replan_router 决定 fallback。
+    """
+    from agent.planning.planners.rule_planner import plan_itinerary
+
+    try:
+        result = plan_itinerary(intent)
+    except Exception:  # noqa: BLE001
+        # 规则路径失败极罕见（mock 数据稳定）；兜底防 demo 翻车
+        return {
+            "blueprint": None,
+            "itinerary": None,
+            "plan_attempt": (state.get("plan_attempt") or 0) + 1,
+        }
+
+    if not result.success or result.itinerary is None:
+        return {
+            "blueprint": None,
+            "itinerary": None,
+            "plan_attempt": (state.get("plan_attempt") or 0) + 1,
+        }
+
+    return {
+        "blueprint": None,  # 跳过 assemble；assemble_node 看到 itinerary 已存在会 noop
+        "itinerary": result.itinerary,
+        "plan_attempt": (state.get("plan_attempt") or 0) + 1,
     }
 
 

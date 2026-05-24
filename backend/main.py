@@ -920,6 +920,7 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
                     session_id=req.session_id,
                     user_id=user_id,
                     scenario_id=req.scenario_id,
+                    planner_mode=mode,
                 ):
                     # 收集所有事件到历史（协作房间新成员回放用）
                     events_history.append(ev.model_dump())

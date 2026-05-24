@@ -53,6 +53,12 @@ def assemble_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     blueprint = state.get("blueprint")
 
+    # spec interaction-experience-review：rule 模式由 planner_node 直接出 itinerary，
+    # 此处 noop 跳过；critic_node 仍正常验证。
+    existing = state.get("itinerary")
+    if existing is not None and blueprint is None:
+        return {}
+
     if intent is None or blueprint is None:
         return {"itinerary": None}
 

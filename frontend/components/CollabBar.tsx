@@ -47,8 +47,16 @@ export default function CollabBar() {
             </div>
           ))}
         </div>
-        <span className="text-[11px] text-ink-400">
-          {onlineCount} 人在线
+        <span
+          className="text-[11px] text-ink-400"
+          title="实时统计：房间内在线成员数 · 已收集但还没合并到下次重规划的约束条数"
+        >
+          房间内 {onlineCount} 人
+          {constraints.length > 0 && (
+            <span className="ml-1 text-amber-400/80">
+              · {constraints.length} 个约束待合并
+            </span>
+          )}
         </span>
       </div>
 

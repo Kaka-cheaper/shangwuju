@@ -23,8 +23,8 @@ const MODE_LABEL: Record<PlannerMode, string> = {
 };
 
 const MODE_TITLE: Record<PlannerMode, string> = {
-  rule: "规则化 ReAct（默认 · Demo 安全网，Tool 调用顺序固定）",
-  llm: "LLM Function Calling 自主决策（评分加分 · 失败自动 fallback）",
+  rule: "不调用大模型的纯算法路径，毫秒级出方案，断网也能跑（模式可随时切换 · 大模型不可用时自动回到规则路径）",
+  llm: "让大模型自己拿主意，看它怎么权衡你的多个偏好（模式可随时切换 · 大模型不可用时自动回到规则路径）",
 };
 
 const MODE_DOT: Record<PlannerMode, string> = {

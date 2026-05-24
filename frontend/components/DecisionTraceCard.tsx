@@ -60,7 +60,8 @@ const STRATEGY_COLOR: Record<string, string> = {
 };
 
 export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
-  const [open, setOpen] = useState(false);
+  // M1：默认展开（评委 demo 5 分钟内看到「LLM-Modulo critic 三层镜像」决策链路）
+  const [open, setOpen] = useState(true);
 
   if (isTraceEmpty(trace)) return null;
   // trace 此时一定不是 null
@@ -92,10 +93,12 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           "hover:bg-amber-500/5",
         )}
         aria-expanded={open}
+        title="LLM-Modulo 论文范式 · 三层 critic 镜像"
       >
         <div className="flex items-center gap-2">
           <Icons.spark className="h-4 w-4 text-amber-300" />
-          <span className="text-sm font-semibold text-amber-100">AI 思考</span>
+          <span className="text-sm font-semibold text-amber-100">决策链路</span>
+          <span className="text-[11px] text-amber-300/70">看 Agent 怎么想的</span>
           <span className={cn(
             "rounded-full border px-2 py-0.5 text-xs",
             strategyColor,

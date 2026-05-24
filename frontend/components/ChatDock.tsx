@@ -544,8 +544,8 @@ export default function ChatDock() {
             )}
           </button>
 
-          {/* spec execution-quality-review M3：Tool 调用 + replan 计数 badge */}
-          {/* 让评委在 dock 收起态也看到「Agent 调了 N 个 Tool / 触发了 R 次重规划」 */}
+          {/* spec interaction-experience-review M2：Tool 调用 + replan 计数 badge */}
+          {/* 让评委在 dock 收起态也看到「Agent 跑了 N 步 / 自我修正 K 次」 */}
           {(toolCallsCount > 0 || replansCount > 0) && (
             <div
               className={cn(
@@ -555,8 +555,8 @@ export default function ChatDock() {
               )}
               title={
                 replansCount > 0
-                  ? `Agent 调用了 ${toolCallsCount} 个工具，触发 ${replansCount} 次重规划`
-                  : `Agent 调用了 ${toolCallsCount} 个工具`
+                  ? `LangGraph 主路径 · 11 节点拓扑（Agent 跑了 ${toolCallsCount} 步、自我修正 ${replansCount} 次）`
+                  : `LangGraph 主路径 · 11 节点拓扑（Agent 跑了 ${toolCallsCount} 步）`
               }
             >
               <Icons.spark
@@ -564,13 +564,21 @@ export default function ChatDock() {
                 strokeWidth={2}
               />
               <span>
-                <span className="text-ink-700 font-semibold">{toolCallsCount}</span> 工具
+                Agent 跑了{" "}
+                <span className="text-ink-700 font-semibold">
+                  {toolCallsCount}
+                </span>{" "}
+                步
               </span>
               {replansCount > 0 && (
                 <>
                   <span className="text-ink-400/60">·</span>
                   <span>
-                    <span className="text-amber-400 font-semibold">{replansCount}</span> 重规划
+                    自我修正{" "}
+                    <span className="text-amber-400 font-semibold">
+                      {replansCount}
+                    </span>{" "}
+                    次
                   </span>
                 </>
               )}
