@@ -98,6 +98,39 @@ def _parse_json(text: str | None) -> dict:
     return data
 
 
+# pitfalls 2026-05-24：LLM 经常 hallucinate `pace_profile.total_active_max_min`
+# （正确字段名 `total_active_min`）+ 偶尔赋 None 值。PaceProfile.extra="forbid"
+# 会拒绝陌生字段；NonNegativeInt 会拒绝 None。这里按 schema 白名单做防御性清洗，
+# 不抛错，让 LLM 偶发漂移不至于让整条 demo 链路崩。
+_PACE_PROFILE_ALLOWED_FIELDS = frozenset(
+    {
+        "single_session_max_min",
+        "total_active_min",
+        "break_every_min",
+        "preferred_dwell_min",
+    }
+)
+
+
+def _sanitize_payload(payload: dict) -> dict:
+    """规范 LLM 输出 payload 中已知容易漂移的字段。
+
+    当前仅 sanitize `pace_profile`：
+    - 删除 schema 未定义字段（如 LLM hallucinate 的 `total_active_max_min`）
+    - 删除值为 None 的字段（避免 NonNegativeInt 校验报错）
+    - 整对象只剩空 dict / 全 None → 整体设为 None
+    """
+    pace = payload.get("pace_profile")
+    if isinstance(pace, dict):
+        cleaned = {
+            k: v
+            for k, v in pace.items()
+            if k in _PACE_PROFILE_ALLOWED_FIELDS and v is not None
+        }
+        payload["pace_profile"] = cleaned if cleaned else None
+    return payload
+
+
 def parse_intent(
     user_input: str,
     *,
@@ -134,6 +167,9 @@ def parse_intent(
             if attempt >= max_retries:
                 raise
             continue
+
+        # LLM hallucination 防御性清洗（pace_profile 字段漂移 / None 值）
+        payload = _sanitize_payload(payload)
 
         try:
             intent = IntentExtraction.model_validate(payload)

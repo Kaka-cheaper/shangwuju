@@ -95,9 +95,18 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 
 【pace_profile 隐含规则（spec planning-quality-deep-review R8）】
 当下列条件命中时，必须填写 pace_profile（4 个子字段全 Optional，按需选填；缺字段保持 null）：
+
+字段白名单（**只能输出这 4 个字段，不要发明新字段名如 total_active_max_min**）：
+- single_session_max_min: 单段活动最长分钟数
+- total_active_min: 总活跃时长分钟数（注意：**没有** total_active_max_min 字段，就叫 total_active_min）
+- break_every_min: 每隔多久建议休息一次（分钟）
+- preferred_dwell_min: 单点偏好停留时长（分钟）
+
+触发规则：
 - 任一 companion 的 ages ≤ 6（学龄前儿童）→ pace_profile.single_session_max_min ≤ 90（建议 75-90）
 - 提到老人 / 外公外婆 / 父母 + 腿不好，或 physical_constraints 含 "适合老人"
   → pace_profile.single_session_max_min ≤ 90 且 break_every_min ≤ 60
+- 提到「玩半天 / 一整天」+ 含儿童 → pace_profile.total_active_min ≤ 240
 - social_context = "独处放空"（一个人放空 / 加班想透气 / 想自己待会）
   → pace_profile.preferred_dwell_min ≥ 60（让用户在一个点慢慢待）
 - social_context = "商务接待" 且涉及用餐 → pace_profile.preferred_dwell_min ≥ 90（商务餐至少 90 分钟）

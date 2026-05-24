@@ -11,7 +11,9 @@
  * - 长 token 跨 chunk：buf 累积到下次 read
  * - HTTP 错误：解析后端 detail 字段
  * - 首字节超时（默认 8s）：判断后端 / 代理是否健康
- * - 空闲超时（默认 30s）：长时间无新事件视为断流
+ * - 空闲超时（默认 60s）：长时间无新事件视为断流
+ *   - 60s 是「LLM 调用 30s 超时 + 1 次重试」的工程上界，比 30s 更宽容
+ *   - ILS fallback + LLM preference_scorer 慢响应场景下不会误触发
  * - 中途异常：onError 后调 onDone 让 store 复位 streaming 标志
  */
 
@@ -41,7 +43,13 @@ export interface SseStreamError {
 export interface SseStreamOptions {
   /** 首字节超时（ms）：发出请求后多久内必须收到第一条事件。默认 8000。 */
   firstEventTimeoutMs?: number;
-  /** 空闲超时（ms）：相邻两条事件的最大间隔。默认 30000。 */
+  /** 空闲超时（ms）：相邻两条事件的最大间隔。默认 60000。
+   *
+   * 为什么 60s（不是 30s）：
+   * - LLM 调用默认 30s 超时 + 1 次重试 = 60s 工程上界
+   * - ILS fallback + preference_scorer LLM 慢响应场景下避免误触发
+   * - 评委 demo 现场网络抖动时不轻易跳「数据流长时间无新事件」
+   */
   idleTimeoutMs?: number;
 }
 
@@ -51,7 +59,7 @@ export interface SseRequestOptions {
 }
 
 const DEFAULT_FIRST_EVENT_TIMEOUT = 8000;
-const DEFAULT_IDLE_TIMEOUT = 30000;
+const DEFAULT_IDLE_TIMEOUT = 60000; // 60s：与 backend LLM 超时 + 1 次重试边界对齐
 
 export async function streamSse(
   url: string,

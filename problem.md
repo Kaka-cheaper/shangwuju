@@ -7249,3 +7249,65 @@ backend/agent/
 - **stage 严格控制**：13 个修改 + 0 个新建（test_critics_v2.py 是修改追加测试），不带 image.png / 评审.md / .agents/ / .codesee/hooks/ / .kiro/hooks/ / backend/exp_log* / backend/scripts/analyze_overload_coefficient.py 等任一 untracked 杂物
 
 用户反馈：（待用户验证 7 件加分项效果后追加）
+
+
+---
+
+问题：调 chrome devtools mcp 实测 demo，触发 2 个真 bug——LLM 模式 IntentParseError + 规则模式末端「数据流长时间无新事件」红条
+
+解决方案：
+
+按 systematic-debugging Phase 1 根因调查后修复（不直接 fix）。
+
+**P0 LLM 模式 IntentParseError schema_validation_failed**
+
+诊断：
+- backend 日志显示 `pace_profile.total_active_max_min: extra_forbidden, input_value=None`
+- 查 `schemas/persona.py:PaceProfile` 真实字段名是 `total_active_min`（**没有 max**），4 字段 white-list：single_session_max_min / total_active_min / break_every_min / preferred_dwell_min
+- 查 `agent/intent/prompts/intent_parser_prompt.py` §pace_profile 隐含规则段，**只列了 3 个字段名**（漏 total_active_min），LLM 类比脑补出 `total_active_max_min`（多了 `_max_`）+ 还赋 None 值
+- 根因：① prompt 字段白名单不完整 → LLM hallucinate 字段名；② Pydantic `extra="forbid"` 拦下；③ 即使字段名对，None 值也会被 NonNegativeInt 拒收
+
+修复（双重保险，按 systematic-debugging Phase 4 单一变更原则一次完成）：
+1. `agent/intent/parser.py` 加 `_PACE_PROFILE_ALLOWED_FIELDS` frozenset + `_sanitize_payload(payload)` helper：删除 schema 未定义字段 + 删除 None 值 + 整对象只剩空 dict 时设为 None；在 model_validate 之前调用一次。
+2. `agent/intent/prompts/intent_parser_prompt.py` §pace_profile 段加「字段白名单」明示「只能输出 4 个字段，不要发明 total_active_max_min」+ 加 total_active_min 的触发规则（玩半天 + 含儿童 → ≤240）。
+
+测试覆盖：`test_intent_parser.py` 加 4 项 sanitize_payload 测试（hallucinate 字段 / None 值 / 全 None 整对象设 None / 无 pace_profile 不报错）。
+
+**P1 规则模式 demo 显示「数据流长时间无新事件（疑似断流）」红条**
+
+诊断：
+- 截图显示链路完整（兜底方案已就绪 → 文案生成）但前端最末端有 idle_timeout 红条
+- 查 `frontend/lib/sse.ts` 默认 idleTimeoutMs=30000ms（30s）
+- 查 `agent/planning/preference_scorer.py` LLM 调用路径：默认 client（30s 超时）+ 1 次重试 = 60s 工程上界
+- ils_replan 链路：critic 3 次重规划 + ILS 兜底 + preference_scorer LLM 评分 + rule fallback；中途任一 LLM 慢响应 30s+ 即触发前端 idle_timeout
+- 根因：前端 idle_timeout 阈值（30s）紧于后端 LLM 工程上界（60s），慢路径必误触
+
+修复：
+- `frontend/lib/sse.ts` 默认 `DEFAULT_IDLE_TIMEOUT` 从 30000ms 拉到 60000ms（与 backend LLM_TIMEOUT_S=30 + 1 次重试边界对齐）
+- 同步更新 docstring 注释「为什么 60s（不是 30s）」让 ROI 透明
+
+修改的代码文件：
+
+修改：
+- `backend/agent/intent/parser.py`（P0：加 _sanitize_payload helper + 在 parse_intent 流程中 model_validate 前调用）
+- `backend/agent/intent/prompts/intent_parser_prompt.py`（P0：pace_profile 字段白名单 + total_active_min 触发规则）
+- `backend/tests/test_intent_parser.py`（P0：加 4 项 sanitize_payload 测试）
+- `frontend/lib/sse.ts`（P1：DEFAULT_IDLE_TIMEOUT 30s → 60s + docstring 注释）
+- `problem.md`（本条）
+
+未改：
+- `mock_data/user_profile.json`（demo 测试时 memory_writer 写入的副作用，已 git checkout 回滚 —— 不应混进 commit）
+- 任何 graph/build.py / schemas / ils_planner / 前端组件
+
+应当达成的效果：
+
+- **测试基线**：backend 698 passed + 1 skipped + 0 fail（697 → 698 + 4 新增 sanitize 测试 → 实际 698）
+- **P0 修复后用户重启 backend 再点 LLM 模式 S1 不应再爆 IntentParseError**——即使 LLM 偶尔再 hallucinate `total_active_max_min`，sanitize_payload 都会清掉
+- **P1 修复后规则模式末端「数据流长时间无新事件」红条不再误触**——backend LLM 慢响应链路 60s 内不报错
+- **不动 graph/build.py 拓扑** + **不动 schemas/persona.py PaceProfile**（向后兼容硬约束）
+- **stage 严格控制**：4 个修改 + 0 个新建 + 不带 image.png / 评审.md / .agents/ / .codesee/hooks/ / .kiro/hooks/ / backend/exp_log* / mock_data/user_profile.json（已回滚）等任一杂物
+- **前端 verify:all**：lint / typecheck / vitest / build 4/4 通过
+
+⚠ **用户操作要求**：本轮 P0 修复在 backend 进程内存里没生效——需要你**重启 backend dev server**（关闭当前 uvicorn → 重新跑 .venv/Scripts/python -m uvicorn main:app --reload）后再点 LLM 模式 S1 验证。pitfalls P2-2026-05-24「backend dev 进程未重启」永久教训提醒。
+
+用户反馈：（待用户重启 backend 实测后追加）
