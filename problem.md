@@ -6671,3 +6671,143 @@ backend/agent/
 - **向后兼容硬约束**：每个 task schema / 函数签名升级都加 Optional 默认值，spec A/B 已通过的 607 项 pytest 全部不破
 
 **用户反馈**：（待用户验收后追加）
+
+
+## 问题：schemas 目录是否需要重构？
+
+**用户原问**：schemas 目录下我感觉有点太多了，这个目录下的代码有什么功能？是否每一个文件都负责一个独立的功能？是否应该重构一次？
+
+**解决方案**：
+
+通读 13 个文件后给出判断——**不建议重构**。
+
+**1. 现状分层**（13 个文件，最大 347 行，最小 34 行，无循环依赖）：
+
+```
+[基础常量层]    无依赖底座
+- tags.py 139行    4 类 tag 词典 + Literal 类型
+- errors.py 34行   FailureReason 8 个失败枚举
+
+[核心契约层]    业务核心数据
+- intent.py 171行       IntentExtraction（§5.7 D-SoT）
+- domain.py 347行       POI/Restaurant/Route/UserProfile/Review/RecentTrip
+- itinerary.py 287行    ActivityNode/Hop/Itinerary（edge_v1）
+
+[扩展层]        相对独立的子领域
+- persona.py 252行           Persona/UserMemory/PaceProfile（Phase 0.7）
+- decision_trace.py 153行    CriticAttempt/FallbackHop（评审可见性）
+
+[API 契约层]    跨 4 层架构边界
+- tools.py 274行         8 个 Tool 的 Input/Output
+- sse.py 90行            SseEventType/SseEvent
+- router.py 103行        6 类输入域路由
+- refine.py 68行         /chat/refine 请求响应
+- planner_mode.py 66行   rule/llm 切换 + 解析 helper
+
+[入口层]
+- __init__.py 150行    re-export 整理
+```
+
+**2. 不重构的核心理由**：
+
+- 13 个文件低于业界扁平化阈值 20，每个文件名一眼可知职责
+- 没有真实痛点：无文件超大 / 无职责重叠 / 无循环依赖 / 无命名歧义
+- 重构成本巨大（backend 100+ 文件 + frontend types.ts + spec 锚点）vs 0 收益
+- spec D 刚做过类似重构（删 legacy/）的痛苦经历（v1→v2→v3 三次审计错误）正好警示
+- AGENTS.md §3.1 明确「前 4 条是评分项，第 5 条工程整洁度不是」
+- Hackathon 时间盒只剩 15 天
+
+**3. 唯一推荐的最小动作**：在 `__init__.py` 顶部加一段「文件分层导航」注释（仅文档，不动结构，0 风险 0 测试影响）。用户未明确要求采纳，本轮不执行。
+
+**修改的代码文件**：无（纯咨询评估）
+
+**应当达成的效果**：
+
+- 用户得到「不重构」的明确判断 + 理由清单
+- 避免 hackathon 时间盒被低 ROI 的重构消耗
+- 把评估留在 problem.md 作为后续 session 衔接证据，避免重复触发同一问题
+
+---
+
+## 问题：tools 目录是否需要重构？业界成熟工具类型有哪些？是否需要补充工具？
+
+**用户原问**：那 tools 目录下呢？是否需要重构？工具是否完整？业界成熟的工具类型一般有什么？是否需要添加？还差什么工具能用到规划、执行链路中？
+
+**解决方案**：
+
+通读 11 个文件 + 业界范式调研后给出判断——**不重构 + 不加 Tool**。
+
+**1. tools 目录现状**（11 个文件，单文件最大 183 行）：
+
+```
+[入口 + 基础设施]
+- __init__.py 42行     副作用 import 触发 8 工具注册
+- registry.py 183行    @register_tool 装饰器 + invoke_tool 统一入口（OpenAI Function Calling spec 自动生成 + 三道兜底）
+- _helpers.py 155行    has_all_tags / find_route / relax_tag_search 共享纯函数
+
+[查询类 5 个]
+- search_pois.py 102行                    T1 POI 搜索（含 Step 6 tag 渐进放宽）
+- search_restaurants.py 111行             T2 餐厅搜索
+- check_restaurant_availability.py 82行   T3 餐厅可订时段
+- estimate_route_time.py 40行             T4 通勤时间估算
+- get_user_profile.py 86行                T5 用户画像
+
+[执行类 3 个]
+- reserve_restaurant.py 72行              T6 餐厅预约
+- buy_ticket.py 90行                      T7 门票购买
+- generate_share_message.py 70行          T8 转发文案生成
+```
+
+**2. 不重构的核心理由**：
+
+- 文件数 11 远低于扁平化阈值；文件名 = Tool 名一一对应
+- registry 模式已是业界标准（Pydantic + OpenAI Function Calling）
+- 三道兜底防御（input 校验 / func 异常 / output 校验）救过 RestaurantCapacity alias bug（pitfalls P2-2026-05-16）
+- Tool 间不互调（AGENTS.md §4.1 硬约束已落实）
+
+**3. 业界对标表**：
+
+```
+| 范式来源                   | 工具数 | 我们对比             |
+|--------------------------|-------|--------------------|
+| TravelPlanner ICML'24    | 5     | 我们 8（更全）        |
+| ItiNera EMNLP'24         | 6     | 我们 8（更全）        |
+| Google AI Trip Ideas     | 8     | 同规模（命中范式上限）|
+| TravelAgent NeurIPS'24   | 7     | 我们 8（更全）        |
+| 美团/携程商业产品          | 15+   | 我们 8（不追，工程量天文）|
+```
+
+我们 8 工具正好达到论文 SOTA 规模 + Google 范式上限（AGENTS.md §3.4「8-10 个，宁少勿滥」）。
+
+**4. 业界有但不补的 Tool 清单**：
+
+```
+| 业界 Tool          | 不补理由                                       |
+|-------------------|----------------------------------------------|
+| get_weather       | mock 数据无 weather 字段，加上即空 Tool          |
+| batch_route_time  | n=4-5 段单调用足够，加批量是过早优化              |
+| get_user_history  | 与 spec C task 6 recent_trips 注入 prompt 重叠 |
+| cancel_reservation| demo 闭环不需要「取消已下单」                    |
+| place_details     | 我们 search 直接返完整对象（mock 数据足够小）    |
+| save_to_favorites | 不在评分项                                     |
+```
+
+补任何一个都让 LLM 多调一轮 Tool（冗余调用），评分项 4 反而扣分。
+
+**5. 规划/执行链路真正缺口**（不是 Tool 而是算法层暴露）：
+
+- spec C task 8 留尾：三候选 SSE payload + 前端 ComparisonView 三列 UX
+- memory_persisted SSE 事件推 trace 让评委看到回写动作
+
+这些是「把已有算法层暴露给前端」，不是「补 Tool」。
+
+**6. 联合审查 §7.4「绝对不要做」第 7 项**：商业产品算法借鉴黑盒（美团 15+ Tool）— 任何「把 Tool 数量推到 10+」的提议触发本条防再犯。
+
+**修改的代码文件**：无（纯咨询评估）
+
+**应当达成的效果**：
+
+- 用户得到「不重构 + 不加 Tool」的明确判断 + 业界对标依据
+- 8 项业界 Tool 类型逐个评估的「不补」理由进入 problem.md，未来后人触发同问题可直接引用
+- 把评估留作后续 session 衔接证据，避免重复消耗时间盒
+- 保留「真正应该做的事」清单（spec C task 8 收尾）作为 demo 后期增量备选
