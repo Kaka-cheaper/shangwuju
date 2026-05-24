@@ -100,54 +100,58 @@ def _use_real_planner() -> bool:
 # 演示场景集（来源：docs/01-requirements/演示场景集.md §二）
 # ============================================================
 
+#
+# 顺序约定：新增的两条青年向场景置首位（小团 App 主力用户群），
+# 原家庭/朋友/情侣等顺延；原「带父母散步」与「跨代际纪念日」两条
+# 长辈向场景从演示按钮中下线（mock 数据与回归测试仍保留覆盖）。
 SCENARIOS: list[dict[str, str]] = [
     {
         "id": "S1",
+        "title": "学生党 KTV 局",
+        "input": "周五晚上和室友 4 个人想去 K 歌，预算别太贵",
+        "icon": "🎤",
+    },
+    {
+        "id": "S2",
+        "title": "兄弟撸串夜宵",
+        "input": "今晚和兄弟出来撸串喝点酒，人均 50 左右就行",
+        "icon": "🍢",
+    },
+    {
+        "id": "S3",
         "title": "家庭主线",
         "input": "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",
         "icon": "👨‍👩‍👧",
     },
     {
-        "id": "S2",
+        "id": "S4",
         "title": "朋友 4 人",
         "input": "今天下午想和朋友出去玩几小时，4 个人 2 男 2 女，别离家太远。",
         "icon": "👫",
     },
     {
-        "id": "S3",
+        "id": "S5",
         "title": "情侣看展",
         "input": "周日下午带着女朋友去看个展，顺便找个安静能聊天的地方吃饭。",
         "icon": "💑",
     },
     {
-        "id": "S4",
-        "title": "带父母散步",
-        "input": "周日下午想带外公外婆出去走走，别走太远他们腿不好。",
-        "icon": "👴",
-    },
-    {
-        "id": "S5",
+        "id": "S6",
         "title": "闺蜜下午茶",
         "input": "周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。",
         "icon": "👯",
     },
     {
-        "id": "S6",
+        "id": "S7",
         "title": "商务接待",
         "input": "下午临时被叫去接个外地客户，对方是商务人士，帮我安排下。",
         "icon": "💼",
     },
     {
-        "id": "S7",
+        "id": "S8",
         "title": "独处放空",
         "input": "这周加班加得想吐，下午想一个人安安静静待几个小时再回家。",
         "icon": "🌿",
-    },
-    {
-        "id": "S8",
-        "title": "跨代际纪念日",
-        "input": "周日是我妈生日，全家 6 个人想一起出去吃顿好的，她想吃粤菜。",
-        "icon": "🎂",
     },
 ]
 
@@ -214,7 +218,48 @@ _SESSION_STORE: dict[str, dict[str, Any]] = {}
 app = FastAPI(
     title="晌午局 Backend",
     version=VERSION,
-    description="本地半日出行管家 Agent 后端（FastAPI + SSE）",
+    description=(
+        "本地半日出行管家 Agent 后端（FastAPI + SSE）\n\n"
+        "## 给小团团队的接入说明\n\n"
+        "本服务把「半日规划」能力以 HTTP API 形式开放给小团 App。集成形态：\n\n"
+        "- 用户在小团 App 主页输入一句话 → 调 `POST /chat/turn` 拿规划事件流\n"
+        "- 小团 App 渲染行程卡片 + 候选发现链路（SSE 实时流）\n"
+        "- 用户点「确认预约」→ 调 `POST /chat/confirm` 触发执行类工具\n"
+        "- 用户在卡片里说「换近一点」→ 同一接口 `POST /chat/turn` 自动识别为反馈走重规划\n\n"
+        "完整接入指南：见 `docs/06-business/07-小团能力接入指南.md`。\n\n"
+        "## 部署形态\n\n"
+        "- 本地试跑：`docker compose up`，2 分钟跑起来\n"
+        "- 接入小团：把本服务部署到内网，小团 App 网关转发上述 4 个端点即可"
+    ),
+    openapi_tags=[
+        {
+            "name": "小团接入",
+            "description": (
+                "面向小团 App 集成的核心 4 端点：对话主入口、确认下单、独立反馈、独立重规划。"
+                "小团评委关注的就是这一组——demo 现场可访问 /docs 直接联调。"
+            ),
+        },
+        {
+            "name": "健康探活",
+            "description": "liveness / readiness 健康探针，给 K8s / FC / docker compose 健康检查用。",
+        },
+        {
+            "name": "演示场景",
+            "description": "8 个演示场景的输入文案配置 + persona 切换器后端。",
+        },
+        {
+            "name": "用户与偏好",
+            "description": "persona 列表 + 跨 session 偏好读取与重置。",
+        },
+        {
+            "name": "协作房间",
+            "description": "多人协作下单：创建房间、拉状态、广播事件（demo 加分项）。",
+        },
+        {
+            "name": "运营辅助",
+            "description": "OAuth provider 接入位、用户协议、隐私政策（占位草案，真上线前需法务审核）。",
+        },
+    ],
 )
 
 # 可观测平台初始化（Logfire；未配 token 时降级本地控制台输出）
@@ -240,7 +285,7 @@ app.add_middleware(
 # 端点
 # ============================================================
 
-@app.get("/health")
+@app.get("/health", tags=["健康探活"], summary="liveness 探针")
 def health() -> dict[str, str]:
     """健康检查 + 当前生效配置。
 
@@ -266,7 +311,7 @@ def health() -> dict[str, str]:
     }
 
 
-@app.get("/ready")
+@app.get("/ready", tags=["健康探活"], summary="readiness 探针")
 async def ready() -> dict[str, Any]:
     """就绪检查（Kubernetes / FC / docker compose 用）。
 
@@ -352,7 +397,7 @@ async def ready() -> dict[str, Any]:
     return body
 
 
-@app.get("/scenarios")
+@app.get("/scenarios", tags=["演示场景"], summary="拉 8 个演示场景的输入文案")
 def scenarios() -> dict[str, list[dict[str, str]]]:
     return {"scenarios": SCENARIOS}
 
@@ -455,7 +500,7 @@ async def amap_proxy(path: str, request: Request) -> Response:
 # ============================================================
 
 
-@app.get("/personas")
+@app.get("/personas", tags=["用户与偏好"], summary="拉所有 mock persona")
 def list_personas() -> dict[str, list[dict[str, Any]]]:
     """返回所有 mock persona（前端 user 切换器拉这个）。
 
@@ -476,7 +521,7 @@ def list_personas() -> dict[str, list[dict[str, Any]]]:
     }
 
 
-@app.get("/preferences/{user_id}")
+@app.get("/preferences/{user_id}", tags=["用户与偏好"], summary="读取某用户的合并偏好")
 def get_user_preferences(user_id: str) -> dict[str, Any]:
     """合并 persona + memory 给前端偏好面板用。"""
     from data.memory_store import compute_priors
@@ -485,7 +530,7 @@ def get_user_preferences(user_id: str) -> dict[str, Any]:
     return view.model_dump()
 
 
-@app.post("/preferences/{user_id}/reset")
+@app.post("/preferences/{user_id}/reset", tags=["用户与偏好"], summary="清除某用户的累积偏好")
 def reset_user_preferences(user_id: str) -> dict[str, Any]:
     """清掉某 user 的累积 memory（演示完清场用）。"""
     from data.memory_store import reset_memory
@@ -526,14 +571,14 @@ def _read_legal_doc(filename: str) -> str:
     )
 
 
-@app.get("/legal/terms")
+@app.get("/legal/terms", tags=["运营辅助"], summary="用户协议（占位草案）")
 def legal_terms() -> Response:
     """用户协议（占位草案；真上线前需律师审核）。"""
     content = _read_legal_doc("terms-of-service.md")
     return Response(content=content, media_type="text/markdown; charset=utf-8")
 
 
-@app.get("/legal/privacy")
+@app.get("/legal/privacy", tags=["运营辅助"], summary="隐私政策（占位草案）")
 def legal_privacy() -> Response:
     """隐私政策（占位草案；真上线前需律师审核）。"""
     content = _read_legal_doc("privacy-policy.md")
@@ -545,7 +590,7 @@ def legal_privacy() -> Response:
 # ============================================================
 
 
-@app.get("/auth/info")
+@app.get("/auth/info", tags=["运营辅助"], summary="OAuth provider 接入位状态")
 def auth_info() -> dict[str, Any]:
     """列出所有支持的 OAuth provider 与其当前状态。
 
@@ -777,9 +822,16 @@ def _accumulate_memory_after_refine(
         pass
 
 
-@app.post("/chat/stream")
+@app.post(
+    "/chat/stream",
+    tags=["小团接入"],
+    summary="对话主入口（旧版）：一句话 → SSE 流式输出",
+)
 async def chat_stream(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
-    """主入口：一句话 → SSE 流式输出。
+    """**小团 App 不要直接用这个端点，改用 `/chat/turn`。**
+
+    本端点保留是因为内部 e2e 测试依赖；`/chat/turn` 多了「跨 turn 上下文」识别，
+    会自动判断是新需求还是反馈，更适合 App 真实调用场景。
 
     解析 PLANNER_MODE：
         header X-Planner-Mode > env PLANNER_MODE > default("rule")
@@ -810,9 +862,23 @@ async def chat_stream(req: ChatStreamRequest, request: Request) -> EventSourceRe
     )
 
 
-@app.post("/chat/confirm")
+@app.post(
+    "/chat/confirm",
+    tags=["小团接入"],
+    summary="确认下单：派发预约餐厅、买票、生成转发文案 3 个执行类工具",
+)
 async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSourceResponse:
-    """MVP-2：用户确认后下发执行类 Tool。"""
+    """用户确认行程方案 → 后端按白名单（allowed_*_ids）派发执行类 Tool。
+
+    防 hallucination：
+        - 前端从 ItineraryReady 收到合法 ID 集合，confirm 时回传
+        - reserve_restaurant / buy_ticket 仅能在该集合内派发
+        - 缺省时不做白名单校验（向后兼容；demo 短路径不破）
+
+    SSE 序列：
+        reserve_restaurant → buy_ticket（如有 POI 票）→ generate_share_message →
+        itinerary_ready（含 orders + share_message）→ memory_persisted → done
+    """
     mode = resolve_planner_mode(
         header_value=request.headers.get("X-Planner-Mode"),
         env_value=os.getenv("PLANNER_MODE"),
@@ -824,7 +890,11 @@ async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSource
     )
 
 
-@app.post("/chat/refine")
+@app.post(
+    "/chat/refine",
+    tags=["小团接入"],
+    summary="独立反馈：给定 session 的反馈文本 → refiner 合并约束 → 重新规划",
+)
 async def chat_refine(req: RefinementInput, request: Request) -> EventSourceResponse:
     """Phase 0.6：用户拒绝方案 + 反馈 → refiner 合并 → 重新规划。
 
@@ -865,9 +935,17 @@ async def chat_refine(req: RefinementInput, request: Request) -> EventSourceResp
 # ============================================================
 
 
-@app.post("/chat/turn")
+@app.post(
+    "/chat/turn",
+    tags=["小团接入"],
+    summary="对话主入口（推荐）：自动识别新需求 vs 反馈，跨 turn 上下文持久化",
+)
 async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResponse:
-    """v2 单一对话入口（解决"dock 直接反馈无上下文"根因）。
+    """**小团 App 集成首选这个端点。**
+
+    与 `/chat/stream` 区别：本端点会从 `ConversationStore` 取当前 session 状态，
+    自动判断 message 是「新需求」还是「对已有方案的反馈」——前者走规划，后者走重规划，
+    无需小团 App 自己维护"现在该调哪个端点"的状态机。
 
     Phase 0.12 起增加 ReAct 路径（USE_REACT_AGENT=1，默认 ON）：
         1. ReAct 单一 Agent：让 LLM 看到全部 8 工具，自主决策何时调用
@@ -2416,7 +2494,7 @@ class CreateRoomResponse(BaseModel):
     owner_id: str
 
 
-@app.post("/room/create")
+@app.post("/room/create", tags=["协作房间"], summary="创建多人协作房间")
 async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomResponse:
     """创建协作房间。
 
@@ -2491,7 +2569,7 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
     )
 
 
-@app.get("/room/{room_id}/state")
+@app.get("/room/{room_id}/state", tags=["协作房间"], summary="拉房间当前状态")
 async def get_room_state(room_id: str) -> dict[str, Any]:
     """获取房间当前状态（HTTP 拉取，用于 SSR 或 WS 连接前预加载）。"""
     manager = get_room_manager()
