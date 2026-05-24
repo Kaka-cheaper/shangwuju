@@ -6928,3 +6928,29 @@ backend/agent/
 - pytest 691/691 全过；R10 24/24 100%；前端 4/4 不变
 
 **用户反馈**：（待用户重启 backend 后验证）
+
+
+## 问题：浏览器 console 报 hydration warning「data-immersive-translate-page-theme at html」
+
+**用户原问**：（贴出 React Warning: Extra attributes from the server 完整堆栈）
+
+**解决方案**：
+
+1. **诊断**：堆栈顶部 `at html / at RootLayout (Server)` + 属性名 `data-immersive-translate-page-theme` —— 这是浏览器「沉浸式翻译」扩展（Immersive Translate）注入到 `<html>` 标签的属性。SSR 时根本没这属性，hydrate 时扩展已经塞了 → React 报 mismatch。
+2. **修复**：`frontend/app/layout.tsx` 的 `<html>` + `<body>` 加 `suppressHydrationWarning`（Next.js 官方推荐做法，仅 suppress 根标签不影响子树）
+3. **不影响功能**：纯 console warning，业务无任何变化
+4. **教训记入 pitfalls [P3] 2026-05-24「浏览器翻译扩展注入 html 属性触发 hydration warning」**
+
+**修改的代码文件**：
+
+- 修改：`frontend/app/layout.tsx`（`<html>` + `<body>` 加 suppressHydrationWarning）
+- 修改：`docs/03-implementation/pitfalls.md`（[P3] 2026-05-24）
+- 修改：`problem.md`（本条）
+
+**应当达成的效果**：
+
+- 浏览器 console 不再报 hydration warning（即使装了沉浸式翻译 / Grammarly / 划词翻译 等扩展）
+- 评委 demo 时打开 DevTools 看 console 干净无噪声
+- pytest / verify:all 不变（纯 jsx 属性，无功能影响）
+
+**用户反馈**：（待用户验证浏览器 console 干净后追加）

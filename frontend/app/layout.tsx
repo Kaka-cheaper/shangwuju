@@ -32,8 +32,13 @@ export default function RootLayout({
     <html
       lang="zh-CN"
       className={`${inter.variable} ${jetbrains.variable}`}
+      // 沉浸式翻译 / 划词翻译 / Grammarly 等浏览器扩展会向 <html> / <body>
+      // 注入属性（如 data-immersive-translate-page-theme），触发 React
+      // hydration mismatch warning。仅在最外层标签 suppress 不影响子树校验。
+      // 业界标配（Next.js / Remix / Astro 官方文档都建议根标签设此项）。
+      suppressHydrationWarning
     >
-      <body>{children}</body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

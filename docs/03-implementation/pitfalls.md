@@ -1012,3 +1012,18 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. 写「截断错误信息」时永远附「错误类型 + 末帧函数+行号」，避免 detail 只剩枚举名 / key 名碎片
   3. uvicorn `--reload` 参数虽能 hot-reload，但 LangGraph 编译图缓存 / 模块级单例（如 ConversationRepository）reload 后状态会漂——demo 期建议手动重启
 - **优先级**：P2（不影响 demo 真跑通；只是开发调试时的诡异表象，不知者会怀疑代码逻辑问题浪费 30+ 分钟排查）
+
+
+### [P3] 2026-05-24 浏览器翻译扩展注入 html 属性触发 React hydration warning
+
+- **现象**：浏览器 console 报 `Warning: Extra attributes from the server: data-immersive-translate-page-theme at html`。组件层无任何代码改动也复现，只在装了「沉浸式翻译 / Immersive Translate」扩展的浏览器出现。
+- **根因**：浏览器翻译扩展（沉浸式翻译 / 划词翻译 / Grammarly 等）会在页面加载时向 `<html>` / `<body>` 标签注入 `data-immersive-translate-*` / `data-grammarly-*` 等属性。SSR 输出的 HTML 没这属性，客户端 hydrate 时这些属性已经被扩展塞进 DOM → React 比对发现「服务端没有的属性客户端有了」→ hydration mismatch warning。
+- **解法**：给 `<html>` + `<body>` 标签加 `suppressHydrationWarning`。
+  - 仅 suppress 最外层根标签，不影响子组件树的 hydration 校验
+  - 这是 Next.js / Remix / Astro 官方文档建议的标配（参考 `https://nextjs.org/docs/app/api-reference/components/html`）
+- **相关文件**：`frontend/app/layout.tsx` 的 RootLayout
+- **防再犯**：
+  1. 任何 Next.js / SSR 框架的根 layout 都应给 `<html>` + `<body>` 加 `suppressHydrationWarning`
+  2. 这条不影响业务代码任何 hydration 校验（仅根标签生效，子树仍严格校验）
+  3. 不要因为看到 hydration warning 就到处加 suppressHydrationWarning——只有根标签是浏览器扩展注入受害者
+- **优先级**：P3（不影响功能；只是 console warning 噪声；评委 demo 时打开 DevTools 会看到，影响印象）
