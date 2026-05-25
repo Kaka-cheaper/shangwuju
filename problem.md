@@ -8322,3 +8322,99 @@ rule 模式真链路 3 项全 PASS（远超阈值）；llm 模式临界 — LLM 
 - 4 模式矩阵架构清晰：A（演示安全网）/ B（safety net）/ C（纯算法快路径）/ D（真 AI 决策）
 
 ---
+
+
+---
+
+## 问题：真 LLM 链路全环节有哪些可优化的速度点？
+
+**用户原问**：真 llm 链路，非 stub 模式下，全链路的全环节有哪些可以优化的地方？做优化 1 + 优化 2，优化 3 实验后再看。
+
+**调研结论（profile 实测耗时分布）**：
+
+```text
+| 阶段                              | LLM 调用次数 | 耗时    | 占比   |
+|---------------------------------|------------|---------|--------|
+| 入口 router 分类                 | 1 次       | 5-10s   | 13-26% |
+| 意图解析（parse_intent）         | 1 次       | 7.77s   | 20%    |
+| plan_itinerary 蓝图              | 1 次       | 10.20s  | 26%    |
+| plan_itinerary critic 重试       | 0-2 次     | +5-10s  | 0-15%  |
+| generate_narration 文案          | 1 次       | 20.62s  | 53%    | ← 大头
+| confirm 流                       | 0 LLM     | 0.5s    | 1%     |
+| 合计                             | 4-5 次串行 | 39s     | 100%   |
+```
+
+**做了 2 项优化**：
+
+**优化 1：narration 流式输出**（核心）
+
+- `agent/core/llm_client.py`：`chat` / `stream_chat` 加 `max_tokens` 参数（Protocol + OpenAICompatibleClient + StubLLMClient 三处）
+- `agent/intent/narrator.py`：新增 `stream_llm_narrator()` 流式入口
+- `api/_streams/planner_stream.py`：llm 模式改为逐 chunk 拿 LLM 流式输出 → 累积后每 chunk 推一次 `agent_narration`，前端覆盖渲染 → 体感「打字效果」
+- 失败 fallback：流式抛错 / 0 chunk → 退回 `generate_narration(use_llm=False)` 模板
+
+**优化 2：narration 字数收紧 + max_tokens=180**
+
+- `prompts/narrator_prompt.py`：80-180 字 → 严格 50-80 字
+- 3 个示例 + 主动质疑 few-shot 全部压缩到 50-80 字范围
+- chat / stream_chat 调用都设 `max_tokens=180`（≈ 90 字 + 余量）
+
+**实测对比（真链路 --real 模式 · 3 次稳定数据）**：
+
+```text
+| 模式  | 优化前       | 优化后（3 次实测）    | 改善         |
+|------|-------------|------------------|--------------|
+| rule | 方案 1.79s   | 方案 1.21-1.25s   | -0.54s ↓    |
+| rule | 端到端 3.58s | 端到端 2.95-3.01s | -0.6s ↓     |
+| llm  | 方案 35.37s  | 方案 24.98-29.02s | -6 ~ -10s ↓ |
+| llm  | 端到端 50.23s| 端到端 32.09-36.67s| -14 ~ -18s ↓|
+```
+
+llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
+
+**期间踩的坑**：
+
+1. **test_narrator_active_query.py FakeClient.chat 签名固定，不接 max_tokens**：测试报 `unexpected keyword argument 'max_tokens'`；改 mock `def chat(*, messages, temperature, **kwargs)` 兼容
+2. **stream_chat 同步 generator 转 async 流**：用 `asyncio.to_thread(next, gen, None)` 包装让 `_planner_stream` 能以 async for 消费
+3. **流式过程中无法可靠剥 markdown 围栏**：在流末才剥（防 LLM 输出 ```...``` 包裹）；流末再推一条覆盖修正后的版本
+4. **优化 3（合并 router + intent）暂未实施**：用户说「优化 3 先实验后再看情况」；优化 1+2 已让 llm 模式过线，暂不需要
+
+**修改的代码文件**：
+
+修改：
+- `backend/agent/core/llm_client.py`：chat / stream_chat / Protocol / _create_completion 加 max_tokens 参数
+- `backend/agent/core/llm_client_stub.py`：chat / stream_chat 加 max_tokens 占位参数
+- `backend/agent/intent/narrator.py`：新增 stream_llm_narrator + _call_llm_narrator 加 max_tokens=180
+- `backend/agent/intent/prompts/narrator_prompt.py`：风格规范从 80-180 字 → 严格 50-80 字 + 示例压缩
+- `backend/api/_streams/planner_stream.py`：llm 模式改为流式 chunk 推送 agent_narration
+- `backend/tests/test_narrator_active_query.py`：FakeClient.chat 加 **kwargs 兼容
+
+未动：
+- mock_data / collab / schemas / frontend（边界外）
+
+**验证证据**：
+
+```text
+| 验证项                              | 结果                                  |
+|------------------------------------|--------------------------------------|
+| pytest -x -q                       | 729 passed + 1 skipped               |
+| frontend verify:all                | 4 / 4                                |
+| 真链路 verify_speed_constraints --real（3 次） | rule + llm 全 PASS              |
+```
+
+**应当达成的效果**：
+
+- 真 LLM 链路 llm 模式 3 项加分项指标全 PASS（首次稳定过线）
+- narration 流式让评委体感「Agent 在打字」而不是「卡死 20s 等结果」
+- 路演大纲速度实测表加 rule / llm 真链路两档数据
+- 评委追问「速度指标能给个实测吗」回答从单档（stub 6s）扩展到三档（stub 6s / rule 1.2s / llm 25-29s）
+
+**剩余优化项（未实施，记录给后续团队）**：
+
+- 优化 3：合并 router + intent 一次 LLM 调用（节省 ~10s，但 prompt 复杂度上升）
+- 优化 4：意图 ‖ 蓝图 pipelining（节省 ~8s，需 asyncio 重构）
+- 优化 5：critic 重试 2→1（节省最坏 +5s，需配 fallback 路径）
+- 优化 6：prompt 瘦身（节省 1-2s）
+- 优化 7：HTTP/2 + 连接池（节省 ~1s）
+
+---
