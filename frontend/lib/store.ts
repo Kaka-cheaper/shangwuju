@@ -4,241 +4,50 @@
  * 为什么用 Zustand：
  * - SSE 事件每 200~500ms 推一条，组件需细粒度订阅，避免整树 rerender
  * - React 19 的 useActionState 不适合长流（不能流式回灌中间状态）
+ *
+ * 文件结构（spec code-modularization-refactor H4）：
+ * - store/types.ts            类型定义（ChatState / ToolCallRecord 等）
+ * - store/initial-state.ts    initialState（纯数据字段）
+ * - store/event-handlers.ts   handleEvent SSE 分发大 switch
+ * - store/arrival-counter.ts  跨流到达计数（confirm / stream 共用）
+ * - store.ts（本文件）         create() + 9 个 action + re-export 类型
  */
 
 import { create } from "zustand";
 
 import { streamSse } from "./sse";
-import type {
-  AgentThoughtPayload,
-  AgentNarrationPayload,
-  ChitchatReplyPayload,
-  Itinerary,
-  IntentExtraction,
-  PlannerMode,
-  Persona,
-  PersonasResponse,
-  RefinementDonePayload,
-  RefinementStartPayload,
-  ReplanTriggeredPayload,
-  Scenario,
-  SseEvent,
-  StreamErrorPayload,
-  ToolCallEndPayload,
-  ToolCallStartPayload,
-  UserPreferenceView,
-} from "./types";
+import type { PersonasResponse, UserPreferenceView } from "./types";
 import {
   API_BASE,
   formatStreamError,
   generateSessionId,
-  getPlannerModeFromCookie,
   setPlannerModeCookie,
-  getUserIdFromCookie,
   setUserIdCookie,
   upsertSession,
   sessionLabelFromText,
 } from "./utils";
-
-export type ChatRole = "user" | "agent";
-
-export interface ChatMessage {
-  id: string;
-  role: ChatRole;
-  text: string;
-  createdAt: number;
-}
-
-/** Tool 调用一次的可视化记录（驱动「调用链路」面板）。 */
-export interface ToolCallRecord {
-  id: string; // 唯一：tool + 起始 seq
-  tool: string;
-  input: Record<string, unknown>;
-  startedAtSeq: number;
-  /** 到达顺序（跨 stream 与 confirm 流递增，用于稳定排序）。 */
-  arrivalIdx: number;
-  endedAtSeq?: number;
-  durationMs?: number;
-  success?: boolean;
-  reason?: string | null;
-  output?: Record<string, unknown>;
-  // 是否在异常重规划之前 → UI 上灰显
-  replanned?: boolean;
-  /** spec innovation-review R1：fan-out 并行组 ID，同 group_id 表示并发执行；
-   * 前端可基于此横向并列展示，让评委看到「并发」而非「按完成顺序串行到达的伪串行」。 */
-  groupId?: string | null;
-  /** 是否并发执行（与 groupId 一起用，便于 UI 区分串行 / 并行）。 */
-  parallel?: boolean;
-}
-
-export interface ReplanRecord {
-  seq: number;
-  arrivalIdx: number;
-  reason: string;
-  fromTool: string;
-}
-
-/** Toast 通知项（短暂显示后自动消失）。 */
-export interface ToastItem {
-  id: string;
-  kind: "info" | "success" | "warn";
-  text: string;
-}
-
-/** 上一次 refine 的结果（驱动「Agent 已为你调整」面板）。 */
-export interface RefinementSummary {
-  feedbackText: string;
-  changedFields: string[];
-  refinerNote?: string | null;
-  /** 服务端 timestamp_ms（来自 refinement_done 事件）。 */
-  timestampMs?: number;
-}
-
-/** Phase 0.8：暖心回话气泡（chitchat / meta / emotional / off_topic / ambiguous）。 */
-export interface ChitchatReplyRecord {
-  id: string;
-  payload: ChitchatReplyPayload;
-  receivedAtMs: number;
-}
-
-export interface ChatState {
-  // 会话
-  sessionId: string;
-  scenarios: Scenario[];
-  scenariosLoaded: boolean;
-
-  // 规划模式
-  plannerMode: PlannerMode;
-
-  // Phase 0.7：用户身份
-  currentUserId: string | null;
-  personas: Persona[];
-  personasLoaded: boolean;
-  preferences: UserPreferenceView | null;
-
-  // 流式状态
-  streaming: boolean;
-  streamError: string | null;
-  /**
-   * 当前流式阶段：让 UI 知道这是首次规划 / 用户确认 / 反馈重规划。
-   * - "idle"     : 没有进行中的流
-   * - "stream"   : 首次规划（点 S1-S8 / 输入框 / Cmd+K 触发的 /chat/stream）
-   * - "confirm"  : 用户点「确认并预约」触发的 /chat/confirm（接续之前的链路，
-   *               不应让 ToolTracePanel / ItineraryCard 重置成「从头流式显示」状态）
-   * - "refine"   : 用户点「说说哪不对」触发的 /chat/refine
-   */
-  streamPhase: "idle" | "stream" | "confirm" | "refine";
-
-  // 聊天与中间过程
-  messages: ChatMessage[];
-  intent: IntentExtraction | null;
-  toolCalls: ToolCallRecord[];
-  replans: ReplanRecord[];
-  thoughts: { seq: number; text: string; timestamp_ms: number | null }[];
-
-  // 输出
-  itinerary: Itinerary | null;
-  /**
-   * 上一次的 itinerary 快照（refine/feedback 前保存）。
-   * 用于「Refine 前后对比视图」（spec R3）。
-   * - null 表示首次规划或会话重置后
-   * - 非 null 表示上一次有方案，本次拿到新方案后可对比展示
-   */
-  previousItinerary: Itinerary | null;
-  /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
-  narration: { text: string; stage: "stream" | "confirm" } | null;
-  /** 用户已主动取消（和 reset 不同：不清空 trace，仅冻结按钮）。 */
-  cancelled: boolean;
-  /** 上一次 refinement_done 摘要，用于「我已为你调整」面板。 */
-  lastRefinement: RefinementSummary | null;
-  /** Phase 0.8：本次会话内收到的所有暖心回话气泡（按时序追加，不清空）。 */
-  chitchatReplies: ChitchatReplyRecord[];
-  /** spec algorithm-redesign R5：narrate 末尾 memory_writer 副作用结果（前端可显示「已记住」标记）。 */
-  memoryPersisted: {
-    socialContext: string;
-    summaryPreview: string;
-    success: boolean;
-    skippedReason: string | null;
-  } | null;
-
-  // UI 通知
-  toasts: ToastItem[];
-
-  // Cmd+K 命令面板
-  commandPaletteOpen: boolean;
-
-  // actions
-  loadScenarios: () => Promise<void>;
-  sendMessage: (input: string, scenarioId?: string) => Promise<void>;
-  confirm: () => Promise<void>;
-  refine: (feedbackText: string) => Promise<void>;
-  cancel: () => void;
-  reset: () => void;
-  startNewSession: () => void;
-  switchSession: (sessionId: string) => void;
-  setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean }) => void;
-  setCurrentUserId: (userId: string, options?: { silent?: boolean }) => void;
-  loadPersonas: () => Promise<void>;
-  refreshPreferences: () => Promise<void>;
-  resetUserMemory: () => Promise<void>;
-  pushToast: (toast: Omit<ToastItem, "id">) => void;
-  dismissToast: (id: string) => void;
-  openCommandPalette: () => void;
-  closeCommandPalette: () => void;
-}
-
-const initialState: Omit<
+import { resetArrival } from "./store/arrival-counter";
+import { handleEvent } from "./store/event-handlers";
+import { initialState } from "./store/initial-state";
+import type {
   ChatState,
-  | "loadScenarios"
-  | "sendMessage"
-  | "confirm"
-  | "refine"
-  | "cancel"
-  | "reset"
-  | "startNewSession"
-  | "switchSession"
-  | "setPlannerMode"
-  | "setCurrentUserId"
-  | "loadPersonas"
-  | "refreshPreferences"
-  | "resetUserMemory"
-  | "pushToast"
-  | "dismissToast"
-  | "openCommandPalette"
-  | "closeCommandPalette"
-> = {
-  // 服务端渲染期间用占位值；客户端 mount 后由 reset/loadScenarios 触发更新
-  sessionId: "sess_pending",
-  scenarios: [],
-  scenariosLoaded: false,
-  plannerMode: "rule",
-  // Phase 0.7：默认 demo_user，客户端 mount 后由 cookie 改写
-  currentUserId: "demo_user",
-  personas: [],
-  personasLoaded: false,
-  preferences: null,
-  streaming: false,
-  streamError: null,
-  streamPhase: "idle",
-  messages: [],
-  intent: null,
-  toolCalls: [],
-  replans: [],
-  thoughts: [],
-  itinerary: null,
-  previousItinerary: null,
-  cancelled: false,
-  lastRefinement: null,
-  chitchatReplies: [],
-  toasts: [],
-  commandPaletteOpen: false,
-  narration: null,
-  memoryPersisted: null,
-};
+  Getter,
+  Setter,
+} from "./store/types";
+
+// 公开类型给现有引用方（保持 `import { ChatMessage, useChatStore } from "@/lib/store"` 不变）
+export type {
+  ChatMessage,
+  ChatRole,
+  ChatState,
+  ChitchatReplyRecord,
+  RefinementSummary,
+  ReplanRecord,
+  ToastItem,
+  ToolCallRecord,
+} from "./store/types";
 
 let abortController: AbortController | null = null;
-// 跨整次会话的全局到达计数（confirm 与 stream 共用），保证 trace 面板稳定排序
-let arrivalCounter = 0;
 
 let toastSeq = 0;
 function nextToastId(): string {
@@ -247,7 +56,7 @@ function nextToastId(): string {
 }
 
 /** 当前 planner mode 对应的 header；服务端渲染期间返空对象不暴露 cookie。 */
-function plannerHeader(mode: PlannerMode): Record<string, string> {
+function plannerHeader(mode: ChatState["plannerMode"]): Record<string, string> {
   return { "X-Planner-Mode": mode };
 }
 
@@ -264,7 +73,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (get().scenariosLoaded) return;
     try {
       const r = await fetch(`${API_BASE}/scenarios`);
-      const data = (await r.json()) as { scenarios: Scenario[] };
+      const data = (await r.json()) as { scenarios: ChatState["scenarios"] };
       set({ scenarios: data.scenarios, scenariosLoaded: true });
     } catch (e) {
       console.warn("[scenarios] 拉取失败：", e);
@@ -312,7 +121,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       ],
     }));
-    arrivalCounter = 0;
+    resetArrival();
 
     // 持久化 session（首条消息时设 label = 用户输入摘要）
     upsertSession({
@@ -330,7 +139,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       abortController.signal,
       {
-        onEvent: (ev) => handleEvent(set, get, ev),
+        onEvent: (ev) => handleEvent(set as Setter, get as Getter, ev),
         onError: (err) =>
           set({
             streamError: formatStreamError(err.reason, err.detail),
@@ -384,7 +193,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       { session_id: get().sessionId, decision: "confirm" },
       abortController.signal,
       {
-        onEvent: (ev) => handleEvent(set, get, ev),
+        onEvent: (ev) => handleEvent(set as Setter, get as Getter, ev),
         onError: (err) =>
           set({
             streamError: formatStreamError(err.reason, err.detail),
@@ -453,14 +262,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ]
         : s.messages,
     }));
-    arrivalCounter = 0;
+    resetArrival();
 
     await streamSse(
       `${API_BASE}/chat/refine`,
       { session_id: get().sessionId, feedback_text: feedbackText.trim() },
       abortController.signal,
       {
-        onEvent: (ev) => handleEvent(set, get, ev),
+        onEvent: (ev) => handleEvent(set as Setter, get as Getter, ev),
         onError: (err) =>
           set({
             streamError: formatStreamError(err.reason, err.detail),
@@ -659,12 +468,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const id = nextToastId();
     set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }));
     // 自动消失
-    setTimeout(() => {
-      const cur = get().toasts;
-      if (cur.some((t) => t.id === id)) {
-        set({ toasts: cur.filter((t) => t.id !== id) });
-      }
-    }, toast.kind === "warn" ? 4500 : 3500);
+    setTimeout(
+      () => {
+        const cur = get().toasts;
+        if (cur.some((t) => t.id === id)) {
+          set({ toasts: cur.filter((t) => t.id !== id) });
+        }
+      },
+      toast.kind === "warn" ? 4500 : 3500,
+    );
   },
 
   dismissToast: (id) =>
@@ -673,256 +485,3 @@ export const useChatStore = create<ChatState>((set, get) => ({
   openCommandPalette: () => set({ commandPaletteOpen: true }),
   closeCommandPalette: () => set({ commandPaletteOpen: false }),
 }));
-
-// ============================================================
-// 事件分发
-// ============================================================
-
-type Setter = (
-  partial:
-    | Partial<ChatState>
-    | ((state: ChatState) => Partial<ChatState>),
-) => void;
-type Getter = () => ChatState;
-
-function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
-  switch (ev.type) {
-    case "intent_parsed":
-      set({ intent: ev.payload as unknown as IntentExtraction });
-      break;
-
-    case "tool_call_start": {
-      const p = ev.payload as unknown as ToolCallStartPayload;
-      const rec: ToolCallRecord = {
-        id: `${p.tool}-${arrivalCounter}`,
-        tool: p.tool,
-        input: p.input,
-        startedAtSeq: ev.seq,
-        arrivalIdx: arrivalCounter++,
-        groupId: p.group_id ?? null,
-        parallel: p.parallel ?? false,
-      };
-      set((s) => ({ toolCalls: [...s.toolCalls, rec] }));
-      break;
-    }
-
-    case "tool_call_end": {
-      const p = ev.payload as unknown as ToolCallEndPayload;
-      set((s) => {
-        const arr = [...s.toolCalls];
-        // 找最近一个匹配 tool 且未结束的记录
-        for (let i = arr.length - 1; i >= 0; i--) {
-          if (arr[i].tool === p.tool && arr[i].endedAtSeq == null) {
-            arr[i] = {
-              ...arr[i],
-              endedAtSeq: ev.seq,
-              durationMs: p.duration_ms,
-              success:
-                typeof p.output?.success === "boolean"
-                  ? (p.output.success as boolean)
-                  : undefined,
-              reason: (p.output?.reason as string) ?? null,
-              output: p.output,
-              // R1：tool_call_end 也带 group_id（与 start 同步），便于失败补偿场景
-              groupId: arr[i].groupId ?? p.group_id ?? null,
-              parallel: arr[i].parallel ?? p.parallel ?? false,
-            };
-            break;
-          }
-        }
-        return { toolCalls: arr };
-      });
-      break;
-    }
-
-    case "replan_triggered": {
-      const p = ev.payload as unknown as ReplanTriggeredPayload;
-      set((s) => ({
-        replans: [
-          ...s.replans,
-          {
-            seq: ev.seq,
-            arrivalIdx: arrivalCounter++,
-            reason: p.reason,
-            fromTool: p.from_tool,
-          },
-        ],
-        // 把同名工具最近一次未标记的调用标为「已替换」
-        // 不能只看 success（如 check_availability 返回 success=true + available=false 也属于触发重规划）
-        toolCalls: (() => {
-          const arr = [...s.toolCalls];
-          for (let i = arr.length - 1; i >= 0; i--) {
-            if (arr[i].tool === p.from_tool && !arr[i].replanned) {
-              arr[i] = { ...arr[i], replanned: true };
-              break;
-            }
-          }
-          return arr;
-        })(),
-      }));
-      break;
-    }
-
-    case "agent_thought": {
-      const p = ev.payload as unknown as AgentThoughtPayload;
-      set((s) => ({
-        thoughts: [
-          ...s.thoughts,
-          { seq: ev.seq, text: p.text, timestamp_ms: ev.timestamp_ms ?? null },
-        ],
-      }));
-      break;
-    }
-
-    case "itinerary_ready": {
-      // R9：SSE schema 兼容降级。
-      // 后端 edge model refactor 后 payload 自带 schema_version="edge_v1"。
-      // 若版本字段缺失或不一致（旧后端 / 错误数据），不抛错也不全屏崩，
-      // 仅保留 summary + total_minutes 文字提示，让 demo 现场仍能看到结果。
-      // 校验放在 store 层而不是组件层 —— 一处兜住，下游所有组件无脑读 itinerary 即可。
-      const rawPayload = ev.payload as unknown as Itinerary & {
-        schema_version?: string;
-      };
-      if (rawPayload.schema_version !== "edge_v1") {
-        console.warn(
-          "[store] itinerary_ready schema_version 不兼容：",
-          rawPayload.schema_version,
-          "—— 已降级到文字摘要（仅渲染 summary + total_minutes）",
-        );
-        // fallback 同时带「旧 stages 字段」与「新 nodes/hops/schedule 字段」：
-        // - 兼容 Task 11 完成前（types.ts 仍是 stages schema）：stages=[] 让组件不 NPE
-        // - 兼容 Task 11 完成后（types.ts 升级为 edge schema）：nodes/hops/schedule=[] 同步生效
-        // 强转 `as unknown as Itinerary` 让 schema 演进期不卡 typecheck。
-        const fallback = {
-          schema_version: "edge_v1" as const,
-          summary:
-            rawPayload.summary ??
-            "（行程数据格式暂不兼容，已为你保留文字摘要，请稍后重试）",
-          stages: [],
-          nodes: [],
-          hops: [],
-          schedule: [],
-          orders: [],
-          share_message: rawPayload.share_message ?? null,
-          total_minutes: rawPayload.total_minutes ?? 0,
-          decision_trace: null,
-        };
-        set({ itinerary: fallback as unknown as Itinerary });
-        break;
-      }
-      set({ itinerary: rawPayload });
-      break;
-    }
-
-    case "agent_narration": {
-      const p = ev.payload as unknown as AgentNarrationPayload;
-      set({ narration: { text: p.text, stage: p.stage } });
-      break;
-    }
-
-    case "memory_persisted": {
-      // spec algorithm-redesign R5 收尾：把 memory_writer 副作用结果落到 store
-      // 让 ItineraryCard 显示「✓ 已记住此次「家庭日常」场景偏好，下次会复用」标记
-      const p = ev.payload as {
-        social_context?: string;
-        summary_preview?: string;
-        success?: boolean;
-        skipped_reason?: string | null;
-      };
-      set({
-        memoryPersisted: {
-          socialContext: p.social_context ?? "",
-          summaryPreview: p.summary_preview ?? "",
-          success: Boolean(p.success),
-          skippedReason: p.skipped_reason ?? null,
-        },
-      });
-      break;
-    }
-
-    case "refinement_start": {
-      const p = ev.payload as unknown as RefinementStartPayload;
-      // 只用做轻量提示；refinement_done 才是真正的 changed_fields 来源
-      set((s) => ({
-        thoughts: [
-          ...s.thoughts,
-          {
-            seq: ev.seq,
-            text: p.feedback_text
-              ? `开始根据你的反馈调整：「${p.feedback_text}」`
-              : "开始重新规划...",
-            timestamp_ms: ev.timestamp_ms ?? null,
-          },
-        ],
-      }));
-      break;
-    }
-
-    case "refinement_done": {
-      const p = ev.payload as unknown as RefinementDonePayload;
-      // 找出最近一条用户反馈消息（用于把 feedbackText 填进 lastRefinement）
-      const msgs = get().messages;
-      let feedbackText = "";
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i];
-        if (m.role === "user" && m.text.startsWith("（反馈）")) {
-          feedbackText = m.text.replace(/^（反馈）/, "");
-          break;
-        }
-      }
-      // 用合并后的 intent 覆盖意图摘要面板
-      set({
-        intent: p.refined_intent,
-        lastRefinement: {
-          feedbackText,
-          changedFields: p.changed_fields ?? [],
-          refinerNote: p.refiner_note ?? null,
-          timestampMs: ev.timestamp_ms ?? Date.now(),
-        },
-      });
-      // 把变更摘要每一条作为一个 toast，让用户立刻看见 Agent 的调整
-      const fields = p.changed_fields ?? [];
-      if (fields.length === 0) {
-        get().pushToast({
-          kind: "info",
-          text: "没找到可执行的调整，已为你尝试重新组合候选",
-        });
-      } else if (fields.length <= 2) {
-        for (const f of fields) {
-          get().pushToast({ kind: "success", text: `Agent 调整：${f}` });
-        }
-      } else {
-        get().pushToast({
-          kind: "success",
-          text: `Agent 已为你调整 ${fields.length} 项：${fields[0]} 等`,
-        });
-      }
-      break;
-    }
-
-    case "stream_error": {
-      const p = ev.payload as unknown as StreamErrorPayload;
-      set({ streamError: `${p.reason}: ${p.detail}` });
-      break;
-    }
-
-    case "chitchat_reply": {
-      const p = ev.payload as unknown as ChitchatReplyPayload;
-      set((s) => ({
-        chitchatReplies: [
-          ...s.chitchatReplies,
-          {
-            id: `c-${ev.seq}-${Date.now()}`,
-            payload: p,
-            receivedAtMs: ev.timestamp_ms ?? Date.now(),
-          },
-        ],
-      }));
-      break;
-    }
-
-    case "done":
-      // onDone 在 streamSse 调用方处理
-      break;
-  }
-}
