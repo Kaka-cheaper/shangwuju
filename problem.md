@@ -8742,3 +8742,68 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 - 729 backend tests 全过；主链路 LLM_API_KEY / mimo-v2.5-pro / USE_LANGGRAPH 全保留
 
 **注意**：.env 在 .gitignore 里，本次实际入 commit 的是 .env.example + api_contract.md + problem.md。
+
+
+---
+
+## 问题：偏好画像感觉不太对劲（× 按钮 + 太 AI / 重点不突出）
+
+**用户原问**：
+1. 我点击展开后，为什么不是点击收起而是一个 × 按钮？
+2. 整体这个面板的感觉就不对，有点太 ai 了，而且重点不突出，一眼扫过去虽然有足够的信息，但是感觉看不到重点，容易让人忽视
+
+**诊断**：
+
+```text
+| 你的体感         | 根因                                              |
+|----------------|------------------------------------------------|
+| × 不是"收起"     | 语义错配：折叠态有"展开 ⌄"，展开态应该有"收起 ⌃"对仗 |
+| 太 AI / 太 dashboard | 顶栏 trash + 文字 + × 三个图标排列叠加 = 后台管理界面常见模式 |
+| 重点不突出       | persona 7×7 icon + text-base 标题；周围 5 个 chip 视觉权重相同；section-title 灰小，无层级感 |
+| 信息看不到重点    | top_priors 全部一样大；persona.notes 字号小贴 icon 旁边没"叙事感" |
+```
+
+**协作流程**：
+
+1. 用户给方案 A/B/C 三档选 → 选 C（重做架构）
+2. 我给 C 二选一 C1（纸张浪漫）vs C2（极简档案）→ 用户选 C2
+3. 用户提担忧「行程卡片重构会不会耦合」→ 我做解耦自检
+4. 解耦自检报告 4 项小耦合（hardcode rgba / open 不持久化 / 冗余 useEffect）→ 用户决定顺手清掉
+5. 三段提交：解耦小修 → C2 折叠态 → C2 展开态
+
+**修改的代码文件**：
+
+- `frontend/components/PreferencesPanel.tsx`（整个组件重构）
+
+**应当达成的效果**：
+
+折叠态：
+- icon 32×32 → 40×40，rounded-md → rounded-lg（更稳重的档案标识）
+- label text-sm → text-base + semibold（一眼锁定主体）
+- 副标题改为 persona.notes 摘要而非 chip 堆（去 dashboard 味）
+- 已学计数挪到右侧，不再争抢 label 视觉权重
+
+展开态：
+- × 改成「收起 ⌃」与「展开 ⌄」对仗（修语义错配）
+- persona 英雄区：icon 28×28 → 56×56，label 14px → 20px + semibold
+- 去掉「卡里嵌卡」盒中盒；改用 border-t 章节分隔（节制 / 去 nested elevation）
+- 偏好标签前 3 个 chip 字号 +20%（视觉重音）
+- 默认距离改为左右对齐 + mono 大字（数据感强）
+- 历史区数据驱动隐藏（无数据不显示整段）
+- 「清空记忆」下沉 footer，灰色克制
+
+不耦合保证：
+- hardcode rgba 全部提为局部常量（PERSONA_ICON_GRADIENT / HOVER_GLOW）
+- open 持久化到 localStorage（key: shangwuju.preferences.open）
+- 不依赖父级栅格 / 不假设旁边有 ItineraryCard
+- 未来重构布局（移到弹窗 / 抽屉 / 独立路由）只动 HomeView 挂载点，不动本组件
+
+**验证证据**：
+
+```text
+| 验证项                   | 结果                              |
+|------------------------|---------------------------------|
+| pnpm tsc                | 通过                             |
+| pnpm run verify:all     | 4 / 4（lint + tsc + vitest + build 18.2s）|
+| 三段独立 commit          | 3fb0ac4 / 53f0c2a / 2aac21b 任一 commit 都可独立回滚 |
+```
