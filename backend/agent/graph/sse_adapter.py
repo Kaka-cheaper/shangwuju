@@ -7,18 +7,13 @@ chitchat_reply / itinerary_ready / agent_narration / done / stream_error。
 LangGraph astream 模式 = "updates"：每个节点完成后产出 {node_name: state_diff}。
 本适配层订阅 updates，按节点名映射到 SSE 事件。
 
-关键映射：
-- router 完成 → 如果是 chitchat 类，推 chitchat_reply + done
-- intent 完成 → 推 intent_parsed
-- search_*_worker 完成 → 推 tool_call_start + tool_call_end（合成）
-- planner 完成 → 推 agent_thought（plan rationale）
-- critic 完成 + has_critical → 推 replan_triggered
-- assemble 完成 + 有 itinerary → 推 itinerary_ready
-- narrate 完成 → 推 agent_narration
-- 流结束 → 推 done
+文件结构（spec code-modularization-refactor H3）：
+- _emit_context.py   EmitContext 可变状态容器（seq / 累积变量 / emit 工厂）
+- _emit_handlers.py  每个 LangGraph 节点 → SSE 事件的 emit_xxx 函数
+- 本文件             run_graph_stream 主函数：dispatch + yield from + 顶部心跳 / 末尾 DONE
 
 【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P0-H2）】
-- DONE event payload 新增 6 字段总结：
+- DONE event payload 携带 6 字段总结：
   final_strategy / plan_attempts / critic_attempt_count / fallback_hops_count /
   total_ms / has_itinerary
   让前端 / 评委一眼看到本轮 turn 的关键统计（对应 demo 评分项「Agent 行为可见性」）
@@ -26,31 +21,43 @@ LangGraph astream 模式 = "updates"：每个节点完成后产出 {node_name: s
 
 from __future__ import annotations
 
-import asyncio
-import time
 from typing import Any, AsyncIterator
 
 from agent.graph.build import get_compiled_graph
-from agent.graph.state import AgentState, make_initial_state
+from agent.graph.state import make_initial_state
 from schemas.sse import SseEvent, SseEventType
 
+from ._emit_context import EmitContext, make_event, now_ms
+from ._emit_handlers import (
+    emit_assemble,
+    emit_critic,
+    emit_execute_finalize,
+    emit_fanout_worker,
+    emit_ils_replan,
+    emit_intent,
+    emit_narrate,
+    emit_planner,
+    emit_refiner,
+    emit_replan_router,
+    emit_router,
+)
 
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
+# ============================================================
+# 节点名 → emit 函数 dispatch（fan-out worker 三个共享 emit_fanout_worker）
+# ============================================================
 
-def _ev(seq: int, type_: SseEventType, payload: dict[str, Any] | None = None) -> SseEvent:
-    return SseEvent(
-        type=type_,
-        seq=seq,
-        payload=payload or {},
-        timestamp_ms=_now_ms(),
-    )
+_FANOUT_WORKERS = {
+    "search_pois_worker",
+    "search_restaurants_worker",
+    "get_user_profile_worker",
+}
 
 
 # ============================================================
 # 核心：astream → SseEvent 流
 # ============================================================
+
 
 async def run_graph_stream(
     *,
@@ -80,22 +87,10 @@ async def run_graph_stream(
     )
     config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
-    seq = 0
-    start_ms = _now_ms()  # spec R6：用于 DONE payload 的 total_ms
+    ctx = EmitContext()
 
     # 心跳（防 8s 首字节超时）
-    yield _ev(seq, SseEventType.AGENT_THOUGHT, {"text": "正在理解你的需求……"})
-    seq += 1
-
-    # 跟踪是否已经推过 itinerary_ready / chitchat_reply（避免重复）
-    itinerary_emitted = False
-    chitchat_emitted = False
-    last_state: AgentState | None = None
-    # spec R6：累积 DONE payload 需要的 6 字段
-    final_itinerary: Any = None
-    last_plan_attempt: int = 0
-    last_critic_attempts: list[Any] = []
-    last_fallback_chain: list[Any] = []
+    yield ctx.emit(SseEventType.AGENT_THOUGHT, {"text": "正在理解你的需求……"})
 
     try:
         async for chunk in graph.astream(
@@ -106,389 +101,38 @@ async def run_graph_stream(
                 if node_diff is None:
                     continue
 
-                # ---- router ----
+                # ---- dispatch 到对应 emit 函数 ----
                 if node_name == "router":
-                    decision = node_diff.get("router_decision")
-                    route_kind = node_diff.get("route_kind")
-                    if route_kind == "planning":
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {"text": "好的，让我帮你规划一下。"},
-                        )
-                        seq += 1
-                    elif route_kind == "feedback":
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {"text": "收到反馈，正在调整……"},
-                        )
-                        seq += 1
-                        # refiner 开始信号（兼容旧前端）
-                        yield _ev(
-                            seq,
-                            SseEventType.REFINEMENT_START,
-                            {"feedback_text": user_input},
-                        )
-                        seq += 1
-                    elif decision is not None and route_kind != "planning":
-                        # chitchat / meta / emotional / off_topic / ambiguous → 直接推
-                        yield _ev(
-                            seq,
-                            SseEventType.CHITCHAT_REPLY,
-                            decision.model_dump(),
-                        )
-                        seq += 1
-                        chitchat_emitted = True
-
-                # ---- intent ----
+                    events = emit_router(ctx, node_diff, user_input)
                 elif node_name == "intent":
-                    intent = node_diff.get("intent")
-                    if intent is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.INTENT_PARSED,
-                            intent.model_dump(),
-                        )
-                        seq += 1
-
-                # ---- refiner ----
+                    events = emit_intent(ctx, node_diff)
                 elif node_name == "refiner":
-                    intent = node_diff.get("intent")
-                    if intent is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.REFINEMENT_DONE,
-                            {
-                                "refined_intent": intent.model_dump(),
-                                "changed_fields": [],  # 保持向后兼容；详细字段差由前端比对
-                                "refiner_note": "已合并你的反馈，正在重新规划。",
-                            },
-                        )
-                        seq += 1
-                        # 然后用新意图重推 intent_parsed 让前端 IntentSummary 刷新
-                        yield _ev(
-                            seq,
-                            SseEventType.INTENT_PARSED,
-                            intent.model_dump(),
-                        )
-                        seq += 1
-
-                # ---- 3 个搜索 worker（fan-out 并行组）→ 合成 tool_call_start + tool_call_end ----
-                # spec innovation-review R1：加 group_id 让前端可识别同 fan-out 组并横向并列展示
-                elif node_name in (
-                    "search_pois_worker",
-                    "search_restaurants_worker",
-                    "get_user_profile_worker",
-                ):
-                    tool_name = {
-                        "search_pois_worker": "search_pois",
-                        "search_restaurants_worker": "search_restaurants",
-                        "get_user_profile_worker": "get_user_profile",
-                    }[node_name]
-                    fanout_group = "fanout-execute"  # 同 fan-out 组所有 worker 共用
-                    yield _ev(
-                        seq,
-                        SseEventType.TOOL_CALL_START,
-                        {
-                            "tool": tool_name,
-                            "input": {},
-                            "group_id": fanout_group,
-                            "parallel": True,
-                        },
-                    )
-                    seq += 1
-                    # 合成 end（结果数量摘要）
-                    out_summary: dict[str, Any] = {"success": True}
-                    if "pois" in node_diff:
-                        out_summary["count"] = len(node_diff["pois"])
-                    elif "restaurants" in node_diff:
-                        out_summary["count"] = len(node_diff["restaurants"])
-                    elif "user_profile" in node_diff:
-                        out_summary["found"] = node_diff["user_profile"] is not None
-                    # Step 6：tag relaxation 透传（split per worker key）
-                    relaxed = (
-                        node_diff.get("pois_relaxed_tags")
-                        or node_diff.get("restaurants_relaxed_tags")
-                        or []
-                    )
-                    if relaxed:
-                        out_summary["relaxed_tags"] = list(relaxed)
-                    yield _ev(
-                        seq,
-                        SseEventType.TOOL_CALL_END,
-                        {
-                            "tool": tool_name,
-                            "output": out_summary,
-                            "duration_ms": 0,
-                            "group_id": fanout_group,
-                            "parallel": True,
-                        },
-                    )
-                    seq += 1
-
-                # ---- planner ----
+                    events = emit_refiner(ctx, node_diff)
+                elif node_name in _FANOUT_WORKERS:
+                    events = emit_fanout_worker(ctx, node_name, node_diff)
                 elif node_name == "planner":
-                    weights = node_diff.get("weights")
-                    blueprint = node_diff.get("blueprint")
-                    attempt = node_diff.get("plan_attempt", 1)
-                    # plan_attempt > 1 说明这是 critic backprompt 重做
-                    if attempt > 1:
-                        # critic_feedback_text 在 state 中而非 diff 中——
-                        # diff 是 planner 节点本次返回的字段，若 planner 不更新它，
-                        # 这里读 None 也无妨；至少把 attempt 信号推出去
-                        yield _ev(
-                            seq,
-                            SseEventType.CRITIC_FIX_ATTEMPT,
-                            {
-                                "attempt": attempt,
-                                "feedback_text": "（详见上一条 critic_violations）",
-                            },
-                        )
-                        seq += 1
-                    if weights is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {
-                                "text": (
-                                    f"出 plan 第 {attempt} 次（权重 {weights.summary()}）"
-                                ),
-                            },
-                        )
-                        seq += 1
-                    if blueprint is not None and weights is not None:
-                        # edge_v1：蓝图里只有 mid nodes（不含 home 首尾）。
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {
-                                "text": (
-                                    f"蓝图 {len(blueprint.nodes)} 个节点：{blueprint.rationale[:80]}"
-                                ),
-                            },
-                        )
-                        seq += 1
-
-                # ---- critic ----
+                    events = emit_planner(ctx, node_diff)
                 elif node_name == "critic":
-                    has_critical = node_diff.get("has_critical")
-                    violations = node_diff.get("violations") or []
-                    if has_critical:
-                        # 1. 推 CRITIC_VIOLATIONS 让前端可视化每条违规（红色卡片）
-                        violation_dicts = []
-                        for v in violations:
-                            try:
-                                # critics_v2.Violation 是 Pydantic BaseModel
-                                violation_dicts.append(v.model_dump())
-                            except AttributeError:
-                                # 兜底：手工取属性（防 Violation 类型升级时漂）
-                                violation_dicts.append(
-                                    {
-                                        "code": getattr(getattr(v, "code", None), "value", str(getattr(v, "code", ""))),
-                                        "severity": getattr(getattr(v, "severity", None), "value", str(getattr(v, "severity", ""))),
-                                        "message": getattr(v, "message", str(v)),
-                                        "field_path": getattr(v, "field_path", ""),
-                                    }
-                                )
-                        # 仅推 critical（warning 不进 SSE，避免噪声）
-                        critical_only = [
-                            d for d in violation_dicts
-                            if d.get("severity") == "critical"
-                        ]
-                        attempt = node_diff.get("plan_attempt") or 1
-                        yield _ev(
-                            seq,
-                            SseEventType.CRITIC_VIOLATIONS,
-                            {
-                                "violations": critical_only,
-                                "fix_attempt": attempt,
-                            },
-                        )
-                        seq += 1
-                        # 2. 兼容旧前端：再推一条 REPLAN_TRIGGERED
-                        yield _ev(
-                            seq,
-                            SseEventType.REPLAN_TRIGGERED,
-                            {
-                                "reason": "critic_hard_violation",
-                                "from_tool": "critics_v2",
-                                "violations": [
-                                    d.get("message", "") for d in critical_only[:3]
-                                ],
-                            },
-                        )
-                        seq += 1
-                    else:
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {"text": f"方案验证通过（{len(violations)} 条提示）。"},
-                        )
-                        seq += 1
-
-                # ---- replan_router ----
+                    events = emit_critic(ctx, node_diff)
                 elif node_name == "replan_router":
-                    strategy = node_diff.get("replan_strategy")
-                    # 推 PLAN_FALLBACK 让前端展示降级链路
-                    strategy_to_label = {
-                        "llm_backprompt": ("llm_first", "llm_backprompt", "LLM 修正重出"),
-                        "ils_fallback": ("llm_first", "ils", "LLM 失败，切换 ILS 算法兜底"),
-                        "give_up": ("ils", "rule", "ILS 也失败，回 rule planner 兜底"),
-                    }
-                    if strategy in strategy_to_label:
-                        from_, to_, reason = strategy_to_label[strategy]
-                        yield _ev(
-                            seq,
-                            SseEventType.PLAN_FALLBACK,
-                            {"from": from_, "to": to_, "reason": reason},
-                        )
-                        seq += 1
-                    yield _ev(
-                        seq,
-                        SseEventType.AGENT_THOUGHT,
-                        {"text": f"切换重排策略：{strategy}"},
-                    )
-                    seq += 1
-
-                # ---- ils_replan ----
+                    events = emit_replan_router(ctx, node_diff)
                 elif node_name == "ils_replan":
-                    yield _ev(
-                        seq,
-                        SseEventType.AGENT_THOUGHT,
-                        {"text": "ILS 算法兜底重排中……"},
-                    )
-                    seq += 1
-                    # spec execution-quality-review M2：把 ils_replan_node 写回的
-                    # fallback_chain 增量推 PLAN_FALLBACK，让评委看到「ILS → rule」/「rule → give_up」整链
-                    new_chain = node_diff.get("fallback_chain") or []
-                    if len(new_chain) > len(last_fallback_chain):
-                        # 仅推增量（避免重复）
-                        for hop_dict in new_chain[len(last_fallback_chain):]:
-                            from_stage = hop_dict.get("from_stage", "ils")
-                            to_stage = hop_dict.get("to_stage", "give_up")
-                            reason = hop_dict.get("reason", "")
-                            yield _ev(
-                                seq,
-                                SseEventType.PLAN_FALLBACK,
-                                {"from": from_stage, "to": to_stage, "reason": reason},
-                            )
-                            seq += 1
-                            # 同时推一条 agent_thought 让评委看到中文文案
-                            stage_label = {
-                                "rule": "rule planner 安全兜底",
-                                "give_up": "保留当前最佳方案（已尝试所有策略）",
-                            }.get(to_stage, to_stage)
-                            yield _ev(
-                                seq,
-                                SseEventType.AGENT_THOUGHT,
-                                {"text": f"已切换 {stage_label}"},
-                            )
-                            seq += 1
-                    # 如果 ils_replan 写回了 itinerary（rule 兜底成功），推进度提示
-                    if node_diff.get("itinerary") is not None and not node_diff.get("has_critical", True):
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {"text": "兜底方案已就绪，进入文案生成"},
-                        )
-                        seq += 1
-
-                # ---- assemble ----
-                # 注：不推 ITINERARY_READY—— assemble 只是中间状态（critic 还要验），
-                # 最终方案由 narrate 节点统一推送（critic 通过或 give_up 后才是定稿）。
-                # 这里只做一次状态提示，让前端 dock 知道蓝图已拼好正在验证。
+                    events = emit_ils_replan(ctx, node_diff)
                 elif node_name == "assemble":
-                    itin = node_diff.get("itinerary")
-                    if itin is not None:
-                        # 兜底警示：edge_v1 节点缺坐标（assemble 找不到对应 mock 数据）
-                        # 只检查 target_kind ∈ {poi, restaurant}（home 节点本来就无坐标）
-                        miss_coord_count = sum(
-                            1
-                            for n in itin.nodes
-                            if n.target_kind in ("poi", "restaurant")
-                            and (n.lat is None or n.lng is None)
-                        )
-                        if miss_coord_count > 0:
-                            yield _ev(
-                                seq,
-                                SseEventType.AGENT_THOUGHT,
-                                {
-                                    "text": (
-                                        f"⚠ 有 {miss_coord_count} 个节点未能定位坐标"
-                                        f"（mock 数据可能未覆盖该 id），"
-                                        f"地图上对应节点不会标注。"
-                                    ),
-                                },
-                            )
-                            seq += 1
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_THOUGHT,
-                            {"text": "蓝图已拼成行程草稿，正在验证可行性……"},
-                        )
-                        seq += 1
-
-                # ---- narrate ----
-                # narrate 节点是流程的真正终点：critic 通过 → narrate / replan give_up → narrate。
-                # 只在这里推一次 ITINERARY_READY，让前端拿到的就是定稿（含完整 trace）。
+                    events = emit_assemble(ctx, node_diff)
                 elif node_name == "narrate":
-                    text = node_diff.get("narration")
-                    # 从最新 state 取 itinerary 推前端（narrate 自己不改 itinerary）
-                    final_itin = node_diff.get("itinerary") or (
-                        last_state.get("itinerary") if last_state else None
-                    )
-                    if final_itin is not None and not itinerary_emitted:
-                        yield _ev(
-                            seq,
-                            SseEventType.ITINERARY_READY,
-                            final_itin.model_dump() if hasattr(final_itin, "model_dump") else final_itin,
-                        )
-                        seq += 1
-                        itinerary_emitted = True
-                    if text:
-                        yield _ev(
-                            seq,
-                            SseEventType.AGENT_NARRATION,
-                            {"text": text, "stage": "stream"},
-                        )
-                        seq += 1
-                    # 注：MEMORY_PERSISTED 推送已迁到 execute_finalize 段（2026-05-25）
-                    # 产品语义：用户确认预约后才记住偏好；方案就绪不应触发
-
-                # ---- execute_finalize ----
+                    events = emit_narrate(ctx, node_diff)
                 elif node_name == "execute_finalize":
-                    itin = node_diff.get("itinerary")
-                    if itin is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.ITINERARY_READY,
-                            itin.model_dump(),
-                        )
-                        seq += 1
-                    # spec algorithm-redesign R5：memory 副作用结果推 SSE
-                    # 让评委看到「Agent 已把这次行程写回用户画像，下次同场景会召回」
-                    # 2026-05-25 修正：从 narrate 段迁到此处，与「确认预约后才记住」产品语义对齐
-                    memory_status = node_diff.get("memory_status")
-                    if memory_status is not None:
-                        yield _ev(
-                            seq,
-                            SseEventType.MEMORY_PERSISTED,
-                            memory_status,
-                        )
-                        seq += 1
+                    events = emit_execute_finalize(ctx, node_diff)
+                else:
+                    # 未识别节点：跳过事件转换，但仍累积统计
+                    events = []
 
-                # 累积 last_state（用于 done 时的最终 itinerary 兜底）
-                last_state = node_diff
-                # spec R6：累积 DONE payload 需要的字段
-                if "plan_attempt" in node_diff and node_diff["plan_attempt"] is not None:
-                    last_plan_attempt = max(last_plan_attempt, int(node_diff["plan_attempt"]))
-                if "critic_attempts" in node_diff and node_diff["critic_attempts"] is not None:
-                    last_critic_attempts = list(node_diff["critic_attempts"])
-                if "fallback_chain" in node_diff and node_diff["fallback_chain"] is not None:
-                    last_fallback_chain = list(node_diff["fallback_chain"])
-                if "itinerary" in node_diff and node_diff["itinerary"] is not None:
-                    final_itinerary = node_diff["itinerary"]
+                for ev in events:
+                    yield ev
+
+                # 累积 DONE payload 需要的字段（含未识别节点也要更新 last_state）
+                ctx.update_accum_from_diff(node_diff)
 
     except Exception as e:  # noqa: BLE001
         # 防御性：把完整 traceback 写日志，避免只看到「detail = 截断后的无意义碎片」
@@ -510,35 +154,47 @@ async def run_graph_stream(
             detail = f"{detail} @ {tb_short[:200]}"
         except Exception:  # pragma: no cover
             pass
-        yield _ev(
-            seq,
+        yield ctx.emit(
             SseEventType.STREAM_ERROR,
             {"reason": "graph_execution_failed", "detail": detail[:500]},
         )
-        seq += 1
 
     # 流结束（spec R6：DONE payload 加 6 字段总结）
     final_strategy = "llm_first"
     has_itinerary = False
-    if final_itinerary is not None:
+    if ctx.final_itinerary is not None:
         has_itinerary = True
-        trace = getattr(final_itinerary, "decision_trace", None)
+        trace = getattr(ctx.final_itinerary, "decision_trace", None)
         if trace is not None:
-            final_strategy = getattr(trace, "final_strategy", "llm_first") or "llm_first"
+            final_strategy = (
+                getattr(trace, "final_strategy", "llm_first") or "llm_first"
+            )
             # 优先用 trace 上的 fallback_chain（已和最终 itinerary 一致）
             trace_chain = getattr(trace, "fallback_chain", None)
             if trace_chain:
-                last_fallback_chain = list(trace_chain)
+                ctx.last_fallback_chain = list(trace_chain)
             trace_attempts = getattr(trace, "critic_attempts", None)
             if trace_attempts:
-                last_critic_attempts = list(trace_attempts)
+                ctx.last_critic_attempts = list(trace_attempts)
 
     done_payload = {
         "final_strategy": final_strategy,
-        "plan_attempts": last_plan_attempt,
-        "critic_attempt_count": len(last_critic_attempts),
-        "fallback_hops_count": len(last_fallback_chain),
-        "total_ms": _now_ms() - start_ms,
+        "plan_attempts": ctx.last_plan_attempt,
+        "critic_attempt_count": len(ctx.last_critic_attempts),
+        "fallback_hops_count": len(ctx.last_fallback_chain),
+        "total_ms": now_ms() - ctx.start_ms,
         "has_itinerary": has_itinerary,
     }
-    yield _ev(seq, SseEventType.DONE, done_payload)
+    yield ctx.emit(SseEventType.DONE, done_payload)
+
+
+# ============================================================
+# 向后兼容：保留旧的 _now_ms / _ev 名字（被外部 test 引用的话不破）
+# ============================================================
+
+_now_ms = now_ms
+
+
+def _ev(seq: int, type_: SseEventType, payload: dict[str, Any] | None = None) -> SseEvent:
+    """旧版 _ev 工厂（向后兼容）。新代码直接用 EmitContext.emit。"""
+    return make_event(seq, type_, payload)
