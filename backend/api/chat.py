@@ -93,7 +93,7 @@ async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSource
         env_value=os.getenv("PLANNER_MODE"),
     )
     return EventSourceResponse(
-        safe_stream(_stub_confirm(req)),
+        safe_stream(_stub_confirm(req, mode=mode)),
         media_type="text/event-stream",
         headers={"X-Planner-Mode": mode},
     )

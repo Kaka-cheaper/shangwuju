@@ -104,6 +104,25 @@ def _intent_via_llm(message: str, *, user_id: str | None = None) -> IntentExtrac
         )
 
 
+def _intent_via_mode(
+    message: str,
+    *,
+    mode: str,
+    user_id: str | None = None,
+) -> IntentExtraction:
+    """按 mode 分发意图解析。
+
+    - mode == "rule"：纯算法路径（关键词 + 词典 + 正则；毫秒级，不调 LLM）
+    - mode == "llm" ：调真 LLM 解析（_intent_via_llm；3-8 秒）
+    - 其它          ：默认走 llm 兼容旧调用方
+    """
+    if mode == "rule":
+        from .intent_rules import parse_intent_via_rules
+
+        return parse_intent_via_rules(message, user_id=user_id)
+    return _intent_via_llm(message, user_id=user_id)
+
+
 def _record_to_sse(
     record: Any,
     seq: int,
@@ -189,7 +208,8 @@ async def _planner_stream(
             if intent_override is not None:
                 intent = intent_override
             else:
-                intent = _intent_via_llm(req.message, user_id=user_id)
+                # mode=rule 走纯算法；mode=llm 走真 LLM；保证 rule 模式整链零 LLM
+                intent = _intent_via_mode(req.message, mode=mode, user_id=user_id)
                 # 立刻 emit intent_parsed，让前端尽快看到结果
                 tracer.emit("intent_parsed", intent.model_dump())
             plan_result_holder["intent"] = intent
@@ -260,18 +280,19 @@ async def _planner_stream(
             "user_id": user_id or "demo_user",
         }
 
-    # ---- 暖心开场白（行程出炉时；真 LLM 模式调 LLM 生成有"人味"文案）----
+    # ---- 暖心开场白（行程出炉时；rule 模式走模板秒回，llm 模式调 LLM）----
     narration_text: str | None = None
     if intent is not None and result is not None and result.itinerary is not None:
         try:
             from agent.intent.narrator import generate_narration
 
+            # rule 模式 use_llm=False 走纯模板（毫秒级），llm 模式调 LLM 出有"人味"文案
             narration_text = await asyncio.to_thread(
                 generate_narration,
                 intent=intent,
                 itinerary=result.itinerary,
                 stage="stream",
-                use_llm=True,  # 真 planner 路径默认走 LLM；失败自动 fallback 到模板
+                use_llm=(mode != "rule"),
             )
             yield SseEvent(
                 type=SseEventType.AGENT_NARRATION,

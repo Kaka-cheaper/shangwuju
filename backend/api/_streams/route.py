@@ -148,13 +148,45 @@ async def _routed_stream_real(
     mode: str,
     user_id: str,
 ) -> AsyncIterator[SseEvent]:
-    """真链路带 router：先 LLM 分类，planning → 主 planner，否则推 chitchat_reply。
+    """真链路带 router：先分类，planning → 主 planner，否则推 chitchat_reply。
 
-    关键防御：
+    模式分发：
+    - mode == "rule" ：用 _stub_route 关键词 fast path 做分类（毫秒级）
+                       未命中视为 PLANNING 走主路径；保证 rule 模式整链零 LLM 调用
+    - mode == "llm"  ：调 LLM router classify_input（5-10s，覆盖范围更广）
+                       LLM 失败 → _stub_route 兜底 → 仍失败按 PLANNING 兜底
+
+    关键防御（仅 llm 模式需要）：
     - 在调 LLM 前推一条 agent_thought 心跳 → 防 8s 首字节超时
-    - LLM 抛错 → 关键词 fast path → 仍失败 → 按 PLANNING 兜底（原行为）
-    - planning 类不重复推 reply_text（让 _planner_stream 的事件序列接管）
+    - LLM 抛错 → 关键词 fast path → 仍失败 → 按 PLANNING 兜底
     """
+    # ---- rule 模式：纯算法路由（毫秒级，无心跳必要）----
+    if mode == "rule":
+        decision = _stub_route(req.message)
+        if decision is not None and decision.input_kind != InputKind.PLANNING:
+            yield _make_chitchat_event(decision, 0)
+            try:
+                from agent.runtime.orchestrator import record_chitchat_result
+
+                await record_chitchat_result(
+                    session_id=req.session_id,
+                    user_id=user_id,
+                    user_message=req.message,
+                    decision=decision,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            await _delay(120)
+            yield SseEvent(type=SseEventType.DONE, seq=1)
+            return
+        # PLANNING 路径（_stub_route 返 None 也视作 PLANNING）→ 直接进 _planner_stream
+        async for ev in _planner_stream(
+            req, mode=mode, user_id=user_id, starting_seq=0
+        ):
+            yield ev
+        return
+
+    # ---- llm 模式：真 LLM 分类（5-10s，需心跳防超时）----
     import asyncio
     import threading
 

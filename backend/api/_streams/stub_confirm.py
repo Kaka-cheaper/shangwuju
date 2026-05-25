@@ -17,8 +17,17 @@ from .memory import _accumulate_memory_after_confirm
 from .models import ChatConfirmRequest
 
 
-async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
-    """MVP-2 stub：confirm → reserve_restaurant + generate_share_message。"""
+async def _stub_confirm(
+    req: ChatConfirmRequest,
+    *,
+    mode: str = "rule",
+) -> AsyncIterator[SseEvent]:
+    """MVP-2 stub：confirm → reserve_restaurant + generate_share_message。
+
+    mode 控制 confirm 阶段 narration 是否调 LLM：
+    - "rule"：use_llm=False 走模板（毫秒级）
+    - "llm" ：use_llm=True 调 LLM 出有"人味"文案（15-25s）
+    """
     seq = 0
 
     def emit(type_: SseEventType, payload: dict[str, Any]) -> SseEvent:
@@ -138,7 +147,7 @@ async def _stub_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
                     intent=intent_obj,
                     itinerary=itin_obj,
                     stage="confirm",
-                    use_llm=_use_real_planner(),
+                    use_llm=(mode != "rule" and _use_real_planner()),
                 )
                 yield emit(
                     SseEventType.AGENT_NARRATION,
