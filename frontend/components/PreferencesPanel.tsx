@@ -71,17 +71,17 @@ export default function PreferencesPanel() {
 
   if (!open) {
     const persona = preferences?.persona;
-    const top_priors = preferences?.top_priors ?? [];
     const acceptedCount = preferences?.memory
       ? Object.values(preferences.memory.accepted_tags.counts).reduce(
           (a, b) => a + b,
           0,
         )
       : 0;
-    const previewTags = top_priors.slice(0, 2);
     const PersonaIcon = persona
       ? personaIconFromEmoji(persona.icon)
       : Icons.user;
+    // 副标题：用 persona.notes 摘要，没有时退回静默引导
+    const subtitle = persona?.notes ?? "点击查看 Agent 已学到的偏好";
 
     return (
       <button
@@ -89,80 +89,65 @@ export default function PreferencesPanel() {
         onClick={() => setOpen(true)}
         title="查看当前用户的偏好画像与历史记忆"
         className={cn(
-          "w-full group relative flex items-center justify-between gap-3",
-          "rounded-lg border border-white/[0.08] bg-white/[0.04]",
-          "px-3.5 py-2.5 text-left",
+          "w-full group relative flex items-center gap-3.5",
+          "rounded-xl border border-white/[0.08] bg-white/[0.04]",
+          "px-4 py-3 text-left",
           "hover:border-caramel-400/40 hover:bg-white/[0.06]",
           "hover:shadow-glow-caramel transition-all duration-200",
           "active:scale-[0.99]",
           "backdrop-blur-sm overflow-hidden",
         )}
       >
-        {/* hover 时浮现暖焦糖光斑（替代原紫粉） */}
+        {/* hover 时浮现暖焦糖光斑 */}
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
           style={{ background: HOVER_GLOW }}
         />
-        <div className="relative flex items-center gap-2.5 min-w-0 flex-1">
-          <div
-            className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 border border-white/[0.08]"
-            style={{ background: PERSONA_ICON_GRADIENT }}
-          >
-            <PersonaIcon
-              className="w-4 h-4 text-caramel-300"
-              strokeWidth={1.75}
-            />
+
+        {/* 大 icon —— 视觉锚点 */}
+        <div
+          className="relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0 border border-white/[0.08]"
+          style={{ background: PERSONA_ICON_GRADIENT }}
+        >
+          <PersonaIcon
+            className="w-5 h-5 text-caramel-300"
+            strokeWidth={1.75}
+          />
+        </div>
+
+        {/* 主体：两行文字（label + notes 摘要），重点突出 */}
+        <div className="relative min-w-0 flex-1">
+          <div className="text-base font-semibold text-ink-900 truncate tracking-tight">
+            {persona?.label ?? "偏好画像"}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-medium text-ink-900 truncate tracking-tight">
-                {persona?.label ?? "偏好画像"}
-              </span>
-              {acceptedCount > 0 && (
-                <span className="chip-success shrink-0 text-[10px]">
-                  已学 <span className="mono mx-0.5">{acceptedCount}</span> 次
-                </span>
-              )}
-            </div>
-            {previewTags.length > 0 ? (
-              <div className="mt-1 flex flex-wrap gap-1 overflow-hidden">
-                {previewTags.map((t) => (
-                  <span
-                    key={t}
-                    className="chip-warm text-[10px] truncate max-w-[100px]"
-                  >
-                    {t}
-                  </span>
-                ))}
-                {top_priors.length > 2 && (
-                  <span className="text-[10px] text-ink-500 self-center">
-                    · 共 {top_priors.length} 项
-                  </span>
-                )}
-              </div>
-            ) : (
-              <div className="mt-0.5 text-[11px] text-ink-500">
-                {persona?.notes ?? "点击查看 Agent 已学到的偏好"}
-              </div>
-            )}
+          <div className="mt-0.5 text-[11.5px] text-ink-500 truncate leading-relaxed">
+            {subtitle}
           </div>
         </div>
-        <div className="relative text-[11px] text-ink-500 group-hover:text-caramel-300 transition-colors shrink-0 flex items-center gap-1">
-          <span>展开</span>
-          <svg
-            className="w-3 h-3 transition-transform group-hover:translate-y-0.5"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              d="M3 4.5L6 7.5L9 4.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+
+        {/* 右侧：已学计数（小）+ 展开箭头 */}
+        <div className="relative shrink-0 flex items-center gap-2">
+          {acceptedCount > 0 && (
+            <span className="chip-success text-[10px]">
+              已学 <span className="mono mx-0.5">{acceptedCount}</span>
+            </span>
+          )}
+          <span className="text-ink-500 group-hover:text-caramel-300 transition-colors">
+            <svg
+              className="w-3.5 h-3.5 transition-transform group-hover:translate-y-0.5"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                d="M3 4.5L6 7.5L9 4.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
         </div>
       </button>
     );
