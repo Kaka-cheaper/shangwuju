@@ -15,9 +15,11 @@
  */
 
 import { useEffect, useState } from "react";
+import type { LucideIcon } from "lucide-react";
 
 import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
+import type { Persona } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ============================================================
@@ -175,18 +177,20 @@ export default function PreferencesPanel() {
     : Icons.user;
 
   return (
-    <div className="card p-4 animate-fade-in">
+    <div className="card overflow-hidden animate-fade-in">
       {/* 头部：始终在最上方；展开/折叠态高度一致（min-h-[64px] = 折叠态 icon 40+双行文字+padding）
-          整行可点击收起，视觉规格 = 折叠态主标题（text-base semibold） */}
+          整行可点击收起，视觉规格 = 折叠态主标题（text-base semibold）
+          直接占满 card 宽度（card overflow-hidden + button w-full + 顶部 rounded-t-2xl 与 card 圆角对齐） */}
       <button
         type="button"
         onClick={() => setOpen(false)}
         aria-label="收起偏好画像"
         className={cn(
-          "group w-full -mx-4 -mt-4 px-4 py-3 min-h-[64px]",
+          "group w-full px-4 py-3 min-h-[64px]",
           "flex items-center gap-3.5",
-          "rounded-t-2xl hover:bg-white/[0.03] transition-colors",
+          "hover:bg-white/[0.03] transition-colors",
           "text-left",
+          "border-b border-white/[0.06]",
         )}
       >
         <div className="min-w-0 flex-1">
@@ -211,132 +215,172 @@ export default function PreferencesPanel() {
         </span>
       </button>
 
-      {!persona ? (
-        <div className="mt-4 text-ink-500 text-xs">加载中…</div>
-      ) : (
-        <>
-          {/* persona 英雄区：大 icon + 大字 label + 叙事 notes */}
-          <div className="mt-4 pt-4 border-t border-white/[0.06]">
-            <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center border border-white/[0.08]"
-              style={{ background: PERSONA_ICON_GRADIENT }}
-            >
-              <PersonaIcon
-                className="w-7 h-7 text-caramel-300"
-                strokeWidth={1.75}
-              />
-            </div>
-            <h3 className="mt-3 text-xl font-semibold text-ink-900 tracking-tight">
-              {persona.label}
-            </h3>
-            {persona.notes && (
-              <p className="mt-1.5 text-[12.5px] text-ink-600 leading-relaxed">
-                {persona.notes}
-              </p>
-            )}
-          </div>
-
-          {/* 偏好标签：前 3 个加大字号；其余正常 */}
-          <div className="mt-5 pt-5 border-t border-white/[0.06]">
-            <div className="text-[11px] text-ink-500 tracking-wide mb-2.5">
-              常去标签
-            </div>
-            {top_priors.length === 0 ? (
-              <div className="text-ink-500 text-[12px]">还没积累偏好</div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {top_priors.map((t, i) => (
-                  <span
-                    key={t}
-                    className={cn(
-                      "chip-warm",
-                      // 前 3 个加大字号；其余正常（视觉重音）
-                      i < 3 ? "text-[12px] px-2.5 py-1" : "text-[11px]",
-                    )}
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 默认距离：左右对齐，数字 mono 字号大 */}
-          {suggested != null && (
-            <div className="mt-5 pt-5 border-t border-white/[0.06] flex items-baseline justify-between">
-              <span className="text-[11px] text-ink-500 tracking-wide">
-                默认距离
-              </span>
-              <span className="text-[15px] font-semibold text-ink-900 mono">
-                {suggested}
-                <span className="ml-1 text-[11px] font-normal text-ink-500">
-                  km
-                </span>
-              </span>
-            </div>
-          )}
-
-          {/* 历史记录：接受 / 拒绝（极简，仅当有数据时显示） */}
-          {(acceptedTop.length > 0 || rejectedTop.length > 0) && (
-            <div className="mt-5 pt-5 border-t border-white/[0.06] space-y-3">
-              {acceptedTop.length > 0 && (
-                <div>
-                  <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
-                    最近接受
-                  </div>
-                  <ul className="space-y-1">
-                    {acceptedTop.map(([t, n]) => (
-                      <li
-                        key={t}
-                        className="flex justify-between items-center text-[12px]"
-                      >
-                        <span className="text-ink-800">{t}</span>
-                        <span className="text-ink-500 mono text-[11px]">
-                          ×{n}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {rejectedTop.length > 0 && (
-                <div>
-                  <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
-                    最近拒绝
-                  </div>
-                  <ul className="space-y-1">
-                    {rejectedTop.map(([t, n]) => (
-                      <li
-                        key={t}
-                        className="flex justify-between items-center text-[12px]"
-                      >
-                        <span className="text-ink-800">{t}</span>
-                        <span className="text-ink-500 mono text-[11px]">
-                          ×{n}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* footer：清空记忆按钮（克制，灰色，hover 才显眼） */}
-          <div className="mt-5 pt-3 border-t border-white/[0.06] flex justify-end">
-            <button
-              type="button"
-              onClick={resetUserMemory}
-              className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-rose-400 transition-colors"
-              title="清空当前用户的累积偏好（演示完清场用）"
-            >
-              <Icons.trash className="w-3 h-3" strokeWidth={2} />
-              清空记忆
-            </button>
-          </div>
-        </>
-      )}
+      {/* 内容区：替换原 card p-4 的 padding（header 已自占顶部，所以 pt-4） */}
+      <div className="px-4 pt-4 pb-4">
+        {!persona ? (
+          <div className="text-ink-500 text-xs">加载中…</div>
+        ) : (
+          <ContentSections
+            persona={persona}
+            PersonaIcon={PersonaIcon}
+            top_priors={top_priors}
+            suggested={suggested}
+            acceptedTop={acceptedTop}
+            rejectedTop={rejectedTop}
+            onResetMemory={resetUserMemory}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+// ============================================================
+// 展开态内容区：persona 英雄区 + 标签 + 距离 + 历史 + 清空按钮
+// 抽出为独立组件，避免主体 return 嵌套过深
+// ============================================================
+
+interface ContentSectionsProps {
+  persona: Persona;
+  PersonaIcon: LucideIcon;
+  top_priors: string[];
+  suggested: number | null | undefined;
+  acceptedTop: [string, number][];
+  rejectedTop: [string, number][];
+  onResetMemory: () => void;
+}
+
+function ContentSections({
+  persona,
+  PersonaIcon,
+  top_priors,
+  suggested,
+  acceptedTop,
+  rejectedTop,
+  onResetMemory,
+}: ContentSectionsProps) {
+  return (
+    <>
+      {/* persona 英雄区：大 icon + 大字 label + 叙事 notes */}
+      <div>
+        <div
+          className="w-14 h-14 rounded-xl flex items-center justify-center border border-white/[0.08]"
+          style={{ background: PERSONA_ICON_GRADIENT }}
+        >
+          <PersonaIcon
+            className="w-7 h-7 text-caramel-300"
+            strokeWidth={1.75}
+          />
+        </div>
+        <h3 className="mt-3 text-xl font-semibold text-ink-900 tracking-tight">
+          {persona.label}
+        </h3>
+        {persona.notes && (
+          <p className="mt-1.5 text-[12.5px] text-ink-600 leading-relaxed">
+            {persona.notes}
+          </p>
+        )}
+      </div>
+
+      {/* 偏好标签：前 3 个加大字号；其余正常 */}
+      <div className="mt-5 pt-5 border-t border-white/[0.06]">
+        <div className="text-[11px] text-ink-500 tracking-wide mb-2.5">
+          常去标签
+        </div>
+        {top_priors.length === 0 ? (
+          <div className="text-ink-500 text-[12px]">还没积累偏好</div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {top_priors.map((t, i) => (
+              <span
+                key={t}
+                className={cn(
+                  "chip-warm",
+                  // 前 3 个加大字号；其余正常（视觉重音）
+                  i < 3 ? "text-[12px] px-2.5 py-1" : "text-[11px]",
+                )}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 默认距离：左右对齐，数字 mono 字号大 */}
+      {suggested != null && (
+        <div className="mt-5 pt-5 border-t border-white/[0.06] flex items-baseline justify-between">
+          <span className="text-[11px] text-ink-500 tracking-wide">
+            默认距离
+          </span>
+          <span className="text-[15px] font-semibold text-ink-900 mono">
+            {suggested}
+            <span className="ml-1 text-[11px] font-normal text-ink-500">
+              km
+            </span>
+          </span>
+        </div>
+      )}
+
+      {/* 历史记录：接受 / 拒绝（极简，仅当有数据时显示） */}
+      {(acceptedTop.length > 0 || rejectedTop.length > 0) && (
+        <div className="mt-5 pt-5 border-t border-white/[0.06] space-y-3">
+          {acceptedTop.length > 0 && (
+            <div>
+              <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
+                最近接受
+              </div>
+              <ul className="space-y-1">
+                {acceptedTop.map(([t, n]) => (
+                  <li
+                    key={t}
+                    className="flex justify-between items-center text-[12px]"
+                  >
+                    <span className="text-ink-800">{t}</span>
+                    <span className="text-ink-500 mono text-[11px]">
+                      ×{n}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {rejectedTop.length > 0 && (
+            <div>
+              <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
+                最近拒绝
+              </div>
+              <ul className="space-y-1">
+                {rejectedTop.map(([t, n]) => (
+                  <li
+                    key={t}
+                    className="flex justify-between items-center text-[12px]"
+                  >
+                    <span className="text-ink-800">{t}</span>
+                    <span className="text-ink-500 mono text-[11px]">
+                      ×{n}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* footer：清空记忆按钮（克制，灰色，hover 才显眼） */}
+      <div className="mt-5 pt-3 border-t border-white/[0.06] flex justify-end">
+        <button
+          type="button"
+          onClick={onResetMemory}
+          className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-rose-400 transition-colors"
+          title="清空当前用户的累积偏好（演示完清场用）"
+        >
+          <Icons.trash className="w-3 h-3" strokeWidth={2} />
+          清空记忆
+        </button>
+      </div>
+    </>
   );
 }
