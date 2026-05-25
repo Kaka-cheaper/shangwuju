@@ -59,105 +59,35 @@ from schemas import (
 )
 from schemas.errors import FailureReason
 
+# 拆分后的 router 子模块（spec code-modularization-refactor）
+from api import amap as _amap_router_module
+from api import health as _health_router_module
+from api import legal as _legal_router_module
+from api import oauth as _oauth_router_module
+from api import preferences as _preferences_router_module
+from api import scenarios as _scenarios_router_module
+from api._session_store import SESSION_STORE as _SESSION_STORE
+from api._session_store import resolve_user_id as _resolve_user_id
+from api._sse_helpers import delay as _delay
+from api._sse_helpers import now_ms as _now_ms
+from api._sse_helpers import safe_stream as _safe_stream
+from api._sse_helpers import to_sse as _to_sse
+from api.health import VERSION, _use_real_planner
+from api.scenarios import SCENARIOS
+
 
 # ============================================================
-# 配置
+# 配置（具体定义见 api/health.py + api/scenarios.py）
 # ============================================================
 
-VERSION = "0.1.0"
 # 仅作 /health 显示用；解耦后真假 planner 由 _use_real_planner() 单独判断
 LLM_PROVIDER = (os.getenv("LLM_PROVIDER") or "").strip() or "openai-compatible"
 CORS_ORIGINS_RAW = os.getenv("SHANGWUJU_CORS_ORIGINS", "http://localhost:3000")
 CORS_ORIGINS = [o.strip() for o in CORS_ORIGINS_RAW.split(",") if o.strip()]
 
 
-def _use_real_planner() -> bool:
-    """是否启用真 planner 链路（意图解析 + plan_itinerary_with_mode）。
-
-    解析顺序（优先级递减）：
-    1. PLANNER_USE_REAL 显式开关（1/true/yes/on → 真，0/false/no/off → 假）
-    2. LLM_PROVIDER=stub  → 假（开发/单测兼容）
-    3. 有任意 LLM credential（LLM_API_KEY 或旧名 DEEPSEEK_API_KEY/QWEN_API_KEY）→ 真
-    4. 默认 → 假（即纯 stub fixture，不调任何 LLM）
-    """
-    raw = os.getenv("PLANNER_USE_REAL")
-    if raw is not None and raw.strip() != "":
-        return raw.strip().lower() in ("1", "true", "yes", "on")
-
-    explicit_provider = (os.getenv("LLM_PROVIDER") or "").strip().lower()
-    if explicit_provider == "stub":
-        return False
-
-    has_credential = bool(
-        (os.getenv("LLM_API_KEY") or "").strip()
-        or (os.getenv("DEEPSEEK_API_KEY") or "").strip()
-        or (os.getenv("QWEN_API_KEY") or "").strip()
-    )
-    return has_credential
-
-
 # ============================================================
-# 演示场景集（来源：docs/01-requirements/演示场景集.md §二）
-# ============================================================
-
-#
-# 顺序约定：新增的两条青年向场景置首位（小团 App 主力用户群），
-# 原家庭/朋友/情侣等顺延；原「带父母散步」与「跨代际纪念日」两条
-# 长辈向场景从演示按钮中下线（mock 数据与回归测试仍保留覆盖）。
-SCENARIOS: list[dict[str, str]] = [
-    {
-        "id": "S1",
-        "title": "学生党 KTV 局",
-        "input": "周五晚上和室友 4 个人想去 K 歌，预算别太贵",
-        "icon": "🎤",
-    },
-    {
-        "id": "S2",
-        "title": "兄弟撸串夜宵",
-        "input": "今晚和兄弟出来撸串喝点酒，人均 50 左右就行",
-        "icon": "🍢",
-    },
-    {
-        "id": "S3",
-        "title": "家庭主线",
-        "input": "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",
-        "icon": "👨‍👩‍👧",
-    },
-    {
-        "id": "S4",
-        "title": "朋友 4 人",
-        "input": "今天下午想和朋友出去玩几小时，4 个人 2 男 2 女，别离家太远。",
-        "icon": "👫",
-    },
-    {
-        "id": "S5",
-        "title": "情侣看展",
-        "input": "周日下午带着女朋友去看个展，顺便找个安静能聊天的地方吃饭。",
-        "icon": "💑",
-    },
-    {
-        "id": "S6",
-        "title": "闺蜜下午茶",
-        "input": "周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。",
-        "icon": "👯",
-    },
-    {
-        "id": "S7",
-        "title": "商务接待",
-        "input": "下午临时被叫去接个外地客户，对方是商务人士，帮我安排下。",
-        "icon": "💼",
-    },
-    {
-        "id": "S8",
-        "title": "独处放空",
-        "input": "这周加班加得想吐，下午想一个人安安静静待几个小时再回家。",
-        "icon": "🌿",
-    },
-]
-
-
-# ============================================================
-# Request / 内存 session 存
+# Request 模型（chat 端点用）
 # ============================================================
 
 class ChatStreamRequest(BaseModel):
@@ -196,19 +126,7 @@ class ChatConfirmRequest(BaseModel):
     )
 
 
-def _resolve_user_id(
-    body_user_id: Optional[str],
-    header_user_id: Optional[str],
-) -> str:
-    """优先级：body.user_id > X-User-Id header > "demo_user"。"""
-    for candidate in (body_user_id, header_user_id):
-        if candidate and candidate.strip():
-            return candidate.strip()
-    return "demo_user"
-
-
-# session_id -> {"intent": ..., "itinerary": ...}（demo 级 in-memory）
-_SESSION_STORE: dict[str, dict[str, Any]] = {}
+# session_id -> {"intent": ..., "itinerary": ...}（demo 级 in-memory）—— 实际定义见 api/_session_store.py
 
 
 # ============================================================
@@ -280,402 +198,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ============================================================
-# 端点
+# 拆分后的 router（spec code-modularization-refactor）
 # ============================================================
-
-@app.get("/health", tags=["健康探活"], summary="liveness 探针")
-def health() -> dict[str, str]:
-    """健康检查 + 当前生效配置。
-
-    `llm_provider` 与 `planner_real` 反映**当前真实**配置（解耦后由 base_url 自动推断 +
-    _use_real_planner() 判断），不再被 .env 中是否显式设 LLM_PROVIDER 干扰。
-    """
-    # 推断真实 provider 展示名：stub 模式下显示 stub；否则由客户端工厂解析
-    if (os.getenv("LLM_PROVIDER") or "").strip().lower() == "stub":
-        provider_display = "stub"
-    else:
-        try:
-            from agent.core.llm_client import _resolve_creds
-
-            _, _, _, provider_display = _resolve_creds(None)
-        except Exception:  # noqa: BLE001
-            provider_display = "openai-compatible"
-    return {
-        "status": "ok",
-        "version": VERSION,
-        "llm_provider": provider_display,
-        "planner_mode": current_env_mode(),
-        "planner_real": "1" if _use_real_planner() else "0",
-    }
-
-
-@app.get("/ready", tags=["健康探活"], summary="readiness 探针")
-async def ready() -> dict[str, Any]:
-    """就绪检查（Kubernetes / FC / docker compose 用）。
-
-    与 /health 的区别：
-    - /health 是「我活着吗」（进程跑了就 OK）→ liveness probe
-    - /ready  是「我能接流量吗」（依赖都通 + 配置都对）→ readiness probe
-
-    探活清单：
-    - LLM 配置（base_url / key 至少有一项可用，stub 视为可用）
-    - Redis 可达（仅当 SESSION_STORE=redis 或 REDIS_URL 配了才探，
-      InMemory 模式下默认 always ready）
-    - mock 数据可加载（防镜像漏 copy mock_data 卷）
-
-    任何子项失败 → HTTP 503 Service Unavailable，前端 / FC 健康检查会重试。
-    """
-    checks: dict[str, dict[str, Any]] = {}
-    overall_ok = True
-
-    # 1. LLM 配置
-    llm_provider_env = (os.getenv("LLM_PROVIDER") or "").strip().lower()
-    if llm_provider_env == "stub":
-        checks["llm"] = {"ok": True, "provider": "stub"}
-    else:
-        try:
-            from agent.core.llm_client import _resolve_creds
-
-            _, _, _, provider_display = _resolve_creds(None)
-            checks["llm"] = {"ok": True, "provider": provider_display}
-        except Exception as e:  # noqa: BLE001
-            checks["llm"] = {"ok": False, "error": str(e)[:200]}
-            overall_ok = False
-
-    # 2. Redis（仅 SESSION_STORE=redis 或显式配 REDIS_URL 时探）
-    redis_url = os.getenv("REDIS_URL")
-    session_store = (os.getenv("SESSION_STORE") or "memory").strip().lower()
-    if session_store == "redis" or redis_url:
-        try:
-            # 懒导入避免单测路径加载 redis-py
-            import redis.asyncio as redis_async  # type: ignore[import-not-found]
-
-            client = redis_async.from_url(
-                redis_url or "redis://localhost:6379/0",
-                socket_connect_timeout=2,
-                socket_timeout=2,
-            )
-            pong = await client.ping()
-            await client.aclose()
-            checks["redis"] = {"ok": bool(pong), "url": redis_url or "redis://localhost:6379/0"}
-            if not pong:
-                overall_ok = False
-        except Exception as e:  # noqa: BLE001
-            checks["redis"] = {"ok": False, "error": str(e)[:200]}
-            overall_ok = False
-    else:
-        checks["redis"] = {"ok": True, "skipped": "session_store=memory"}
-
-    # 3. mock 数据可加载（POI/餐厅）
-    try:
-        from data.loader import load_pois, load_restaurants
-
-        pois_count = len(load_pois())
-        rests_count = len(load_restaurants())
-        checks["mock_data"] = {
-            "ok": pois_count > 0 and rests_count > 0,
-            "pois": pois_count,
-            "restaurants": rests_count,
-        }
-        if pois_count == 0 or rests_count == 0:
-            overall_ok = False
-    except Exception as e:  # noqa: BLE001
-        checks["mock_data"] = {"ok": False, "error": str(e)[:200]}
-        overall_ok = False
-
-    body = {
-        "status": "ready" if overall_ok else "not_ready",
-        "version": VERSION,
-        "checks": checks,
-    }
-    if not overall_ok:
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(body, status_code=503)
-    return body
-
-
-@app.get("/scenarios", tags=["演示场景"], summary="拉 8 个演示场景的输入文案")
-def scenarios() -> dict[str, list[dict[str, str]]]:
-    return {"scenarios": SCENARIOS}
+# 各 router 的端点定义、tag、summary 见对应 api/*.py 文件。
+app.include_router(_health_router_module.router)
+app.include_router(_scenarios_router_module.router)
+app.include_router(_amap_router_module.router)
+app.include_router(_preferences_router_module.router)
+app.include_router(_legal_router_module.router)
+app.include_router(_oauth_router_module.router)
 
 
 # ============================================================
-# 高德 JS API 安全代理（spec frontend-experience-innovation R2）
+# 端点：除 chat/* 与 room/* 外全部已迁到 api/* 子路由
 # ============================================================
-#
-# 设计动机：
-#   高德 JS API 2.0 强制要求 jscode 安全密钥才能加载地图。
-#   - 直接放前端 NEXT_PUBLIC_AMAP_JS_CODE 会被打包进 bundle 暴露
-#   - 走后端代理：jscode 只存在 backend/.env，前端发给 /_AMapService/xxx
-#     的请求由后端透传到 restapi.amap.com 并注入 jscode
-#
-# 协议（高德官方约定）：
-#   前端：window._AMapSecurityConfig = { serviceHost: "/_AMapService" }
-#   高德 SDK 调用 amap restapi 时，会自动改写 URL 把 host 替换成 serviceHost
-#   即 https://restapi.amap.com/v3/staticmap?xxx
-#       → /_AMapService/v3/staticmap?xxx
-#   本端点接到后转回真实 host 并注入 jscode
+# - /health, /ready              → api/health.py
+# - /scenarios                   → api/scenarios.py
+# - /_AMapService/{path:path}    → api/amap.py
+# - /personas, /preferences/*    → api/preferences.py
+# - /legal/*                     → api/legal.py
+# - /auth/*                      → api/oauth.py
+# main.py 仅保留 chat 主入口 + 协作房间 / WebSocket（依赖大量内部 helper）。
 
-_AMAP_UPSTREAM = "https://restapi.amap.com"
+# ============================================================
+# 高德 JS API 安全代理（保留 _AMAP_JS_CODE 兼容旧调用方）
+# ============================================================
+
 _AMAP_JS_CODE = (os.getenv("AMAP_JS_CODE") or "").strip()
-
-
-@app.api_route(
-    "/_AMapService/{path:path}",
-    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-    include_in_schema=False,
-)
-async def amap_proxy(path: str, request: Request) -> Response:
-    """高德 REST API 透传代理 + jscode 注入。
-
-    透传策略：
-        - 保留 query params + 注入 jscode
-        - 保留 body（GET 通常无 body）
-        - 返回内容、Content-Type、status 原样回传
-        - 不缓存（高德侧已有自己的缓存策略）
-    """
-    if not _AMAP_JS_CODE:
-        raise HTTPException(
-            status_code=500,
-            detail="AMAP_JS_CODE not configured in backend/.env",
-        )
-
-    # 拼上游 URL（保留 query string 顺序）
-    target_url = f"{_AMAP_UPSTREAM}/{path}"
-    params = dict(request.query_params)
-    params["jscode"] = _AMAP_JS_CODE
-
-    # 透传必要 header（不带 host / cookie）
-    forward_headers: dict[str, str] = {}
-    for k, v in request.headers.items():
-        kl = k.lower()
-        if kl in ("user-agent", "accept", "accept-language", "content-type"):
-            forward_headers[k] = v
-
-    # 读 body（GET 通常空）
-    body = await request.body() if request.method != "GET" else None
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            upstream_resp = await client.request(
-                method=request.method,
-                url=target_url,
-                params=params,
-                headers=forward_headers,
-                content=body,
-            )
-    except httpx.HTTPError as e:
-        raise HTTPException(
-            status_code=502,
-            detail=f"AMap upstream error: {type(e).__name__}: {e}",
-        ) from e
-
-    # 把上游响应原样返回（保留 Content-Type 让浏览器正确解析图片 / JSON）
-    resp_headers: dict[str, str] = {}
-    for k, v in upstream_resp.headers.items():
-        kl = k.lower()
-        # 过滤掉会导致代理失败的 header
-        if kl in (
-            "content-encoding",
-            "transfer-encoding",
-            "connection",
-            "content-length",  # FastAPI 会自动重算
-        ):
-            continue
-        resp_headers[k] = v
-
-    return Response(
-        content=upstream_resp.content,
-        status_code=upstream_resp.status_code,
-        headers=resp_headers,
-        media_type=upstream_resp.headers.get("content-type"),
-    )
-
-
-# ============================================================
-# Phase 0.7：persona / preferences 端点
-# ============================================================
-
-
-@app.get("/personas", tags=["用户与偏好"], summary="拉所有 mock persona")
-def list_personas() -> dict[str, list[dict[str, Any]]]:
-    """返回所有 mock persona（前端 user 切换器拉这个）。
-
-    payload 形态：
-    {
-      "personas": [
-        { "user_id": "u_dad", "label": "新手爸爸", "icon": "👨‍👩‍👧",
-          "notes": "...", "default_distance_max_km": 5.0,
-          "default_tags": {...} },
-        ...
-      ]
-    }
-    """
-    from data.memory_store import load_personas
-
-    return {
-        "personas": [p.model_dump() for p in load_personas()],
-    }
-
-
-@app.get("/preferences/{user_id}", tags=["用户与偏好"], summary="读取某用户的合并偏好")
-def get_user_preferences(user_id: str) -> dict[str, Any]:
-    """合并 persona + memory 给前端偏好面板用。"""
-    from data.memory_store import compute_priors
-
-    view = compute_priors(user_id)
-    return view.model_dump()
-
-
-@app.post("/preferences/{user_id}/reset", tags=["用户与偏好"], summary="清除某用户的累积偏好")
-def reset_user_preferences(user_id: str) -> dict[str, Any]:
-    """清掉某 user 的累积 memory（演示完清场用）。"""
-    from data.memory_store import reset_memory
-
-    fresh = reset_memory(user_id)
-    return {"status": "ok", "memory": fresh.model_dump()}
-
-
-# ============================================================
-# OAuth 接入位（Phase 0.22；演示「上线即接入第三方登录」）
-# ============================================================
-# Demo 阶段所有 provider 抛 NotImplementedError 含「真接入步骤」。
-# 真上线时按 backend/auth/providers.py 文档补完三个方法即可。
-# 评委直接 GET /auth/info 看到所有 provider 状态。
-
-
-# ============================================================
-# 法务文本（Phase 0.22；docs/legal/*.md 直读）
-# ============================================================
-
-
-def _read_legal_doc(filename: str) -> str:
-    """读 docs/legal/ 下的 markdown 文件。打包到 docker 时 mock_data 同卷会一起 copy。"""
-    from pathlib import Path
-
-    # 优先项目根 docs/，再 fallback 到 backend 内（docker COPY 后两条都试）
-    candidates = [
-        Path(__file__).parent.parent / "docs" / "legal" / filename,
-        Path("/app/docs/legal") / filename,  # docker 容器内
-        Path("/docs/legal") / filename,  # docker 容器内备选
-    ]
-    for path in candidates:
-        if path.is_file():
-            return path.read_text(encoding="utf-8")
-    raise HTTPException(
-        status_code=404,
-        detail=f"法务文档 {filename} 未就位（docs/legal/）",
-    )
-
-
-@app.get("/legal/terms", tags=["运营辅助"], summary="用户协议（占位草案）")
-def legal_terms() -> Response:
-    """用户协议（占位草案；真上线前需律师审核）。"""
-    content = _read_legal_doc("terms-of-service.md")
-    return Response(content=content, media_type="text/markdown; charset=utf-8")
-
-
-@app.get("/legal/privacy", tags=["运营辅助"], summary="隐私政策（占位草案）")
-def legal_privacy() -> Response:
-    """隐私政策（占位草案；真上线前需律师审核）。"""
-    content = _read_legal_doc("privacy-policy.md")
-    return Response(content=content, media_type="text/markdown; charset=utf-8")
-
-
-# ============================================================
-# OAuth 端点
-# ============================================================
-
-
-@app.get("/auth/info", tags=["运营辅助"], summary="OAuth provider 接入位状态")
-def auth_info() -> dict[str, Any]:
-    """列出所有支持的 OAuth provider 与其当前状态。
-
-    Demo 阶段所有 provider 都标记为 not_implemented，但 UI / 流程已经预留。
-    评委可以一眼看到：注册场景已就位，差的只是 provider 的 client_id/secret + 三个方法实现。
-    """
-    from auth import (
-        WechatOAuthProvider,
-        GoogleOAuthProvider,
-        DingtalkOAuthProvider,
-    )
-
-    providers = []
-    for cls in (WechatOAuthProvider, GoogleOAuthProvider, DingtalkOAuthProvider):
-        instance = cls()
-        env_key_prefix = instance.name.upper()
-        # 仅检查关键 env 是否配，不读值
-        configured = bool(
-            os.getenv(f"{env_key_prefix}_APP_ID")
-            or os.getenv(f"{env_key_prefix}_CLIENT_ID")
-            or os.getenv(f"{env_key_prefix}_APP_KEY")
-        )
-        providers.append(
-            {
-                "name": instance.name,
-                "implemented": False,  # demo 阶段全部 stub
-                "configured": configured,
-                "doc": "see backend/auth/providers.py docstring",
-            }
-        )
-    return {
-        "demo_mode": True,
-        "current_user_source": "X-User-Id header (demo) / cookie",
-        "providers": providers,
-        "evolution_path": (
-            "demo: X-User-Id → MVP: 单 provider OAuth → 真产品: 多 provider + 账户合并"
-        ),
-    }
-
-
-@app.get("/auth/{provider}/authorize")
-def auth_authorize(provider: str, request: Request) -> dict[str, str]:  # noqa: ARG001
-    """构造 provider authorize URL（Demo 阶段返友好 stub 提示）。"""
-    from auth import get_oauth_provider, AuthRequest
-
-    try:
-        prov = get_oauth_provider(provider)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    try:
-        url = prov.build_authorize_url(
-            AuthRequest(
-                redirect_uri=f"{request.base_url}auth/{provider}/callback",
-                state="csrf-token-stub",
-                scopes=["snsapi_login"],
-            )
-        )
-        return {"authorize_url": url}
-    except NotImplementedError as e:
-        # Demo 阶段抛 503，前端可显示「该登录方式即将上线」
-        raise HTTPException(status_code=503, detail=str(e)) from e
-
-
-@app.get("/auth/{provider}/callback")
-def auth_callback(
-    provider: str,
-    code: str,  # noqa: ARG001
-    state: str,  # noqa: ARG001
-) -> dict[str, str]:
-    """provider 回调（Demo 阶段返友好 stub 提示）。"""
-    from auth import get_oauth_provider
-
-    try:
-        get_oauth_provider(provider)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e)) from e
-
-    raise HTTPException(
-        status_code=503,
-        detail=(
-            f"OAuth {provider} 回调未实现。Demo 阶段请用 X-User-Id header 切换 user；"
-            "真接入步骤见 backend/auth/providers.py。"
-        ),
-    )
 
 
 # ============================================================
@@ -1137,52 +687,11 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
 
 
 # ============================================================
-# SSE 包装与异常兜底
+# SSE 包装与异常兜底（已迁到 api/_sse_helpers.py）
 # ============================================================
+# _to_sse / _safe_stream / _delay / _now_ms 已被顶部 from api._sse_helpers import 别名引用。
 
-def _to_sse(event: SseEvent) -> dict[str, Any]:
-    """把 SseEvent 转成 sse-starlette 接受的 dict 形式。
-
-    sse-starlette 约定每条事件含 event / id / data 三键。
-    前端按 SseEvent.type 解析 payload。
-    """
-    return {
-        "event": event.type.value,
-        "id": str(event.seq),
-        "data": event.model_dump_json(),
-    }
-
-
-async def _safe_stream(
-    inner: AsyncIterator[SseEvent],
-) -> AsyncIterator[dict[str, Any]]:
-    """把内部 SseEvent 流转成 sse-starlette dict 流；中途异常 → stream_error + done。"""
-    last_seq = -1
-    try:
-        async for ev in inner:
-            last_seq = ev.seq
-            yield _to_sse(ev)
-    except asyncio.CancelledError:
-        # 客户端断开：静默退出，不再推事件
-        raise
-    except Exception as e:  # noqa: BLE001
-        err = SseEvent(
-            type=SseEventType.STREAM_ERROR,
-            seq=last_seq + 1,
-            payload={"reason": "unexpected", "detail": f"{type(e).__name__}: {e}"},
-            timestamp_ms=int(time.time() * 1000),
-        )
-        yield _to_sse(err)
-        yield _to_sse(SseEvent(type=SseEventType.DONE, seq=last_seq + 2))
-
-
-async def _delay(ms: int = 350) -> None:
-    """让前端可见动画节奏——评委能看清每一步。"""
-    await asyncio.sleep(ms / 1000.0)
-
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
+# 以下函数的所有引用方在 chat 端点链路中通过本文件顶部的别名访问。
 
 
 async def _stub_stream(
@@ -2467,191 +1976,10 @@ async def _routed_stream_real(
 
 
 # ============================================================
-# 多人实时协作：WebSocket + 房间管理
+# 多人实时协作：WebSocket + 房间管理（已迁到 api/collab.py）
 # ============================================================
+# /room/create / /room/{room_id}/state / /ws/{room_id} 三个端点已抽到 api/collab.py。
 
-from fastapi import WebSocket, WebSocketDisconnect
-from collab import get_room_manager
+from api import collab as _collab_router_module
 
-
-class CreateRoomRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    user_id: str = Field(..., min_length=1, max_length=64)
-    nickname: str = Field(default="发起人", max_length=32)
-    # 可选：把当前 session 的行程带入房间作为初始方案
-    session_id: Optional[str] = Field(default=None, max_length=128)
-    # 可选：前端对话历史（参与者加入时同步显示）
-    chat_messages: Optional[list[dict[str, Any]]] = Field(default=None)
-    # 可选：前端规划事件历史（参与者加入时回放 ToolTracePanel）
-    planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
-    # 可选：把当前规划过程事件历史带入（新成员加入时回放 ToolTracePanel）
-    planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
-
-
-class CreateRoomResponse(BaseModel):
-    room_id: str
-    share_url: str
-    owner_id: str
-
-
-@app.post("/room/create", tags=["协作房间"], summary="创建多人协作房间")
-async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomResponse:
-    """创建协作房间。
-
-    如果提供 session_id 且该 session 有已规划的行程，
-    会把行程和意图带入房间作为初始方案（参与者加入即可看到）。
-    """
-    manager = get_room_manager()
-    room = manager.create_room(owner_id=req.user_id, nickname=req.nickname)
-
-    # 如果有现有 session 的行程，带入房间
-    # 优先从 ConversationRepository 取（LangGraph/ReAct 路径存这里）
-    if req.session_id:
-        itinerary_found = False
-        # 路径 1：ConversationRepository（v2 路径）
-        try:
-            from agent.runtime.conversation import get_default_repo
-            repo = get_default_repo()
-            state = await repo.get(req.session_id)
-            if state and state.itinerary_snapshot:
-                room.current_itinerary_dict = state.itinerary_snapshot
-                room.current_intent_dict = state.intent_snapshot
-                itinerary_found = True
-        except Exception:  # noqa: BLE001
-            pass
-        # 路径 2：_SESSION_STORE（旧 stub/planner 路径）
-        if not itinerary_found and req.session_id in _SESSION_STORE:
-            cached = _SESSION_STORE[req.session_id]
-            room.current_intent_dict = cached.get("intent")
-            room.current_itinerary_dict = cached.get("itinerary")
-            # 带入规划事件历史（新成员加入时回放 ToolTracePanel）
-            planning_events = cached.get("planning_events")
-            if planning_events:
-                room.planning_events_history = list(planning_events)
-
-    # 带入对话历史（前端传入）
-    if req.chat_messages:
-        room.chat_messages = list(req.chat_messages)
-    # 带入规划事件历史（前端传入，优先级高于后端 _SESSION_STORE 里的）
-    if req.planning_events:
-        room.planning_events_history = list(req.planning_events)
-    # 初始化 LLM 上下文：把初始行程摘要写入，让后续重规划时 LLM 知道"之前规划了什么"
-    if room.current_itinerary_dict:
-        summary = room.current_itinerary_dict.get("summary", "已有行程")
-        room.llm_context_messages.append({
-            "role": "assistant",
-            "content": f"初始行程方案：{summary}",
-            "timestamp": time.time(),
-        })
-    if room.current_intent_dict:
-        raw_input = room.current_intent_dict.get("raw_input", "")
-        if raw_input:
-            room.llm_context_messages.insert(0, {
-                "role": "user",
-                "content": f"发起人原始需求：{raw_input}",
-                "timestamp": time.time(),
-            })
-
-    # 构造分享 URL（用请求的 host 拼）
-    host = request.headers.get("host", "localhost:3000")
-    scheme = "https" if "https" in str(request.url) else "http"
-    # 前端路由：/room/[id]
-    share_url = f"{scheme}://{host.replace(':8000', ':3000')}/room/{room.room_id}"
-
-    # 如果前端传了规划事件历史，存入房间
-    if req.planning_events:
-        room.planning_events_history = list(req.planning_events)
-
-    return CreateRoomResponse(
-        room_id=room.room_id,
-        share_url=share_url,
-        owner_id=req.user_id,
-    )
-
-
-@app.get("/room/{room_id}/state", tags=["协作房间"], summary="拉房间当前状态")
-async def get_room_state(room_id: str) -> dict[str, Any]:
-    """获取房间当前状态（HTTP 拉取，用于 SSR 或 WS 连接前预加载）。"""
-    manager = get_room_manager()
-    room = manager.get_room(room_id)
-    if room is None:
-        raise HTTPException(status_code=404, detail=f"房间不存在：{room_id}")
-    return room.get_state_snapshot()
-
-
-@app.websocket("/ws/{room_id}")
-async def ws_collab(websocket: WebSocket, room_id: str):
-    """多人协作 WebSocket 端点。
-
-    连接参数（query string）：
-    - user_id: 用户 ID（必填）
-    - nickname: 昵称（可选，默认用 user_id）
-
-    上行消息格式：
-    - {"type": "constraint", "text": "不要辣的"}
-    - {"type": "vote", "stage_index": 3, "action": "dislike"}
-    - {"type": "vote", "stage_index": 1, "action": "like"}
-    - {"type": "confirm"}
-
-    下行消息格式：见设计文档 §2 WebSocket 协议设计。
-    """
-    manager = get_room_manager()
-    room = manager.get_room(room_id)
-
-    if room is None:
-        await websocket.accept()
-        try:
-            await websocket.send_json({"type": "error", "message": f"房间不存在：{room_id}"})
-            await websocket.close(code=4004, reason="房间不存在")
-        except Exception:  # noqa: BLE001
-            pass
-        return
-
-    # 解析 query 参数
-    user_id = websocket.query_params.get("user_id", "anonymous")
-    nickname = websocket.query_params.get("nickname", user_id)
-
-    await websocket.accept()
-
-    # 加入房间
-    await manager.join(room, user_id, nickname, websocket)
-
-    try:
-        while True:
-            data = await websocket.receive_json()
-            msg_type = data.get("type", "")
-
-            if msg_type == "constraint":
-                text = data.get("text", "").strip()
-                if text:
-                    await manager.add_constraint(room, user_id, text, source="text")
-
-            elif msg_type == "vote":
-                stage_index = data.get("stage_index")
-                action = data.get("action", "")
-                if isinstance(stage_index, int) and action in ("like", "dislike"):
-                    await manager.update_vote(room, user_id, stage_index, action)
-
-            elif msg_type == "confirm":
-                # 仅 owner 可确认
-                if user_id != room.owner_id:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": "只有发起人可以确认下单",
-                    })
-                    continue
-                # 触发确认流程（复用现有 confirm 逻辑）
-                if room.current_itinerary_dict:
-                    await manager.broadcast(room, {
-                        "type": "confirmed",
-                        "itinerary": room.current_itinerary_dict,
-                        "confirmed_by": user_id,
-                    })
-
-            elif msg_type == "ping":
-                await websocket.send_json({"type": "pong"})
-
-    except WebSocketDisconnect:
-        await manager.leave(room, user_id)
-    except Exception:  # noqa: BLE001
-        await manager.leave(room, user_id)
+app.include_router(_collab_router_module.router)
