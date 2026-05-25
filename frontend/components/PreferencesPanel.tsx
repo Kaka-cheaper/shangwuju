@@ -7,6 +7,11 @@
  *   - 偏好画像是「档案 / 笔记」语义，应是温润的纸张感而非 AI 紫
  *   - 用 caramel 焦糖琥珀色（替代莓紫 accent），与主题暖橙脉络一致
  *   - 灵感：Aesop 沙漠米色 / Stripe 旧版焦糖文档 / 中古电影焦糖滤镜
+ *
+ * 解耦原则（commit "解耦小修"）：
+ *   - 颜色 rgba 提为局部常量；主题改时改一处即可
+ *   - open/close 状态持久化到 localStorage；评委切回来不用重新点开
+ *   - 不依赖父级栅格 / 不假设旁边有谁；可在 aside / 弹窗 / 抽屉任意挂载
  */
 
 import { useEffect, useState } from "react";
@@ -15,23 +20,54 @@ import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+// ============================================================
+// 局部主题常量（避免散落 inline rgba；主题改时改一处即可）
+// ============================================================
+
+/** persona icon 渐变背景（焦糖琥珀两层） */
+const PERSONA_ICON_GRADIENT =
+  "linear-gradient(135deg, rgba(184,137,90,0.18) 0%, rgba(160,106,58,0.14) 100%)";
+
+/** 折叠态 hover 时浮现的暖光斑（右下角放射） */
+const HOVER_GLOW =
+  "radial-gradient(circle at 100% 100%, rgba(184,137,90,0.18) 0%, transparent 60%)";
+
+/** localStorage key（持久化展开态） */
+const STORAGE_KEY = "shangwuju.preferences.open";
+
 export default function PreferencesPanel() {
   const currentUserId = useChatStore((s) => s.currentUserId);
   const preferences = useChatStore((s) => s.preferences);
   const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const resetUserMemory = useChatStore((s) => s.resetUserMemory);
 
-  const [open, setOpen] = useState(false);
+  // 展开态持久化：SSR 期返 false 避免 hydration mismatch；mount 后从 localStorage 恢复
+  const [open, _setOpen] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      _setOpen(window.localStorage.getItem(STORAGE_KEY) === "true");
+    } catch {
+      /* 隐私模式 / 配额异常时忽略 */
+    }
+  }, []);
 
+  /** 包装 setOpen：同步持久化 */
+  const setOpen = (next: boolean) => {
+    _setOpen(next);
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, next ? "true" : "false");
+      } catch {
+        /* 隐私模式 / 配额异常时忽略 */
+      }
+    }
+  };
+
+  // 用户切换时刷一次（store 已自管缓存，open 变化不再触发额外刷新）
   useEffect(() => {
     if (currentUserId) refreshPreferences();
   }, [currentUserId, refreshPreferences]);
-
-  useEffect(() => {
-    if (open && !preferences) {
-      refreshPreferences();
-    }
-  }, [open, preferences, refreshPreferences]);
 
   if (!open) {
     const persona = preferences?.persona;
@@ -66,18 +102,12 @@ export default function PreferencesPanel() {
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{
-            background:
-              "radial-gradient(circle at 100% 100%, rgba(184,137,90,0.18) 0%, transparent 60%)",
-          }}
+          style={{ background: HOVER_GLOW }}
         />
         <div className="relative flex items-center gap-2.5 min-w-0 flex-1">
           <div
             className="w-8 h-8 rounded-md flex items-center justify-center shrink-0 border border-white/[0.08]"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(184,137,90,0.18) 0%, rgba(160,106,58,0.14) 100%)",
-            }}
+            style={{ background: PERSONA_ICON_GRADIENT }}
           >
             <PersonaIcon
               className="w-4 h-4 text-caramel-300"
@@ -201,10 +231,7 @@ export default function PreferencesPanel() {
             <div className="flex items-center gap-2">
               <div
                 className="w-7 h-7 rounded-md flex items-center justify-center shrink-0 border border-white/[0.08]"
-                style={{
-                  background:
-                    "linear-gradient(135deg, rgba(184,137,90,0.18) 0%, rgba(160,106,58,0.14) 100%)",
-                }}
+                style={{ background: PERSONA_ICON_GRADIENT }}
               >
                 <PersonaIcon
                   className="w-3.5 h-3.5 text-caramel-300"
