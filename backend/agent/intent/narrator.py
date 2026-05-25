@@ -238,7 +238,7 @@ def _call_llm_narrator(
     段会指导 LLM 在收到这两个字段时主动加一句质疑性建议。
     """
     try:
-        client = get_llm_client()
+        client = get_llm_client(task="narration")
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] get_llm_client 失败：%s", e)
         return None
@@ -318,7 +318,7 @@ def stream_llm_narrator(
     - 异常 yield 0 chunk（不抛），让 yield-from 链路友好
     """
     try:
-        client = get_llm_client()
+        client = get_llm_client(task="narration")
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] stream get_llm_client 失败：%s", e)
         return

@@ -312,7 +312,7 @@ async def _routed_stream_real(
 
     def _classify() -> None:
         try:
-            client = get_llm_client()
+            client = get_llm_client(task="router")
             decision_holder["decision"] = classify_input(req.message, client=client)
         except RouterError as e:
             decision_holder["error"] = e

@@ -83,7 +83,7 @@ def _intent_via_llm(message: str, *, user_id: str | None = None) -> IntentExtrac
     from agent.core.llm_client import get_llm_client
 
     try:
-        client = get_llm_client()
+        client = get_llm_client(task="intent")
         return parse_intent(message, client=client, user_id=user_id)
     except Exception:  # noqa: BLE001
         return IntentExtraction(

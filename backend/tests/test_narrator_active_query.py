@@ -185,7 +185,7 @@ def test_critic_summary_triggers_llm_active_query(monkeypatch) -> None:
                 "哪里不合适跟我说一声。"
             )
 
-    monkeypatch.setattr(narrator_mod, "get_llm_client", lambda: FakeClient())
+    monkeypatch.setattr(narrator_mod, "get_llm_client", lambda *args, **kwargs: FakeClient())
 
     intent = _make_intent(companions=[Companion(role="孩子", age=5, count=1)])
     itin = _make_itinerary(poi_duration=75)
@@ -406,7 +406,7 @@ def test_refiner_node_resets_trace_fields(monkeypatch) -> None:
     class FakeClient:
         provider = "deepseek"
 
-    monkeypatch.setattr(refiner_mod, "get_llm_client", lambda: FakeClient())
+    monkeypatch.setattr(refiner_mod, "get_llm_client", lambda *args, **kwargs: FakeClient())
 
     # 输入 state 模拟「上一轮已有 critic_attempts / fallback_chain」
     state: dict[str, Any] = {
