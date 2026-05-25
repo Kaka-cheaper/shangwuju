@@ -8585,3 +8585,80 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 - 任务级模型路由：评委只用主 deepseek 时无变化；演示前如配 LLM_MODEL_INTENT=qwen-turbo 可压 intent 解析时间 3-5s
 - Hedged：评委只用单 provider 时无变化；演示前如配第二家 key 主备双发，主家抖动时备援接管 → 实测见过 197s 抖动可压回 4-7s
 - 评委追问「真链路慢了怎么办」可答完整三层：(1) 关键词路由 fast path 跳过 LLM 路由分类 (2) narration 流式让评委看到 Agent 在打字 (3) 主备双发兜底 LLM API 服务尾延迟，断网继续运行
+
+
+---
+
+## 问题：现在的 .env 是不是已经过时了？
+
+**用户原问**：那我现在的 env 是不是已经过时了？（commit 1f8813c 工程级 3 项优化落地后，.env 缺新增配置项）
+
+**诊断**：是的，但**不影响基础功能**。代码层每个新 env 都有默认值兜底，缺失时安全退化。
+
+**关键差异**（与 .env.example 对比）：
+
+```text
+| 配置段                    | .env 状态 | 影响（缺失时行为）              |
+|--------------------------|---------|-------------------------------|
+| LLM_API_KEY/URL/MODEL    | 已配     | 主 LLM 正常（mimo-v2.5-pro）   |
+| LLM_MODEL_<TASK> 三项     | 缺      | 任务级模型路由不启用            |
+| LLM_API_KEY_BACKUP 等     | 缺      | Hedged 主备双发不启用，单 provider |
+| PLANNER_LLM_STRATEGY      | 缺      | 默认 llm_first（与代码一致）    |
+| PLANNER_LLM_FIRST_RETRIES | 缺      | 默认 2                         |
+| CRITIC_FEEDBACK_MODE      | 缺      | 默认 pinpoint-all              |
+| PLANNER_ILS_*             | 缺      | 默认 30 / 5 / 20260517         |
+| USE_REACT_AGENT           | 缺      | 默认 1                         |
+| USE_LANGGRAPH             | 已配 1   | 主架构走 LangGraph             |
+| SESSION_STORE             | 缺      | 默认 memory                    |
+| DATA_PROVIDER/NEARBY      | 缺      | 默认 mock                      |
+| LOGFIRE_*                 | 缺      | 未上报，控制台日志正常          |
+| OAuth (WECHAT/GOOGLE 等)  | 缺      | OAuth 不启用（demo 不需要）     |
+| REDIS_URL                 | 缺      | InMemory 走起                  |
+| LOG_FORMAT                | 缺      | 默认 text                      |
+| PLANNER_MAX_LLM_RETRIES   | 缺      | 用代码硬编码 latency-bound 默认 |
+| GROUNDING_*               | 缺      | 用代码硬编码默认                |
+| AMAP_REST_KEY/JS_CODE     | 已配     | 高德地图正常                   |
+```
+
+**工程级 3 项优化生效情况**：
+
+```text
+| 优化项               | env 状态     | 是否生效                        |
+|---------------------|-------------|--------------------------------|
+| HTTP/2 + 连接池      | 不需要 env  | ✓ 已生效（h2 装好就启用）       |
+| 单例化（lru_cache）  | 不需要 env  | ✓ 已生效（代码层）              |
+| 任务级模型路由       | 缺 env      | ✗ 未启用（待 LLM_MODEL_<TASK>） |
+| Hedged 主备双发       | 缺 env      | ✗ 未启用（待 BACKUP 三件套）    |
+```
+
+**用户选择方案 B**：把 .env.example 里缺的注释段照样追加到 .env 末尾，全部用注释形式（保留默认值，不实际启用），文档完整性 + 后续切换便捷性双兼顾。
+
+**追加范围**（全注释 / 行为不变）：
+
+- LLM_MODEL_<TASK> 三项（任务级模型路由）
+- LLM_API_KEY_BACKUP / LLM_BASE_URL_BACKUP / LLM_MODEL_BACKUP / LLM_HEDGE_AFTER_S（Hedged）
+- PLANNER_LLM_STRATEGY / PLANNER_ILS_* / PLANNER_LLM_FIRST_RETRIES / CRITIC_FEEDBACK_MODE
+- SESSION_STORE / DATA_PROVIDER / NEARBY_PROVIDER
+- LOGFIRE_TOKEN / LOGFIRE_SERVICE_NAME / LOGFIRE_ENVIRONMENT
+- REDIS_URL / OAuth 三家 / OAUTH_PROVIDER
+- LOG_FORMAT / USE_REACT_AGENT
+- Latency-bound 决策可调常量 9 项
+
+**未动**（保持原 .env 已激活配置）：
+
+- LLM_API_KEY / LLM_BASE_URL / LLM_MODEL（mimo-v2.5-pro 主链路）
+- PLANNER_MODE=rule / USE_LANGGRAPH=1
+- AMAP_REST_KEY / AMAP_JS_CODE
+
+**修改的代码文件**：
+
+- `backend/.env`：末尾追加 ~120 行注释段（全部 # 开头）
+
+**应当达成的效果**：
+
+- 当前 demo 行为完全不变（验证：default / intent / narration 全部走主 mimo-v2.5-pro，OpenAICompatibleClient 而非 HedgedLLMClient）
+- 想启用任务级模型路由：去掉 LLM_MODEL_INTENT / NARRATION / ROUTER 任一行注释 + 填模型名
+- 想启用 Hedged：去掉 LLM_API_KEY_BACKUP / LLM_BASE_URL_BACKUP / LLM_MODEL_BACKUP 三行注释 + 填备援家三件套
+- 想切 logfire / redis / 数据源 / OAuth：去掉对应注释 + 填值即可
+
+**注意**：.env 在 .gitignore 里，本次追加不会进 commit；下次需要在新机器上同步配置时，仍以 .env.example 为单一信源（spec D-SoT 思路一致）。
