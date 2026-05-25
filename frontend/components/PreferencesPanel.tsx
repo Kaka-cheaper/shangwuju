@@ -176,26 +176,27 @@ export default function PreferencesPanel() {
 
   return (
     <div className="card p-4 animate-fade-in">
-      {/* 顶栏：整行可点击 → 收起（与折叠态点击展开对称）
-          视觉提示「收起 ⌃」保留，hover 时整行轻微变色 */}
+      {/* 头部：始终在最上方；展开/折叠态高度一致（min-h-[64px] = 折叠态 icon 40+双行文字+padding）
+          整行可点击收起，视觉规格 = 折叠态主标题（text-base semibold） */}
       <button
         type="button"
         onClick={() => setOpen(false)}
         aria-label="收起偏好画像"
         className={cn(
-          "group w-full -mx-2 -mt-2 px-2 pt-2 pb-2",
-          "flex items-center justify-between",
-          "rounded-md hover:bg-white/[0.03] transition-colors",
+          "group w-full -mx-4 -mt-4 px-4 py-3 min-h-[64px]",
+          "flex items-center gap-3.5",
+          "rounded-t-2xl hover:bg-white/[0.03] transition-colors",
           "text-left",
         )}
       >
-        <h2 className="text-[13px] font-medium text-ink-700 tracking-tight group-hover:text-ink-900 transition-colors">
-          偏好画像
-        </h2>
-        <span className="inline-flex items-center gap-1 text-[11px] text-ink-500 group-hover:text-caramel-300 transition-colors">
-          <span>收起</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-base font-semibold text-ink-900 tracking-tight">
+            偏好画像
+          </div>
+        </div>
+        <span className="text-ink-500 group-hover:text-caramel-300 transition-colors shrink-0">
           <svg
-            className="w-3 h-3 transition-transform group-hover:-translate-y-0.5"
+            className="w-3.5 h-3.5 transition-transform group-hover:-translate-y-0.5"
             viewBox="0 0 12 12"
             fill="none"
             stroke="currentColor"
