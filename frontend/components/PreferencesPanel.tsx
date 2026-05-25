@@ -176,17 +176,23 @@ export default function PreferencesPanel() {
 
   return (
     <div className="card p-4 animate-fade-in">
-      {/* 顶栏：标题 + 收起按钮（× 改成"收起 ⌃"，与折叠态"展开 ⌄"对仗） */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-medium text-ink-700 tracking-tight">
+      {/* 顶栏：整行可点击 → 收起（与折叠态点击展开对称）
+          视觉提示「收起 ⌃」保留，hover 时整行轻微变色 */}
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        aria-label="收起偏好画像"
+        className={cn(
+          "group w-full -mx-2 -mt-2 px-2 pt-2 pb-2",
+          "flex items-center justify-between",
+          "rounded-md hover:bg-white/[0.03] transition-colors",
+          "text-left",
+        )}
+      >
+        <h2 className="text-[13px] font-medium text-ink-700 tracking-tight group-hover:text-ink-900 transition-colors">
           偏好画像
         </h2>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="group inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-caramel-300 transition-colors"
-          aria-label="收起偏好画像"
-        >
+        <span className="inline-flex items-center gap-1 text-[11px] text-ink-500 group-hover:text-caramel-300 transition-colors">
           <span>收起</span>
           <svg
             className="w-3 h-3 transition-transform group-hover:-translate-y-0.5"
@@ -201,8 +207,8 @@ export default function PreferencesPanel() {
               strokeLinejoin="round"
             />
           </svg>
-        </button>
-      </div>
+        </span>
+      </button>
 
       {!persona ? (
         <div className="mt-4 text-ink-500 text-xs">加载中…</div>
