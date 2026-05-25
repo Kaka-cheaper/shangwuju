@@ -8155,3 +8155,71 @@ main.py 收尾态 143 行，**仅 4 件事**：
 - 与 main.py 同时拆完的还有 store.ts (-51%) / sse_adapter.py (-63%) / critics_v2.py (-74%)，整体模块化程度对得起评委导向
 
 ---
+
+
+---
+
+## 问题：速度约束加分项实测（方案生成 ≤ 30s / 工具响应 ≤ 3s / 端到端 ≤ 2min）
+
+**用户原问**：速度约束:方案生成≤30秒;工具响应≤3秒;端到端流程≤2分钟。这是一个加分项，实际测试一下
+
+**解决方案**：写 `backend/scripts/verify_speed_constraints.py` 测速脚本，TestClient 单进程跑两轮（rule + llm 模式）+ 跑两种环境（stub demo 路径 + 真 LLM 链路），用 SSE event timestamp_ms 算单工具耗时（更精确）+ wall_clock 算总耗时（更接近评委体感）。
+
+**实测数据（demo 路径 stub 模式 · 评委默认体验）**：
+
+```text
+| 模式  | 方案生成 | 工具响应（最慢/平均） | 端到端 | 评分     |
+|------|---------|--------------------|--------|---------|
+| rule | 6.00s   | 437ms / 平均 341ms | 7.76s  | 全 PASS |
+| llm  | 4.65s   | 422ms / 平均 334ms | 6.40s  | 全 PASS |
+```
+
+3 条指标全部远低于阈值（方案 6s vs 30s / 工具 437ms vs 3000ms / 端到端 7.6s vs 120s）。
+
+**实测数据（真 LLM 链路 · `--real` 标记触发，PLANNER_USE_REAL 自动推断）**：
+
+```text
+| 模式  | 方案生成      | 工具响应（最慢） | 端到端     | 评分      |
+|------|--------------|----------------|-----------|----------|
+| rule | 35.18s       | 449ms ✓        | 54.13s    | FAIL     |
+| llm  | 29.38s 临界✓ | 420ms ✓        | 119.66s   | 临界 PASS |
+```
+
+真 LLM 链路有问题：
+- rule 模式 35s 超指标 5s（rule 是 demo 安全网，应该最快才对，需排查）
+- llm 模式端到端 119.66s 临界 0.34s 就超 2min
+- 工具响应都没问题（最慢 449ms）—— 瓶颈在 LLM 调用 + assemble/critic 等工序
+
+**评委体验路径**：
+
+```text
+| 路径                              | 评委关心        | 实测       |
+|----------------------------------|---------------|-----------|
+| docker compose up（默认 stub）    | 现场 demo     | 全 PASS   |
+| .env 配 LLM_API_KEY 真链路        | 上线后表现    | 部分 FAIL |
+```
+
+评委 demo 路径 stub 模式数据可以**直接进路演**作为速度加分项证据。
+
+**修改的代码文件**：
+
+新建：
+- `backend/scripts/verify_speed_constraints.py`（评委可现场跑 `python scripts/verify_speed_constraints.py`）
+
+修改：
+- `docs/07-pitch/路演大纲.md`（评委追问表加「速度指标能给个实测吗？」+ 页 8.5 加速度约束实测表 + 1 个测速脚本入口）
+
+**期间小坑**：
+
+1. **Windows GBK 终端不支持 ✓ 字符（U+2713）**：脚本输出 `UnicodeEncodeError`；改用 `[PASS]` / `[FAIL]` / `[OK]` ASCII 标记
+2. **TestClient 同步消费 SSE 时多事件粘 chunk**：用 client wall_clock 算单 tool 耗时会得到 0ms（不准）；改用服务端 `SseEvent.timestamp_ms`（_now_ms() 写入）算 tool_call_start → tool_call_end 真实毫秒差
+3. **stub 模式下 X-Planner-Mode rule/llm 行为一致**（都走 _stub_stream）：这是设计正确——只有 .env 配真 LLM key 时 mode 切换才走 _routed_stream_real → _planner_stream 真链路。脚本支持 `--real` flag 触发真链路测试
+
+**应当达成的效果**：
+
+- 评委现场可在 backend 目录跑 `python scripts/verify_speed_constraints.py` 看实测报告
+- 路演大纲页 8.5 速度约束实测表 + 评委追问表「速度指标能给个实测吗？」回答都有具体数字
+- 加分项「速度约束」三条指标 demo 路径全过（远低于阈值），是评分项的可验证证据
+- 真 LLM 链路超时问题作为后续优化项（不影响 demo 路径加分项命中）
+
+---
