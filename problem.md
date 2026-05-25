@@ -8069,3 +8069,89 @@ critics_v2.py 从 1203 行 → 316 行（-74%）；公开类型由 _rules.types 
 - 4 次 commit 各为原子、独立可 revert，pytest 707 + 1 skipped + frontend verify:all 4/4 一路保持不破
 
 ---
+
+
+---
+
+## 问题：感觉 main.py 是不是还是太大了？正常 main 应该有什么？什么应该被拆分出去？
+
+**用户原问**：main.py 1985 行还是太大，问正常 main.py 应该有什么、应该拆什么。决定**全拆**。
+
+**审查结论 + 拆分方案**：
+
+```text
+正常 FastAPI main.py 应该只有 4 件事（< 200 行）：
+1. load_dotenv（双重保险）
+2. FastAPI 实例化（含 description / openapi_tags）
+3. middleware 注册
+4. include_router
+
+业务模型 / 端点实现 / helper / SSE fixture 全部不应该在 main.py。
+```
+
+**实施**：
+
+```text
+| 新模块                                | 内容                                                    | 行数 |
+|--------------------------------------|--------------------------------------------------------|------|
+| backend/api/chat.py                   | 4 个 chat 端点 + LangGraph / ReAct / 旧路径分发逻辑     | 340  |
+| backend/api/_streams/__init__.py      | package docstring                                       | 15   |
+| backend/api/_streams/models.py        | ChatStreamRequest / ChatConfirmRequest 两个 Request 模型 | 46   |
+| backend/api/_streams/memory.py        | 3 个 memory 累积 helper（confirm/refine 调用）         | 150  |
+| backend/api/_streams/stub_stream.py   | _stub_stream demo 主路径 fixture（含 E1 异常埋点）     | 413  |
+| backend/api/_streams/stub_confirm.py  | _stub_confirm confirm 流 demo fixture                   | 165  |
+| backend/api/_streams/stub_refine.py   | _stub_refine + _refine_stream + _extract_distance_km    | 181  |
+| backend/api/_streams/planner_stream.py| 真 planner 链路（_intent_via_llm + _planner_stream）   | 322  |
+| backend/api/_streams/refine_real.py   | _refine_stream_real（真 planner 路径下的 refine）       | 87   |
+| backend/api/_streams/route.py         | _stub_route + _make_chitchat_event + _routed_stream_*  | 238  |
+```
+
+main.py 收尾态 143 行，**仅 4 件事**：
+
+```python
+1. load_dotenv()
+2. app = FastAPI(title=..., description=..., openapi_tags=...)
+3. init_observability + add_middleware(CORSMiddleware)
+4. app.include_router(8 个)
+```
+
+**期间踩的坑**：
+
+1. **__init__.py 二次写覆盖**：第一次写 _streams/__init__.py 后重复 fs_write 覆盖了 docstring；后来用 `models.py` 单独写 Request 模型避免冲突
+2. **verify_sse.py 老脚本断言 `itin["stages"]` 已过期**：edge_v1 重构后 schema 是 `nodes/hops/schedule`；这是脚本老化，不是本次拆分导致；pytest 707 全过证明业务行为正常
+3. **真 LLM router 把短输入分类为 ambiguous**：smoke test 输入「今天下午陪老婆孩子出去玩」太短，LLM 识别为 ambiguous → chitchat_reply（设计正常）；切到 stub 模式跑完整 8 场景输入文案后看到 16 条事件序列含 E1
+
+**修改的代码文件**：
+
+新建：
+- `backend/api/chat.py`（340 行）
+- `backend/api/_streams/__init__.py` + 8 个子模块（共 1817 行）
+
+修改：
+- `backend/main.py`（1985 → 143 行 / -93%）
+
+未动：
+- `backend/api/{health,scenarios,amap,preferences,legal,oauth,collab,_session_store,_sse_helpers}.py`（H1 第一波已拆）
+- mock_data / agent / schemas / tools / frontend 等（边界外）
+
+**验证证据**：
+
+```text
+| 验证项                              | 结果                                              |
+|------------------------------------|--------------------------------------------------|
+| pytest -x -q                       | 707 passed + 1 skipped + 1 warning（基线不破）   |
+| frontend verify:all                | 4 / 4 通过                                       |
+| uvicorn 8127 /openapi.json         | 17 个端点全在 + 6 类 tag 全可见                  |
+| /chat/stream stub 模式 16 事件     | intent_parsed → 4 tool_call → replan_triggered → itinerary_ready → agent_narration → done |
+| /health, /scenarios, /personas     | 全部 200 + 数据正常                              |
+```
+
+**应当达成的效果**：
+
+- main.py **从 2657 行 → 143 行（累计 -95%）**——评委打开 main.py 30 秒看清整个后端架构
+- 所有业务实现在 `api/*` 子模块；新人加新 chat 行为只动 `api/_streams/*`，不动 main.py
+- 路演大纲页 5 关键设计取舍可加一行：「main.py 2657 → 143 拆 13 个 router/stream 子模块」对应**代码结构模块化**评分项最高级证据
+- 11 个子模块每个职责清晰，模块顶部 docstring 写明「来自 main.py 拆分（spec code-modularization-refactor H1-final）」
+- 与 main.py 同时拆完的还有 store.ts (-51%) / sse_adapter.py (-63%) / critics_v2.py (-74%)，整体模块化程度对得起评委导向
+
+---
