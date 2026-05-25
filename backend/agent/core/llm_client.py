@@ -100,6 +100,7 @@ class LLMClient(Protocol):
         *,
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> LLMChatResponse: ...
 
     def stream_chat(
@@ -107,6 +108,7 @@ class LLMClient(Protocol):
         messages: list[LLMMessage],
         *,
         temperature: float = 0.3,
+        max_tokens: int | None = None,
     ) -> Iterator[str]: ...
 
 
@@ -225,6 +227,7 @@ class OpenAICompatibleClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         stream: bool = False,
+        max_tokens: int | None = None,
     ):
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -237,6 +240,8 @@ class OpenAICompatibleClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice or "auto"
+        if max_tokens is not None and max_tokens > 0:
+            kwargs["max_tokens"] = max_tokens
         return self._client.chat.completions.create(**kwargs)
 
     # ---- 公共接口 ----
@@ -247,6 +252,7 @@ class OpenAICompatibleClient:
         *,
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> LLMChatResponse:
         def _do():
             return self._create_completion(
@@ -254,6 +260,7 @@ class OpenAICompatibleClient:
                 temperature=temperature,
                 response_format=response_format,
                 stream=False,
+                max_tokens=max_tokens,
             )
 
         resp = _retry(_do, max_retries=self._max_retries)
@@ -277,10 +284,11 @@ class OpenAICompatibleClient:
         messages: list[LLMMessage],
         *,
         temperature: float = 0.3,
+        max_tokens: int | None = None,
     ) -> Iterator[str]:
         # 流式不重试；简单返
         stream = self._create_completion(
-            messages, temperature=temperature, stream=True
+            messages, temperature=temperature, stream=True, max_tokens=max_tokens
         )
         for chunk in stream:
             if not chunk.choices:

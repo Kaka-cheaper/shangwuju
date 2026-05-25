@@ -176,7 +176,7 @@ def test_critic_summary_triggers_llm_active_query(monkeypatch) -> None:
     class FakeClient:
         provider = "deepseek"
 
-        def chat(self, *, messages, temperature):  # noqa: ANN001
+        def chat(self, *, messages, temperature, **kwargs):  # noqa: ANN001
             captured_messages.append(messages)
             captured_messages.append(temperature)
             return FakeResp(

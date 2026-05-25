@@ -280,30 +280,113 @@ async def _planner_stream(
             "user_id": user_id or "demo_user",
         }
 
-    # ---- 暖心开场白（行程出炉时；rule 模式走模板秒回，llm 模式调 LLM）----
+    # ---- 暖心开场白（行程出炉时；rule 模式走模板秒回，llm 模式调 LLM 流式输出）----
+    # 优化 1（spec speed-constraints）：llm 模式从「同步等 LLM 跑完 20s」改为
+    # 「逐 chunk 流式推 agent_narration」，前端首字延迟 ~500ms → 看到打字效果。
+    # 由于「方案生成」时间以 itinerary_ready 为准（已经推过），narration 流式
+    # 不影响加分项指标，仅是 UX 优化。
     narration_text: str | None = None
     if intent is not None and result is not None and result.itinerary is not None:
-        try:
-            from agent.intent.narrator import generate_narration
+        if mode == "rule":
+            # rule 模式：走模板（毫秒级）+ 单次推送
+            try:
+                from agent.intent.narrator import generate_narration
 
-            # rule 模式 use_llm=False 走纯模板（毫秒级），llm 模式调 LLM 出有"人味"文案
-            narration_text = await asyncio.to_thread(
-                generate_narration,
-                intent=intent,
-                itinerary=result.itinerary,
-                stage="stream",
-                use_llm=(mode != "rule"),
-            )
-            yield SseEvent(
-                type=SseEventType.AGENT_NARRATION,
-                seq=seq,
-                payload={"text": narration_text, "stage": "stream"},
-                timestamp_ms=_now_ms(),
-            )
-            seq += 1
-        except Exception:  # noqa: BLE001
-            # narration 失败不阻塞主流程（已经有 itinerary_ready 兜底）
-            pass
+                narration_text = await asyncio.to_thread(
+                    generate_narration,
+                    intent=intent,
+                    itinerary=result.itinerary,
+                    stage="stream",
+                    use_llm=False,
+                )
+                yield SseEvent(
+                    type=SseEventType.AGENT_NARRATION,
+                    seq=seq,
+                    payload={"text": narration_text, "stage": "stream"},
+                    timestamp_ms=_now_ms(),
+                )
+                seq += 1
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            # llm 模式：流式 LLM；每来一个 chunk 累积后推一次 agent_narration（前端覆盖渲染 → 打字效果）
+            try:
+                from agent.intent.narrator import stream_llm_narrator
+
+                accum = ""
+                stream_iter = await asyncio.to_thread(
+                    lambda: stream_llm_narrator(
+                        intent=intent,
+                        itinerary=result.itinerary,
+                        stage_label="stream",
+                    )
+                )
+                # 把同步 generator 转 async：在线程里逐 chunk 拿
+                stream_iter_obj = iter(stream_iter)
+
+                while True:
+                    try:
+                        chunk = await asyncio.to_thread(next, stream_iter_obj, None)
+                    except Exception:  # noqa: BLE001
+                        break
+                    if chunk is None:
+                        break
+                    if not chunk:
+                        continue
+                    accum += chunk
+                    # 防御：剥围栏 / 引号（仅最终一次清理足够；流式中间不剥避免误删）
+                    yield SseEvent(
+                        type=SseEventType.AGENT_NARRATION,
+                        seq=seq,
+                        payload={"text": accum, "stage": "stream"},
+                        timestamp_ms=_now_ms(),
+                    )
+                    seq += 1
+
+                # 流末再清理一次（防 markdown 围栏 / 引号）
+                if accum:
+                    text = accum.strip()
+                    if text.startswith("```"):
+                        from agent.core.llm_client import strip_json_fence
+
+                        text = (strip_json_fence(text) or text).strip()
+                    if (text.startswith('"') and text.endswith('"')) or (
+                        text.startswith("「") and text.endswith("」")
+                    ):
+                        text = text[1:-1].strip()
+                    if len(text) > 320:
+                        text = text[:280] + "……"
+                    if text != accum:
+                        # 流末再推一条覆盖（清理后版本）
+                        yield SseEvent(
+                            type=SseEventType.AGENT_NARRATION,
+                            seq=seq,
+                            payload={"text": text, "stage": "stream"},
+                            timestamp_ms=_now_ms(),
+                        )
+                        seq += 1
+                    narration_text = text
+                else:
+                    # 流没出任何 chunk → fallback 模板
+                    from agent.intent.narrator import generate_narration
+
+                    narration_text = await asyncio.to_thread(
+                        generate_narration,
+                        intent=intent,
+                        itinerary=result.itinerary,
+                        stage="stream",
+                        use_llm=False,
+                    )
+                    yield SseEvent(
+                        type=SseEventType.AGENT_NARRATION,
+                        seq=seq,
+                        payload={"text": narration_text, "stage": "stream"},
+                        timestamp_ms=_now_ms(),
+                    )
+                    seq += 1
+            except Exception:  # noqa: BLE001
+                # narration 失败不阻塞主流程（已经有 itinerary_ready 兜底）
+                pass
 
     # ---- v2 ConversationStore 同步 hook（跨 turn 上下文持久）----
     if intent is not None and result is not None and result.itinerary is not None:

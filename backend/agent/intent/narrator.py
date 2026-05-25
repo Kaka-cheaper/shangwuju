@@ -260,6 +260,8 @@ def _call_llm_narrator(
             # spec R6：温度从 0.7 降到 0.5，让"主动质疑"指令更稳定被遵守
             # （0.7 偶发跳过 critic_summary 段直接给暖文案）
             temperature=0.5,
+            # 优化 2：限制输出长度（中文每字 ≈ 2 token；80 字 ≈ 160 token + 余量）
+            max_tokens=180,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] LLM chat 失败：%s", e)
@@ -286,6 +288,63 @@ def _call_llm_narrator(
         text = text[:280] + "……"
 
     return text
+
+
+# ============================================================
+# 流式入口（spec speed-constraints 优化 1：让 narration 逐字推到前端）
+# ============================================================
+
+
+def stream_llm_narrator(
+    *,
+    intent: IntentExtraction,
+    itinerary: Itinerary,
+    stage_label: str,
+    critic_summary: str = "",
+    quality_warnings: Optional[list[str]] = None,
+):
+    """流式生成 narration；逐 chunk yield 文本片段。
+
+    用途：
+    - _planner_stream 末尾让前端逐字看到 narration 打字效果（评委体感「Agent 在思考」）
+    - 失败 yield 空（调用方走 fallback 模板）
+
+    与 _call_llm_narrator 区别：
+    - 流式：第 1 个 chunk 来后立刻 yield；首字延迟 ~500ms vs 一次性 20s
+    - max_tokens=180：限制总长度（中文每字 ~2 token；80 字 ≈ 160 token + 余量）
+
+    设计纪律：
+    - 前缀「```」/ 引号清理在调用方（流式过程中无法可靠剥）
+    - 异常 yield 0 chunk（不抛），让 yield-from 链路友好
+    """
+    try:
+        client = get_llm_client()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[narrator] stream get_llm_client 失败：%s", e)
+        return
+
+    user_msg = build_narrator_user_message(
+        intent_dict=intent.model_dump(),
+        itinerary_dict=itinerary.model_dump(),
+        stage_label=stage_label,
+        critic_summary=critic_summary,
+        quality_warnings=list(quality_warnings or []),
+    )
+
+    try:
+        for chunk in client.stream_chat(
+            messages=[
+                LLMMessage(role="system", content=NARRATOR_SYSTEM_PROMPT),
+                LLMMessage(role="user", content=user_msg),
+            ],
+            temperature=0.5,
+            max_tokens=180,
+        ):
+            if chunk:
+                yield chunk
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[narrator] stream_chat 失败：%s", e)
+        return
 
 
 # ============================================================

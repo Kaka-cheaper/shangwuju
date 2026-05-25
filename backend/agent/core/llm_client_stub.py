@@ -26,6 +26,7 @@ class StubLLMClient:
         *,
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> LLMChatResponse:
         # 简单的家庭主场景兜底
         sample_intent = {
@@ -54,6 +55,7 @@ class StubLLMClient:
         messages: list[LLMMessage],
         *,
         temperature: float = 0.3,
+        max_tokens: int | None = None,
     ) -> Iterator[str]:
         text = "已为你规划好下午行程：森林儿童探索乐园 → 轻语沙拉..."
         for ch in text:
