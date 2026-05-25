@@ -168,14 +168,14 @@ seq 7 done
 - 格式：`sess_<yyyymmdd>_<6位序号>` 或 uuid
 - 后端用此 id 在内存中保存意图 + 最终方案，等 `/chat/confirm` 调用
 
+
 ### CORS
 
-开发期 backend 默认开启 `Access-Control-Allow-Origin: http://localhost:3000`。
-通过环境变量 `SHANGWUJU_CORS_ORIGINS=*` 可放开。
+Demo 模式下 backend 在 main.py 写死 `allow_origins=["*"]`，方便联调。生产环境如需收紧，直接改 main.py（不走 env）。
 
 ### 端口
 
-- backend FastAPI：默认 `:8000`，通过 `SHANGWUJU_PORT` 覆盖
+- backend FastAPI：由启动命令的 `--port` 决定（README / Dockerfile 默认 `:8000`，FC 注入 `PORT=9000`）
 - frontend Next.js：默认 `:3000`
 - 前端请求基址通过 `NEXT_PUBLIC_API_BASE` 环境变量配置（`http://localhost:8000`）
 
@@ -192,7 +192,7 @@ seq 7 done
 启动方式：
 
 ```bash
-SHANGWUJU_LLM_PROVIDER=stub uv run uvicorn main:app --reload
+LLM_PROVIDER=stub uv run uvicorn main:app --reload
 ```
 
 ---

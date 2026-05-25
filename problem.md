@@ -8662,3 +8662,83 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 - 想切 logfire / redis / 数据源 / OAuth：去掉对应注释 + 填值即可
 
 **注意**：.env 在 .gitignore 里，本次追加不会进 commit；下次需要在新机器上同步配置时，仍以 .env.example 为单一信源（spec D-SoT 思路一致）。
+
+
+---
+
+## 问题：env 中所有字段都有用吗？全面审查
+
+**用户原问**：env 中所有字段都有用吗？我更新了好多次架构和工程细节，可能有的 env 字段已经完全过时了，全面审查一下
+
+**审查方法**：用 `grep_search "os\.getenv\(["'][A-Z_]+"` 穷举 backend 代码所有 env 读取，建立「实际使用字段集」，对比 .env / .env.example 找过时字段。
+
+**发现**：
+
+```text
+| 类别       | 字段                          | 状态                            |
+|-----------|------------------------------|--------------------------------|
+| 死字段     | SHANGWUJU_PORT               | 完全没人读（端口由启动 --port 决定）|
+| 死字段     | SHANGWUJU_CORS_ORIGINS       | 完全没人读（main.py 写死 *）     |
+| 缺记录     | ROUTE_FAST_PATH              | 代码读取但 .env.example 没注释段 |
+| 文档过时   | api_contract.md §CORS / 端口  | 文案描述的是已删除字段           |
+```
+
+**OAuth / Redis / Logfire / SESSION_STORE / NEARBY_PROVIDER / DATA_PROVIDER 等都还在用**，不是过时——这些是「演进路径」叙事的组成部分（路演大纲页 8 / 8.5）。
+
+**修改的代码文件**：
+
+- `backend/.env`：
+  - 删除 SHANGWUJU_PORT / SHANGWUJU_CORS_ORIGINS（替换为说明注释）
+  - 新增 ROUTE_FAST_PATH 注释段
+- `backend/.env.example`：
+  - 同上两处改动（信源对齐）
+- `backend/api_contract.md`：
+  - §CORS 改成「main.py 写死 allow_origins=['*']」
+  - §端口改成「由启动命令 --port 决定」
+  - stub 模式启动示例改成 `LLM_PROVIDER=stub uv run uvicorn ...`（去掉历史的 SHANGWUJU_ 前缀）
+
+**保留字段验证**：
+
+```text
+| 字段                       | 代码读取位置                              |
+|---------------------------|------------------------------------------|
+| LLM_API_KEY/URL/MODEL     | llm_client.py / model_factory.py          |
+| LLM_PROVIDER              | 多处（含 stub 触发器）                    |
+| LLM_TIMEOUT_S/MAX_RETRIES | llm_client.py / hedged_client.py          |
+| LLM_MODEL_<TASK> 三项      | llm_client.py（任务级模型路由）            |
+| LLM_API_KEY_BACKUP 等     | hedged_client.py                          |
+| LLM_HEDGE_AFTER_S         | hedged_client.py                          |
+| ROUTE_FAST_PATH           | api/_streams/route.py                     |
+| PLANNER_MODE              | api/chat.py（4 处）                       |
+| PLANNER_USE_REAL          | api/health.py                             |
+| PLANNER_LLM_STRATEGY      | rule_planner.py                           |
+| PLANNER_LLM_FIRST_RETRIES | llm_first_planner.py                      |
+| PLANNER_ILS_*             | ils_planner.py                            |
+| PLANNER_MAX_*_RETRIES     | graph/nodes/replan.py                     |
+| NODE_DECIDER_*            | blueprint/node_decider.py                 |
+| GROUNDING_*               | ils_planner.py                            |
+| CRITIC_FEEDBACK_MODE      | critics_v2.py                             |
+| USE_LANGGRAPH/REACT_AGENT | api/chat.py                               |
+| SESSION_STORE/REDIS_URL   | conversation.py                           |
+| DATA_PROVIDER             | tool_provider.py                          |
+| NEARBY_PROVIDER           | data/nearby_provider.py                   |
+| LOGFIRE_*                 | core/observability_init.py                |
+| LOG_FORMAT                | runtime/observability.py                  |
+| AMAP_REST_KEY             | scripts/enrich_mock_coords.py             |
+| AMAP_JS_CODE              | api/amap.py                               |
+| OAUTH_PROVIDER            | auth/providers.py                         |
+| WECHAT_/GOOGLE_/DINGTALK_ | api/oauth.py + auth/providers.py          |
+| SHANGWUJU_MOCK_DIR        | data/loader.py + memory_writer.py + 测试  |
+| SHANGWUJU_MEMORY_DIR      | data/memory_store.py                      |
+| SHANGWUJU_PERSONAS_FILE   | data/memory_store.py                      |
+| DEEPSEEK_/QWEN_*          | llm_client.py / model_factory.py（向后兼容）|
+```
+
+**应当达成的效果**：
+
+- env 文件不再有死字段（SHANGWUJU_PORT / CORS）误导后续维护者
+- ROUTE_FAST_PATH 优化项有官方注释入口
+- api_contract.md 与实际代码行为同步
+- 729 backend tests 全过；主链路 LLM_API_KEY / mimo-v2.5-pro / USE_LANGGRAPH 全保留
+
+**注意**：.env 在 .gitignore 里，本次实际入 commit 的是 .env.example + api_contract.md + problem.md。
