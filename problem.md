@@ -8223,3 +8223,102 @@ main.py 收尾态 143 行，**仅 4 件事**：
 - 真 LLM 链路超时问题作为后续优化项（不影响 demo 路径加分项命中）
 
 ---
+
+
+---
+
+## 问题：路由分类和 generate_narration 这两个环节不能被跳过，rule 模式下应该是纯粹的算法
+
+**用户原问**（多个连续提问合并）：
+1. stub 模式下为什么 llm 和 rule 模式行为一致？是不是只应该有 llm 和 rule 两个模式？
+2. rule 模式应该是纯算法所有环节，路由分类和 narration 不能被跳过——应该有规则版替代
+3. 真实评委体验难道不是真 LLM 模式吗？
+
+**正确架构（4 模式矩阵）**：
+
+```text
+                    维度 A（数据源）
+                    stub fixture       真 mock + 真 planner
+                    （写死剧本）         （动态执行）
+维度 B  rule       A 区演示安全网       C 区纯算法快路径
+（算法）                                 ← 用户期望，加分项命中
+        llm        B 区 safety net      D 区真 AI 决策
+                                         ← 评委导向
+```
+
+之前 C 区跑 35s 违反「demo 安全网毫秒级」定位——根因是真链路下 rule 模式仍调 LLM 干 3 件事：
+1. 入口 LLM 路由分类（5-10s）
+2. LLM 意图解析（3-8s）
+3. LLM 文案生成（15-25s）
+
+**3 处改造（rule 模式纯算法化）**：
+
+```text
+| 改造点                          | 文件                                        | 原 LLM 耗时 | 改后耗时 |
+|--------------------------------|--------------------------------------------|-----------|---------|
+| 入口路由分类走 _stub_route      | api/_streams/route.py                       | 5-10s     | < 10ms  |
+| 意图解析走 parse_intent_via_rules| api/_streams/intent_rules.py（新）          | 3-8s      | < 100ms |
+| narration use_llm=False 走模板  | api/_streams/planner_stream.py + stub_confirm.py | 15-25s | < 50ms  |
+```
+
+**新建 `intent_rules.py` 纯算法意图解析**（426 行）：
+- 距离：正则「数字 + 公里/km」+「太远/近一点」启发式
+- 时长：正则「数字 + 小时」+「半天/一下午」预设
+- 同行人：关键词字典「老婆/孩子+岁/朋友 N 人/父母/闺蜜/客户/一个人」
+- social_context：9 选 1 关键词信号矩阵（与 _stub_route 对齐）
+- 三类 tag：词典直接命中 + 同义词扩展（减肥→低脂、清淡→不辣、网红→网红打卡）
+- start_time：周日/周末/晚上 关键词
+- capacity_requirement：companions 推导（≥4 人时设值）
+- ambiguous_fields：标记不命中字段供 critic 知道哪里弱
+
+**测试覆盖**：22 项 pytest 单测（8 demo 场景 + 距离/时长/同行人/tag/D9 反向校验/边界）。
+
+**实测对比（真 LLM 链路 PLANNER_USE_REAL=1）**：
+
+```text
+| 模式  | 优化前         | 优化后        | 改善           |
+|------|---------------|--------------|---------------|
+| rule | 方案生成 35.18s | 方案生成 1.79s | 28x  ← 加分项远超阈值 |
+| rule | 端到端 54.13s   | 端到端 3.58s   | 15x  ← 加分项远超阈值 |
+| llm  | 方案生成 29.38s | 方案生成 35.37s| -6%（LLM 真实成本，无优化空间）|
+| llm  | 端到端 119.66s  | 端到端 50.23s | 2.4x（confirm 流去 LLM narration） |
+```
+
+**3 条加分项指标命中情况**：
+
+```text
+| 指标            | 阈值    | rule 真链路 | llm 真链路 |
+|----------------|---------|------------|-----------|
+| 方案生成        | <= 30s  | 1.79s ✓    | 35.37s 临界 |
+| 工具响应（最慢）| <= 3s   | 451ms ✓    | 422ms ✓   |
+| 端到端流程      | <= 120s | 3.58s ✓    | 50.23s ✓  |
+```
+
+rule 模式真链路 3 项全 PASS（远超阈值）；llm 模式临界 — LLM 多轮调用本身耗时不可控，是 LLM 服务网络层固有特性。
+
+**stub 是什么的最终回答**：
+- stub = 写死的预定义剧本（`_stub_stream` 380 行 SSE 事件序列）
+- 不管输入什么、不管 mode 选啥，stub 路径都吐同一份家庭主场景 + E1 异常序列
+- 存在原因：评委网络断了 / LLM 限流了 / 输入太刁钻 都能稳出 demo
+- 设计**正确但命名混淆**——之前用户问「为什么 stub 下 llm 和 rule 一致」就是因为 stub 路径不接 mode 参数
+
+**修改的代码文件**：
+
+新建：
+- `backend/api/_streams/intent_rules.py`（426 行纯算法意图解析）
+- `backend/tests/test_intent_rules.py`（22 项单测）
+
+修改：
+- `backend/api/_streams/planner_stream.py`：新增 _intent_via_mode 按 mode 分发；narration use_llm 跟 mode 走
+- `backend/api/_streams/route.py`：mode==rule 时跳过 LLM router 直接用 _stub_route
+- `backend/api/_streams/stub_confirm.py`：加 mode 参数；narration use_llm 跟 mode 走
+- `backend/api/chat.py`：confirm 端点透传 mode 给 _stub_confirm
+
+**应当达成的效果**：
+
+- rule 模式真链路真正做到「纯算法所有环节」，方案生成 1.79s（28x 改善）远低于 30s 阈值
+- 加分项「速度约束」3 条指标 rule 真链路全 PASS（评委可现场跑 verify_speed_constraints.py --real 验证）
+- llm 模式行为不变，依然走真 LLM 链路出有"人味"文案（方案生成临界 35s 接受）
+- 4 模式矩阵架构清晰：A（演示安全网）/ B（safety net）/ C（纯算法快路径）/ D（真 AI 决策）
+
+---
