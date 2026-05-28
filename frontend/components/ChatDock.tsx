@@ -49,7 +49,7 @@ const HEIGHT_FULL_RATIO = 0.7; // viewport * 0.7
 const SNAP_AND_TIMELINE_THRESHOLD = 160;
 const SHOW_INTENT_THRESHOLD = 240;
 
-export default function ChatDock() {
+export default function ChatDock({ activated = true }: { activated?: boolean }) {
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
   const streamError = useChatStore((s) => s.streamError);
@@ -358,50 +358,58 @@ export default function ChatDock() {
   return (
     <div
       className={cn(
-        "dock-glass fixed left-0 right-0 bottom-0 z-30",
+        activated
+          ? "fixed left-0 right-0 bottom-0 z-30"
+          : "relative z-30 w-full",
         isDragging
           ? "transition-none"
-          : "transition-[height] duration-300 ease-out",
+          : "transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
       )}
-      style={{
-        height: `${renderHeight}px`,
-      }}
+      style={activated ? { height: `${renderHeight}px` } : undefined}
     >
-      {/* Drag handle：顶部 8px 横条，向上 / 向下拖改高度 */}
-      <div
-        className={cn(
-          "dock-handle absolute top-0 left-0 right-0 h-2 cursor-ns-resize",
-          "flex items-center justify-center group",
-          "select-none touch-none z-10",
-        )}
-        onPointerDown={onDragStart}
-        onDoubleClick={onHandleDoubleClick}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="拖动调整对话窗口高度（双击重置）"
-        title="拖动调整高度 · 双击重置"
-      >
-        <span
-          className={cn(
-            "block w-12 h-1 rounded-full",
-            "bg-white/[0.08] group-hover:bg-white/[0.18] transition-colors",
-            isDragging && "bg-brand-400/60",
-          )}
-        />
-      </div>
+      {/* 激活态：保留 drag handle + 暖色发光线 + timeline */}
+      {activated && (
+        <>
+          {/* Drag handle：顶部 8px 横条，向上 / 向下拖改高度 */}
+          <div
+            className={cn(
+              "dock-handle absolute top-0 left-0 right-0 h-2 cursor-ns-resize",
+              "flex items-center justify-center group",
+              "select-none touch-none z-10",
+            )}
+            onPointerDown={onDragStart}
+            onDoubleClick={onHandleDoubleClick}
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="拖动调整对话窗口高度（双击重置）"
+            title="拖动调整高度 · 双击重置"
+          >
+            <span
+              className={cn(
+                "block w-12 h-1 rounded-full",
+                "bg-white/[0.08] group-hover:bg-white/[0.18] transition-colors",
+                isDragging && "bg-brand-400/60",
+              )}
+            />
+          </div>
 
-      {/* 顶部暖色发光线（streaming 时常显，否则只在 hover 时显） */}
-      <div
-        aria-hidden
-        className={cn(
-          "absolute top-0 left-0 right-0 h-px",
-          streaming ? "shimmer-bar" : "dock-edge-glow",
-        )}
-      />
+          {/* 顶部暖色发光线（streaming 时常显，否则只在 hover 时显） */}
+          <div
+            aria-hidden
+            className={cn(
+              "absolute top-0 left-0 right-0 h-px",
+              streaming ? "shimmer-bar" : "dock-edge-glow",
+            )}
+          />
+        </>
+      )}
 
-      <div className="mx-auto max-w-7xl h-full px-4 sm:px-6 flex flex-col">
-        {/* Timeline / peek 区：流式 streaming 自动 / 手动拖大时显示 */}
-        {showTimeline && (
+      <div className={cn(
+        "mx-auto max-w-7xl px-4 sm:px-6 flex flex-col",
+        activated && "h-full",
+      )}>
+        {/* Timeline / peek 区：仅激活态显示 */}
+        {activated && showTimeline && (
           <div
             ref={timelineScrollRef}
             className="flex-1 min-h-0 overflow-y-auto pt-3 pb-2 animate-fade-in"
@@ -483,8 +491,8 @@ export default function ChatDock() {
           </div>
         )}
 
-        {/* collapsed 态：最新 agent 消息单行预览 */}
-        {!showTimeline && (latestChitchat || latestAgent) && (
+        {/* collapsed 态：最新 agent 消息单行预览（仅激活态） */}
+        {activated && !showTimeline && (latestChitchat || latestAgent) && (
           <button
             type="button"
             onClick={onTogglePeek}
@@ -508,21 +516,26 @@ export default function ChatDock() {
           </button>
         )}
 
-        {/* 输入区（始终在底部，紧贴屏幕底） */}
-        <div className="pt-1.5 pb-2 flex items-end gap-2">
-          {/* 展开按钮：左侧（toggle 70vh ↔ collapsed） */}
+        {/* 输入区：历史按钮和输入框各自独立悬浮卡片 */}
+        <div className={cn(
+          "flex items-end gap-3",
+          activated ? "pt-1.5 pb-2" : "pt-0",
+        )}>
+          {/* 历史按钮：独立悬浮卡片 */}
           <button
             type="button"
             onClick={onTogglePeek}
             disabled={totalCount === 0 && !streaming}
             className={cn(
-              "shrink-0 inline-flex items-center gap-1.5 h-[44px] px-3 rounded-md",
+              "shrink-0 inline-flex items-center gap-1.5 h-[44px] px-3 rounded-xl",
+              "backdrop-blur-sm",
               "border bg-white/[0.04] text-xs",
               showTimeline
                 ? "border-brand-400/40 text-brand-300 bg-brand-500/[0.08] hover:bg-brand-500/[0.12]"
                 : "border-white/[0.08] text-ink-700 hover:bg-white/[0.08] hover:border-white/[0.16] hover:text-ink-900",
               "transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
               "tracking-tight",
+              "shadow-elevated",
             )}
             title={showTimeline ? "收起对话窗口（ESC）" : "展开完整对话历史"}
             aria-label={showTimeline ? "收起对话" : "展开对话"}
@@ -545,13 +558,13 @@ export default function ChatDock() {
           </button>
 
           {/* spec interaction-experience-review M2：Tool 调用 + replan 计数 badge */}
-          {/* 让评委在 dock 收起态也看到「Agent 跑了 N 步 / 自我修正 K 次」 */}
           {(toolCallsCount > 0 || replansCount > 0) && (
             <div
               className={cn(
-                "shrink-0 hidden md:inline-flex items-center gap-1.5 h-[44px] px-2 rounded-md",
+                "shrink-0 hidden md:inline-flex items-center gap-1.5 h-[44px] px-2 rounded-xl",
                 "border border-white/[0.06] bg-white/[0.02]",
                 "text-[10px] text-ink-500 tracking-tight tabular-nums",
+                "backdrop-blur-sm shadow-elevated",
               )}
               title={
                 replansCount > 0
@@ -585,55 +598,60 @@ export default function ChatDock() {
             </div>
           )}
 
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
+          {/* 输入框：独立悬浮卡片 */}
+          <div className={cn(
+            "flex-1 flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04]",
+            "backdrop-blur-sm shadow-elevated",
+            "px-3 py-1.5",
+          )}>
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+              placeholder={
+                streaming
+                  ? "Agent 正在规划，稍候..."
+                  : userMsgCount === 0
+                    ? "说一句你下午想做什么... (Enter 发送 · Shift+Enter 换行)"
+                    : "继续对话或反馈... (Enter 发送)"
               }
-            }}
-            placeholder={
-              streaming
-                ? "Agent 正在规划，稍候..."
-                : userMsgCount === 0
-                  ? "说一句你下午想做什么... (Enter 发送 · Shift+Enter 换行)"
-                  : "继续对话或反馈... (Enter 发送)"
-            }
-            disabled={streaming}
-            rows={showTimeline ? 2 : 1}
-            className={cn(
-              "flex-1 resize-none rounded-md border bg-white/[0.04]",
-              "border-white/[0.08] hover:border-white/[0.16]",
-              "px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
-              "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
-              "transition-[border-color,box-shadow] duration-150",
-              "disabled:bg-white/[0.02] disabled:text-ink-500",
-            )}
-          />
+              disabled={streaming}
+              rows={showTimeline ? 2 : 1}
+              className={cn(
+                "flex-1 resize-none bg-transparent border-0",
+                "py-2 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
+                "focus:outline-none",
+                "disabled:text-ink-500",
+              )}
+            />
 
-          <button
-            className={cn(
-              "btn-primary h-[44px] min-w-[80px] shrink-0",
-              streaming && "shimmer-border",
-            )}
-            onClick={submit}
-            disabled={streaming || !draft.trim()}
-          >
-            {streaming ? (
-              <>
-                <Icons.thinking
-                  className="w-3.5 h-3.5 animate-spin"
-                  strokeWidth={2}
-                />
-                <span className="hidden sm:inline">规划中</span>
-              </>
-            ) : (
-              <span>发送</span>
-            )}
-          </button>
+            <button
+              className={cn(
+                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-lg",
+                streaming && "shimmer-border",
+              )}
+              onClick={submit}
+              disabled={streaming || !draft.trim()}
+            >
+              {streaming ? (
+                <>
+                  <Icons.thinking
+                    className="w-3.5 h-3.5 animate-spin"
+                    strokeWidth={2}
+                  />
+                  <span className="hidden sm:inline">规划中</span>
+                </>
+              ) : (
+                <span>发送</span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

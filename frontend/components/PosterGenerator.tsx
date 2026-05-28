@@ -22,6 +22,7 @@
  */
 
 import { forwardRef, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Image as ImageIcon,
   Download,
@@ -253,8 +254,8 @@ export default function PosterGenerator() {
         <PosterTemplate ref={templateRef} itinerary={itinerary} />
       </div>
 
-      {/* 双栏 Modal 预览（Canva 风：左海报 + 右操作） */}
-      {previewUrl && (
+      {/* 双栏 Modal 预览（Canva 风：左海报 + 右操作）—— Portal 到 body 避免父级 stacking context 限制 */}
+      {previewUrl && typeof document !== "undefined" && createPortal(
         <PreviewModal
           imageUrl={previewUrl}
           itinerary={itinerary}
@@ -265,7 +266,8 @@ export default function PosterGenerator() {
           }}
           onClose={closePreview}
           pushToast={pushToast}
-        />
+        />,
+        document.body,
       )}
     </>
   );

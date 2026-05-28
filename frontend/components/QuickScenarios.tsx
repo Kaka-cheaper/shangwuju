@@ -5,7 +5,7 @@ import { scenarioIcon } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 
 /** 8 个快捷场景按钮（黄昏深色主题：玻璃描边 + hover 暖光晕）。 */
-export default function QuickScenarios() {
+export default function QuickScenarios({ enlarged = false }: { enlarged?: boolean }) {
   const scenarios = useChatStore((s) => s.scenarios);
   const streaming = useChatStore((s) => s.streaming);
   const sendMessage = useChatStore((s) => s.sendMessage);
@@ -32,7 +32,12 @@ export default function QuickScenarios() {
           <span>打开命令面板</span>
         </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+      <div className={cn(
+        "grid gap-2",
+        enlarged
+          ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-4"
+          : "grid-cols-2 sm:grid-cols-4 lg:grid-cols-8",
+      )}>
         {scenarios.map((s) => {
           const Icon = scenarioIcon(s.id);
           return (
@@ -43,13 +48,14 @@ export default function QuickScenarios() {
               className={cn(
                 "group relative flex flex-col items-start gap-2 rounded-md",
                 "border border-white/[0.08] bg-white/[0.03]",
-                "px-3 py-2.5 text-left transition-all duration-200",
+                "text-left transition-all duration-200",
                 "hover:border-brand-500/40 hover:bg-white/[0.06]",
                 "hover:shadow-[0_0_24px_-8px_rgb(249_115_22_/_0.4)]",
                 "active:bg-white/[0.04]",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
                 "disabled:hover:bg-white/[0.03] disabled:hover:border-white/[0.08] disabled:hover:shadow-none",
                 "backdrop-blur-sm overflow-hidden",
+                enlarged ? "px-4 py-4" : "px-3 py-2.5",
               )}
               title={s.input}
             >
@@ -63,10 +69,16 @@ export default function QuickScenarios() {
                 }}
               />
               <Icon
-                className="relative w-4 h-4 text-ink-600 group-hover:text-brand-400 transition-colors"
+                className={cn(
+                  "relative text-ink-600 group-hover:text-brand-400 transition-colors",
+                  enlarged ? "w-5 h-5" : "w-4 h-4",
+                )}
                 strokeWidth={1.75}
               />
-              <span className="relative text-xs font-medium text-ink-700 group-hover:text-ink-900 line-clamp-1 tracking-tight">
+              <span className={cn(
+                "relative font-medium text-ink-700 group-hover:text-ink-900 line-clamp-1 tracking-tight",
+                enlarged ? "text-sm" : "text-xs",
+              )}>
                 <span className="mono text-[10px] text-ink-500 mr-1">
                   {s.id}
                 </span>
