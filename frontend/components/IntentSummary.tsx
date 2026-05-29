@@ -26,7 +26,7 @@ export default function IntentSummary({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
           <Icons.spark
-            className="w-3.5 h-3.5 text-brand-400"
+            className="w-3.5 h-3.5 text-brand-600"
             strokeWidth={2.5}
           />
           <span className="text-[11px] font-medium text-ink-800 tracking-tight">
@@ -37,14 +37,14 @@ export default function IntentSummary({
           <span className="text-[10px] text-ink-500 mono">
             {confidencePct}%
           </span>
-          <div className="w-16 h-1 rounded-full bg-white/[0.06] overflow-hidden">
+          <div className="w-16 h-1 rounded-full bg-black/[0.06] overflow-hidden">
             <div
               className="h-full transition-[width] duration-500"
               style={{
                 width: `${confidencePct}%`,
                 background:
-                  "linear-gradient(90deg, #fb923c 0%, #ec4899 100%)",
-                boxShadow: "0 0 8px rgb(249 115 22 / 0.6)",
+                  "linear-gradient(90deg, #FFD100 0%, #f59e0b 100%)",
+                boxShadow: "0 0 8px rgb(255 209 0 / 0.4)",
               }}
             />
           </div>

@@ -6,16 +6,16 @@ import { cn } from "@/lib/utils";
 
 const KIND_STYLES = {
   success:
-    "border-emerald-500/30 text-emerald-200",
-  info: "border-accent-500/30 text-accent-200",
-  warn: "border-amber-500/30 text-amber-200",
+    "border-emerald-500/30 text-emerald-700",
+  info: "border-accent-500/30 text-accent-700",
+  warn: "border-amber-500/30 text-amber-700",
 } as const;
 
 const KIND_GRADIENT = {
   success:
-    "linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%)",
-  info: "linear-gradient(135deg, rgba(217,70,239,0.15) 0%, rgba(139,92,246,0.05) 100%)",
-  warn: "linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(245,158,11,0.05) 100%)",
+    "linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.04) 100%)",
+  info: "linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(251,191,36,0.04) 100%)",
+  warn: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%)",
 } as const;
 
 const KIND_ICONS = {
@@ -25,9 +25,9 @@ const KIND_ICONS = {
 } as const;
 
 const KIND_ICON_TINT = {
-  success: "text-emerald-400",
-  info: "text-accent-300",
-  warn: "text-amber-400",
+  success: "text-emerald-500",
+  info: "text-accent-600",
+  warn: "text-amber-500",
 } as const;
 
 /** 右下角 Toast 堆叠（黄昏深色主题：玻璃半透 + 边发光）。 */

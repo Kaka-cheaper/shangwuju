@@ -24,33 +24,33 @@ interface ToneTheme {
 const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
   warm: {
     gradient:
-      "linear-gradient(135deg, rgba(251,146,60,0.18) 0%, rgba(236,72,153,0.10) 100%)",
+      "linear-gradient(135deg, rgba(255,209,0,0.12) 0%, rgba(245,158,11,0.08) 100%)",
     border: "border-brand-500/30",
-    accent: "text-brand-300",
+    accent: "text-brand-800",
     Icon: Coffee,
     label: "暖心",
   },
   neutral: {
     gradient:
-      "linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)",
-    border: "border-white/[0.1]",
+      "linear-gradient(135deg, rgba(0,0,0,0.03) 0%, rgba(0,0,0,0.01) 100%)",
+    border: "border-black/[0.08]",
     accent: "text-ink-700",
     Icon: MessageCircle,
     label: "介绍",
   },
   empathetic: {
     gradient:
-      "linear-gradient(135deg, rgba(244,63,94,0.18) 0%, rgba(217,70,239,0.10) 100%)",
+      "linear-gradient(135deg, rgba(244,63,94,0.12) 0%, rgba(217,70,239,0.08) 100%)",
     border: "border-rose-500/30",
-    accent: "text-rose-300",
+    accent: "text-rose-600",
     Icon: Heart,
     label: "陪伴",
   },
   playful: {
     gradient:
-      "linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(20,184,166,0.10) 100%)",
+      "linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(20,184,166,0.08) 100%)",
     border: "border-emerald-500/30",
-    accent: "text-emerald-300",
+    accent: "text-emerald-600",
     Icon: Sparkles,
     label: "玩笑",
   },
@@ -109,8 +109,8 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                 className={cn(
                   "inline-flex items-center gap-1 rounded-md",
                   "px-2.5 py-1 text-[11px] font-medium tracking-tight",
-                  "bg-white/[0.06] border border-white/[0.1] text-ink-800",
-                  "hover:bg-white/[0.1] hover:border-white/[0.2] hover:text-ink-900",
+                  "bg-black/[0.04] border border-black/[0.08] text-ink-800",
+                  "hover:bg-black/[0.06] hover:border-black/[0.15] hover:text-ink-900",
                   "transition-colors duration-150",
                   "active:scale-[0.98]",
                   "disabled:opacity-50 disabled:cursor-not-allowed",

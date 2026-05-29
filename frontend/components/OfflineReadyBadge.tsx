@@ -53,7 +53,7 @@ export default function OfflineReadyBadge() {
       aria-label="当前规则模式可断网继续运行"
       className={cn(
         "hidden lg:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
-        "border border-amber-400/24 bg-amber-500/8 text-amber-200/90 tracking-tight",
+        "border border-amber-400/24 bg-amber-500/8 text-amber-700/90 tracking-tight",
         "backdrop-blur cursor-help animate-fade-in",
       )}
     >

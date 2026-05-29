@@ -232,7 +232,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         const map = new AMap.Map(containerRef.current, {
           zoom: 12,
           center: FALLBACK_CENTER,
-          mapStyle: "amap://styles/dark", // 深色主题匹配 UI
+          mapStyle: "amap://styles/normal", // 浅色主题匹配 UI
           viewMode: "2D",
           features: ["bg", "road", "building"], // 不要 POI 层（避免和我们的标注冲突）
         });
@@ -397,8 +397,8 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
   return (
     <div className="card mt-3 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center gap-1.5">
-        <MapPin className="w-3.5 h-3.5 text-brand-400" strokeWidth={2} />
+      <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
+        <MapPin className="w-3.5 h-3.5 text-brand-600" strokeWidth={2} />
         <span className="text-[12px] font-medium text-ink-900 tracking-tight">
           行程地图
         </span>
@@ -625,7 +625,7 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
 
   return (
     <div className="card mt-3">
-      <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center gap-1.5">
+      <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
         <span className="text-[12px] font-medium text-ink-900 tracking-tight">
           行程地点
@@ -641,7 +641,7 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
             key={item.idx}
             className={cn(
               "flex items-start gap-2 px-2 py-1.5 rounded-md",
-              "border border-white/[0.06] bg-white/[0.02]",
+              "border border-black/[0.06] bg-black/[0.02]",
             )}
           >
             <span className="mono text-[10px] text-ink-500 mt-0.5 tabular-nums">

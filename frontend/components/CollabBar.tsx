@@ -25,7 +25,7 @@ export default function CollabBar() {
   return (
     <div
       className={cn(
-        "w-full px-4 py-2 border-b border-white/[0.08]",
+        "w-full px-4 py-2 border-b border-black/[0.08]",
         "bg-gradient-to-r from-amber-500/10 to-orange-500/10",
         "flex items-center justify-between gap-3 text-sm",
       )}
@@ -38,8 +38,8 @@ export default function CollabBar() {
             <div
               key={m.user_id}
               className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium border-2 border-[#08080d]",
-                m.online ? "bg-emerald-500/80 text-white" : "bg-ink-600 text-ink-400",
+                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium border-2 border-white",
+                m.online ? "bg-emerald-500/80 text-white" : "bg-ink-200 text-ink-400",
               )}
               title={`${m.nickname}（${m.role === "owner" ? "发起人" : "参与者"}）${m.online ? "" : " · 离线"}`}
             >

@@ -52,11 +52,11 @@ const STRATEGY_LABEL: Record<string, string> = {
 };
 
 const STRATEGY_COLOR: Record<string, string> = {
-  llm_first: "text-emerald-300 bg-emerald-500/10 border-emerald-400/30",
-  llm_backprompt: "text-amber-300 bg-amber-500/10 border-amber-400/30",
-  ils: "text-sky-300 bg-sky-500/10 border-sky-400/30",
-  rule: "text-slate-300 bg-slate-500/10 border-slate-400/30",
-  give_up: "text-rose-300 bg-rose-500/10 border-rose-400/30",
+  llm_first: "text-emerald-600 bg-emerald-500/10 border-emerald-400/30",
+  llm_backprompt: "text-amber-600 bg-amber-500/10 border-amber-400/30",
+  ils: "text-sky-600 bg-sky-500/10 border-sky-400/30",
+  rule: "text-ink-600 bg-ink-200/50 border-ink-300/30",
+  give_up: "text-rose-600 bg-rose-500/10 border-rose-400/30",
 };
 
 export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
@@ -83,7 +83,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
   const summaryText = summaryParts.length > 0 ? summaryParts.join("，") : "一次通过";
 
   return (
-    <div className="card mt-4 border border-amber-400/20 bg-gradient-to-br from-slate-900/60 to-slate-800/40">
+    <div className="card mt-4 border border-amber-400/20 bg-gradient-to-br from-amber-50/60 to-white">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -96,20 +96,20 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
         title="LLM-Modulo 论文范式 · 三层 critic 镜像"
       >
         <div className="flex items-center gap-2">
-          <Icons.spark className="h-4 w-4 text-amber-300" />
-          <span className="text-sm font-semibold text-amber-100">决策链路</span>
-          <span className="text-[11px] text-amber-300/70">看 Agent 怎么想的</span>
+          <Icons.spark className="h-4 w-4 text-amber-500" />
+          <span className="text-sm font-semibold text-amber-800">决策链路</span>
+          <span className="text-[11px] text-amber-600/70">看 Agent 怎么想的</span>
           <span className={cn(
             "rounded-full border px-2 py-0.5 text-xs",
             strategyColor,
           )}>
             {strategyLabel}
           </span>
-          <span className="text-xs text-slate-400">· {summaryText}</span>
+          <span className="text-xs text-ink-500">· {summaryText}</span>
         </div>
         <span
           className={cn(
-            "text-slate-400 transition-transform text-sm leading-none",
+            "text-ink-500 transition-transform text-sm leading-none",
             open && "rotate-180",
           )}
           aria-hidden
@@ -123,17 +123,17 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 1. 蓝图 rationale + 权重 ===== */}
           {(t.blueprint_rationale || t.weights_explanation) && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-200">
+              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.spark className="h-3 w-3" />
                 规划思路
               </h4>
               {t.blueprint_rationale && (
-                <p className="mb-2 text-sm leading-relaxed text-slate-200">
+                <p className="mb-2 text-sm leading-relaxed text-ink-800">
                   {t.blueprint_rationale}
                 </p>
               )}
               {t.weights_explanation && (
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-ink-500">
                   权重：{t.weights_explanation}
                 </p>
               )}
@@ -143,7 +143,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 2. critic 修正历史 ===== */}
           {t.critic_attempts.length > 0 && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-200">
+              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.refine className="h-3 w-3" />
                 Critic 修正历史
               </h4>
@@ -154,13 +154,13 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                     className={cn(
                       "rounded-md border px-3 py-2 text-xs",
                       a.resolved
-                        ? "border-emerald-400/25 bg-emerald-500/5 text-emerald-100"
-                        : "border-rose-400/25 bg-rose-500/5 text-rose-100",
+                        ? "border-emerald-400/25 bg-emerald-500/5 text-emerald-800"
+                        : "border-rose-400/25 bg-rose-500/5 text-rose-800",
                     )}
                   >
                     <div className="mb-1 flex items-center gap-1.5">
                       <span className="font-semibold">第 {a.attempt_n} 次</span>
-                      <span className="text-slate-400">·</span>
+                      <span className="text-ink-400">·</span>
                       <span>
                         {a.resolved ? "已修正" : "进行中"}
                       </span>
@@ -170,14 +170,14 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                         {a.violation_codes.map((code, codeIdx) => (
                           <span
                             key={`${idx}-${codeIdx}-${code}`}
-                            className="rounded-sm bg-slate-700/50 px-1.5 py-0.5 text-[10px] uppercase text-slate-300"
+                            className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-[10px] uppercase text-ink-600"
                           >
                             {code}
                           </span>
                         ))}
                       </div>
                     )}
-                    <p className="text-slate-300">{a.feedback_summary}</p>
+                    <p className="text-ink-600">{a.feedback_summary}</p>
                   </li>
                 ))}
               </ol>
@@ -187,7 +187,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 3. fallback 链 ===== */}
           {t.fallback_chain.length > 0 && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-200">
+              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.pulse className="h-3 w-3" />
                 Fallback 链
               </h4>
@@ -195,16 +195,16 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                 {t.fallback_chain.map((h, idx) => (
                   <li
                     key={idx}
-                    className="flex items-center gap-2 text-xs text-slate-300"
+                    className="flex items-center gap-2 text-xs text-ink-600"
                   >
-                    <span className="rounded-sm bg-slate-700/50 px-1.5 py-0.5 text-[10px]">
+                    <span className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-[10px]">
                       {h.from_stage}
                     </span>
-                    <span className="text-slate-500">→</span>
-                    <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
+                    <span className="text-ink-400">→</span>
+                    <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700">
                       {h.to_stage}
                     </span>
-                    <span className="text-slate-400">{h.reason}</span>
+                    <span className="text-ink-500">{h.reason}</span>
                   </li>
                 ))}
               </ol>
@@ -214,7 +214,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 4. 备选候选 ===== */}
           {t.alternatives_considered.length > 0 && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-200">
+              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.pin className="h-3 w-3" />
                 考虑过的备选
               </h4>
@@ -224,17 +224,17 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                     key={`${a.target_id}-${idx}`}
                     className="flex items-start gap-2 text-xs"
                   >
-                    <span className="mt-0.5 rounded-full bg-slate-700/50 px-1.5 py-0 text-[10px] text-slate-300">
+                    <span className="mt-0.5 rounded-full bg-ink-200/50 px-1.5 py-0 text-[10px] text-ink-600">
                       #{a.rank}
                     </span>
                     <div className="flex-1">
-                      <div className="text-slate-200">
+                      <div className="text-ink-800">
                         {a.target_name}
-                        <span className="ml-1 text-slate-500">
+                        <span className="ml-1 text-ink-500">
                           ({a.target_kind === "poi" ? "活动" : "餐厅"})
                         </span>
                       </div>
-                      <div className="text-slate-400">{a.reason_rejected}</div>
+                      <div className="text-ink-500">{a.reason_rejected}</div>
                     </div>
                   </li>
                 ))}

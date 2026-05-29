@@ -103,14 +103,14 @@ export default function HomeView() {
 
   return (
     <div className="min-h-screen relative">
-      {/* 黄昏光斑背景层（fixed，最底层） */}
+      {/* 黄色光晕背景层（fixed，最底层） */}
       <div className="aurora-bg" aria-hidden />
 
       {/* 顶栏：始终显示 */}
       <header
         className={cn(
-          "relative-content sticky top-0 z-20 border-b border-white/[0.06]",
-          "bg-[#08080d]/70 backdrop-blur-xl",
+          "relative-content sticky top-0 z-20 border-b border-black/[0.06]",
+          "bg-white/80 backdrop-blur-xl",
           "transition-[background-color,box-shadow] duration-300",
           scrolled && "header-scrolled",
         )}
@@ -121,16 +121,16 @@ export default function HomeView() {
             <div className="flex items-center gap-2.5">
               <div className="brand-mark" aria-hidden />
               <div className="flex flex-col leading-none">
-                <h1 className="text-[15px] font-semibold tracking-tight text-ink-900 shrink-0">
+                <h1 className="text-[17px] font-semibold tracking-tight text-ink-900 shrink-0">
                   晌午局
                 </h1>
-                <span className="hidden sm:inline text-[10px] text-ink-500 mt-0.5 tracking-wide">
+                <span className="hidden sm:inline text-[11px] text-ink-500 mt-0.5 tracking-wide">
                   Shangwu · Local Half-Day Agent
                 </span>
               </div>
             </div>
             <span className="hidden md:inline text-ink-300/40">/</span>
-            <span className="hidden md:inline text-xs text-ink-500 truncate">
+            <span className="hidden md:inline text-sm text-ink-500 truncate">
               半日出行管家 · Agent 编排可视化
             </span>
           </div>
@@ -140,7 +140,7 @@ export default function HomeView() {
             <button
               type="button"
               onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.16] px-2.5 py-1 text-xs text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
+              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-black/[0.08] bg-black/[0.02] hover:bg-black/[0.04] hover:border-black/[0.12] px-2.5 py-1 text-sm text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
               title="打开命令面板（场景 / 模式 / 用户切换）"
             >
               <span>命令</span>

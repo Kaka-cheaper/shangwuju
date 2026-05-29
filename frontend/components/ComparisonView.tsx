@@ -134,7 +134,7 @@ export default function ComparisonView({
   return (
     <div
       className={cn(
-        "px-4 py-3 border-b border-white/[0.06]",
+        "px-4 py-3 border-b border-black/[0.06]",
         "bg-gradient-to-r from-accent-500/5 to-brand-500/5",
       )}
     >
@@ -190,7 +190,7 @@ export default function ComparisonView({
 
           {/* 新方案列 */}
           <div>
-            <div className="text-[10px] tracking-wider uppercase text-accent-300 mb-1.5 flex items-center gap-1">
+            <div className="text-[10px] tracking-wider uppercase text-accent-600 mb-1.5 flex items-center gap-1">
               <span className="inline-block w-1 h-1 rounded-full bg-accent-400" />
               <span>调整后</span>
             </div>
@@ -234,7 +234,7 @@ function StageRow({
       return (
         <PlaceholderRow
           label="新增"
-          colorClass="bg-emerald-500/10 border-emerald-500/30 text-emerald-300"
+          colorClass="bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
         />
       );
     }
@@ -242,7 +242,7 @@ function StageRow({
       return (
         <PlaceholderRow
           label="已移除"
-          colorClass="bg-rose-500/10 border-rose-500/30 text-rose-300"
+          colorClass="bg-rose-500/10 border-rose-500/30 text-rose-600"
         />
       );
     }
@@ -265,7 +265,7 @@ function StageRow({
         "rounded-md border px-2 py-1.5 text-[11px] transition-colors",
         highlight
           ? "border-amber-500/30 bg-amber-500/5"
-          : "border-white/[0.06] bg-white/[0.02]",
+          : "border-black/[0.06] bg-black/[0.02]",
       )}
     >
       <div className="flex items-center gap-1.5 mb-0.5">
@@ -282,7 +282,7 @@ function StageRow({
             "px-1 py-0 rounded text-[9px] border",
             kindChanged
               ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
-              : "border-white/[0.06] bg-white/[0.04] text-ink-700",
+              : "border-black/[0.06] bg-black/[0.03] text-ink-700",
           )}
         >
           {stage.kind}

@@ -69,7 +69,7 @@ export default function RefinementDialog({
       aria-labelledby="refine-title"
     >
       <div
-        className="absolute inset-0 bg-black/70 backdrop-blur-md"
+        className="absolute inset-0 bg-black/40 backdrop-blur-md"
         onClick={onClose}
         aria-hidden
       />
@@ -79,7 +79,7 @@ export default function RefinementDialog({
           <div>
             <div className="flex items-center gap-1.5 mb-0.5">
               <Icons.refine
-                className="w-3.5 h-3.5 text-brand-400"
+                className="w-3.5 h-3.5 text-brand-600"
                 strokeWidth={2}
               />
               <span className="section-title">反馈调整</span>
@@ -118,8 +118,8 @@ export default function RefinementDialog({
             rows={4}
             placeholder="例：太远了，希望 3 公里以内 / 想换一家不那么贵的"
             className={cn(
-              "w-full resize-none rounded-md border bg-white/[0.04]",
-              "border-white/[0.08] hover:border-white/[0.16]",
+              "w-full resize-none rounded-md border bg-black/[0.03]",
+              "border-black/[0.08] hover:border-black/[0.12]",
               "px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
               "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
               "transition-colors duration-150",
@@ -146,8 +146,8 @@ export default function RefinementDialog({
                 onClick={() => setText(s)}
                 className={cn(
                   "text-[11px] rounded-md px-2.5 py-1 tracking-tight",
-                  "bg-white/[0.04] hover:bg-white/[0.08] text-ink-700 hover:text-ink-900",
-                  "border border-white/[0.08] hover:border-white/[0.16]",
+                  "bg-black/[0.03] hover:bg-black/[0.05] text-ink-700 hover:text-ink-900",
+                  "border border-black/[0.08] hover:border-black/[0.12]",
                   "transition-colors duration-150",
                 )}
               >

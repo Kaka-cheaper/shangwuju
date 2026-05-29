@@ -42,7 +42,7 @@ type DockMode = "collapsed" | "peek";
 
 // 高度档位（贴底紧凑，无空白 padding）
 const HEIGHT_COLLAPSED_BASE = 76; // 仅输入框（无 agent 预览）
-const HEIGHT_COLLAPSED_WITH_PREVIEW = 104; // 含 agent 单行预览
+const HEIGHT_COLLAPSED_WITH_PREVIEW = 140; // 含箭头 + agent 单行预览 + 输入框
 const HEIGHT_PEEK = 360; // 自动展开默认高度
 const HEIGHT_FULL_RATIO = 0.7; // viewport * 0.7
 // snap 与 timeline 阈值同点 → 消除中间空白态：< 阈值吸到 collapsed，>= 阈值展开 timeline
@@ -367,243 +367,162 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
       )}
       style={activated ? { height: `${renderHeight}px` } : undefined}
     >
-      {/* 激活态：保留 drag handle + 暖色发光线 + timeline */}
-      {activated && (
-        <>
-          {/* Drag handle：顶部 8px 横条，向上 / 向下拖改高度 */}
-          <div
-            className={cn(
-              "dock-handle absolute top-0 left-0 right-0 h-2 cursor-ns-resize",
-              "flex items-center justify-center group",
-              "select-none touch-none z-10",
-            )}
-            onPointerDown={onDragStart}
-            onDoubleClick={onHandleDoubleClick}
-            role="separator"
-            aria-orientation="horizontal"
-            aria-label="拖动调整对话窗口高度（双击重置）"
-            title="拖动调整高度 · 双击重置"
-          >
-            <span
-              className={cn(
-                "block w-12 h-1 rounded-full",
-                "bg-white/[0.08] group-hover:bg-white/[0.18] transition-colors",
-                isDragging && "bg-brand-400/60",
-              )}
-            />
-          </div>
-
-          {/* 顶部暖色发光线（streaming 时常显，否则只在 hover 时显） */}
-          <div
-            aria-hidden
-            className={cn(
-              "absolute top-0 left-0 right-0 h-px",
-              streaming ? "shimmer-bar" : "dock-edge-glow",
-            )}
-          />
-        </>
+      {/* 激活态：顶部暖色发光线（仅 streaming 时显示） */}
+      {activated && streaming && (
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 h-px shimmer-bar z-0"
+        />
       )}
 
       <div className={cn(
         "mx-auto max-w-7xl px-4 sm:px-6 flex flex-col",
         activated && "h-full",
       )}>
-        {/* Timeline / peek 区：仅激活态显示 */}
-        {activated && showTimeline && (
-          <div
-            ref={timelineScrollRef}
-            className="flex-1 min-h-0 overflow-y-auto pt-3 pb-2 animate-fade-in"
-          >
-            <div className="max-w-3xl mx-auto space-y-3">
-              {/* 空态 */}
-              {timeline.length === 0 && !streaming && (
-                <div className="flex flex-col items-center justify-center text-center gap-2 py-8 text-ink-500">
-                  <Icons.spark
-                    className="w-5 h-5 text-brand-400/60"
-                    strokeWidth={1.5}
-                  />
-                  <span className="text-sm">还没有对话</span>
-                  <span className="text-xs">
-                    说一句你下午想做什么，或点上方的演示场景
-                  </span>
-                </div>
-              )}
-
-              {/* 完整时序 timeline（messages 与 chitchatReplies 合并） */}
-              {timeline.map((item) =>
-                item.kind === "msg" ? (
-                  <MessageBubble
-                    key={item.id}
-                    role={item.role}
-                    text={item.text}
-                  />
-                ) : (
-                  <ChitchatBubble key={item.id} payload={item.payload} />
-                ),
-              )}
-
-              {/* intent 摘要（仅在拖到中等以上） */}
-              {showIntent && intent && <IntentSummary intent={intent} />}
-
-              {/* agent_thought 打字流 */}
-              {thoughts.length > 0 && (
-                <div className="space-y-1.5">
-                  {thoughts.slice(-5).map((t, idx, arr) => {
-                    // 只有最新一条且 streaming 中才显示旋转图标，
-                    // 已完成的 thoughts 显示静态点（避免规划完后所有条目还在一直转）
-                    const isLatest = idx === arr.length - 1;
-                    const inProgress = streaming && isLatest;
-                    return (
-                      <div
-                        key={t.seq}
-                        className="flex items-start gap-1.5 text-xs text-ink-500 px-1 italic animate-fade-in-up"
-                      >
-                        {inProgress ? (
-                          <Icons.thinking
-                            className="w-3 h-3 mt-0.5 text-brand-400 shrink-0 animate-spin"
-                            strokeWidth={2}
-                          />
-                        ) : (
-                          <span
-                            className="w-3 h-3 mt-0.5 shrink-0 flex items-center justify-center"
-                            aria-hidden
-                          >
-                            <span className="w-1 h-1 rounded-full bg-ink-500/60" />
-                          </span>
-                        )}
-                        <span>{t.text}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {streamError && (
-                <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
-                  <Icons.warn
-                    className="w-3.5 h-3.5 mt-0.5 shrink-0"
-                    strokeWidth={2}
-                  />
-                  <span>流出错：{streamError}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* collapsed 态：最新 agent 消息单行预览（仅激活态） */}
-        {activated && !showTimeline && (latestChitchat || latestAgent) && (
-          <button
-            type="button"
-            onClick={onTogglePeek}
-            className="w-full pt-1.5 pb-0.5 text-left animate-fade-in group"
-            title="点击展开完整对话历史"
-          >
-            <div className="flex items-start gap-2 text-xs">
-              <span className="shrink-0 mt-0.5 text-[10px] text-ink-500 tracking-wider uppercase">
-                Agent
-              </span>
-              <span className="flex-1 text-ink-700 group-hover:text-ink-900 transition-colors line-clamp-1 tracking-tight">
-                {latestChitchat
-                  ? latestChitchat.payload.reply_text
-                  : latestAgent?.text}
-              </span>
-              <Icons.copy
-                className="w-3 h-3 mt-0.5 text-ink-500 group-hover:text-ink-700 shrink-0 hidden sm:inline"
-                strokeWidth={2}
-              />
-            </div>
-          </button>
-        )}
-
-        {/* 输入区：历史按钮和输入框各自独立悬浮卡片 */}
+        {/* 输入区：历史按钮 + 右侧列（timeline/collapsed + 输入框） */}
         <div className={cn(
-          "flex items-end gap-3",
+          "flex items-end gap-3 h-full",
           activated ? "pt-1.5 pb-2" : "pt-0",
         )}>
-          {/* 历史按钮：独立悬浮卡片 */}
-          <button
-            type="button"
-            onClick={onTogglePeek}
-            disabled={totalCount === 0 && !streaming}
-            className={cn(
-              "shrink-0 inline-flex items-center gap-1.5 h-[44px] px-3 rounded-xl",
-              "backdrop-blur-sm",
-              "border bg-white/[0.04] text-xs",
-              showTimeline
-                ? "border-brand-400/40 text-brand-300 bg-brand-500/[0.08] hover:bg-brand-500/[0.12]"
-                : "border-white/[0.08] text-ink-700 hover:bg-white/[0.08] hover:border-white/[0.16] hover:text-ink-900",
-              "transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
-              "tracking-tight",
-              "shadow-elevated",
-            )}
-            title={showTimeline ? "收起对话窗口（ESC）" : "展开完整对话历史"}
-            aria-label={showTimeline ? "收起对话" : "展开对话"}
-          >
-            <Icons.spark
-              className={cn(
-                "w-3.5 h-3.5 transition-transform",
-                showTimeline && "rotate-180",
-              )}
-              strokeWidth={2}
-            />
-            <span className="hidden sm:inline">
-              {showTimeline ? "收起" : "历史"}
-            </span>
-            {totalCount > 0 && (
-              <span className="mono text-[10px] text-ink-500 tabular-nums">
-                {totalCount}
-              </span>
-            )}
-          </button>
+          {/* 右侧列：timeline/collapsed + 输入框，全宽 */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            {/* Timeline / peek 区：仅激活态显示 —— 毛玻璃容器 */}
+            {activated && showTimeline && (
+              <div
+                ref={timelineScrollRef}
+                className="flex-1 min-h-0 overflow-y-auto pt-3 pb-2 px-4 animate-fade-in rounded-2xl bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated mb-2"
+              >
+                <div className="space-y-3">
+                  {/* 空态 */}
+                  {timeline.length === 0 && !streaming && (
+                    <div className="flex flex-col items-center justify-center text-center gap-2 py-8 text-ink-500">
+                      <Icons.spark
+                        className="w-5 h-5 text-brand-600/60"
+                        strokeWidth={1.5}
+                      />
+                      <span className="text-sm">还没有对话</span>
+                      <span className="text-xs">
+                        说一句你下午想做什么，或点上方的演示场景
+                      </span>
+                    </div>
+                  )}
 
-          {/* spec interaction-experience-review M2：Tool 调用 + replan 计数 badge */}
-          {(toolCallsCount > 0 || replansCount > 0) && (
-            <div
-              className={cn(
-                "shrink-0 hidden md:inline-flex items-center gap-1.5 h-[44px] px-2 rounded-xl",
-                "border border-white/[0.06] bg-white/[0.02]",
-                "text-[10px] text-ink-500 tracking-tight tabular-nums",
-                "backdrop-blur-sm shadow-elevated",
-              )}
-              title={
-                replansCount > 0
-                  ? `LangGraph 主路径 · 11 节点拓扑（Agent 跑了 ${toolCallsCount} 步、自我修正 ${replansCount} 次）`
-                  : `LangGraph 主路径 · 11 节点拓扑（Agent 跑了 ${toolCallsCount} 步）`
-              }
-            >
-              <Icons.spark
-                className="w-3 h-3 text-brand-400"
-                strokeWidth={2}
-              />
-              <span>
-                Agent 跑了{" "}
-                <span className="text-ink-700 font-semibold">
-                  {toolCallsCount}
-                </span>{" "}
-                步
-              </span>
-              {replansCount > 0 && (
-                <>
-                  <span className="text-ink-400/60">·</span>
-                  <span>
-                    自我修正{" "}
-                    <span className="text-amber-400 font-semibold">
-                      {replansCount}
-                    </span>{" "}
-                    次
+                  {/* 完整时序 timeline */}
+                  {timeline.map((item) =>
+                    item.kind === "msg" ? (
+                      <MessageBubble
+                        key={item.id}
+                        role={item.role}
+                        text={item.text}
+                      />
+                    ) : (
+                      <ChitchatBubble key={item.id} payload={item.payload} />
+                    ),
+                  )}
+
+                  {/* intent 摘要 */}
+                  {showIntent && intent && <IntentSummary intent={intent} />}
+
+                  {/* agent_thought 打字流 */}
+                  {thoughts.length > 0 && (
+                    <div className="space-y-1.5">
+                      {thoughts.slice(-5).map((t, idx, arr) => {
+                        const isLatest = idx === arr.length - 1;
+                        const inProgress = streaming && isLatest;
+                        return (
+                          <div
+                            key={t.seq}
+                            className="flex items-start gap-1.5 text-xs text-ink-500 px-1 italic animate-fade-in-up"
+                          >
+                            {inProgress ? (
+                              <Icons.thinking
+                                className="w-3 h-3 mt-0.5 text-brand-600 shrink-0 animate-spin"
+                                strokeWidth={2}
+                              />
+                            ) : (
+                              <span
+                                className="w-3 h-3 mt-0.5 shrink-0 flex items-center justify-center"
+                                aria-hidden
+                              >
+                                <span className="w-1 h-1 rounded-full bg-ink-500/60" />
+                              </span>
+                            )}
+                            <span>{t.text}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {streamError && (
+                    <div className="flex items-start gap-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-600">
+                      <Icons.warn
+                        className="w-3.5 h-3.5 mt-0.5 shrink-0"
+                        strokeWidth={2}
+                      />
+                      <span>流出错：{streamError}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 展开/折叠箭头指示器（黄色、加宽） */}
+            {activated && (latestChitchat || latestAgent || showTimeline) && (
+              <button
+                type="button"
+                onClick={onTogglePeek}
+                className="w-full flex items-center justify-center py-1 group"
+                title={showTimeline ? "收起对话历史" : "展开对话历史"}
+                aria-label={showTimeline ? "收起" : "展开"}
+              >
+                <svg
+                  className={cn(
+                    "w-14 h-5 text-[#FFD100] group-hover:text-[#e6bc00] transition-all duration-200",
+                    showTimeline && "rotate-180",
+                  )}
+                  viewBox="0 0 56 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M10 14L28 6L46 14" />
+                </svg>
+              </button>
+            )}
+
+            {/* collapsed 态：最新 agent 消息单行预览 —— 毛玻璃胶囊 */}
+            {activated && !showTimeline && (latestChitchat || latestAgent) && (
+              <button
+                type="button"
+                onClick={onTogglePeek}
+                className="w-full pb-2 text-left animate-fade-in group"
+                title="点击展开完整对话历史"
+              >
+                <div className="flex items-center gap-2 text-sm rounded-full bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated px-2.5 py-1.5">
+                  <span className="shrink-0 inline-flex items-center gap-1 bg-[#FFD100] text-ink-900 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                    Agent
+                    {totalCount > 0 && (
+                      <span className="mono tabular-nums">{totalCount}</span>
+                    )}
                   </span>
-                </>
-              )}
-            </div>
-          )}
+                  <span className="flex-1 text-ink-700 group-hover:text-ink-900 transition-colors line-clamp-1 tracking-tight">
+                    {latestChitchat
+                      ? latestChitchat.payload.reply_text
+                      : latestAgent?.text}
+                  </span>
+                </div>
+              </button>
+            )}
 
-          {/* 输入框：独立悬浮卡片 */}
-          <div className={cn(
-            "flex-1 flex items-end gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04]",
-            "backdrop-blur-sm shadow-elevated",
-            "px-3 py-1.5",
-          )}>
+            {/* 输入框：独立悬浮卡片 */}
+            <div className={cn(
+              "flex items-end gap-2 rounded-full border border-black/[0.08] bg-black/[0.03]",
+              "backdrop-blur-sm shadow-elevated",
+              "px-4 py-1.5",
+            )}>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -622,7 +541,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                     : "继续对话或反馈... (Enter 发送)"
               }
               disabled={streaming}
-              rows={showTimeline ? 2 : 1}
+              rows={1}
               className={cn(
                 "flex-1 resize-none bg-transparent border-0",
                 "py-2 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
@@ -633,7 +552,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
             <button
               className={cn(
-                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-lg",
+                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-full",
                 streaming && "shimmer-border",
               )}
               onClick={submit}
@@ -651,6 +570,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                 <span>发送</span>
               )}
             </button>
+          </div>
           </div>
         </div>
       </div>
@@ -681,13 +601,13 @@ function MessageBubble({
         className={cn(
           "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed tracking-tight",
           isUser
-            ? "rounded-br-sm text-white shadow-glow"
-            : "bg-white/[0.04] border border-white/[0.08] text-ink-800 rounded-bl-sm backdrop-blur-sm",
+            ? "rounded-br-sm text-ink-900 shadow-glow"
+            : "bg-white border border-black/[0.06] text-ink-800 rounded-bl-sm shadow-sm",
         )}
         style={
           isUser
             ? {
-                background: "linear-gradient(135deg, #f97316 0%, #ec4899 100%)",
+                background: "#FFD100",
               }
             : undefined
         }
