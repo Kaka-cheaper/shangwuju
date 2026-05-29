@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * MockModeBadge —— 顶栏「mock 数据源」徽章（spec bonus-points-review M1）。
@@ -24,7 +24,7 @@ export default function MockModeBadge() {
       }
       aria-label="当前数据源：mock 模式"
       className={cn(
-        "hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
+        "hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
         "border border-black/[0.08] bg-black/[0.02] text-ink-700 tracking-tight",
         "backdrop-blur cursor-help",
       )}
@@ -34,3 +34,4 @@ export default function MockModeBadge() {
     </span>
   );
 }
+

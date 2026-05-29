@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * 行程卡片每段的赞/踩按钮。
@@ -44,7 +44,7 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
         type="button"
         onClick={() => sendVote(stageIndex, "like")}
         className={cn(
-          "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] transition-all",
+          "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all",
           myVote === "like"
             ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
             : "bg-black/[0.03] text-ink-500 hover:bg-emerald-500/10 hover:text-emerald-400 border border-transparent",
@@ -60,7 +60,7 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
         type="button"
         onClick={() => sendVote(stageIndex, "dislike")}
         className={cn(
-          "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] transition-all",
+          "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all",
           myVote === "dislike"
             ? "bg-red-500/20 text-red-400 border border-red-500/30"
             : "bg-black/[0.03] text-ink-500 hover:bg-red-500/10 hover:text-red-400 border border-transparent",
@@ -73,3 +73,4 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
     </div>
   );
 }
+

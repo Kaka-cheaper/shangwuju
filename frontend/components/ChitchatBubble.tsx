@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * ChitchatBubble —— 暖心回话气泡（黄昏深色主题）。
@@ -86,11 +86,11 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
             className={cn("w-3.5 h-3.5 shrink-0", theme.accent)}
             strokeWidth={2}
           />
-          <span className={cn("text-[11px] font-medium", theme.accent)}>
+          <span className={cn("text-xs font-medium", theme.accent)}>
             {theme.label}
           </span>
-          <span className="text-[10px] text-ink-500">·</span>
-          <span className="text-[11px] text-ink-600">
+          <span className="text-xs text-ink-500">·</span>
+          <span className="text-xs text-ink-600">
             {KIND_LABELS[payload.input_kind] ?? payload.input_kind}
           </span>
         </div>
@@ -108,7 +108,7 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                 onClick={() => sendMessage(chip.send)}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-md",
-                  "px-2.5 py-1 text-[11px] font-medium tracking-tight",
+                  "px-2.5 py-1 text-xs font-medium tracking-tight",
                   "bg-black/[0.04] border border-black/[0.08] text-ink-800",
                   "hover:bg-black/[0.06] hover:border-black/[0.15] hover:text-ink-900",
                   "transition-colors duration-150",
@@ -118,7 +118,7 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                 title={chip.send}
               >
                 {chip.icon && (
-                  <span className="text-[11px] leading-none opacity-70">
+                  <span className="text-xs leading-none opacity-70">
                     {chip.icon}
                   </span>
                 )}
@@ -131,3 +131,4 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
     </div>
   );
 }
+

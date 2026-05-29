@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * ComparisonView —— Refine 前后对比视图（spec R3）。
@@ -148,13 +148,13 @@ export default function ComparisonView({
           className="w-3.5 h-3.5 text-accent-400 shrink-0"
           strokeWidth={2}
         />
-        <span className="text-[12px] font-medium text-ink-900 tracking-tight">
+        <span className="text-xs font-medium text-ink-900 tracking-tight">
           调整对比
         </span>
-        <span className="text-[10px] mono text-ink-500 tabular-nums">
+        <span className="text-xs mono text-ink-500 tabular-nums">
           {changedCount} 处变化
         </span>
-        <span className="ml-auto text-[10px] text-ink-500">
+        <span className="ml-auto text-xs text-ink-500">
           {expanded ? "收起对比" : "展开对比"}
         </span>
         <ChevronDown
@@ -170,7 +170,7 @@ export default function ComparisonView({
         <div className="mt-2.5 grid grid-cols-2 gap-3 animate-collapse-in">
           {/* 旧方案列 */}
           <div>
-            <div className="text-[10px] tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
+            <div className="text-xs tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
               <span className="inline-block w-1 h-1 rounded-full bg-ink-500/60" />
               <span>调整前</span>
             </div>
@@ -190,7 +190,7 @@ export default function ComparisonView({
 
           {/* 新方案列 */}
           <div>
-            <div className="text-[10px] tracking-wider uppercase text-accent-600 mb-1.5 flex items-center gap-1">
+            <div className="text-xs tracking-wider uppercase text-accent-600 mb-1.5 flex items-center gap-1">
               <span className="inline-block w-1 h-1 rounded-full bg-accent-400" />
               <span>调整后</span>
             </div>
@@ -262,7 +262,7 @@ function StageRow({
   return (
     <div
       className={cn(
-        "rounded-md border px-2 py-1.5 text-[11px] transition-colors",
+        "rounded-md border px-2 py-1.5 text-xs transition-colors",
         highlight
           ? "border-amber-500/30 bg-amber-500/5"
           : "border-black/[0.06] bg-black/[0.02]",
@@ -271,7 +271,7 @@ function StageRow({
       <div className="flex items-center gap-1.5 mb-0.5">
         <span
           className={cn(
-            "mono text-[10px] tabular-nums",
+            "mono text-xs tabular-nums",
             timeChanged ? "text-amber-300 font-semibold" : "text-ink-500",
           )}
         >
@@ -290,7 +290,7 @@ function StageRow({
       </div>
       <div
         className={cn(
-          "text-[12px] tracking-tight",
+          "text-xs tracking-tight",
           titleChanged ? "text-amber-200 font-medium" : "text-ink-800",
         )}
       >
@@ -310,7 +310,7 @@ function PlaceholderRow({
   return (
     <div
       className={cn(
-        "rounded-md border px-2 py-1.5 text-[11px] italic text-center",
+        "rounded-md border px-2 py-1.5 text-xs italic text-center",
         colorClass,
       )}
     >
@@ -318,3 +318,4 @@ function PlaceholderRow({
     </div>
   );
 }
+

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * ThoughtPanel —— Agent 思考过程可视化（语义级决策面板）。
@@ -139,10 +139,10 @@ export default function ThoughtPanel() {
           )}
           strokeWidth={2}
         />
-        <span className="text-[12px] font-medium text-ink-900 tracking-tight shrink-0">
+        <span className="text-xs font-medium text-ink-900 tracking-tight shrink-0">
           Agent 在想什么
         </span>
-        <span className="text-[10px] mono text-ink-500 shrink-0 tabular-nums">
+        <span className="text-xs mono text-ink-500 shrink-0 tabular-nums">
           {thoughts.length}
           {replanCount > 0 && (
             <>
@@ -160,7 +160,7 @@ export default function ThoughtPanel() {
         )}
         {/* 折叠态：摘要 */}
         {!expanded && (
-          <span className="text-[11px] text-ink-500 truncate flex-1 min-w-0 italic">
+          <span className="text-xs text-ink-500 truncate flex-1 min-w-0 italic">
             {summary}
           </span>
         )}
@@ -235,11 +235,11 @@ function ThoughtItem({
         aria-hidden
       />
       <div className="flex-1 min-w-0">
-        <p className="text-[12px] leading-relaxed text-ink-800 tracking-tight">
+        <p className="text-xs leading-relaxed text-ink-800 tracking-tight">
           {text}
         </p>
         {relative && (
-          <span className="text-[10px] mono text-ink-500 mt-0.5 inline-block tabular-nums">
+          <span className="text-xs mono text-ink-500 mt-0.5 inline-block tabular-nums">
             {relative}
           </span>
         )}
@@ -257,7 +257,7 @@ function ReplanDivider({ reason, fromTool }: { reason: string; fromTool: string 
   return (
     <li className="my-2 flex items-center gap-2 px-2">
       <span className="h-px flex-1 bg-amber-400/30" aria-hidden />
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30">
         <TriangleAlert className="w-3 h-3" strokeWidth={2} />
         <span>重新规划</span>
         <span className="mx-1 text-amber-500/60">·</span>
@@ -270,3 +270,4 @@ function ReplanDivider({ reason, fromTool }: { reason: string; fromTool: string 
     </li>
   );
 }
+

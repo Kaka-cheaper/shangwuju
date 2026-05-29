@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Planner Mode 切换器 chip（W3 C4）。
@@ -78,7 +78,7 @@ export default function PlannerModeBadge() {
       title={MODE_TITLE[mode] + `（点击切换为 ${MODE_LABEL[next]}）`}
       aria-label={`当前 planner 模式：${MODE_LABEL[mode]}，点击切换为 ${MODE_LABEL[next]}`}
       className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
+        "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
         "border border-black/[0.08] bg-black/[0.02] text-ink-700 tracking-tight",
         "hover:border-black/[0.12] hover:bg-black/[0.04] hover:text-ink-900",
         "transition-colors backdrop-blur",
@@ -93,3 +93,4 @@ export default function PlannerModeBadge() {
     </button>
   );
 }
+

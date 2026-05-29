@@ -130,7 +130,7 @@ export default function UserSwitcher() {
         <span className="max-w-[90px] truncate">{display}</span>
         <span
           className={cn(
-            "text-[10px] text-ink-500 transition-transform",
+            "text-xs text-ink-500 transition-transform",
             open && "rotate-180",
           )}
         >
@@ -152,7 +152,7 @@ export default function UserSwitcher() {
               zIndex: 60,
             }}
           >
-            <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-500 border-b border-black/[0.06] shrink-0">
+            <div className="px-3 py-2 text-xs uppercase tracking-wider text-ink-500 border-b border-black/[0.06] shrink-0">
               选择演示用户档案
             </div>
             <ul className="py-1 flex-1 min-h-0 overflow-auto">
@@ -188,7 +188,7 @@ export default function UserSwitcher() {
                         >
                           {p.label}
                         </span>
-                        <span className="block text-[11px] text-ink-600 line-clamp-2">
+                        <span className="block text-xs text-ink-600 line-clamp-2">
                           {p.notes}
                         </span>
                       </span>
@@ -210,3 +210,4 @@ export default function UserSwitcher() {
     </div>
   );
 }
+

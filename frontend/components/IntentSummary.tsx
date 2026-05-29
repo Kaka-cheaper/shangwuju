@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Icons } from "@/lib/icon-map";
 import type { IntentExtraction } from "@/lib/types";
@@ -29,12 +29,12 @@ export default function IntentSummary({
             className="w-3.5 h-3.5 text-brand-600"
             strokeWidth={2.5}
           />
-          <span className="text-[11px] font-medium text-ink-800 tracking-tight">
+          <span className="text-xs font-medium text-ink-800 tracking-tight">
             意图解析
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-ink-500 mono">
+          <span className="text-xs text-ink-500 mono">
             {confidencePct}%
           </span>
           <div className="w-16 h-1 rounded-full bg-black/[0.06] overflow-hidden">
@@ -84,10 +84,11 @@ function Row({
 }) {
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[10px] text-ink-500 uppercase tracking-wider w-12 shrink-0">
+      <span className="text-xs text-ink-500 uppercase tracking-wider w-12 shrink-0">
         {label}
       </span>
       <span className="flex-1 min-w-0">{children}</span>
     </div>
   );
 }
+

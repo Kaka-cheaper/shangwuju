@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 
@@ -124,7 +124,7 @@ export default function HomeView() {
                 <h1 className="text-[17px] font-semibold tracking-tight text-ink-900 shrink-0">
                   晌午局
                 </h1>
-                <span className="hidden sm:inline text-[11px] text-ink-500 mt-0.5 tracking-wide">
+                <span className="hidden sm:inline text-xs text-ink-500 mt-0.5 tracking-wide">
                   Shangwu · Local Half-Day Agent
                 </span>
               </div>
@@ -152,7 +152,7 @@ export default function HomeView() {
             <MockModeBadge />
             <OfflineReadyBadge />
             <span
-              className="hidden lg:inline mono text-[11px] text-ink-400 truncate max-w-[140px]"
+              className="hidden lg:inline mono text-xs text-ink-400 truncate max-w-[140px]"
               title={`当前会话 ID：${sessionId}`}
             >
               {sessionId}
@@ -233,7 +233,7 @@ export default function HomeView() {
           !activated && "opacity-0 pointer-events-none",
         )}
       >
-        <span className="text-[11px] text-ink-400/70 tracking-tight">
+        <span className="text-xs text-ink-400/70 tracking-tight">
           美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
         </span>
       </footer>
@@ -253,3 +253,4 @@ export default function HomeView() {
     </div>
   );
 }
+

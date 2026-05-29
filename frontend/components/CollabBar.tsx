@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * 协作状态条：显示在顶部，展示房间成员 + 规划状态 + 约束流。
@@ -38,7 +38,7 @@ export default function CollabBar() {
             <div
               key={m.user_id}
               className={cn(
-                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium border-2 border-white",
+                "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium border-2 border-white",
                 m.online ? "bg-emerald-500/80 text-white" : "bg-ink-200 text-ink-400",
               )}
               title={`${m.nickname}（${m.role === "owner" ? "发起人" : "参与者"}）${m.online ? "" : " · 离线"}`}
@@ -48,7 +48,7 @@ export default function CollabBar() {
           ))}
         </div>
         <span
-          className="text-[11px] text-ink-400"
+          className="text-xs text-ink-400"
           title="实时统计：房间内在线成员数 · 已收集但还没合并到下次重规划的约束条数"
         >
           房间内 {onlineCount} 人
@@ -84,7 +84,7 @@ export default function CollabBar() {
       {/* 右侧：连接状态 */}
       <div className="flex items-center gap-2">
         {connectionError && (
-          <span className="text-red-400 text-[11px]">{connectionError}</span>
+          <span className="text-red-400 text-xs">{connectionError}</span>
         )}
         <div
           className={cn(
@@ -97,3 +97,4 @@ export default function CollabBar() {
     </div>
   );
 }
+

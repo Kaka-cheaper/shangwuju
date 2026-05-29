@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * CommandPalette —— Cmd+K 命令面板（D IDE 范式）。
@@ -348,7 +348,7 @@ export default function CommandPalette() {
                         <div className="flex-1 min-w-0">
                           <div
                             className={cn(
-                              "text-[13px] tracking-tight truncate",
+                              "text-sm tracking-tight truncate",
                               isActive
                                 ? "text-ink-900 font-medium"
                                 : "text-ink-800",
@@ -357,13 +357,13 @@ export default function CommandPalette() {
                             {cmd.label}
                           </div>
                           {cmd.hint && (
-                            <div className="text-[11px] text-ink-500 truncate">
+                            <div className="text-xs text-ink-500 truncate">
                               {cmd.hint}
                             </div>
                           )}
                         </div>
                         {isActive && (
-                          <span className="text-[10px] text-brand-600 mono">
+                          <span className="text-xs text-brand-600 mono">
                             ↵
                           </span>
                         )}
@@ -377,7 +377,7 @@ export default function CommandPalette() {
         </div>
 
         {/* 底部 hint */}
-        <div className="px-3.5 py-2 border-t border-black/[0.06] bg-black/[0.02] flex items-center justify-between text-[11px] text-ink-500">
+        <div className="px-3.5 py-2 border-t border-black/[0.06] bg-black/[0.02] flex items-center justify-between text-xs text-ink-500">
           <div className="flex items-center gap-1.5">
             <span className="kbd">↑</span>
             <span className="kbd">↓</span>
@@ -395,3 +395,4 @@ export default function CommandPalette() {
     </div>
   );
 }
+

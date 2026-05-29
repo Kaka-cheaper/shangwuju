@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * PosterGenerator —— 一键生成行程海报（spec R5）。
@@ -388,14 +388,14 @@ function PreviewModal({
         {/* 右栏：标题 + 操作 */}
         <div className="flex-1 p-5 sm:p-6 flex flex-col gap-4 min-w-0">
           <div>
-            <div className="text-[10px] tracking-wider uppercase text-brand-600 mb-1 flex items-center gap-1">
+            <div className="text-xs tracking-wider uppercase text-brand-600 mb-1 flex items-center gap-1">
               <ImageIcon className="w-3 h-3" strokeWidth={2} />
               <span>海报已生成</span>
             </div>
             <h3 className="text-base sm:text-lg font-semibold text-ink-900 tracking-tight leading-snug">
               转发给同行人
             </h3>
-            <p className="mt-1.5 text-[12px] text-ink-500 leading-relaxed">
+            <p className="mt-1.5 text-xs text-ink-500 leading-relaxed">
               微信群里转发一张图，比一段文字更直观。点
               <span className="text-brand-600 mx-0.5">保存</span>
               下载到本地后即可分享。
@@ -424,7 +424,7 @@ function PreviewModal({
               type="button"
               onClick={onRegenerate}
               className={cn(
-                "flex-1 py-1.5 rounded-md text-[12px]",
+                "flex-1 py-1.5 rounded-md text-xs",
                 "bg-black/[0.03] hover:bg-black/[0.05]",
                 "border border-black/[0.08] hover:border-black/[0.12]",
                 "text-ink-700 hover:text-ink-900",
@@ -438,7 +438,7 @@ function PreviewModal({
               type="button"
               onClick={copyText}
               className={cn(
-                "flex-1 py-1.5 rounded-md text-[12px]",
+                "flex-1 py-1.5 rounded-md text-xs",
                 textCopied
                   ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-600"
                   : "bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] hover:border-black/[0.12] text-ink-700 hover:text-ink-900",
@@ -462,7 +462,7 @@ function PreviewModal({
           {/* 小提示 */}
           <div
             className={cn(
-              "mt-auto rounded-md px-3 py-2 text-[11px] leading-relaxed",
+              "mt-auto rounded-md px-3 py-2 text-xs leading-relaxed",
               "bg-black/[0.02] border border-black/[0.04]",
               "text-ink-500",
             )}
@@ -771,3 +771,4 @@ const PosterTemplate = forwardRef<HTMLDivElement, { itinerary: Itinerary }>(
     );
   },
 );
+

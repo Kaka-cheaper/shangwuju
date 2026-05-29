@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * OfflineReadyBadge —— 顶栏「断网继续运行」徽章（spec bonus-points-review M3）。
@@ -52,7 +52,7 @@ export default function OfflineReadyBadge() {
       title="演示韧性时可断网验证：当前是规则模式，意图理解之外不依赖大模型与外部网络"
       aria-label="当前规则模式可断网继续运行"
       className={cn(
-        "hidden lg:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
+        "hidden lg:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
         "border border-amber-400/24 bg-amber-500/8 text-amber-700/90 tracking-tight",
         "backdrop-blur cursor-help animate-fade-in",
       )}
@@ -62,3 +62,4 @@ export default function OfflineReadyBadge() {
     </span>
   );
 }
+

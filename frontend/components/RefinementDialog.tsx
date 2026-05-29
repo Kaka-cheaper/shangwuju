@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * 「我说说哪不对」反馈弹窗（B+D 范式：去 ✕ emoji，灰阶克制）。
@@ -125,7 +125,7 @@ export default function RefinementDialog({
               "transition-colors duration-150",
             )}
           />
-          <div className="mt-1 flex items-center justify-between text-[11px] text-ink-400">
+          <div className="mt-1 flex items-center justify-between text-xs text-ink-400">
             <span className="flex items-center gap-1">
               <span className="kbd">⌘</span>
               <span className="kbd">↵</span>
@@ -145,7 +145,7 @@ export default function RefinementDialog({
                 key={s}
                 onClick={() => setText(s)}
                 className={cn(
-                  "text-[11px] rounded-md px-2.5 py-1 tracking-tight",
+                  "text-xs rounded-md px-2.5 py-1 tracking-tight",
                   "bg-black/[0.03] hover:bg-black/[0.05] text-ink-700 hover:text-ink-900",
                   "border border-black/[0.08] hover:border-black/[0.12]",
                   "transition-colors duration-150",
@@ -180,3 +180,4 @@ export default function RefinementDialog({
     </div>
   );
 }
+

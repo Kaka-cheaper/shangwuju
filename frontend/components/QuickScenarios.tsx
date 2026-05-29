@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useChatStore } from "@/lib/store";
 import { scenarioIcon } from "@/lib/icon-map";
@@ -23,9 +23,9 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
       <div className="mb-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="section-title">演示场景</span>
-          <span className="text-[13px] text-ink-400">8 个</span>
+          <span className="text-sm text-ink-400">8 个</span>
         </div>
-        <div className="hidden sm:flex items-center gap-1 text-[13px] text-ink-400">
+        <div className="hidden sm:flex items-center gap-1 text-sm text-ink-400">
           <span>或按</span>
           <span className="kbd">⌘</span>
           <span className="kbd">K</span>
@@ -74,7 +74,7 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
                 "relative font-medium text-ink-700 group-hover:text-ink-900 line-clamp-1 tracking-tight",
                 enlarged ? "text-base" : "text-sm",
               )}>
-                <span className="mono text-[13px] text-ink-500 mr-1">
+                <span className="mono text-sm text-ink-500 mr-1">
                   {s.id}
                 </span>
                 {s.title}
@@ -86,3 +86,4 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
     </div>
   );
 }
+

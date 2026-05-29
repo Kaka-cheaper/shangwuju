@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * TtsPlayer —— 行程语音播报（Web Speech API）。
@@ -166,14 +166,14 @@ export default function TtsPlayer() {
     >
       {/* 波形动画 */}
       <WaveformIndicator active={status === "playing"} />
-      <span className="text-[11px] text-brand-800 font-medium tracking-tight flex-1 truncate">
+      <span className="text-xs text-brand-800 font-medium tracking-tight flex-1 truncate">
         {status === "playing" ? "播报中…" : "已暂停"}
       </span>
       {status === "playing" ? (
         <button
           type="button"
           onClick={pause}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-ink-700 hover:text-ink-900 bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-ink-700 hover:text-ink-900 bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] transition-colors"
         >
           <Pause className="w-3 h-3" strokeWidth={2} />
           <span>暂停</span>
@@ -182,7 +182,7 @@ export default function TtsPlayer() {
         <button
           type="button"
           onClick={resume}
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-ink-700 hover:text-ink-900 bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] transition-colors"
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-ink-700 hover:text-ink-900 bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] transition-colors"
         >
           <Play className="w-3 h-3" strokeWidth={2} />
           <span>继续</span>
@@ -191,7 +191,7 @@ export default function TtsPlayer() {
       <button
         type="button"
         onClick={stop}
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] text-rose-600 hover:text-rose-700 bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/20 transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-rose-600 hover:text-rose-700 bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/20 transition-colors"
       >
         <Square className="w-3 h-3" strokeWidth={2} />
         <span>停止</span>
@@ -224,3 +224,4 @@ function WaveformIndicator({ active }: { active: boolean }) {
     </div>
   );
 }
+

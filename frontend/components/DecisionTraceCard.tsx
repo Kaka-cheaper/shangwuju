@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * DecisionTraceCard —— "AI 思考"折叠卡（Step 8 决策可解释性）
@@ -98,7 +98,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
         <div className="flex items-center gap-2">
           <Icons.spark className="h-4 w-4 text-amber-500" />
           <span className="text-sm font-semibold text-amber-800">决策链路</span>
-          <span className="text-[11px] text-amber-600/70">看 Agent 怎么想的</span>
+          <span className="text-xs text-amber-600/70">看 Agent 怎么想的</span>
           <span className={cn(
             "rounded-full border px-2 py-0.5 text-xs",
             strategyColor,
@@ -170,7 +170,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                         {a.violation_codes.map((code, codeIdx) => (
                           <span
                             key={`${idx}-${codeIdx}-${code}`}
-                            className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-[10px] uppercase text-ink-600"
+                            className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-xs uppercase text-ink-600"
                           >
                             {code}
                           </span>
@@ -197,11 +197,11 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                     key={idx}
                     className="flex items-center gap-2 text-xs text-ink-600"
                   >
-                    <span className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-[10px]">
+                    <span className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-xs">
                       {h.from_stage}
                     </span>
                     <span className="text-ink-400">→</span>
-                    <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700">
+                    <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700">
                       {h.to_stage}
                     </span>
                     <span className="text-ink-500">{h.reason}</span>
@@ -224,7 +224,7 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                     key={`${a.target_id}-${idx}`}
                     className="flex items-start gap-2 text-xs"
                   >
-                    <span className="mt-0.5 rounded-full bg-ink-200/50 px-1.5 py-0 text-[10px] text-ink-600">
+                    <span className="mt-0.5 rounded-full bg-ink-200/50 px-1.5 py-0 text-xs text-ink-600">
                       #{a.rank}
                     </span>
                     <div className="flex-1">
@@ -246,3 +246,4 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
     </div>
   );
 }
+

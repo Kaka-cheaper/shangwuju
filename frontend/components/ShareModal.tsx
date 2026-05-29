@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * 分享弹窗：展示房间链接 + 二维码。
@@ -95,7 +95,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
         </div>
 
         {/* 说明 */}
-        <p className="text-[11px] text-ink-500 text-center mb-4">
+        <p className="text-xs text-ink-500 text-center mb-4">
           同行人打开链接后可以提约束、投票，Agent 会实时合并所有人的偏好重新规划
         </p>
 
@@ -110,3 +110,4 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
     </div>
   );
 }
+

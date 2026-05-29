@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * MapOverlay —— 高德地图行程标注（spec R8 / edge_v1）。
@@ -399,10 +399,10 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
     <div className="card mt-3 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5 text-brand-600" strokeWidth={2} />
-        <span className="text-[12px] font-medium text-ink-900 tracking-tight">
+        <span className="text-xs font-medium text-ink-900 tracking-tight">
           行程地图
         </span>
-        <span className="text-[10px] text-ink-500">
+        <span className="text-xs text-ink-500">
           高德地图 · 实时路径规划
         </span>
       </div>
@@ -627,10 +627,10 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
     <div className="card mt-3">
       <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
-        <span className="text-[12px] font-medium text-ink-900 tracking-tight">
+        <span className="text-xs font-medium text-ink-900 tracking-tight">
           行程地点
         </span>
-        <span className="text-[10px] text-ink-500">
+        <span className="text-xs text-ink-500">
           地图未加载，仅显示列表
           {hopCount > 0 ? ` · 共 ${hopCount} 段通勤` : ""}
         </span>
@@ -644,14 +644,14 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
               "border border-black/[0.06] bg-black/[0.02]",
             )}
           >
-            <span className="mono text-[10px] text-ink-500 mt-0.5 tabular-nums">
+            <span className="mono text-xs text-ink-500 mt-0.5 tabular-nums">
               {item.idx + 1}.
             </span>
             <div className="flex-1 min-w-0">
-              <div className="text-[12px] text-ink-800 font-medium tracking-tight">
+              <div className="text-xs text-ink-800 font-medium tracking-tight">
                 {item.title}
               </div>
-              <div className="text-[10px] text-ink-500 mt-0.5 mono">
+              <div className="text-xs text-ink-500 mt-0.5 mono">
                 {item.timeRange} · {item.kind}
                 {!item.hasCoord && (
                   <span className="text-amber-400 ml-1">· 位置待定</span>
@@ -664,3 +664,4 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
     </div>
   );
 }
+
