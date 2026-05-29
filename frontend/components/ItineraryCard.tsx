@@ -186,8 +186,8 @@ export default function ItineraryCard() {
   if (!itinerary && !streaming) {
     return (
       <div className="card px-4 py-8 flex flex-col items-center gap-2.5 text-ink-500">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500/15 to-accent-500/15 flex items-center justify-center border border-white/[0.08]">
-          <Icons.pin className="w-4 h-4 text-brand-400" strokeWidth={1.5} />
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500/15 to-accent-500/15 flex items-center justify-center border border-black/[0.08]">
+          <Icons.pin className="w-4 h-4 text-brand-600" strokeWidth={1.5} />
         </div>
         <span className="text-sm text-ink-700">行程将在这里出现</span>
       </div>
@@ -197,7 +197,7 @@ export default function ItineraryCard() {
   if (!itinerary) {
     return (
       <div className="card px-4 py-5 space-y-3">
-        <div className="flex items-center gap-1.5 text-[12px] text-brand-400">
+        <div className="flex items-center gap-1.5 text-[12px] text-brand-600">
           <Icons.thinking
             className="w-3.5 h-3.5 animate-spin"
             strokeWidth={2}
@@ -217,7 +217,7 @@ export default function ItineraryCard() {
   return (
     <div className={cn("card animate-fade-in", spotlight && "spotlight-once")}>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-white/[0.06]">
+      <div className="px-4 py-3 border-b border-black/[0.06]">
         <div className="flex items-center justify-between">
           <span className="section-title">行程方案</span>
           <span className="text-[11px] text-ink-500">
@@ -225,7 +225,7 @@ export default function ItineraryCard() {
             <NumberTicker
               value={totalH}
               format={(v) => v.toFixed(1)}
-              className="font-mono text-brand-400 mx-0.5 font-semibold"
+              className="font-mono text-brand-600 mx-0.5 font-semibold"
             />
             <span className="text-ink-500">小时</span>
           </span>
@@ -279,7 +279,7 @@ export default function ItineraryCard() {
           <button
             type="button"
             onClick={skipAnimation}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.08] text-[10px] text-ink-500 hover:text-ink-800 transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-black/[0.08] bg-black/[0.02] hover:bg-black/[0.05] text-[10px] text-ink-500 hover:text-ink-800 transition-colors"
             title="跳过逐段动画，立即显示完整行程"
           >
             <span>跳过动画</span>
@@ -296,7 +296,7 @@ export default function ItineraryCard() {
           className="absolute left-[51px] top-6 bottom-6 w-px"
           style={{
             background:
-              "linear-gradient(180deg, rgba(251,146,60,0.6) 0%, rgba(236,72,153,0.4) 50%, rgba(139,92,246,0.2) 100%)",
+              "linear-gradient(180deg, rgba(255,209,0,0.5) 0%, rgba(245,158,11,0.3) 50%, rgba(251,191,36,0.15) 100%)",
           }}
         />
         {visibleEntries.map((entry, idx) => {
@@ -315,7 +315,7 @@ export default function ItineraryCard() {
                 <div className="min-w-[44px]" aria-hidden />
                 <div
                   className={cn(
-                    "flex-1 ml-2 px-3 py-1 border-l-2 border-white/[0.06]",
+                    "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
                     "text-[11px] text-ink-500 tracking-tight leading-tight",
                   )}
                   title={`${entry.start} → ${entry.end}`}
@@ -336,12 +336,12 @@ export default function ItineraryCard() {
                 <div className="text-[10px] text-ink-500 mono">{entry.start}</div>
                 {/* 暖橙→莓粉时间点 */}
                 <div
-                  className="my-1 w-2 h-2 rounded-full ring-[3px] ring-[#08080d]"
+                  className="my-1 w-2 h-2 rounded-full ring-[3px] ring-white"
                   style={{
                     background:
-                      "linear-gradient(135deg, #fb923c 0%, #ec4899 100%)",
+                      "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
                     boxShadow:
-                      "0 0 0 1px rgba(255,255,255,0.16), 0 0 8px rgba(249,115,22,0.6)",
+                      "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
                   }}
                 />
                 <div className="text-[10px] text-ink-500 mono">{entry.end}</div>
@@ -380,7 +380,7 @@ export default function ItineraryCard() {
             {itinerary.orders.map((o) => (
               <li
                 key={o.order_id}
-                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200 animate-fade-in-up backdrop-blur-sm"
+                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 animate-fade-in-up backdrop-blur-sm"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 min-w-0">
@@ -392,11 +392,11 @@ export default function ItineraryCard() {
                       {o.target_name}
                     </span>
                   </div>
-                  <span className="text-[10px] text-emerald-300/80 mono shrink-0">
+                  <span className="text-[10px] text-emerald-600/80 mono shrink-0">
                     {o.kind}
                   </span>
                 </div>
-                <div className="mt-1 text-emerald-300/90 ml-5">
+                <div className="mt-1 text-emerald-600/90 ml-5">
                   {o.detail}
                   <span className="text-emerald-500/70 mx-1.5">·</span>
                   <span className="mono text-[11px]">{o.order_id}</span>
@@ -475,7 +475,7 @@ export default function ItineraryCard() {
         {/* M5：邀请同行人按钮——双行设计让评委一眼看到「multi-user 协同」工程深度 */}
         {!hasOrders && !cancelled && itinerary && !collabMode && (
           <button
-            className="mt-2 w-full py-2.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/40 text-amber-400 text-sm font-medium transition-all flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
+            className="mt-2 w-full py-2.5 rounded-lg bg-white hover:bg-ink-100 border-2 border-[#FFD100] hover:border-[#e6bc00] text-ink-800 text-sm font-medium transition-all flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
             disabled={creatingRoom || streaming}
             title="基于 WebSocket 的多人协作模式 · 房间内成员的约束实时合并、按段投票决策"
             onClick={async () => {
@@ -521,7 +521,7 @@ export default function ItineraryCard() {
                   <span aria-hidden>🤝</span>
                   <span>开多人房间，让同行人一起拿主意</span>
                 </span>
-                <span className="text-[10px] text-amber-300/70 font-normal tracking-wide">
+                <span className="text-[10px] text-ink-500 font-normal tracking-wide">
                   约束实时合并 · 按段投票决策
                 </span>
               </>
@@ -531,7 +531,7 @@ export default function ItineraryCard() {
         {/* 协作模式下显示分享按钮 */}
         {collabMode && roomId && (
           <button
-            className="mt-2 w-full py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-ink-500 text-xs transition-all flex items-center justify-center gap-1.5"
+            className="mt-2 w-full py-1.5 rounded-lg bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] text-ink-500 text-xs transition-all flex items-center justify-center gap-1.5"
             onClick={() => setShareModalOpen(true)}
           >
             🔗 分享链接给同行人
@@ -574,22 +574,22 @@ function RefinementSummaryBanner({
 }) {
   return (
     <div
-      className="rounded-md border border-accent-500/30 px-3 py-2 text-xs text-accent-200 animate-fade-in backdrop-blur-sm"
+      className="rounded-md border border-accent-500/30 px-3 py-2 text-xs text-accent-700 animate-fade-in backdrop-blur-sm"
       style={{
         background:
-          "linear-gradient(135deg, rgba(217,70,239,0.12) 0%, rgba(139,92,246,0.08) 100%)",
+          "linear-gradient(135deg, rgba(255,209,0,0.10) 0%, rgba(245,158,11,0.06) 100%)",
       }}
     >
-      <div className="flex items-center gap-1.5 mb-1 font-medium text-accent-300">
+      <div className="flex items-center gap-1.5 mb-1 font-medium text-accent-700">
         <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
         <span>已根据反馈调整</span>
       </div>
-      <ul className="space-y-0.5 text-accent-100 ml-5 list-disc list-outside">
+      <ul className="space-y-0.5 text-accent-800 ml-5 list-disc list-outside">
         {fields.map((f, i) => (
           <li key={i}>{f}</li>
         ))}
       </ul>
-      {note && <div className="mt-1 ml-5 text-accent-300/80">{note}</div>}
+      {note && <div className="mt-1 ml-5 text-accent-600/80">{note}</div>}
     </div>
   );
 }
@@ -619,16 +619,16 @@ function ShareMessage({ text }: { text: string }) {
 
   return (
     <div
-      className="rounded-md border border-white/[0.08] p-3 backdrop-blur-sm"
+      className="rounded-md border border-black/[0.08] p-3 backdrop-blur-sm"
       style={{
         background:
-          "linear-gradient(135deg, rgba(251,146,60,0.06) 0%, rgba(236,72,153,0.04) 100%)",
+          "linear-gradient(135deg, rgba(255,209,0,0.06) 0%, rgba(245,158,11,0.04) 100%)",
       }}
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
           <Icons.share
-            className="w-3.5 h-3.5 text-brand-400"
+            className="w-3.5 h-3.5 text-brand-600"
             strokeWidth={2}
           />
           <span className="text-[11px] font-medium text-ink-800 tracking-tight">
@@ -641,7 +641,7 @@ function ShareMessage({ text }: { text: string }) {
             "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded transition-colors",
             copied
               ? "bg-emerald-500 text-white"
-              : "bg-white/[0.06] text-ink-700 border border-white/[0.08] hover:bg-white/[0.1] hover:text-ink-900",
+              : "bg-black/[0.04] text-ink-700 border border-black/[0.08] hover:bg-black/[0.06] hover:text-ink-900",
           )}
         >
           {copied ? (
@@ -682,19 +682,19 @@ function NarrationBlock({
       className="relative rounded-md px-3.5 py-3 text-[13px] leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
         background: isConfirm
-          ? "linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(251,146,60,0.06) 100%)"
-          : "linear-gradient(135deg, rgba(251,146,60,0.10) 0%, rgba(236,72,153,0.06) 100%)",
+          ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(255,209,0,0.04) 100%)"
+          : "linear-gradient(135deg, rgba(255,209,0,0.08) 0%, rgba(245,158,11,0.04) 100%)",
         borderColor: isConfirm
           ? "rgba(16,185,129,0.24)"
-          : "rgba(251,146,60,0.22)",
-        color: "rgb(231 229 228 / 0.92)",
+          : "rgba(255,209,0,0.22)",
+        color: "rgb(31 41 55 / 0.92)",
       }}
     >
       <div className="flex items-start gap-2">
         <Icons.spark
           className={cn(
             "w-3.5 h-3.5 mt-0.5 shrink-0",
-            isConfirm ? "text-emerald-400" : "text-brand-400",
+            isConfirm ? "text-emerald-400" : "text-brand-600",
           )}
           strokeWidth={2}
         />
@@ -737,23 +737,22 @@ function ConfirmPreviewCard({
   return (
     <div
       className="rounded-md border border-amber-400/20 bg-amber-500/5 px-3.5 py-3 text-[12px] leading-relaxed"
-      title="确认后 Agent 会顺序做这三件事：先锁餐厅时段，再备好转发文案，最后把这次偏好写进长期记忆"
     >
       <div className="flex items-center gap-1.5 mb-2">
         <Icons.spark
-          className="w-3.5 h-3.5 text-amber-300"
+          className="w-3.5 h-3.5 text-amber-500"
           strokeWidth={2}
         />
-        <span className="font-medium text-amber-100 tracking-tight">
+        <span className="font-medium text-amber-700 tracking-tight">
           点击「确认并预约」之后
         </span>
       </div>
 
-      <p className="text-amber-50/85 mb-2.5">
+      <p className="text-amber-900/85 mb-2.5">
         {restaurantLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-amber-200/80">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-amber-700/80">
         <span className="inline-flex items-center gap-1">
           <span aria-hidden>🪑</span>
           <span>锁餐厅时段</span>
@@ -786,7 +785,7 @@ function MemoryPersistedBadge({
 }) {
   return (
     <div
-      className="rounded-md border border-emerald-500/24 bg-emerald-500/6 px-3 py-2 text-[12px] text-emerald-200/95 animate-fade-in backdrop-blur-sm flex items-start gap-2"
+      className="rounded-md border border-emerald-500/24 bg-emerald-500/6 px-3 py-2 text-[12px] text-emerald-700/95 animate-fade-in backdrop-blur-sm flex items-start gap-2"
       style={{
         background:
           "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.04) 100%)",
@@ -797,13 +796,13 @@ function MemoryPersistedBadge({
         strokeWidth={2}
       />
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-emerald-300 tracking-tight">
+        <div className="font-medium text-emerald-600 tracking-tight">
           已写入「{socialContext || "本"}」场景的跨 session 召回库
         </div>
-        <div className="text-emerald-200/75 text-[11px] mt-0.5 line-clamp-1">
+        <div className="text-emerald-700/75 text-[11px] mt-0.5 line-clamp-1">
           {summaryPreview}
-          <span className="text-emerald-400/60 ml-1">·</span>
-          <span className="text-emerald-400/60 ml-1">
+          <span className="text-emerald-500/60 ml-1">·</span>
+          <span className="text-emerald-500/60 ml-1">
             user_profile.json 自然语言记忆，与「偏好画像」的 tag 统计互补
           </span>
         </div>
@@ -898,7 +897,7 @@ function IntentChips({ intent }: { intent: IntentExtraction }) {
   return (
     <div className="px-4 pt-3">
       <div className="text-[10px] tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
-        <Icons.spark className="w-3 h-3 text-brand-400" strokeWidth={2.5} />
+        <Icons.spark className="w-3 h-3 text-brand-600" strokeWidth={2.5} />
         <span>为你考虑了</span>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -909,9 +908,9 @@ function IntentChips({ intent }: { intent: IntentExtraction }) {
               key={`${c.label}-${i}`}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium tracking-tight border animate-fade-in"
               style={{
-                background: "rgba(251, 146, 60, 0.08)",
-                borderColor: "rgba(251, 146, 60, 0.22)",
-                color: "rgb(253 186 116)",
+                background: "rgba(255, 209, 0, 0.08)",
+                borderColor: "rgba(255, 209, 0, 0.22)",
+                color: "rgb(146 64 14)",
               }}
             >
               <Ico className="w-3 h-3" strokeWidth={2} />

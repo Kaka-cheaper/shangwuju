@@ -127,15 +127,15 @@ export default function ThoughtPanel() {
         onClick={() => setExpanded((v) => !v)}
         className={cn(
           "w-full px-4 py-3 flex items-center gap-2 text-left",
-          "hover:bg-white/[0.04] transition-colors duration-150",
-          "border-b border-white/[0.06]",
+          "hover:bg-black/[0.03] transition-colors duration-150",
+          "border-b border-black/[0.06]",
         )}
         aria-expanded={expanded}
       >
         <Brain
           className={cn(
             "w-3.5 h-3.5 shrink-0 transition-colors",
-            streaming ? "text-brand-400" : "text-ink-700",
+            streaming ? "text-brand-600" : "text-ink-700",
           )}
           strokeWidth={2}
         />
@@ -257,7 +257,7 @@ function ReplanDivider({ reason, fromTool }: { reason: string; fromTool: string 
   return (
     <li className="my-2 flex items-center gap-2 px-2">
       <span className="h-px flex-1 bg-amber-400/30" aria-hidden />
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-amber-300 bg-amber-500/10 border border-amber-500/30">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30">
         <TriangleAlert className="w-3 h-3" strokeWidth={2} />
         <span>重新规划</span>
         <span className="mx-1 text-amber-500/60">·</span>

@@ -47,7 +47,7 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
           "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] transition-all",
           myVote === "like"
             ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-            : "bg-white/[0.04] text-ink-500 hover:bg-emerald-500/10 hover:text-emerald-400 border border-transparent",
+            : "bg-black/[0.03] text-ink-500 hover:bg-emerald-500/10 hover:text-emerald-400 border border-transparent",
         )}
         title={likeCount > 0 ? `赞：${getVoterNames("like")}` : "赞（保留这段）"}
       >
@@ -63,7 +63,7 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
           "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] transition-all",
           myVote === "dislike"
             ? "bg-red-500/20 text-red-400 border border-red-500/30"
-            : "bg-white/[0.04] text-ink-500 hover:bg-red-500/10 hover:text-red-400 border border-transparent",
+            : "bg-black/[0.03] text-ink-500 hover:bg-red-500/10 hover:text-red-400 border border-transparent",
         )}
         title={dislikeCount > 0 ? `踩：${getVoterNames("dislike")}` : "踩（换掉这段）"}
       >

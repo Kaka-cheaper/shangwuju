@@ -44,12 +44,12 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
         className={cn(
-          "bg-[#12121a] border border-white/[0.1] rounded-2xl p-6 w-[360px]",
+          "bg-white border border-black/[0.08] rounded-2xl p-6 w-[360px]",
           "shadow-2xl animate-in fade-in zoom-in-95 duration-200",
         )}
         onClick={(e) => e.stopPropagation()}
@@ -78,7 +78,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
             type="text"
             readOnly
             value={shareUrl}
-            className="flex-1 bg-white/[0.05] border border-white/[0.1] rounded-lg px-3 py-2 text-xs text-ink-400 truncate"
+            className="flex-1 bg-black/[0.03] border border-black/[0.08] rounded-lg px-3 py-2 text-xs text-ink-600 truncate"
           />
           <button
             type="button"
@@ -87,7 +87,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
               "px-3 py-2 rounded-lg text-xs font-medium transition-all",
               copied
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                : "bg-brand-500/20 text-brand-400 border border-brand-500/30 hover:bg-brand-500/30",
+                : "bg-brand-500/20 text-brand-600 border border-brand-500/30 hover:bg-brand-500/30",
             )}
           >
             {copied ? "已复制 ✓" : "复制链接"}
@@ -102,7 +102,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
         <button
           type="button"
           onClick={onClose}
-          className="w-full py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-sm text-ink-600 transition-colors"
+          className="w-full py-2 rounded-lg bg-black/[0.04] hover:bg-black/[0.06] text-sm text-ink-600 transition-colors"
         >
           关闭
         </button>

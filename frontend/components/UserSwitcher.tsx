@@ -122,7 +122,7 @@ export default function UserSwitcher() {
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-xs text-ink-700 hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-ink-900 transition-colors tracking-tight backdrop-blur"
+        className="inline-flex items-center gap-1.5 rounded-md border border-black/[0.08] bg-black/[0.02] px-2.5 py-1 text-xs text-ink-700 hover:border-black/[0.12] hover:bg-black/[0.04] hover:text-ink-900 transition-colors tracking-tight backdrop-blur"
         onClick={() => setOpen((v) => !v)}
         title="切换演示用户"
       >
@@ -142,17 +142,17 @@ export default function UserSwitcher() {
         ? createPortal(
           <div
             ref={panelRef}
-            className="fixed rounded-lg border border-white/[0.08] overflow-hidden shadow-elevated backdrop-blur-xl animate-fade-in flex flex-col"
+            className="fixed rounded-lg border border-black/[0.08] overflow-hidden shadow-elevated backdrop-blur-xl animate-fade-in flex flex-col"
             style={{
               top: `${panelPos.top}px`,
               right: `${panelPos.right}px`,
               width: `${PANEL_WIDTH}px`,
               maxHeight: `${panelPos.maxHeight}px`,
-              background: "rgba(20, 20, 23, 0.95)",
+              background: "rgba(255, 255, 255, 0.95)",
               zIndex: 60,
             }}
           >
-            <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-500 border-b border-white/[0.06] shrink-0">
+            <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-500 border-b border-black/[0.06] shrink-0">
               选择演示用户档案
             </div>
             <ul className="py-1 flex-1 min-h-0 overflow-auto">
@@ -165,7 +165,7 @@ export default function UserSwitcher() {
                       type="button"
                       className={cn(
                         "w-full px-3 py-2 text-left text-xs flex items-start gap-2 transition-colors",
-                        active ? "bg-white/[0.06]" : "hover:bg-white/[0.04]",
+                        active ? "bg-black/[0.04]" : "hover:bg-black/[0.03]",
                       )}
                       onClick={() => {
                         setCurrentUserId(p.user_id);

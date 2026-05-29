@@ -92,29 +92,22 @@ export default function PreferencesPanel() {
         title="查看当前用户的偏好画像与历史记忆"
         className={cn(
           "w-full group relative flex items-center gap-3.5",
-          "rounded-xl border border-white/[0.08] bg-white/[0.04]",
+          "rounded-xl border border-black/[0.06] bg-white",
           "px-4 py-3 text-left",
-          "hover:border-caramel-400/40 hover:bg-white/[0.06]",
-          "hover:shadow-glow-caramel transition-all duration-200",
+          "hover:border-black/[0.12] hover:shadow-sm",
+          "transition-all duration-200",
           "active:scale-[0.99]",
-          "backdrop-blur-sm overflow-hidden",
+          "overflow-hidden",
         )}
       >
-        {/* hover 时浮现暖焦糖光斑 */}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{ background: HOVER_GLOW }}
-        />
-
         {/* 大 icon —— 视觉锚点 */}
         <div
-          className="relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0 border border-white/[0.08]"
-          style={{ background: PERSONA_ICON_GRADIENT }}
+          className="relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: "#FFD100" }}
         >
           <PersonaIcon
-            className="w-5 h-5 text-caramel-300"
-            strokeWidth={1.75}
+            className="w-5 h-5 text-ink-900"
+            strokeWidth={2}
           />
         </div>
 
@@ -135,7 +128,7 @@ export default function PreferencesPanel() {
               已学 <span className="mono mx-0.5">{acceptedCount}</span>
             </span>
           )}
-          <span className="text-ink-500 group-hover:text-caramel-300 transition-colors">
+          <span className="text-ink-400 group-hover:text-ink-700 transition-colors">
             <svg
               className="w-3.5 h-3.5 transition-transform group-hover:translate-y-0.5"
               viewBox="0 0 12 12"
@@ -188,9 +181,9 @@ export default function PreferencesPanel() {
         className={cn(
           "group w-full px-4 py-3 min-h-[64px]",
           "flex items-center gap-3.5",
-          "hover:bg-white/[0.03] transition-colors",
+          "hover:bg-black/[0.02] transition-colors",
           "text-left",
-          "border-b border-white/[0.06]",
+          "border-b border-black/[0.06]",
         )}
       >
         <div className="min-w-0 flex-1">
@@ -215,8 +208,8 @@ export default function PreferencesPanel() {
         </span>
       </button>
 
-      {/* 内容区：替换原 card p-4 的 padding（header 已自占顶部，所以 pt-4） */}
-      <div className="px-4 pt-4 pb-4">
+      {/* 内容区 */}
+      <div className="px-4 pt-3 pb-3">
         {!persona ? (
           <div className="text-ink-500 text-xs">加载中…</div>
         ) : (
@@ -261,120 +254,84 @@ function ContentSections({
 }: ContentSectionsProps) {
   return (
     <>
-      {/* persona 英雄区：大 icon + 大字 label + 叙事 notes */}
-      <div>
+      {/* persona 英雄区：icon + label + notes 横排紧凑 */}
+      <div className="flex items-center gap-3">
         <div
-          className="w-14 h-14 rounded-xl flex items-center justify-center border border-white/[0.08]"
-          style={{ background: PERSONA_ICON_GRADIENT }}
+          className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+          style={{ background: "#FFD100" }}
         >
           <PersonaIcon
-            className="w-7 h-7 text-caramel-300"
-            strokeWidth={1.75}
+            className="w-5 h-5 text-ink-900"
+            strokeWidth={2}
           />
         </div>
-        <h3 className="mt-3 text-xl font-semibold text-ink-900 tracking-tight">
-          {persona.label}
-        </h3>
-        {persona.notes && (
-          <p className="mt-1.5 text-[12.5px] text-ink-600 leading-relaxed">
-            {persona.notes}
-          </p>
-        )}
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-semibold text-ink-900 tracking-tight">
+            {persona.label}
+          </h3>
+          {persona.notes && (
+            <p className="text-[12px] text-ink-600 leading-snug mt-0.5 line-clamp-2">
+              {persona.notes}
+            </p>
+          )}
+        </div>
       </div>
 
-      {/* 偏好标签：前 3 个加大字号；其余正常 */}
-      <div className="mt-5 pt-5 border-t border-white/[0.06]">
-        <div className="text-[11px] text-ink-500 tracking-wide mb-2.5">
-          常去标签
-        </div>
-        {top_priors.length === 0 ? (
-          <div className="text-ink-500 text-[12px]">还没积累偏好</div>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {top_priors.map((t, i) => (
-              <span
-                key={t}
-                className={cn(
-                  "chip-warm",
-                  // 前 3 个加大字号；其余正常（视觉重音）
-                  i < 3 ? "text-[12px] px-2.5 py-1" : "text-[11px]",
-                )}
-              >
+      {/* 偏好标签 + 默认距离：同行紧凑 */}
+      <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center gap-x-4 gap-y-2">
+        {top_priors.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] text-ink-500 mr-1">常去</span>
+            {top_priors.map((t) => (
+              <span key={t} className="chip-warm text-[11px]">
                 {t}
               </span>
             ))}
           </div>
         )}
+        {suggested != null && (
+          <div className="flex items-baseline gap-1 ml-auto">
+            <span className="text-[11px] text-ink-500">距离</span>
+            <span className="text-[14px] font-semibold text-ink-900 mono">
+              {suggested}
+              <span className="ml-0.5 text-[11px] font-normal text-ink-500">km</span>
+            </span>
+          </div>
+        )}
       </div>
 
-      {/* 默认距离：左右对齐，数字 mono 字号大 */}
-      {suggested != null && (
-        <div className="mt-5 pt-5 border-t border-white/[0.06] flex items-baseline justify-between">
-          <span className="text-[11px] text-ink-500 tracking-wide">
-            默认距离
-          </span>
-          <span className="text-[15px] font-semibold text-ink-900 mono">
-            {suggested}
-            <span className="ml-1 text-[11px] font-normal text-ink-500">
-              km
-            </span>
-          </span>
-        </div>
-      )}
-
-      {/* 历史记录：接受 / 拒绝（极简，仅当有数据时显示） */}
+      {/* 历史记录：接受 / 拒绝 横排紧凑 */}
       {(acceptedTop.length > 0 || rejectedTop.length > 0) && (
-        <div className="mt-5 pt-5 border-t border-white/[0.06] space-y-3">
+        <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap gap-x-6 gap-y-2">
           {acceptedTop.length > 0 && (
-            <div>
-              <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
-                最近接受
-              </div>
-              <ul className="space-y-1">
-                {acceptedTop.map(([t, n]) => (
-                  <li
-                    key={t}
-                    className="flex justify-between items-center text-[12px]"
-                  >
-                    <span className="text-ink-800">{t}</span>
-                    <span className="text-ink-500 mono text-[11px]">
-                      ×{n}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-500">接受</span>
+              {acceptedTop.map(([t, n]) => (
+                <span key={t} className="text-[11px] text-ink-700">
+                  {t}<span className="text-ink-400 mono ml-0.5">×{n}</span>
+                </span>
+              ))}
             </div>
           )}
-
           {rejectedTop.length > 0 && (
-            <div>
-              <div className="text-[11px] text-ink-500 tracking-wide mb-1.5">
-                最近拒绝
-              </div>
-              <ul className="space-y-1">
-                {rejectedTop.map(([t, n]) => (
-                  <li
-                    key={t}
-                    className="flex justify-between items-center text-[12px]"
-                  >
-                    <span className="text-ink-800">{t}</span>
-                    <span className="text-ink-500 mono text-[11px]">
-                      ×{n}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-500">拒绝</span>
+              {rejectedTop.map(([t, n]) => (
+                <span key={t} className="text-[11px] text-ink-700">
+                  {t}<span className="text-ink-400 mono ml-0.5">×{n}</span>
+                </span>
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* footer：清空记忆按钮（克制，灰色，hover 才显眼） */}
-      <div className="mt-5 pt-3 border-t border-white/[0.06] flex justify-end">
+      {/* footer：清空记忆按钮 */}
+      <div className="mt-3 pt-2 border-t border-black/[0.06] flex justify-end">
         <button
           type="button"
           onClick={onResetMemory}
-          className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-rose-400 transition-colors"
+          className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-rose-500 transition-colors"
           title="清空当前用户的累积偏好（演示完清场用）"
         >
           <Icons.trash className="w-3 h-3" strokeWidth={2} />

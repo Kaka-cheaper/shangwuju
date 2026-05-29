@@ -36,6 +36,11 @@ export default function HomeView() {
   const startNewSession = useChatStore((s) => s.startNewSession);
   const sessionId = useChatStore((s) => s.sessionId);
   const openCommandPalette = useChatStore((s) => s.openCommandPalette);
+  const messages = useChatStore((s) => s.messages);
+  const streaming = useChatStore((s) => s.streaming);
+
+  // 是否已激活（用户发过消息或正在流式中）
+  const activated = messages.length > 0 || streaming;
 
   // 顶栏滚动下沉：scrolled=true 时加深背景 + 暖色发光底线
   const [scrolled, setScrolled] = useState(false);
@@ -98,14 +103,14 @@ export default function HomeView() {
 
   return (
     <div className="min-h-screen relative">
-      {/* 黄昏光斑背景层（fixed，最底层） */}
+      {/* 黄色光晕背景层（fixed，最底层） */}
       <div className="aurora-bg" aria-hidden />
 
-      {/* 顶栏：玻璃质感 + 滚动下沉 */}
+      {/* 顶栏：始终显示 */}
       <header
         className={cn(
-          "relative-content sticky top-0 z-20 border-b border-white/[0.06]",
-          "bg-[#08080d]/70 backdrop-blur-xl",
+          "relative-content sticky top-0 z-20 border-b border-black/[0.06]",
+          "bg-white/80 backdrop-blur-xl",
           "transition-[background-color,box-shadow] duration-300",
           scrolled && "header-scrolled",
         )}
@@ -116,16 +121,16 @@ export default function HomeView() {
             <div className="flex items-center gap-2.5">
               <div className="brand-mark" aria-hidden />
               <div className="flex flex-col leading-none">
-                <h1 className="text-[15px] font-semibold tracking-tight text-ink-900 shrink-0">
+                <h1 className="text-[17px] font-semibold tracking-tight text-ink-900 shrink-0">
                   晌午局
                 </h1>
-                <span className="hidden sm:inline text-[10px] text-ink-500 mt-0.5 tracking-wide">
+                <span className="hidden sm:inline text-[11px] text-ink-500 mt-0.5 tracking-wide">
                   Shangwu · Local Half-Day Agent
                 </span>
               </div>
             </div>
             <span className="hidden md:inline text-ink-300/40">/</span>
-            <span className="hidden md:inline text-xs text-ink-500 truncate">
+            <span className="hidden md:inline text-sm text-ink-500 truncate">
               半日出行管家 · Agent 编排可视化
             </span>
           </div>
@@ -135,7 +140,7 @@ export default function HomeView() {
             <button
               type="button"
               onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.16] px-2.5 py-1 text-xs text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
+              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-black/[0.08] bg-black/[0.02] hover:bg-black/[0.04] hover:border-black/[0.12] px-2.5 py-1 text-sm text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
               title="打开命令面板（场景 / 模式 / 用户切换）"
             >
               <span>命令</span>
@@ -169,31 +174,65 @@ export default function HomeView() {
       {/* 协作状态条 */}
       <CollabBar />
 
+      {/* ============================================================
+          初始态：偏好画像 + 演示场景 + 输入栏 垂直居中
+          激活态：正常布局（偏好画像 + 演示场景顶部 + 两栏主区）
+          ============================================================ */}
       <main
-        className="relative-content mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-6"
-        style={{ paddingBottom: "calc(112px + env(safe-area-inset-bottom, 0px) + 16px)" }}
+        className={cn(
+          "relative-content mx-auto max-w-7xl px-4 sm:px-6 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+          activated
+            ? "py-4 sm:py-6"
+            : "min-h-[calc(100vh-56px)] flex flex-col items-center justify-center py-8",
+        )}
+        style={activated ? { paddingBottom: "calc(112px + env(safe-area-inset-bottom, 0px) + 16px)" } : undefined}
       >
-        <QuickScenarios />
+        {/* 偏好画像 + 演示场景容器：初始态居中放大，激活态正常 */}
+        <div
+          className={cn(
+            "w-full transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+            !activated && "max-w-2xl",
+          )}
+        >
+          <PreferencesPanel />
 
-        {/* 主区三栏：行程 5 / 链路 4 / 偏好 3（lg+）；md 行程 7 + (链路+偏好) 5；sm 单列堆叠 */}
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4">
-          <section className="md:col-span-12 lg:col-span-5">
-            <ItineraryCard />
-          </section>
+          <div className="mt-4">
+            <QuickScenarios enlarged={!activated} />
+          </div>
+        </div>
 
-          <section className="md:col-span-7 lg:col-span-4">
+        {/* 初始态：ChatDock 跟随内容流（static） */}
+        {!activated && (
+          <div className="w-full max-w-2xl mt-6">
+            <ChatDock activated={false} />
+          </div>
+        )}
+
+        {/* 激活态：两栏主区 */}
+        <div
+          className={cn(
+            "mt-4 grid grid-cols-1 lg:grid-cols-4 gap-4 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+            !activated && "opacity-0 pointer-events-none h-0 overflow-hidden mt-0",
+          )}
+        >
+          <section className="lg:col-span-1">
             <ConstraintFeed />
             <ToolTracePanel />
             <ThoughtPanel />
           </section>
 
-          <aside className="md:col-span-5 lg:col-span-3">
-            <PreferencesPanel />
-          </aside>
+          <section className="lg:col-span-3">
+            <ItineraryCard />
+          </section>
         </div>
       </main>
 
-      <footer className="relative-content mx-auto max-w-7xl px-4 sm:px-6 pb-2 text-center">
+      <footer
+        className={cn(
+          "relative-content mx-auto max-w-7xl px-4 sm:px-6 pb-2 text-center transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+          !activated && "opacity-0 pointer-events-none",
+        )}
+      >
         <span className="text-[11px] text-ink-400/70 tracking-tight">
           美团 AI Hackathon 06 · 本地探索 · 周末闲时活动规划
         </span>
@@ -202,7 +241,8 @@ export default function HomeView() {
       <ToastStack />
       <CommandPalette />
       <Confetti />
-      <ChatDock />
+      {/* 激活态：ChatDock fixed 贴底 */}
+      {activated && <ChatDock activated={true} />}
       {roomId && (
         <ShareModal
           open={shareModalOpen}

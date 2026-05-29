@@ -208,8 +208,8 @@ export default function ToolTracePanel() {
         type="button"
         onClick={togglePanel}
         className={cn(
-          "w-full px-4 py-3 border-b border-white/[0.06] flex items-center justify-between",
-          "hover:bg-white/[0.02] transition-colors duration-150 cursor-pointer text-left",
+          "w-full px-4 py-3 border-b border-black/[0.06] flex items-center justify-between",
+          "hover:bg-black/[0.02] transition-colors duration-150 cursor-pointer text-left",
         )}
         aria-expanded={panelExpanded}
         aria-label={panelExpanded ? "收起 Agent 决策过程" : "展开 Agent 决策过程"}
@@ -225,7 +225,7 @@ export default function ToolTracePanel() {
           <Sparkles
             className={cn(
               "w-3.5 h-3.5 transition-colors",
-              streaming ? "text-brand-400" : "text-ink-700",
+              streaming ? "text-brand-600" : "text-ink-700",
             )}
             strokeWidth={2}
           />
@@ -312,7 +312,7 @@ function EpicBlock({
 
   // 头部状态色
   const headerAccent = hasInProgress
-    ? "text-brand-400"
+    ? "text-brand-600"
     : hasFail
       ? "text-rose-400"
       : hasReplan
@@ -326,7 +326,7 @@ function EpicBlock({
         onClick={onToggle}
         className={cn(
           "w-full flex items-center gap-2 rounded-md px-2 py-1.5",
-          "hover:bg-white/[0.04] transition-colors duration-150",
+          "hover:bg-black/[0.03] transition-colors duration-150",
           "text-left",
         )}
       >
@@ -345,7 +345,7 @@ function EpicBlock({
         </span>
         {fanoutBadgeText && (
           <span
-            className="text-[10px] text-brand-300 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/10 border border-brand-500/30"
+            className="text-[10px] text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
             title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
           >
             {fanoutBadgeText}
@@ -354,7 +354,7 @@ function EpicBlock({
         <span className="flex items-center gap-1.5 shrink-0">
           {hasInProgress && (
             <Loader2
-              className="w-3 h-3 text-brand-400 animate-spin"
+              className="w-3 h-3 text-brand-600 animate-spin"
               strokeWidth={2}
             />
           )}
@@ -371,14 +371,14 @@ function EpicBlock({
       </button>
 
       {!collapsed && (
-        <ol className="ml-3 pl-2 border-l border-white/[0.08] space-y-1 py-1 animate-collapse-in overflow-hidden">
+        <ol className="ml-3 pl-2 border-l border-black/[0.08] space-y-1 py-1 animate-collapse-in overflow-hidden">
           {items.map((it, idx) => {
             const localIdx = idx + 1;
             if (it.kind === "replan") {
               return (
                 <li
                   key={`replan-${it.idx}`}
-                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-300"
+                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-600"
                 >
                   <CornerDownRight
                     className="w-3 h-3 text-amber-400 mt-0.5 shrink-0"
@@ -392,7 +392,7 @@ function EpicBlock({
                       />
                       <span className="font-medium">触发异常重规划</span>
                     </div>
-                    <div className="mt-0.5 text-amber-400/90">
+                    <div className="mt-0.5 text-amber-600/90">
                       {FAILURE_REASON_LABEL[it.reason] ?? it.reason}
                       <span className="mx-1 text-amber-500/60">·</span>
                       来自 <span className="mono text-[10px]">{it.fromTool}</span>
@@ -429,7 +429,7 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         : Icons.success;
 
   const iconClass = inProgress
-    ? "text-brand-400 animate-spin"
+    ? "text-brand-600 animate-spin"
     : replaced
       ? "text-ink-500"
       : isFail

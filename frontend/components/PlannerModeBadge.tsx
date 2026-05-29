@@ -79,10 +79,10 @@ export default function PlannerModeBadge() {
       aria-label={`当前 planner 模式：${MODE_LABEL[mode]}，点击切换为 ${MODE_LABEL[next]}`}
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px]",
-        "border border-white/[0.08] bg-white/[0.03] text-ink-700 tracking-tight",
-        "hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-ink-900",
+        "border border-black/[0.08] bg-black/[0.02] text-ink-700 tracking-tight",
+        "hover:border-black/[0.12] hover:bg-black/[0.04] hover:text-ink-900",
         "transition-colors backdrop-blur",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/[0.03] disabled:hover:text-ink-700 disabled:hover:border-white/[0.08]",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-black/[0.02] disabled:hover:text-ink-700 disabled:hover:border-black/[0.08]",
       )}
     >
       <span
