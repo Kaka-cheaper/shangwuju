@@ -896,7 +896,7 @@ function IntentChips({ intent }: { intent: IntentExtraction }) {
 
   return (
     <div className="px-4 pt-3">
-      <div className="text-[10px] tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
+      <div className="text-[13px] tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
         <Icons.spark className="w-3 h-3 text-brand-600" strokeWidth={2.5} />
         <span>为你考虑了</span>
       </div>
@@ -906,7 +906,7 @@ function IntentChips({ intent }: { intent: IntentExtraction }) {
           return (
             <span
               key={`${c.label}-${i}`}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium tracking-tight border animate-fade-in"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[13px] font-medium tracking-tight border animate-fade-in"
               style={{
                 background: "rgba(255, 209, 0, 0.08)",
                 borderColor: "rgba(255, 209, 0, 0.22)",

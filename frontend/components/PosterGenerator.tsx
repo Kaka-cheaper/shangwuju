@@ -219,7 +219,7 @@ export default function PosterGenerator() {
           "mt-2 w-full py-1.5 rounded-lg",
           "bg-black/[0.03] hover:bg-black/[0.05]",
           "border border-black/[0.08] hover:border-black/[0.12]",
-          "text-ink-700 hover:text-ink-900 text-xs",
+          "text-ink-700 hover:text-ink-900 text-sm",
           "transition-all flex items-center justify-center gap-1.5",
           "disabled:opacity-50 disabled:cursor-not-allowed",
         )}

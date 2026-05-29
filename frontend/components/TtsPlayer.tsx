@@ -143,7 +143,7 @@ export default function TtsPlayer() {
           "mt-2 w-full py-1.5 rounded-lg",
           "bg-black/[0.03] hover:bg-black/[0.05]",
           "border border-black/[0.08] hover:border-black/[0.12]",
-          "text-ink-700 hover:text-ink-900 text-xs",
+          "text-ink-700 hover:text-ink-900 text-sm",
           "transition-all flex items-center justify-center gap-1.5",
         )}
         title="使用浏览器内置语音朗读行程摘要"

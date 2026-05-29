@@ -270,7 +270,7 @@ function ContentSections({
             {persona.label}
           </h3>
           {persona.notes && (
-            <p className="text-[13px] text-ink-600 leading-snug mt-0.5 line-clamp-2">
+            <p className="text-sm text-ink-600 leading-relaxed mt-1">
               {persona.notes}
             </p>
           )}

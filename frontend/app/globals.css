@@ -280,7 +280,7 @@
      Section title
      ============================================================ */
   .section-title {
-    @apply text-[11px] font-medium tracking-wide uppercase;
+    @apply text-sm font-medium tracking-wide uppercase;
     color: rgb(0 0 0 / 0.4);
   }
 
