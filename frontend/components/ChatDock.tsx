@@ -503,7 +503,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               >
                 <div className="flex items-center gap-2 text-sm rounded-full bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated px-2.5 py-1.5">
                   <span className="shrink-0 inline-flex items-center gap-1 bg-[#FFD100] text-ink-900 text-[11px] font-semibold px-2.5 py-1 rounded-full">
-                    Agent
+                    <Icons.spark className="w-3.5 h-3.5" strokeWidth={2} />
                     {totalCount > 0 && (
                       <span className="mono tabular-nums">{totalCount}</span>
                     )}
