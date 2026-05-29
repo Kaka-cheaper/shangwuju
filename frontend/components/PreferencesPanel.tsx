@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * PreferencesPanel —— 用户偏好画像（黄昏深色主题 · 焦糖琥珀配色）。
@@ -116,7 +116,7 @@ export default function PreferencesPanel() {
           <div className="text-base font-semibold text-ink-900 truncate tracking-tight">
             {persona?.label ?? "偏好画像"}
           </div>
-          <div className="mt-0.5 text-[11.5px] text-ink-500 truncate leading-relaxed">
+          <div className="mt-0.5 text-[13px] text-ink-500 truncate leading-relaxed">
             {subtitle}
           </div>
         </div>
@@ -270,7 +270,7 @@ function ContentSections({
             {persona.label}
           </h3>
           {persona.notes && (
-            <p className="text-[12px] text-ink-600 leading-snug mt-0.5 line-clamp-2">
+            <p className="text-[13px] text-ink-600 leading-snug mt-0.5 line-clamp-2">
               {persona.notes}
             </p>
           )}
@@ -281,9 +281,9 @@ function ContentSections({
       <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center gap-x-4 gap-y-2">
         {top_priors.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[11px] text-ink-500 mr-1">常去</span>
+            <span className="text-[13px] text-ink-500 mr-1">常去</span>
             {top_priors.map((t) => (
-              <span key={t} className="chip-warm text-[11px]">
+              <span key={t} className="chip-warm text-[13px]">
                 {t}
               </span>
             ))}
@@ -291,10 +291,10 @@ function ContentSections({
         )}
         {suggested != null && (
           <div className="flex items-baseline gap-1 ml-auto">
-            <span className="text-[11px] text-ink-500">距离</span>
+            <span className="text-[13px] text-ink-500">距离</span>
             <span className="text-[14px] font-semibold text-ink-900 mono">
               {suggested}
-              <span className="ml-0.5 text-[11px] font-normal text-ink-500">km</span>
+              <span className="ml-0.5 text-[13px] font-normal text-ink-500">km</span>
             </span>
           </div>
         )}
@@ -305,9 +305,9 @@ function ContentSections({
         <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap gap-x-6 gap-y-2">
           {acceptedTop.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-ink-500">接受</span>
+              <span className="text-[13px] text-ink-500">接受</span>
               {acceptedTop.map(([t, n]) => (
-                <span key={t} className="text-[11px] text-ink-700">
+                <span key={t} className="text-[13px] text-ink-700">
                   {t}<span className="text-ink-400 mono ml-0.5">×{n}</span>
                 </span>
               ))}
@@ -315,9 +315,9 @@ function ContentSections({
           )}
           {rejectedTop.length > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-ink-500">拒绝</span>
+              <span className="text-[13px] text-ink-500">拒绝</span>
               {rejectedTop.map(([t, n]) => (
-                <span key={t} className="text-[11px] text-ink-700">
+                <span key={t} className="text-[13px] text-ink-700">
                   {t}<span className="text-ink-400 mono ml-0.5">×{n}</span>
                 </span>
               ))}
@@ -331,7 +331,7 @@ function ContentSections({
         <button
           type="button"
           onClick={onResetMemory}
-          className="inline-flex items-center gap-1 text-[11px] text-ink-500 hover:text-rose-500 transition-colors"
+          className="inline-flex items-center gap-1 text-[13px] text-ink-500 hover:text-rose-500 transition-colors"
           title="清空当前用户的累积偏好（演示完清场用）"
         >
           <Icons.trash className="w-3 h-3" strokeWidth={2} />
@@ -341,3 +341,4 @@ function ContentSections({
     </>
   );
 }
+

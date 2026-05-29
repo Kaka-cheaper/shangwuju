@@ -316,7 +316,7 @@ export default function ItineraryCard() {
                 <div
                   className={cn(
                     "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
-                    "text-[11px] text-ink-500 tracking-tight leading-tight",
+                    "text-[13px] text-ink-500 tracking-tight leading-tight",
                   )}
                   title={`${entry.start} → ${entry.end}`}
                 >
@@ -333,7 +333,7 @@ export default function ItineraryCard() {
               className="relative flex items-start gap-3 animate-fade-in-up"
             >
               <div className="flex flex-col items-center min-w-[44px] z-10">
-                <div className="text-[10px] text-ink-500 mono">{entry.start}</div>
+                <div className="text-[12px] text-ink-500 mono">{entry.start}</div>
                 {/* 暖橙→莓粉时间点 */}
                 <div
                   className="my-1 w-2 h-2 rounded-full ring-[3px] ring-white"
@@ -344,12 +344,12 @@ export default function ItineraryCard() {
                       "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
                   }}
                 />
-                <div className="text-[10px] text-ink-500 mono">{entry.end}</div>
+                <div className="text-[12px] text-ink-500 mono">{entry.end}</div>
               </div>
               <div className="flex-1 pt-0.5">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="chip">{nodeKindLabel(itinerary, entry.ref_id)}</span>
-                  <span className="text-sm font-medium text-ink-900 tracking-tight">
+                  <span className="text-base font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
                     {entry.title}
                   </span>
                 </div>

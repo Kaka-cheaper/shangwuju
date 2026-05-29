@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * ToolTracePanel —— B Chain-of-Thought 范式重写。
@@ -233,7 +233,7 @@ export default function ToolTracePanel() {
             {panelExpanded ? "Agent 思考链路" : `查看 Agent 决策过程（${totalCalls} 步）`}
           </span>
         </div>
-        <div className="text-[11px] text-ink-500 mono">
+        <div className="text-[13px] text-ink-500 mono">
           {totalCalls} 调用
           {totalReplans > 0 && (
             <>
@@ -340,12 +340,12 @@ function EpicBlock({
         <span className={cn("text-[12px] font-medium tracking-tight", headerAccent)}>
           {epic.label}
         </span>
-        <span className="text-[10px] text-ink-500 truncate flex-1 min-w-0">
+        <span className="text-[12px] text-ink-500 truncate flex-1 min-w-0">
           {epic.hint}
         </span>
         {fanoutBadgeText && (
           <span
-            className="text-[10px] text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
+            className="text-[12px] text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
             title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
           >
             {fanoutBadgeText}
@@ -364,7 +364,7 @@ function EpicBlock({
               strokeWidth={2}
             />
           )}
-          <span className="text-[10px] text-ink-500 mono tabular-nums">
+          <span className="text-[12px] text-ink-500 mono tabular-nums">
             {callCount}× · {totalDurationMs}ms
           </span>
         </span>
@@ -378,7 +378,7 @@ function EpicBlock({
               return (
                 <li
                   key={`replan-${it.idx}`}
-                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] text-amber-600"
+                  className="flex items-start gap-1.5 px-2 py-1.5 rounded text-[13px] text-amber-600"
                 >
                   <CornerDownRight
                     className="w-3 h-3 text-amber-400 mt-0.5 shrink-0"
@@ -395,7 +395,7 @@ function EpicBlock({
                     <div className="mt-0.5 text-amber-600/90">
                       {FAILURE_REASON_LABEL[it.reason] ?? it.reason}
                       <span className="mx-1 text-amber-500/60">·</span>
-                      来自 <span className="mono text-[10px]">{it.fromTool}</span>
+                      来自 <span className="mono text-[12px]">{it.fromTool}</span>
                     </div>
                   </div>
                 </li>
@@ -446,7 +446,7 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
       )}
     >
       <div className="flex items-start gap-1.5">
-        <span className="text-[10px] text-ink-500 mono w-3 text-right shrink-0 mt-0.5 tabular-nums">
+        <span className="text-[12px] text-ink-500 mono w-3 text-right shrink-0 mt-0.5 tabular-nums">
           {index}
         </span>
         <StatusIcon
@@ -459,23 +459,23 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
               <span className={cn("text-[12px] font-medium tracking-tight", textClass)}>
                 {TOOL_LABEL[call.tool] ?? call.tool}
               </span>
-              <span className="text-[10px] text-ink-500 mono truncate">
+              <span className="text-[12px] text-ink-500 mono truncate">
                 {call.tool}
               </span>
             </div>
-            <span className="text-[10px] text-ink-500 mono shrink-0 tabular-nums">
+            <span className="text-[12px] text-ink-500 mono shrink-0 tabular-nums">
               {call.durationMs != null ? `${call.durationMs}ms` : "..."}
             </span>
           </div>
 
           {Object.keys(call.input).length > 0 && (
-            <div className="mt-0.5 text-[10px] text-ink-600 mono break-all line-clamp-1">
+            <div className="mt-0.5 text-[12px] text-ink-600 mono break-all line-clamp-1">
               {compactInput(call.input)}
             </div>
           )}
 
           {isFail && call.reason && (
-            <div className="mt-0.5 text-[10px] text-rose-400">
+            <div className="mt-0.5 text-[12px] text-rose-400">
               {FAILURE_REASON_LABEL[call.reason] ?? call.reason}
             </div>
           )}
@@ -557,3 +557,4 @@ function bucketByEpic(timeline: Item[]): Bucket[] {
     };
   });
 }
+
