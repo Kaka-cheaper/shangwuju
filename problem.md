@@ -9111,3 +9111,49 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 ```
 
 **设计取舍**：场景按钮 = 干净独立探索（自动开新会话）；手动输入 = 连续对话（保留历史支持追问）。两种入口语义分离，既解决评委依次点场景时的串台问题，又保留正常对话的上下文连续性。
+
+
+---
+
+## 问题：规划后输入「你好」未走路由判断，被直接当反馈重新规划
+
+**用户原问**：第一次规划方案后，我输入「你好」，按理来说应该重新走路由判断是反馈还是闲聊，但目前好像没走路由，反馈环节之前是不是应该复用一下路由？
+
+**根因分析**：
+
+路由其实走了，但 router_node 的 **Layer 3 兜底逻辑过于激进**：
+
+```text
+| 层      | 逻辑                                          | 问题                          |
+|---------|----------------------------------------------|------------------------------|
+| Layer 1 | has_itinerary + 强信号词 → feedback            | 正常                          |
+| Layer 2 | LLM 分类（注入 FEEDBACK_CONTEXT_HINT）          | 正常：你好→chitchat，真反馈→ambiguous |
+| Layer 3 | has_itinerary 且 route_kind != "planning" → feedback | **过宽**：把 chitchat/meta/off_topic 也吞成 feedback |
+```
+
+「你好」被 LLM 正确判成 chitchat，却被 Layer 3 的 `!= "planning"` 一律转成 feedback 触发重规划。这是 feedback-routing-fix spec 为治「长反馈漏判」加的兜底，但误伤了纯社交输入。
+
+**解决方案（单一精准改动）**：
+
+Layer 3 兜底从 `route_kind != "planning"` 收窄为 `route_kind == "ambiguous"`：
+- classify_input 在 has_itinerary 时注入 FEEDBACK_CONTEXT_HINT，明确引导 LLM 把**真反馈措辞**（太赶/想轻松点/换个活动/不太好）判为 ambiguous——这是真反馈落的桶
+- 故 Layer 3 只接管 ambiguous；chitchat（你好）/ meta（问能力）/ emotional（情绪）/ off_topic（无关）保持各自语义走 chitchat 闲聊气泡
+- R4 防误伤不变（planning 走规划）；R1 长反馈不漏（LLM 判 ambiguous 命中）
+
+**修改的代码文件**：
+
+- `backend/agent/graph/nodes/router.py`（Layer 3 条件 `!= "planning"` → `== "ambiguous"` + docstring）
+- `backend/tests/test_router_node_feedback.py`（新增社交类不被吞 + ambiguous 仍 feedback 测试）
+
+**应当达成的效果 / 验证证据**：
+
+```text
+| 验证项                              | 结果                              |
+|-----------------------------------|----------------------------------|
+| 全量 backend pytest                | 760 passed + 1 skipped（含 4 新测试）|
+| 真 LLM 有方案「你好」               | chitchat ✓                       |
+| 真 LLM 有方案「你能做什么」          | meta ✓                           |
+| 真 LLM 有方案「太累了想轻松点」       | ambiguous → feedback ✓           |
+| 真 LLM 有方案「帮我写段代码」         | off_topic ✓                      |
+| e2e 规划后发「你好」                 | chitchat_reply（不重规划）+ 暖心回复 ✓ |
+```

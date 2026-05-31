@@ -44,8 +44,10 @@ def router_node(state: AgentState) -> dict[str, Any]:
         Layer 2（LLM 分类，带上下文）：classify_input(has_itinerary=...)
                   → has_itinerary 时 prompt 告知 LLM「用户已有方案」，使其能判反馈
                   （多判 ambiguous）；明确新需求仍判 planning。
-        Layer 3（兜底，放宽）：has_itinerary + LLM 判非 planning → feedback。
-                  去掉旧的「<15字」限制（长反馈不再漏）；planning 明确时不吞（R4 防误伤）。
+        Layer 3（兜底，仅 ambiguous）：has_itinerary + LLM 判 ambiguous → feedback。
+                  classify_input 在 has_itinerary 时注入 FEEDBACK_CONTEXT_HINT，引导 LLM
+                  把真反馈措辞判为 ambiguous；故只接管 ambiguous。chitchat/meta/emotional/
+                  off_topic 保持各自语义走 chitchat 气泡（修复「你好」被误判反馈重规划的 bug）。
 
     无 itinerary 的 session：全程不进任何新分支，行为与重构前一致（R6.4）。
     """
@@ -71,11 +73,17 @@ def router_node(state: AgentState) -> dict[str, Any]:
     # router 的 input_kind 与 RouteKind 字段名一致
     route_kind: RouteKind = decision.input_kind  # type: ignore[assignment]
 
-    # ---- Layer 3：兜底（放宽：has_itinerary 且 LLM 判非 planning → feedback） ----
-    # 设计动机：已有方案的上下文里，LLM 判 ambiguous/chitchat/emotional/meta/off_topic
-    # 的输入更可能是反馈（用户在追加调整，不是闲聊）。去掉旧的 <15字 限制让长反馈也命中。
-    # R4 防误伤：LLM 判 planning（明确新需求）不进此分支，仍走规划主路径。
-    if has_itinerary and route_kind != "planning":
+    # ---- Layer 3：兜底（has_itinerary 且 LLM 判 ambiguous → feedback） ----
+    # 设计动机：已有方案的上下文里，classify_input 注入了 FEEDBACK_CONTEXT_HINT，
+    # 它明确引导 LLM 把「真反馈措辞」（太赶/想轻松点/换个活动/不太好）判为 ambiguous。
+    # 所以 Layer 3 只接管 ambiguous——这是真反馈落的桶。
+    #
+    # 【修复用户观察的 bug】旧实现是 `route_kind != "planning"` 一律转 feedback，
+    # 把 chitchat（你好）/ meta（你能做什么）/ off_topic（无关话题）也吞成 feedback
+    # 触发重规划——明显错误：这些是有明确社交语义的输入，应保持闲聊气泡。
+    # emotional（情绪表达）同理保持共情闲聊，不强转反馈。
+    # R4 防误伤：planning（明确新需求）走规划主路径；R1：长反馈靠 LLM 判 ambiguous 命中此分支。
+    if has_itinerary and route_kind == "ambiguous":
         return {
             "route_kind": "feedback",
             "router_decision": None,

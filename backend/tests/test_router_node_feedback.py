@@ -45,7 +45,7 @@ _LONG_FEEDBACK = [
 
 @pytest.mark.parametrize("text", _LONG_FEEDBACK)
 def test_long_feedback_routes_to_feedback(monkeypatch, text):
-    """R1：已有方案 + 长反馈 → feedback（无论 LLM 判什么非 planning）。"""
+    """R1：已有方案 + 长反馈 → feedback（LLM 判 ambiguous，Layer 3 接管）。"""
     # 模拟 LLM 判 ambiguous（实测这类输入 LLM 多判 ambiguous）
     monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
     monkeypatch.setattr(
@@ -53,6 +53,39 @@ def test_long_feedback_routes_to_feedback(monkeypatch, text):
     )
     out = router_mod.router_node(_state_with_itinerary(text))
     assert out["route_kind"] == "feedback", f"{text!r} 应路由为 feedback"
+
+
+# ---- 纯社交输入（chitchat/meta/off_topic）即使有方案也不该被吞成 feedback ----
+# 用户观察的 bug：规划后输入「你好」被当反馈重新规划，未走闲聊路由。
+
+@pytest.mark.parametrize(
+    "kind",
+    ["chitchat", "meta", "off_topic"],
+)
+def test_social_input_with_itinerary_stays_chitchat(monkeypatch, kind):
+    """有方案 + LLM 判明确社交类（你好/问能力/无关话题）→ chitchat，不重规划。
+
+    Layer 3 兜底只接管 ambiguous（真反馈措辞落的桶）；chitchat/meta/off_topic
+    有明确社交语义，应保持闲聊，不被误判为反馈触发重规划。
+    """
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        router_mod, "classify_input", lambda *a, **k: _make_decision(kind)
+    )
+    out = router_mod.router_node(_state_with_itinerary("你好"))
+    assert out["route_kind"] == kind, (
+        f"有方案时 {kind} 应保持 {kind}（走闲聊气泡），不该被吞成 feedback"
+    )
+
+
+def test_ambiguous_with_itinerary_routes_feedback(monkeypatch):
+    """有方案 + LLM 判 ambiguous（真反馈措辞）→ feedback（Layer 3 仅接管 ambiguous）。"""
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        router_mod, "classify_input", lambda *a, **k: _make_decision("ambiguous")
+    )
+    out = router_mod.router_node(_state_with_itinerary("这个不太好"))
+    assert out["route_kind"] == "feedback"
 
 
 # ---- R4：has_itinerary + 真新需求（LLM 判 planning）→ planning ----
