@@ -77,6 +77,34 @@ def _extract_quality_warnings(state: AgentState) -> list[str]:
     return out
 
 
+def _detect_unmet_cuisines(intent: Any, itinerary: Any) -> list[str]:
+    """检测用户明示餐饮品类是否未排进最终行程（诚实告知用）。
+
+    取 intent.preferred_poi_types + 行程中 target_kind=restaurant 节点的 cuisine
+    （靠 target_id 查 mock），交给 narrator.detect_unmet_cuisine_preference 判定。
+    任何异常返空（降级为不告知，宁缺毋误报）。
+    """
+    try:
+        from agent.intent.narrator import detect_unmet_cuisine_preference
+        from data.loader import load_restaurants
+
+        prefs = list(getattr(intent, "preferred_poi_types", []) or [])
+        if not prefs:
+            return []
+        rest_by_id = {r.id: r for r in load_restaurants()}
+        cuisines: list[str] = []
+        for n in itinerary.nodes:
+            if getattr(n, "target_kind", None) != "restaurant":
+                continue
+            rid = getattr(n, "target_id", None)
+            r = rest_by_id.get(rid)
+            if r and r.cuisine:
+                cuisines.append(r.cuisine)
+        return detect_unmet_cuisine_preference(prefs, cuisines)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def narrate_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     itinerary = state.get("itinerary")
@@ -98,6 +126,10 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     critic_summary = _build_critic_summary(state.get("critic_attempts") or [])
     quality_warnings = _extract_quality_warnings(state)
 
+    # 诚实告知（用户观察的 bug）：用户明示品类（如烧烤）但因超距/无候选未排进行程
+    # → 检测未满足品类，让 narrator 诚实说明"附近没找到 X，帮你换了替代品"
+    unmet_cuisines = _detect_unmet_cuisines(intent, itinerary)
+
     text = generate_narration(
         intent=intent,
         itinerary=itinerary,
@@ -105,6 +137,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         use_llm=use_llm,
         critic_summary=critic_summary,
         quality_warnings=quality_warnings,
+        unmet_cuisines=unmet_cuisines,
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate

@@ -51,6 +51,94 @@ logger = logging.getLogger(__name__)
 
 
 # ============================================================
+# 诚实告知：用户指定品类未被满足检测（spec planning-pipeline-consolidation 后续）
+# ============================================================
+
+
+def _known_restaurant_cuisines() -> set[str]:
+    """mock 数据里真实存在的餐厅菜系集合（用于过滤非菜系词如 KTV / 啤酒）。
+
+    失败兜底返空集——检测降级为"不报未满足"（宁可不告知，不可误报）。
+    """
+    try:
+        from data.loader import load_restaurants
+
+        return {(r.cuisine or "").strip() for r in load_restaurants() if r.cuisine}
+    except Exception:  # noqa: BLE001
+        return set()
+
+
+def _cuisine_match(pref: str, cuisine: str) -> bool:
+    """双向 substring 宽松匹配（与 search_adapter._rerank_by_preferred_cuisine 同源）。"""
+    if not pref or not cuisine:
+        return False
+    return (pref in cuisine) or (cuisine in pref)
+
+
+# 餐饮品类指示词：含这些 token 的 preferred 词视为"明确餐饮诉求"
+# （即使 mock 里没有该菜系，也应诚实告知"本地没有"，而非当活动词跳过）。
+# 不含这些 token 的词（KTV / 展览 / 攀岩 / 密室）视为活动类，不参与餐厅品类判定。
+_CUISINE_HINT_TOKENS = (
+    "烤肉", "烧烤", "火锅", "串", "菜", "餐", "料理", "面", "饭",
+    "日料", "粤", "川", "湘", "韩", "西餐", "甜品", "茶", "咖啡", "简餐",
+)
+
+
+def _looks_like_cuisine_request(pref: str, known: set[str]) -> bool:
+    """判断 preferred 词是否为"餐饮品类诉求"。
+
+    命中任一即视为餐饮诉求：
+    1. 与 mock 已有菜系双向 substring 命中（如「烧烤」）
+    2. 含餐饮指示 token（如「韩式烤肉」含「烤肉」——本地无此菜系也要诚实告知）
+    排除：纯活动词（KTV / 展览 / 攀岩 / 啤酒）——不含 token 且非已知菜系。
+    """
+    if any(_cuisine_match(pref, c) for c in known):
+        return True
+    return any(tok in pref for tok in _CUISINE_HINT_TOKENS)
+
+
+def detect_unmet_cuisine_preference(
+    preferred_poi_types: list[str],
+    itinerary_restaurant_cuisines: list[str],
+) -> list[str]:
+    """检测用户明示的餐饮品类是否未出现在最终行程的餐厅里。
+
+    诚实告知场景（用户观察的 bug）：用户要「烧烤」但匹配餐厅都超距被过滤，
+    最终排了火锅——应诚实告知"附近没找到烧烤"，而非假装满足。也覆盖
+    "本地压根没有该品类"（如「韩式烤肉」mock 里无）的情况。
+
+    判定规则：
+    - 仅对**餐饮品类诉求**做判定（已知 mock 菜系 OR 含餐饮指示 token；
+      过滤 "啤酒" / "KTV" / "展览" 等非餐厅菜系/活动词，避免误报）
+    - 该品类未与任一行程餐厅 cuisine 双向 substring 命中 → 计入未满足
+    - 无 preferred_poi_types / 无餐饮诉求命中 → 返空列表（不告知）
+
+    Returns:
+        未被满足的品类词列表（保序去重）；空列表 = 全部满足或无需告知。
+    """
+    if not preferred_poi_types:
+        return []
+    known = _known_restaurant_cuisines()
+
+    unmet: list[str] = []
+    seen: set[str] = set()
+    for pref in preferred_poi_types:
+        p = (pref or "").strip()
+        if not p or p in seen:
+            continue
+        # 只判定"餐饮品类诉求"的 preferred（KTV/啤酒/展览 等跳过）
+        if not _looks_like_cuisine_request(p, known):
+            continue
+        satisfied = any(
+            _cuisine_match(p, c) for c in itinerary_restaurant_cuisines if c
+        )
+        if not satisfied:
+            unmet.append(p)
+            seen.add(p)
+    return unmet
+
+
+# ============================================================
 # 模板兜底（规则模式 + LLM 失败回退）
 # ============================================================
 
@@ -130,6 +218,7 @@ def _template_narration(
     itinerary: Itinerary,
     stage_label: str,
     quality_warnings: Optional[list[str]] = None,
+    unmet_cuisines: Optional[list[str]] = None,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
 
@@ -216,7 +305,16 @@ def _template_narration(
     else:
         ending = "哪里不合适跟我说一声。"
 
-    return f"{opener}{body}。{challenge_text}{ending}"
+    # 诚实告知：用户明示品类未排进行程（如附近没烧烤）→ 先坦白再说替代
+    honest_text = ""
+    if unmet_cuisines:
+        cuisines_str = "、".join(unmet_cuisines[:2])
+        honest_text = (
+            f"说明一下，你想要的{cuisines_str}附近没找到合适的，"
+            f"先帮你选了方案里的替代，不满意我再换。"
+        )
+
+    return f"{opener}{body}。{honest_text}{challenge_text}{ending}"
 
 
 # ============================================================
@@ -231,11 +329,13 @@ def _call_llm_narrator(
     stage_label: str,
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
+    unmet_cuisines: Optional[list[str]] = None,
 ) -> Optional[str]:
     """调 LLM 生成开场白；任何异常返 None 让上层走 fallback。
 
     spec R6：透传 critic_summary / quality_warnings，prompt 里有「主动质疑规则」
     段会指导 LLM 在收到这两个字段时主动加一句质疑性建议。
+    unmet_cuisines：诚实告知未满足的用户指定品类。
     """
     try:
         client = get_llm_client(task="narration")
@@ -249,6 +349,7 @@ def _call_llm_narrator(
         stage_label=stage_label,
         critic_summary=critic_summary,
         quality_warnings=list(quality_warnings or []),
+        unmet_cuisines=list(unmet_cuisines or []),
     )
 
     try:
@@ -302,6 +403,7 @@ def stream_llm_narrator(
     stage_label: str,
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
+    unmet_cuisines: Optional[list[str]] = None,
 ):
     """流式生成 narration；逐 chunk yield 文本片段。
 
@@ -329,6 +431,7 @@ def stream_llm_narrator(
         stage_label=stage_label,
         critic_summary=critic_summary,
         quality_warnings=list(quality_warnings or []),
+        unmet_cuisines=list(unmet_cuisines or []),
     )
 
     try:
@@ -360,6 +463,7 @@ def generate_narration(
     use_llm: bool = True,
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
+    unmet_cuisines: Optional[list[str]] = None,
 ) -> str:
     """生成 Agent 暖心开场白。
 
@@ -374,6 +478,8 @@ def generate_narration(
             空串 = 一次过没 critic 命中，narrator 不必质疑。
         quality_warnings: spec R6 新增。可选 meta-critic 输出的额外质量提醒
             （如「老人单段过长」），LLM 与模板兜底都会消费。
+        unmet_cuisines: 诚实告知用。用户明示但未排进行程的餐饮品类（如「烧烤」）
+            ——narrator 须诚实说明"附近没找到 X，帮你换了方案里的替代品"。
 
     Returns:
         2-3 句中文文案（80-200 字）。永远返回非空字符串。
@@ -385,12 +491,15 @@ def generate_narration(
             stage_label=stage,
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
+            unmet_cuisines=unmet_cuisines,
         )
         if text:
             return text
 
-    # Fallback / 规则模式（含 spec R6 兜底质疑）
-    return _template_narration(intent, itinerary, stage, quality_warnings)
+    # Fallback / 规则模式（含 spec R6 兜底质疑 + 诚实告知）
+    return _template_narration(
+        intent, itinerary, stage, quality_warnings, unmet_cuisines
+    )
 
 
 __all__ = ["generate_narration"]

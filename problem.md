@@ -8945,3 +8945,53 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 
 - 下午局场景正餐落 15:xx（"午后晚餐"）触发 MEAL_TIME WARNING 但不阻断——用户明确说下午茶/加餐塞中间合理，soft critic 让评委看到 Agent 时段意识。
 - S2 撸串后 LLM 偶尔仍加 1 个 POI（看展/娱乐）——已在 prompt 加「单一诉求就单段」约束，属概率性改善非确定性 fix。
+
+
+---
+
+## 问题：用户指定品类超距/缺失时应诚实告知，而非假装满足
+
+**用户原问**：观察到测试时有个原因是查找到对应餐厅但超出 5km 距离了，这时候应该诚实说明没找到对应资源回馈用户，规划出来的要说明原因、说清楚没找到，然后暖语气说明找了另一个替代品。
+
+**根因（端到端追踪）**：
+
+```text
+| 环节 | 现状                                                       |
+|------|-----------------------------------------------------------|
+| 搜索 | search_restaurants_for_intent 只在 ≤distance_max_km 内搜    |
+| 过滤 | 用户要的品类（烧烤）餐厅都超 5km → 被距离硬过滤掉           |
+| 蓝图 | blueprint 只能从"幸存候选"（火锅等）里选                    |
+| 文案 | narrator 不知道用户品类诉求没被满足 → 当正常方案暖语气包装  |
+| 结果 | 用户被"善意欺骗"：要烧烤给火锅，还不说明（不诚实）          |
+```
+
+**解决方案（全部收敛在 narrator 模块，不动 graph 拓扑 / critic / 搜索逻辑）**：
+
+1. **检测纯函数** `narrator.detect_unmet_cuisine_preference(preferred_poi_types, itinerary_restaurant_cuisines)`：
+   - 判定"餐饮品类诉求"：已知 mock 菜系双向 substring 命中 OR 含餐饮指示 token（烤肉/烧烤/火锅/菜/料理/面/韩/川 等）
+   - 过滤活动词（KTV/展览/啤酒）避免误报
+   - 未与任一行程餐厅 cuisine 命中 → 计入未满足
+   - 同时覆盖两种情况：① 品类存在但超距被过滤；② 品类本地压根没有（如韩式烤肉）
+2. **narrate_node** 取 intent.preferred_poi_types + 行程餐厅 cuisine（靠 target_id 查 mock）→ 调检测 → 把未满足品类传 generate_narration
+3. **narrator prompt** 新增「诚实告知规则」段（先坦白没找到 X → 再暖语气说替代 Y → 邀请反馈；触发时放宽到 90 字）+ 1 条 few-shot；user message 注入「未满足的品类诉求」触发指令
+4. **模板兜底**（规则模式/LLM 失败）也追加诚实告知句"说明一下，你想要的 X 附近没找到合适的，先帮你选了替代..."
+
+**修改的代码文件**：
+
+- `backend/agent/intent/narrator.py`（detect_unmet_cuisine_preference + 餐饮 token 启发式 + generate_narration/_call_llm_narrator/stream_llm_narrator/_template_narration 加 unmet_cuisines 形参）
+- `backend/agent/intent/prompts/narrator_prompt.py`（诚实告知规则段 + few-shot + user message 注入）
+- `backend/agent/graph/nodes/narrate.py`（_detect_unmet_cuisines 辅助 + narrate_node 接线）
+- 新增 `backend/tests/test_narrator_honest_substitution.py`（8 项：检测函数 + prompt 接线 + 模板兜底）
+
+**应当达成的效果 / 验证证据**：
+
+```text
+| 验证项                              | 结果                                      |
+|-----------------------------------|------------------------------------------|
+| 全量 backend pytest                | 753 passed + 1 skipped（含 8 新测试）      |
+| 真 LLM「韩式烤肉 2km 内」（本地无）  | narration 诚实告知"你想要的韩式烤肉附近没找到合适的，先帮你选了替代，不满意我再换" |
+| 检测函数过滤活动词（KTV/展览/啤酒）  | 不误报为餐厅品类未满足                      |
+| 无品类诉求场景                      | 不触发诚实告知（不画蛇添足）                |
+```
+
+**设计取舍**：不改搜索逻辑去"放宽距离搜匹配品类"——那会让方案偏离用户的距离约束（用户说 2km 内就该尊重）。正确做法是**在约束内尽力 + 诚实说明差距**，把选择权交回用户（"不满意我再换"）。这比偷偷放宽距离或假装满足都更符合产品诚信。
