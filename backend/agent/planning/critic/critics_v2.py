@@ -82,6 +82,7 @@ from ._rules.checks import (
     check_duration,
     check_hop_feasibility,
     check_invariants,
+    check_meal_time,
     check_nodes_incomplete,
     check_social_context,
     check_temporal_feasibility,
@@ -115,6 +116,7 @@ _check_social_context = check_social_context
 _check_age_aware_duration = check_age_aware_duration
 _check_tool_consistency = check_tool_consistency
 _check_capacity = check_capacity
+_check_meal_time = check_meal_time
 
 # 兼容旧 monkeypatch 风格的测试（test_critics_v2_hop.py 用 critic_mod.lookup_hop spy）
 # critics_v2.lookup_hop 与 _rules.checks.lookup_hop 指向同一函数；
@@ -263,6 +265,8 @@ def validate_itinerary(
     violations.extend(check_tool_consistency(itinerary, tool_results))
     # spec innovation-review M3：capacity_requirement critic（≥5 人桌型校验）
     violations.extend(check_capacity(itinerary, intent))
+    # spec planning-pipeline-consolidation R1：用餐时段合理性（正餐不落非饭点）
+    violations.extend(check_meal_time(itinerary))
     return violations
 
 

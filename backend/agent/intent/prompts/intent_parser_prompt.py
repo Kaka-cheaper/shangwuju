@@ -93,6 +93,20 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - 「一个人 / 加班想吐」→ companions 为空数组，experience 加 "独处舒缓" "安静"。
 - 「妈妈生日 / 全家」→ companions 含 is_birthday=true，extra_services 含 "蛋糕"，social_context = "纪念日仪式感"。
 
+【明示餐饮/活动品类必须保留（关键 · 违反 = 丢失用户核心诉求）】
+用户点名了具体品类/活动时，**不得丢失、不得改写成无关品类**：
+- 词典内有对应词 → 填进对应字段（如「日料」→ dietary_constraints 加 "日料"；「粤菜」→ 加 "粤菜"）。
+- 词典内**没有**对应词的品类（如「撸串」「烧烤」「夜宵」「火锅」「川菜」「KTV」「桌游」「密室」「真人 CS」「攀岩」等）
+  → **必须**原样写进 `preferred_poi_types`（自由文本，如 ["烧烤", "啤酒"]），让下游据此搜索。
+- **禁止改写品类**：用户说「撸串/烧烤」就不要替换成「火锅」；说「火锅」就不要换成别的正餐。撸串≠火锅。
+- **禁止凭空添加**：用户没提的活动/品类（如真人 CS、密室、看展）**禁止添加**到 preferred_poi_types 或 experience_tags。
+  用户只说「撸串喝酒」→ preferred_poi_types=["烧烤"]，**不要**自作主张加任何主活动。
+
+【独处场景反例（关键 · 自相矛盾约束）】
+当 social_context = "独处放空"（一个人放空 / 加班想透气 / 想自己待会）时：
+- experience_tags **禁止**出现 "安静聊天"——一个人没有同伴可聊，自相矛盾。
+- 想表达「安静」语义时改用 "独处舒缓"（独处场景专用标签）。
+
 【pace_profile 隐含规则（spec planning-quality-deep-review R8）】
 当下列条件命中时，必须填写 pace_profile（4 个子字段全 Optional，按需选填；缺字段保持 null）：
 

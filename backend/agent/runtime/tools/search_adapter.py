@@ -144,6 +144,9 @@ def search_restaurants_for_intent(
     party_size = max(1, sum(c.count for c in intent.companions) + 1)  # +1 自己
     user_lat, user_lng = _resolve_user_coords(user_id)
     excluded_ids = _resolve_excluded_visited_ids(user_id, kind="restaurant")
+    # 块B-2（R2）：用户明示品类时扩大抓取池，避免 cuisine 命中的候选（评分略低）
+    # 在 Tool 层 top-k 截断阶段就被挤掉；扩池后在编排层重排再截断回 limit。
+    fetch_limit = max(limit, 15) if intent.preferred_poi_types else limit
     inp = SearchRestaurantsInput(
         distance_max_km=intent.distance_max_km or 5.0,
         dietary_constraints=list(intent.dietary_constraints),
@@ -152,7 +155,7 @@ def search_restaurants_for_intent(
         user_lat=user_lat,
         user_lng=user_lng,
         exclude_visited_ids=excluded_ids,
-        limit=limit,
+        limit=fetch_limit,
     )
     out = invoke_tool("search_restaurants", inp.model_dump())
     if not out or not getattr(out, "success", False):
@@ -170,7 +173,38 @@ def search_restaurants_for_intent(
                 result.append(Restaurant.model_validate(c))
             except Exception:  # noqa: BLE001
                 continue
-    return result, list(relaxed)
+    # spec planning-pipeline-consolidation 块B-2（R2）：用户明示餐饮品类
+    # （preferred_poi_types，如「烧烤」）时，把 cuisine 命中的候选提前，
+    # 避免被高评分但不对味的候选（火锅/日料）挤出 blueprint top-k 预览。
+    # search_restaurants Tool 本身不消费 preferred_poi_types（Tool 层对场景无感，
+    # 见 AGENTS.md §3.4），故在编排层做 cuisine 重排——不改 Tool、不改 graph 拓扑。
+    result = _rerank_by_preferred_cuisine(result, intent.preferred_poi_types)
+    # 扩池后截断回原 limit（rerank 已把命中品类前置，截断不丢命中候选）
+    return result[:limit], list(relaxed)
+
+
+def _rerank_by_preferred_cuisine(
+    restaurants: list[Restaurant], preferred_poi_types: list[str]
+) -> list[Restaurant]:
+    """把 cuisine 与 preferred_poi_types 任一词互相包含的候选稳定前置。
+
+    匹配规则（宽松双向 substring）：preferred 词 in cuisine 或 cuisine in preferred 词，
+    例如 preferred=["烧烤"] 命中 cuisine="烧烤"；preferred=["串"] 命中 "串串"。
+    无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序）。
+    """
+    if not preferred_poi_types:
+        return restaurants
+    prefs = [p for p in preferred_poi_types if p]
+    if not prefs:
+        return restaurants
+
+    def _match(r: Restaurant) -> bool:
+        cuisine = r.cuisine or ""
+        return any((p in cuisine) or (cuisine and cuisine in p) for p in prefs)
+
+    matched = [r for r in restaurants if _match(r)]
+    rest = [r for r in restaurants if not _match(r)]
+    return matched + rest
 
 
 def get_user_profile_for_user(user_id: str) -> Optional[GetUserProfileOutput]:

@@ -788,3 +788,73 @@ def check_tool_consistency(
             )
         )
     return out
+
+
+# ============================================================
+# 用餐时段合理性（spec planning-pipeline-consolidation R1）
+# ============================================================
+
+# 茶点类 cuisine：可落午后非饭点时段（下午茶 / 咖啡 / 甜品）
+_TEAHOUSE_CUISINES: frozenset[str] = frozenset({"下午茶", "咖啡", "烘焙甜品"})
+
+# 午餐窗口 11:00-13:30；晚餐窗口 17:00-20:00；夜宵窗口 21:00-次日 2:00
+_LUNCH_START_MIN = 11 * 60        # 11:00
+_LUNCH_END_MIN = 13 * 60 + 30     # 13:30
+_DINNER_START_MIN = 17 * 60       # 17:00
+_DINNER_END_MIN = 20 * 60         # 20:00
+_SUPPER_START_MIN = 21 * 60       # 21:00（夜宵；含烧烤/火锅等夜宵正餐）
+
+
+def check_meal_time(itinerary: Itinerary) -> list[Violation]:
+    """正餐节点 start_time 是否落在合理饭点窗口（R1）。
+
+    规则：
+    - 茶点类餐厅（下午茶 / 咖啡 / 甜品）→ 跳过（可落午后任意时段）
+    - 正餐类餐厅 → start_time 应落在午餐(11:00-13:30) / 晚餐(17:00-20:00) /
+      夜宵(21:00 之后) 之一；否则触发 WARNING
+    - WARNING 级不阻断 demo，但让 narration 体现「时段已调整」+ 可选 backprompt
+
+    设计动机（S4 实测 bug）：下午 14:05 安排正餐火锅不符合常识。本 check 让
+    critic 能检出"非饭点正餐"，触发 LLM 自纠或 narration 提示。
+    """
+    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    if not restaurants_by_id:
+        return []
+
+    out: list[Violation] = []
+    for idx, node in enumerate(itinerary.nodes):
+        if node.target_kind != "restaurant":
+            continue
+        rid = node.target_id
+        if not rid or rid not in restaurants_by_id:
+            continue
+        rest = restaurants_by_id[rid]
+        cuisine = getattr(rest, "cuisine", "") or ""
+        if cuisine in _TEAHOUSE_CUISINES:
+            continue  # 茶点类不约束时段
+
+        try:
+            start_min = parse_hhmm(node.start_time)
+        except (ValueError, AttributeError):
+            continue  # 时间解析失败跳过（其它 check 会报）
+
+        in_lunch = _LUNCH_START_MIN <= start_min <= _LUNCH_END_MIN
+        in_dinner = _DINNER_START_MIN <= start_min <= _DINNER_END_MIN
+        in_supper = start_min >= _SUPPER_START_MIN
+        if in_lunch or in_dinner or in_supper:
+            continue  # 落在合理饭点窗口
+
+        out.append(
+            Violation(
+                code=ViolationCode.MEAL_TIME_UNREASONABLE,
+                severity=Severity.WARNING,
+                message=(
+                    f"{humanize_node(idx, node)}（{rest.name}· {cuisine}）"
+                    f"安排在 {node.start_time}，不在常规饭点（午餐 11:00-13:30 / "
+                    f"晚餐 17:00-20:00 / 夜宵 21:00 后）。建议把正餐调整到饭点时段，"
+                    f"或在该时段安排下午茶 / 轻食类。"
+                ),
+                field_path=f"nodes[{idx}].start_time",
+            )
+        )
+    return out

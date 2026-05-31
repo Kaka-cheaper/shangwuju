@@ -1,6 +1,11 @@
 ﻿"""agent.weights_llm —— 主观规划权重的 LLM 决策层（A+C 混合方案的 A 段第一步）。
 
-# FROZEN: 仅 ILS 路径，不被 graph 路径消费（spec agent-directory-restructure R3.5）。
+# FROZEN: ILS 加权效用专用部分冻结（不扩维度 / 不改语义）。
+# 注意：get_planning_weights 实际被 V3 graph planner（nodes/planner.py）+ V1 hybrid
+#       （ils_planner.py）共同调用——并非「不被 graph 消费」。V3 planner 用 weights
+#       做 _build_alternatives 的偏好排序；ILS 路径用它做 utility 加权和。
+#       （历史注释 spec agent-directory-restructure R3.5 已过时，spec
+#        planning-pipeline-consolidation R5 修正。）
 
 学术依据：[Vansteenwegen et al. 2009 Metaheuristics for Tourist Trip Planning],
 [Gunawan et al. 2019 Multi-objective TOPTW with adjustment ILS]——多目标 TOPTW

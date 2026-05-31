@@ -45,6 +45,7 @@ class ViolationCode(str, Enum):
     AGE_DURATION_MISMATCH = "age_duration_mismatch"  # spec planning-quality-deep-review R4
     TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2
     CAPACITY_REQUIREMENT_VIOLATED = "capacity_requirement_violated"  # spec innovation-review M3
+    MEAL_TIME_UNREASONABLE = "meal_time_unreasonable"  # spec planning-pipeline-consolidation R1
 
 
 class Severity(str, Enum):

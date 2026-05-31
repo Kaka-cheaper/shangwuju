@@ -152,6 +152,59 @@ agent/                  ← 6 子目录 + __init__（spec agent-directory-restru
 - 在 `agent/runtime/` 加业务逻辑（runtime/ 仅运行时框架，业务规则在 planning/）
 - 在 `agent/intent/` 加规划逻辑（如蓝图、critic）；在 `agent/planning/` 加意图理解逻辑
 
+### 3.3.2 三路线规划架构权威表（2026-05-31 spec planning-pipeline-consolidation R5 落地）
+
+历史上规划主体演进过三个版本，**三者并存但有明确触发隔离**。下表是唯一权威说明，改任一路线前先对照：
+
+```text
+| 版本   | 触发条件                          | 核心代码                                     | 当前状态        |
+|--------|----------------------------------|---------------------------------------------|----------------|
+| V1 自写 | USE_LANGGRAPH=0 且 USE_REACT_AGENT=0 | planning/planners/rule_planner.py（三档分发）  | fallback/旧端点  |
+| V2 ReAct| USE_REACT_AGENT=1（V1 未命中时）   | runtime/react_agent.py + orchestrator        | 主体不执行(deprecated) |
+| V3 LangGraph | USE_LANGGRAPH=1 ★当前默认      | graph/build.py + nodes/ + sse_adapter        | 主路径          |
+```
+
+**端点 → 路线映射**（子代理代码级确认）：
+
+```text
+| 前端交互               | 端点          | 路线                          |
+|-----------------------|--------------|------------------------------|
+| 首轮规划 / 打字反馈     | /chat/turn   | V3 LangGraph（读 USE_LANGGRAPH）★ |
+| 「说说哪不对」按钮反馈   | /chat/turn   | V3（R4 端点统一后；原走 /chat/refine V1）|
+| 「确认并预约」          | /chat/confirm| V1 stub_confirm（执行类 Tool 派发）|
+| 旧流式端点（兼容保留）   | /chat/stream + /chat/refine | V1（不读 USE_LANGGRAPH）|
+```
+
+**env → 生效路径**（USE_LANGGRAPH=1 主路径下）：
+
+```text
+| env                  | V3 生效? | 读取位置                          |
+|---------------------|---------|----------------------------------|
+| USE_LANGGRAPH        | ✓       | chat.py（主开关）                  |
+| PLANNER_MODE         | ✓       | planner.py（V3 rule/llm 子模式）   |
+| PLANNER_LLM_STRATEGY | ✗ 死配置 | rule_planner.py（仅 V1 三档分发）  |
+| PLANNER_USE_REAL     | ✗ 死配置 | health.py + /chat/stream（仅 V1） |
+| USE_REACT_AGENT      | ✗ 死配置 | chat.py（V3 第1层即 return，不到 V2）|
+```
+
+**共享底层**（改一处影响多线，务必双向兼容）：
+
+```text
+| 模块                          | 被谁调用                        |
+|------------------------------|--------------------------------|
+| blueprint_llm.generate_blueprint | V3 planner 节点 + V1 llm_first  |
+| assemble_blueprint            | V3 assemble 节点 + V1 llm_first |
+| critics_v2 / _rules           | V3 critic 节点 + V2 validator + V1 |
+| weights_llm.get_planning_weights | V3 planner 节点 + V1 hybrid(ILS)|
+| ils_planner / rule_planner    | V1 主 + V3 replan 第3次兜底      |
+```
+
+**关键澄清**：
+
+- 「LLM-First」**不是**与 LangGraph 并列的第 4 条路线——它是 V3 LangGraph planner 节点内部的默认策略（PLANNER_MODE=llm 时 planner_node 直调 generate_blueprint），嵌套在 V3 之内。
+- V3 planner_node **不经过** rule_planner 的三档分发器；rule_planner 仅在 V1 主路径和 V3 replan 第 3 次 ILS 兜底时被调用。
+- V2 ReAct（runtime/react_agent.py）在 USE_LANGGRAPH=1 下主体不执行，已标 deprecated；**不删**，保留作 USE_LANGGRAPH=0 fallback。
+
 ### 3.4 Tool 设计纪律
 
 - Tool 数量控制在 **8–10 个**，宁少勿滥（参考 `技术架构.md` §2.3）

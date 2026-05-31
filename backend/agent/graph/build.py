@@ -111,6 +111,11 @@ def _build_checkpoint_serde():
     from schemas.router import InputKind, RouterDecision
     from schemas.tools import GetUserProfileOutput
     from agent.planning.weights_llm import PlanningWeights
+    from agent.planning.blueprint.blueprint import (
+        BlueprintNode,
+        BlueprintTargetKind,
+        PlanBlueprint,
+    )
     from agent.planning.critic._rules.types import (
         Severity,
         Violation,
@@ -129,6 +134,11 @@ def _build_checkpoint_serde():
         ViolationCode,
         Severity,
         Violation,
+        # spec planning-pipeline-consolidation R4：反馈走 /chat/turn 依赖 checkpointer
+        # 跨 turn 恢复 blueprint，补这三类避免反序列化被 block 致 blueprint 丢失。
+        PlanBlueprint,
+        BlueprintNode,
+        BlueprintTargetKind,
     ]
     return JsonPlusSerializer(allowed_msgpack_modules=allowlist)
 

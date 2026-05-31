@@ -199,6 +199,25 @@ def test_system_prompt_allows_24h_and_late_night() -> None:
     assert "夜宵" in text or "晚场" in text, "应允许夜宵 / 晚场"
 
 
+# ---- Test 4.1：块B-2 餐厅 cuisine 匹配 + 不凭空加活动（R2）-----
+
+
+def test_system_prompt_cuisine_match_rule() -> None:
+    """spec planning-pipeline-consolidation 块B-2：选餐厅须匹配用户指定品类（烧烤≠火锅）。"""
+    text = BLUEPRINT_SYSTEM_PROMPT
+    assert "preferred_poi_types" in text, "prompt 应引用 preferred_poi_types 做品类匹配"
+    assert "cuisine" in text, "prompt 应让 LLM 按 cuisine 匹配用户品类"
+
+
+def test_system_prompt_no_fabricated_activity_rule() -> None:
+    """块B-2：单一诉求不得凭空加无关主活动（S2 真人 CS bug）。"""
+    text = BLUEPRINT_SYSTEM_PROMPT
+    assert "单一诉求" in text or "单诉求" in text, "prompt 应有单一诉求约束"
+    assert any(kw in text for kw in ["别硬加", "不凭空", "不要硬加", "不凭空加"]), (
+        "prompt 缺少『不凭空加无关活动』禁令"
+    )
+
+
 # ---- Test 5：build_user_message 行为 -------------------------
 
 

@@ -1,5 +1,11 @@
 ﻿"""react_agent —— ReAct 单一 Agent 主体。
 
+⚠ DEPRECATED（2026-05-31 spec planning-pipeline-consolidation R5）：
+   V2 ReAct 路径仅在 USE_LANGGRAPH=0 且 USE_REACT_AGENT=1 时命中。当前默认
+   USE_LANGGRAPH=1，chat.py 第 1 层即 return V3 LangGraph，本模块主体**不执行**。
+   保留作 USE_LANGGRAPH=0 的 fallback，**不删**；新功能一律加到 graph/ 下，
+   不要再扩展本文件。三路线全貌见 AGENTS.md §3.3.2。
+
 让 LLM 看到全部 8 工具，自主决策何时调用哪个工具、是否输出行程或仅文字回话。
 
 关键设计选择：

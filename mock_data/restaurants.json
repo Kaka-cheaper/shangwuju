@@ -3762,10 +3762,10 @@
     "cuisine": "烧烤",
     "location": {
       "name": "湖滨夜市",
-      "lat": 30.255,
-      "lng": 120.165
+      "lat": 30.268,
+      "lng": 120.135
     },
-    "distance_km": 4.7,
+    "distance_km": 3.6,
     "opening_hours": "18:00-03:00",
     "avg_price": 50,
     "rating": 4.4,

@@ -265,8 +265,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     resetArrival();
 
     await streamSse(
-      `${API_BASE}/chat/refine`,
-      { session_id: get().sessionId, feedback_text: feedbackText.trim() },
+      `${API_BASE}/chat/turn`,
+      // 块C-2（spec planning-pipeline-consolidation R4）：反馈统一走 V3 /chat/turn。
+      // V3 router 据 message + checkpointer 跨 turn 恢复的 itinerary 判定为 feedback，
+      // 触发 refiner 节点闭环（与首轮规划同路线）。后端 refine_real.py / /chat/refine 保留不动。
+      {
+        message: feedbackText.trim(),
+        session_id: get().sessionId,
+      },
       abortController.signal,
       {
         onEvent: (ev) => handleEvent(set as Setter, get as Getter, ev),
