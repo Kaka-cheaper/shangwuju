@@ -44,6 +44,7 @@ import os
 from typing import Any, Optional
 
 from agent.core.llm_client import LLMMessage
+from agent.core.prompt_guard import ROLE_LOCK_NOTICE
 from schemas.domain import Poi
 from schemas.intent import IntentExtraction
 
@@ -55,7 +56,9 @@ logger = logging.getLogger(__name__)
 # Prompt
 # ============================================================
 
-_SCORER_PROMPT = """你是一个本地生活语义打分助手。给定用户的出行意图与一组候选 POI，
+_SCORER_PROMPT = ROLE_LOCK_NOTICE + """
+
+你是一个本地生活语义打分助手。给定用户的出行意图与一组候选 POI，
 为每个 POI 输出 0.0-1.0 之间的契合度分数（保留两位小数）。
 
 【打分维度】

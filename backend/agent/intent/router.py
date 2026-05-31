@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from schemas.router import CtaChip, InputKind, RouterDecision
 
 from ..core.llm_client import LLMClient, LLMMessage, strip_json_fence
+from ..core.prompt_guard import wrap_user_input
 from .prompts.router_prompt import (
     FEEDBACK_CONTEXT_HINT,
     PRIMARY_CTAS,
@@ -50,6 +51,8 @@ class RouterError(Exception):
 
 
 def _build_messages(user_input: str, *, has_itinerary: bool = False) -> list[LLMMessage]:
+    # spec prompt-injection-defense L3：用边界标记包裹用户输入，防指令/数据混淆
+    wrapped = wrap_user_input(user_input)
     messages: list[LLMMessage] = [
         LLMMessage(role="system", content=ROUTER_SYSTEM_PROMPT),
     ]
@@ -59,10 +62,10 @@ def _build_messages(user_input: str, *, has_itinerary: bool = False) -> list[LLM
     # spec feedback-routing-fix R3：已有方案时注入反馈上下文，让 LLM 区分反馈 vs 新需求
     if has_itinerary:
         messages.append(
-            LLMMessage(role="user", content=f"{FEEDBACK_CONTEXT_HINT}\n{user_input}")
+            LLMMessage(role="user", content=f"{FEEDBACK_CONTEXT_HINT}\n{wrapped}")
         )
     else:
-        messages.append(LLMMessage(role="user", content=user_input))
+        messages.append(LLMMessage(role="user", content=wrapped))
     return messages
 
 

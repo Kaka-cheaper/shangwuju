@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from agent.core.prompt_guard import ROLE_LOCK_NOTICE
 from schemas.tags import (
     DIETARY_TAGS,
     EXPERIENCE_TAGS,
@@ -30,6 +31,8 @@ def _format_set(values: frozenset[str]) -> str:
 
 
 REFINER_SYSTEM_PROMPT = f"""你是「晌午局」的反馈合并模块。
+
+{ROLE_LOCK_NOTICE}
 
 【任务】
 用户对方才规划的方案不满，给出了反馈。你需要：

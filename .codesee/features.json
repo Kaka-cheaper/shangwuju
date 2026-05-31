@@ -142,12 +142,22 @@
     {
       "id": "f-graph-router",
       "name": "LangGraph 路由节点",
-      "summary": "3 层防御：feedback 启发式 → LLM 6 类分类 → 短输入兜底反馈；分发到 intent / refiner / chitchat",
+      "summary": "4 层防御：注入检测(off_topic 婉拒) → feedback 启发式 → LLM 6 类分类 → ambiguous 兜底反馈；分发到 intent / refiner / chitchat",
       "epicId": "input",
       "triggers": [
         { "kind": "event", "detail": "LangGraph START 节点首次进入" }
       ],
       "steps": [
+        {
+          "id": "injection_gate",
+          "name": "拦截提示词注入",
+          "role": "validation",
+          "note": "Layer 0：detect_injection 命中 high → off_topic 安全婉拒,不调 LLM、不回显攻击文本",
+          "refs": [
+            { "file": "backend/agent/graph/nodes/router.py", "lines": [56, 80] },
+            { "file": "backend/agent/core/injection_detector.py" }
+          ]
+        },
         {
           "id": "input_text",
           "name": "接收用户输入",
@@ -195,6 +205,8 @@
         }
       ],
       "flow": [
+        { "from": "injection_gate", "to": "decide_route", "kind": "conditional", "condition": "命中注入 → off_topic 婉拒" },
+        { "from": "injection_gate", "to": "input_text", "kind": "conditional", "condition": "未命中注入" },
         { "from": "input_text", "to": "feedback_heuristic", "kind": "next" },
         { "from": "feedback_heuristic", "to": "decide_route", "kind": "conditional", "condition": "命中反馈强信号" },
         { "from": "feedback_heuristic", "to": "call_router_llm", "kind": "conditional", "condition": "未命中反馈" },

@@ -64,8 +64,12 @@ def test_no_itinerary_no_context() -> None:
 
 
 def test_no_itinerary_user_input_intact() -> None:
-    """R6.4：无方案时最后一条 user message 就是原始输入（无前缀）。"""
+    """R6.4 + 注入隔离（spec prompt-injection-defense R3）：无方案时最后一条 user
+    message 含原始输入，且被【用户输入开始/结束】边界包裹（隔离防注入）。"""
+    from agent.core.prompt_guard import INPUT_CLOSE, INPUT_OPEN
+
     client = _SpyClient()
     classify_input("你是谁", client=client, has_itinerary=False)
     last_user = [m for m in client.last_messages if m.role == "user"][-1]
-    assert last_user.content == "你是谁"
+    assert "你是谁" in last_user.content
+    assert INPUT_OPEN in last_user.content and INPUT_CLOSE in last_user.content

@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from schemas.intent import IntentExtraction
 
 from ..core.llm_client import LLMChatResponse, LLMClient, LLMMessage, strip_json_fence
+from ..core.prompt_guard import wrap_user_input
 from .prompts.intent_parser_prompt import (
     INTENT_PARSER_FEW_SHOTS,
     INTENT_PARSER_SYSTEM_PROMPT,
@@ -69,12 +70,13 @@ def _build_messages(
                 content=(
                     f"以下是上一次输出的校验错误，请按 schema 修正后**重新输出**纯 JSON：\n"
                     f"{error_feedback}\n\n"
-                    f"原始用户输入：{user_input}"
+                    f"原始用户输入：{wrap_user_input(user_input)}"
                 ),
             )
         )
     else:
-        messages.append(LLMMessage(role="user", content=user_input))
+        # spec prompt-injection-defense L3：边界标记包裹用户输入，防指令/数据混淆
+        messages.append(LLMMessage(role="user", content=wrap_user_input(user_input)))
     return messages
 
 

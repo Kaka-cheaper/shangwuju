@@ -13,12 +13,45 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agent.core.feedback_detector import looks_like_feedback, looks_like_feedback_strong
+from agent.core.injection_detector import detect_injection
 from agent.graph.state import AgentState, RouteKind
 from agent.intent.router import classify_input, fallback_decision
 from agent.core.llm_client import get_llm_client
+
+logger = logging.getLogger("agent.graph.router")
+
+
+def _safe_refusal_decision() -> Any:
+    """命中注入时的固定安全婉拒 RouterDecision（spec prompt-injection-defense R4）。
+
+    设计：
+    - input_kind=off_topic → 走 chitchat 气泡（复用现有通道，不新增 UI）
+    - reply_text 是固定常量，**绝不含任何用户输入文本**（防 echo 攻击内容 R4.2）
+    - 附引导 chips 把用户拉回主路径
+    """
+    # 延迟 import 避免循环依赖
+    from schemas.router import CtaChip, InputKind, RouterDecision
+    from agent.intent.prompts.router_prompt import PRIMARY_CTAS
+
+    chips = [
+        CtaChip(label=c["label"][:12], send=c["send"], icon=c.get("icon"))
+        for c in PRIMARY_CTAS[:3]
+    ]
+    return RouterDecision(
+        input_kind=InputKind.OFF_TOPIC,
+        confidence=0.99,
+        reply_text=(
+            "这个我帮不上忙哦～不过下午局规划是我的强项~ "
+            "试试告诉我你下午想做什么？"
+        ),
+        tone="playful",
+        cta_chips=chips,
+        rationale="prompt_injection_blocked",
+    )
 
 
 def _looks_like_feedback_strong(state: AgentState) -> bool:
@@ -37,7 +70,8 @@ def _looks_like_feedback_strong(state: AgentState) -> bool:
 def router_node(state: AgentState) -> dict[str, Any]:
     """同步节点。LLM 分类（异常时启发式兜底）。
 
-    三层防御（spec feedback-routing-fix 重构）：
+    四层防御（spec feedback-routing-fix + prompt-injection-defense）：
+        Layer 0（注入检测，不调 LLM）：detect_injection 命中 high → off_topic 安全婉拒。
         Layer 1（强信号，不调 LLM）：has_itinerary + looks_like_feedback_strong
                   → feedback。强信号词（太远 / 太赶 / 数字单位 / 以内）几乎不可能是
                   新需求开头，直接判 feedback。弱信号词（换 / 改）不在强信号子集，下沉到 Layer 2。
@@ -53,6 +87,21 @@ def router_node(state: AgentState) -> dict[str, Any]:
     """
     user_input = state.get("user_input") or ""
     has_itinerary = bool(state.get("itinerary"))
+
+    # ---- Layer 0：提示词注入检测（spec prompt-injection-defense L1，最前置） ----
+    # 命中 high → 直接判 off_topic 安全婉拒，不调任何 LLM、不回显攻击文本。
+    verdict = detect_injection(user_input)
+    if verdict.is_injection and verdict.severity == "high":
+        logger.warning(
+            "prompt_injection_blocked: category=%s matched=%s input_head=%r",
+            verdict.category,
+            verdict.matched,
+            user_input[:40],
+        )
+        return {
+            "route_kind": "off_topic",
+            "router_decision": _safe_refusal_decision(),
+        }
 
     # ---- Layer 1：强信号启发式（has_itinerary + 强信号子集） ----
     if _looks_like_feedback_strong(state):

@@ -65,8 +65,16 @@ class FakeLLM:
             if m.role == "user":
                 user_text = m.content or ""
                 break
-        if user_text in self.table:
-            v = self.table[user_text]
+        # 精确匹配；找不到再按子串匹配（兼容 spec prompt-injection-defense 的
+        # 输入隔离包裹——真实输入被【用户输入开始/结束】边界包裹，table key 仍是原文）
+        key = user_text if user_text in self.table else None
+        if key is None:
+            for k in self.table:
+                if k and k in user_text:
+                    key = k
+                    break
+        if key is not None:
+            v = self.table[key]
             if isinstance(v, Exception):
                 raise v
             return _FakeResp(content=v)

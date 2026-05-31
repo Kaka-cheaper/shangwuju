@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, AsyncIterator, Optional
 
@@ -18,11 +19,15 @@ from schemas import (
     SseEventType,
 )
 
+from agent.core.injection_detector import detect_injection
+
 from .._sse_helpers import delay as _delay
 from .._sse_helpers import now_ms as _now_ms
 from .models import ChatStreamRequest
 from .planner_stream import _planner_stream
 from .stub_stream import _stub_stream
+
+logger = logging.getLogger("api.route")
 
 
 # 关键词 fast path（stub 模式 + 真 LLM 失败兜底用）
@@ -203,8 +208,47 @@ def _make_chitchat_event(decision: RouterDecision, seq: int) -> SseEvent:
     )
 
 
+def _safe_refusal_decision() -> RouterDecision:
+    """命中注入时的固定安全婉拒（spec prompt-injection-defense R4，与 V3 一致）。
+
+    reply_text 是固定常量，绝不含用户输入文本（防 echo 攻击内容 R4.2）。
+    """
+    return RouterDecision(
+        input_kind=InputKind.OFF_TOPIC,
+        confidence=0.99,
+        reply_text=(
+            "这个我帮不上忙哦～不过下午局规划是我的强项~ "
+            "试试告诉我你下午想做什么？"
+        ),
+        tone="playful",
+        cta_chips=[],
+        rationale="prompt_injection_blocked",
+    )
+
+
+def _injection_block_or_none(message: str) -> Optional[RouterDecision]:
+    """注入检测闸：命中 high 返回安全婉拒 decision + 审计日志；否则 None。"""
+    verdict = detect_injection(message or "")
+    if verdict.is_injection and verdict.severity == "high":
+        logger.warning(
+            "prompt_injection_blocked(v1): category=%s matched=%s input_head=%r",
+            verdict.category,
+            verdict.matched,
+            (message or "")[:40],
+        )
+        return _safe_refusal_decision()
+    return None
+
+
 async def _routed_stream_stub(req: ChatStreamRequest) -> AsyncIterator[SseEvent]:
-    """stub 模式带 router：关键词 fast path 命中 → chitchat_reply；否则原 stub fixture。"""
+    """stub 模式带 router：先过注入闸 → 关键词 fast path → 否则原 stub fixture。"""
+    # Layer 0：注入检测（spec prompt-injection-defense）
+    refusal = _injection_block_or_none(req.message)
+    if refusal is not None:
+        yield _make_chitchat_event(refusal, 0)
+        await _delay(120)
+        yield SseEvent(type=SseEventType.DONE, seq=1)
+        return
     decision = _stub_route(req.message)
     if decision is not None:
         yield _make_chitchat_event(decision, 0)
@@ -234,6 +278,14 @@ async def _routed_stream_real(
     - 在调 LLM 前推一条 agent_thought 心跳 → 防 8s 首字节超时
     - LLM 抛错 → 关键词 fast path → 仍失败 → 按 PLANNING 兜底
     """
+    # ---- Layer 0：注入检测（spec prompt-injection-defense，rule/llm 模式都先过）----
+    refusal = _injection_block_or_none(req.message)
+    if refusal is not None:
+        yield _make_chitchat_event(refusal, 0)
+        await _delay(120)
+        yield SseEvent(type=SseEventType.DONE, seq=1)
+        return
+
     # ---- rule 模式：纯算法路由（毫秒级，无心跳必要）----
     if mode == "rule":
         decision = _stub_route(req.message)
