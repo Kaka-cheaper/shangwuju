@@ -8995,3 +8995,70 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 ```
 
 **设计取舍**：不改搜索逻辑去"放宽距离搜匹配品类"——那会让方案偏离用户的距离约束（用户说 2km 内就该尊重）。正确做法是**在约束内尽力 + 诚实说明差距**，把选择权交回用户（"不满意我再换"）。这比偷偷放宽距离或假装满足都更符合产品诚信。
+
+
+---
+
+## 问题：截图三条不同输入都返回相同家庭方案 + 全面排查前后端联动 + 会话上下文管理
+
+**用户原问**：还是有问题，会不会是上下文没保存？还是前后端数据流动有问题，全面排查前后端联动是否正确。当前实现是不是按会话管理的？一个会话内进行上下文管理。
+
+**根因分析（系统化调试 4 阶段）**：
+
+```text
+| 阶段 | 发现                                                              |
+|------|------------------------------------------------------------------|
+| 现象 | 截图：朋友/商务/撸串 3 条不同输入 → 全返"妻子+5岁孩子+梦幻奇迹乐园"家庭方案 |
+| 嫌疑 | "妻子+5岁孩"是 StubLLMClient.chat 的硬编码 fixture 签名（对任何输入都返家庭）|
+| 验证1| /health 报 llm_provider=openai-compatible（真 LLM 已配，非 stub）   |
+| 验证2| 直调 run_graph_stream（当前代码）：朋友/商务/撸串 → 3 个不同正确意图 ✓ |
+| 验证3| 会话上下文：同 session turn1 情侣/5km → turn2 反馈后 情侣/3km ✓      |
+| 根因 | 运行中后端进程（pid 24416，9:23 启动）是改代码前的旧进程，且无 --reload，跑的是旧代码/旧 .env（当时可能 stub）。截图是旧进程产物，非当前代码缺陷 |
+```
+
+**附带发现的真实韧性缺陷**（HTTP 端到端排查时暴露）：
+
+```text
+| # | 缺陷                                              | 根因                                |
+|---|--------------------------------------------------|------------------------------------|
+| 1 | 商务场景偶发 stream_error，整条 demo 崩            | mimo-v2.5-pro 偶发返回非法 JSON → parse_intent 重试耗尽抛 IntentParseError → intent_node 无兜底 → graph 流崩 |
+```
+
+**解决方案**：
+
+1. **重启后端 + 加 --reload**：杀掉 stale 进程（pid 24416），用 `uvicorn ... --reload` 重启，确保改代码自动生效（根治"改了不生效"反复踩坑）。
+2. **intent_node 韧性兜底**（韧性缺陷 1）：
+   - 捕获 IntentParseError → 用 `_build_fallback_intent(raw_input)` 构造合理默认意图（家庭日常/空同行人/低 confidence），demo 继续跑不崩
+   - 兜底时写 quality_issue「我没完全听懂…你可以再说一遍」，narrator 诚实告知（不假装听懂）
+   - parse_intent 重试次数 1→2（共 3 次机会），降低落兜底概率（LLM JSON 错是瞬态）
+
+**会话上下文管理结论（回答用户疑问）**：
+
+```text
+| 维度       | 现状                                                          |
+|-----------|--------------------------------------------------------------|
+| 是否按会话 | 是。/chat/turn 用 session_id 作 LangGraph thread_id           |
+| 上下文存储 | V3 LangGraph 自带 InMemorySaver checkpointer（thread_id=session_id）|
+| 跨 turn    | 同 session_id 第二轮自动恢复上一轮 itinerary/intent，反馈识别正确 |
+| 副本同步   | chat.py 拦截 intent_parsed/itinerary_ready 同步到 SESSION_STORE（协作房间回放用）|
+| 已验证     | turn1 情侣 5km → turn2「太远了3公里」→ 保持情侣场景 + 距离改 3km ✓ |
+```
+
+**修改的代码文件**：
+
+- `backend/agent/graph/nodes/intent.py`（_build_fallback_intent + intent_node try/except 兜底 + max_retries=2）
+- 新增 `backend/tests/test_intent_node_fallback.py`（3 项：兜底返合法意图 / 写 quality_issue / 正常路径不受影响）
+
+**应当达成的效果 / 验证证据**：
+
+```text
+| 验证项                              | 结果                                      |
+|-----------------------------------|------------------------------------------|
+| 全量 backend pytest                | 756 passed + 1 skipped（含 3 新测试）      |
+| HTTP /chat/turn 朋友               | 朋友热闹 + 草莓音乐节 + 桃花源中餐厅 ✓      |
+| HTTP /chat/turn 商务               | 商务接待 + 西湖云顶 + 金樽日料（不再 stream_error）✓ |
+| HTTP /chat/turn 撸串               | 朋友热闹 + 兄弟 + 老王烧烤摊（烧烤✓）       |
+| 会话上下文跨 turn                   | 反馈正确继承上一轮场景 + 调整距离 ✓         |
+```
+
+**遗留（非本次范围，概率性）**：撸串场景 LLM 偶尔仍加"真人CS馆"——已在 blueprint prompt 加「单一诉求就单段」约束，属概率性改善。

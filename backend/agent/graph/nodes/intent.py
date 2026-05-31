@@ -16,8 +16,9 @@ from __future__ import annotations
 from typing import Any
 
 from agent.graph.state import AgentState
-from agent.intent.parser import parse_intent
+from agent.intent.parser import IntentParseError, parse_intent
 from agent.core.llm_client import get_llm_client
+from schemas.intent import IntentExtraction
 
 
 # spec execution-quality-review R1：词典外社交关键词 → 推断的最接近 social_context 9 选 1
@@ -58,20 +59,68 @@ def _detect_out_of_vocab_social(raw_input: str, social_context: str) -> str | No
     return None
 
 
+def _build_fallback_intent(user_input: str) -> IntentExtraction:
+    """意图解析彻底失败时的兜底意图（保 demo 不崩）。
+
+    设计：用最保守的默认值——空同行人 / 空词典字段 / 默认家庭日常场景 /
+    宽松距离时长——让下游 search/blueprint 仍能出一个通用方案，
+    raw_input 保留用户原话供 narrator 引用。低 parse_confidence 标记不确定。
+    """
+    return IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[3, 5],
+        distance_max_km=5.0,
+        companions=[],
+        physical_constraints=[],
+        dietary_constraints=[],
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input=user_input,
+        parse_confidence=0.3,
+        ambiguous_fields=["all"],
+    )
+
+
 def intent_node(state: AgentState) -> dict[str, Any]:
     client = get_llm_client()
     user_input = state.get("user_input") or ""
     user_id = state.get("user_id") or "demo_user"
 
-    intent = parse_intent(user_input, client=client, user_id=user_id)
+    # 韧性修复：LLM 偶发返回非法 JSON → parse_intent 重试耗尽抛 IntentParseError。
+    # 旧行为：异常冒泡到 graph 流 → stream_error → demo 崩（评委看到红色错误）。
+    # 新行为：捕获后用兜底意图继续跑，并写 quality_issue 让 narrator 诚实告知。
+    fallback_used = False
+    try:
+        # max_retries=2（共 3 次机会）：LLM 偶发 JSON 错是瞬态，多给一次重试
+        # 显著降低落到兜底意图的概率（兜底是降级体验，能避则避）
+        intent = parse_intent(
+            user_input, client=client, user_id=user_id, max_retries=2
+        )
+    except IntentParseError as e:
+        import logging as _logging
+
+        _logging.getLogger("agent.graph.intent").warning(
+            "intent_parse_failed_fallback: %s（raw_input=%r）", e.reason, user_input[:60]
+        )
+        intent = _build_fallback_intent(user_input)
+        fallback_used = True
 
     # spec execution-quality-review R1：词典外社交意图降级文案
     out: dict[str, Any] = {"intent": intent}
+    issues: list[str] = list(state.get("quality_issues") or [])
+
+    if fallback_used:
+        issues.append(
+            "我没完全听懂你的需求，先按通用下午行程帮你安排了，"
+            "你可以再说一遍或换种说法，我重新规划。"
+        )
+
     warning = _detect_out_of_vocab_social(
         user_input, getattr(intent, "social_context", "") or ""
     )
     if warning:
-        existing = list(state.get("quality_issues") or [])
-        existing.append(warning)
-        out["quality_issues"] = existing
+        issues.append(warning)
+
+    if issues:
+        out["quality_issues"] = issues
     return out
