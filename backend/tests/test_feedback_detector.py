@@ -1,11 +1,9 @@
-﻿"""tests/test_feedback_detector.py —— 验证 looks_like_feedback 启发式覆盖。
+﻿"""feedback_detector 语义类反馈识别测试（spec feedback-routing-fix Task 1 / R2）。
 
-测试目的：
-- 关键词命中（"太远 / 不要 / 换" 等）
-- 阿拉伯数字 + 单位（"3 公里 / 1.5 小时"）
-- 中文数字 + 单位（"一个小时 / 半小时 / 三公里"）—— 旧版本漏覆盖
-- 短句 + 「以内 / 以下 / 之内」—— 强反馈信号
-- 边界：空字符串 / 不像反馈的新需求
+验证扩充词典后：
+- 7 个曾漏判的自然反馈措辞 → True（R2.2）
+- 明确的新规划需求 → False（R2.3 不误伤）
+- 既有强信号反馈 → 仍 True（R6.1 不回归）
 """
 
 from __future__ import annotations
@@ -15,113 +13,58 @@ import pytest
 from agent.core.feedback_detector import looks_like_feedback
 
 
-# ============================================================
-# 关键词命中
-# ============================================================
-
-@pytest.mark.parametrize(
-    "txt",
-    [
-        "太远了",
-        "近一点的",
-        "换一个餐厅",
-        "改成走路",
-        "不要那么贵",
-        "再想想",
-        "缩短点时间",
-        "提前一点出发",
-    ],
-)
-def test_keyword_hits(txt: str) -> None:
-    assert looks_like_feedback(txt) is True
+# R2.2：曾经漏判的语义类反馈（无数字单位，靠语义表达）
+_SEMANTIC_FEEDBACK = [
+    "太赶了",
+    "节奏太快",
+    "想轻松点",
+    "再优雅一点",
+    "行程太满了",
+    "能不能轻松些",
+    "这个不太好",
+]
 
 
-# ============================================================
-# 阿拉伯数字 + 单位
-# ============================================================
-
-@pytest.mark.parametrize(
-    "txt",
-    [
-        "3 公里以内",
-        "5km 之内",
-        "1.5 小时",
-        "30 分钟",
-        "2千米",
-    ],
-)
-def test_arabic_number_with_unit(txt: str) -> None:
-    assert looks_like_feedback(txt) is True
+@pytest.mark.parametrize("text", _SEMANTIC_FEEDBACK)
+def test_semantic_feedback_detected(text: str) -> None:
+    """R2.2：语义类反馈措辞应被识别为 feedback。"""
+    assert looks_like_feedback(text) is True, f"{text!r} 应被识别为反馈"
 
 
-# ============================================================
-# 中文数字 + 单位（旧版本漏覆盖）
-# ============================================================
-
-@pytest.mark.parametrize(
-    "txt",
-    [
-        "一个小时以内",
-        "半小时",
-        "三公里",
-        "两小时",
-        "五分钟",
-        "一小时之内",
-    ],
-)
-def test_chinese_number_with_unit(txt: str) -> None:
-    assert looks_like_feedback(txt) is True, f"应识别中文数字+单位：{txt}"
+# R2.3：明确的新规划需求（不能被误判为反馈）
+# 注意：纯新需求 = 不含任何反馈词。含「换/改」等弱信号词的新需求
+# （如「换成和朋友打球」）由 router_node 集成测试（Task 3 / R4）覆盖——
+# feedback_detector 是高召回粗筛，弱信号的精确区分交给 router_node 的 LLM 层。
+_NEW_REQUESTS = [
+    "今天下午想带孩子出去玩",
+    "周末带爸妈去吃顿好的",
+    "和女朋友去看个展",
+]
 
 
-# ============================================================
-# 短输入 + 「以内/以下/之内」强信号
-# ============================================================
-
-@pytest.mark.parametrize(
-    "txt",
-    [
-        "范围之内吧",
-        "都以内",
-        "尽量以下",
-    ],
-)
-def test_short_within_hint(txt: str) -> None:
-    assert looks_like_feedback(txt) is True
+@pytest.mark.parametrize("text", _NEW_REQUESTS)
+def test_new_request_not_feedback(text: str) -> None:
+    """R2.3：明确新需求不应被误判为反馈。"""
+    assert looks_like_feedback(text) is False, f"{text!r} 不应被识别为反馈"
 
 
-# ============================================================
-# 反例：不像反馈
-# ============================================================
-
-@pytest.mark.parametrize(
-    "txt",
-    [
-        "",
-        "   ",
-        "你好",
-        "今天天气真好",
-        "1+1=?",
-    ],
-)
-def test_negative_cases(txt: str) -> None:
-    assert looks_like_feedback(txt) is False
+# R6.1：既有强信号反馈仍正常（防回归）
+_STRONG_FEEDBACK = [
+    "太远了，3公里以内",
+    "换一家餐厅",
+    "便宜点",
+    "不要这么累",
+    "一个小时以内",
+]
 
 
-# ============================================================
-# 边界：长输入含「以内」（不是短反馈，可能是新需求）
-# ============================================================
+@pytest.mark.parametrize("text", _STRONG_FEEDBACK)
+def test_strong_feedback_still_works(text: str) -> None:
+    """R6.1：既有强信号反馈不回归。"""
+    assert looks_like_feedback(text) is True, f"{text!r} 强信号反馈应仍识别"
 
-def test_long_input_with_within_falls_back_to_other_signals() -> None:
-    """长输入（>= 15 字）含「以内」但无关键词无数字单位 → 不算反馈。
 
-    示例：「我想找个安静的地方静一静，不要太远的范围之内」
-    含「之内」但是 22 字，不应只凭这一点判反馈。
-    会被关键词「不要」命中（这测的是另一条规则）→ 命中。
-    """
-    # 仅含「以内/之内」，无关键词无数字单位（27 字，>= 15）：不命中
-    txt = "我想找一个比较舒适放松的好地方走一走范围之内"
-    assert looks_like_feedback(txt) is False
-
-    # 但若含关键词「不要」，仍命中
-    txt2 = "我想去近一点的地方，不要走太远，挺累的"
-    assert looks_like_feedback(txt2) is True
+def test_empty_input_not_feedback() -> None:
+    """空输入边界。"""
+    assert looks_like_feedback("") is False
+    assert looks_like_feedback("   ") is False

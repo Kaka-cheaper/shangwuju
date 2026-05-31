@@ -8807,3 +8807,79 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 | pnpm run verify:all     | 4 / 4（lint + tsc + vitest + build 18.2s）|
 | 三段独立 commit          | 3fb0ac4 / 53f0c2a / 2aac21b 任一 commit 都可独立回滚 |
 ```
+
+
+---
+
+## 问题：规划全链路有细节 bug，反馈有时无用
+
+**用户原问**：重新从头到尾分析规划全链路，真实测试发现有细节 bug，甚至反馈无用。要求全面分析。
+
+**诊断（端到端实验定位）**：
+
+主路径 `/chat/turn` → `USE_LANGGRAPH=1` → `router_node` 三层反馈识别。实验确诊 5 个 bug：
+
+```text
+| # | 严重度 | bug                                          | 实测证据                          |
+|---|------|---------------------------------------------|--------------------------------|
+| 1 | ★★★ | 长反馈（≥15字）被判 PLANNING，反馈丢失         | 「感觉这个安排有点累，想要更轻松悠闲一些的」→PLANNING |
+| 2 | ★★★ | feedback_detector 漏判语义类反馈措辞           | 太赶了/节奏太快/想轻松点/行程太满了/能不能轻松些 全 False |
+| 3 | ★★  | checkpointer 反序列化未注册类型，未来版本 block | 一堆 Deserializing unregistered type 警告 |
+| 4 | ★★  | Layer 3 兜底条件过窄（<15字 且 ambiguous/chitchat）| 长句反馈漏 |
+| 5 | ★   | refiner 重置候选 LLM 模式重搜成本高            | 记入后续优化，不在本 spec |
+```
+
+根因：LLM router（Layer 2）看不到「上一轮有 itinerary」上下文，无法区分反馈 vs 新需求；真正能判断的信号只在 Layer 1（关键词词典窄）和 Layer 3（字数武断）用了。
+
+**解决方案（spec feedback-routing-fix · Fix a Bug）**：
+
+走完整 spec 流程（requirements → design → tasks → 实施），6 个任务：
+
+```text
+| Task | 内容                                          |
+|------|----------------------------------------------|
+| 1    | feedback_detector 扩语义词典（节奏/轻松/太赶/太满/优雅/累等）|
+| 2    | classify_input 加 has_itinerary 参数 + router prompt 注入反馈上下文 |
+| 3    | router_node 三层重构（Layer1 用强信号子集 / Layer3 去字数限制）|
+| 4    | checkpointer 注册 11 个业务类型消除 unregistered 警告 |
+| 5    | 端到端回归（真 LLM 验证 B 长反馈 + C 真新需求）|
+| 6    | 收尾                                          |
+```
+
+核心设计：把「是否反馈」的判断权从「关键词词典+字数」转移到「has_itinerary 上下文 + LLM 语义」。
+
+关键防误伤设计（R4）：feedback_detector 拆强/弱信号——
+- 强信号子集（太远/太赶/数字单位/以内，不可能是新需求开头）→ Layer 1 直接判 feedback 不调 LLM
+- 弱信号词（换/改，可能是新需求如「换成和朋友打球」）→ 交 Layer 2 LLM + Layer 3 区分
+
+**修改的代码文件**：
+
+- `backend/agent/core/feedback_detector.py`：扩 _FEEDBACK_KEYWORDS 语义词 + 新增 looks_like_feedback_strong 强信号子集
+- `backend/agent/intent/router.py`：classify_input 加 has_itinerary 参数 + _build_messages 注入上下文
+- `backend/agent/intent/prompts/router_prompt.py`：新增 FEEDBACK_CONTEXT_HINT 常量
+- `backend/agent/graph/nodes/router.py`：router_node 三层重构（Layer1 强信号子集 / Layer3 去字数限制改 has_itinerary+非planning）
+- `backend/agent/graph/build.py`：新增 _build_checkpoint_serde，InMemorySaver 传具体类型 allowlist
+- `backend/tests/test_feedback_detector.py`（新增）：16 项
+- `backend/tests/test_router_context.py`（新增）：3 项
+- `backend/tests/test_router_node_feedback.py`（新增）：9 项
+- `.kiro/specs/feedback-routing-fix/{requirements,design,tasks}.md`（新增）
+
+**应当达成的效果 / 验证证据**：
+
+```text
+| 验证项                              | 结果                          |
+|-----------------------------------|------------------------------|
+| 全量 backend pytest                | 729 passed + 1 skipped       |
+| 新增反馈测试                        | 28 passed                    |
+| serde unregistered / blocked       | 0 / 0（警告消除 + 无类型被拦）|
+| 真 LLM「感觉这个安排有点累…」→ feedback | ✓ 核心 bug 修复              |
+| 真 LLM「换成周末带爸妈吃粤菜」→ planning | ✓ R4 防误伤                 |
+| stub「太远了，3公里以内」→ feedback + distance 5→3 | ✓ 强信号 Layer1 兜底 |
+| 前端 verify:all                    | 4/4（本 spec 纯后端不破前端）|
+```
+
+**踩的坑（升级 pitfalls 备选）**：
+
+1. **checkpointer serde 注册的反直觉**：`allowed_msgpack_modules=True` 语义是「全允许但仍对未注册类型 warn」，必须传**具体类型清单**才能消警告；但传清单后**不在清单的类型会被 block**（STRICT 逻辑），漏一个嵌套类型就跨 turn 崩。用动态穷举脚本抓全 11 个顶层类型（Pydantic 模型整体作为一个 msgpack ext，内部嵌套不单独触发）才安全。
+2. **stub 模式 LLM router 不可靠**：长反馈在 stub 下判 PLANNING（StubLLMClient 不智能），但真实 LLM（评委路径）下 C3 prompt 上下文让其准确判 feedback。验证必须用真 LLM 测 router_node 这一层（不跑完整规划避免超时）。
+3. **feedback_detector 高召回 vs router 精判的职责边界**：含「换」的句子（换一家餐厅=反馈 / 换成打球=新需求）feedback_detector 无法区分，必须交 has_itinerary + LLM。Layer 1 误用全集会吞新需求。

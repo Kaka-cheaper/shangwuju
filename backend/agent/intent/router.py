@@ -27,6 +27,7 @@ from schemas.router import CtaChip, InputKind, RouterDecision
 
 from ..core.llm_client import LLMClient, LLMMessage, strip_json_fence
 from .prompts.router_prompt import (
+    FEEDBACK_CONTEXT_HINT,
     PRIMARY_CTAS,
     ROUTER_FEW_SHOTS,
     ROUTER_SYSTEM_PROMPT,
@@ -48,14 +49,20 @@ class RouterError(Exception):
         return f"RouterError({self.reason})"
 
 
-def _build_messages(user_input: str) -> list[LLMMessage]:
+def _build_messages(user_input: str, *, has_itinerary: bool = False) -> list[LLMMessage]:
     messages: list[LLMMessage] = [
         LLMMessage(role="system", content=ROUTER_SYSTEM_PROMPT),
     ]
     for fs_user, fs_assistant in ROUTER_FEW_SHOTS:
         messages.append(LLMMessage(role="user", content=fs_user))
         messages.append(LLMMessage(role="assistant", content=fs_assistant))
-    messages.append(LLMMessage(role="user", content=user_input))
+    # spec feedback-routing-fix R3：已有方案时注入反馈上下文，让 LLM 区分反馈 vs 新需求
+    if has_itinerary:
+        messages.append(
+            LLMMessage(role="user", content=f"{FEEDBACK_CONTEXT_HINT}\n{user_input}")
+        )
+    else:
+        messages.append(LLMMessage(role="user", content=user_input))
     return messages
 
 
@@ -93,12 +100,16 @@ def classify_input(
     user_input: str,
     *,
     client: LLMClient,
+    has_itinerary: bool = False,
 ) -> RouterDecision:
     """主入口：用 LLM 对用户输入做 6 类分类。
 
     Args:
         user_input: 用户原文。
         client: LLM 客户端（同 intent_parser 共用）。
+        has_itinerary: 当前 session 是否已有行程方案（spec feedback-routing-fix R3）。
+            True 时注入反馈上下文提示，让 LLM 把反馈措辞判为 ambiguous，
+            由 router_node Layer 3 接管为 feedback；不影响无方案时的分类行为。
 
     Returns:
         RouterDecision；cta_chips 中的 send 已经过白名单校验。
@@ -107,7 +118,7 @@ def classify_input(
         RouterError: LLM 多次失败 / JSON 解析失败 / Pydantic 校验失败。
             调用方（main.py）应捕获并按 PLANNING 兜底。
     """
-    messages = _build_messages(user_input)
+    messages = _build_messages(user_input, has_itinerary=has_itinerary)
     response = client.chat(
         messages,
         temperature=0.3,  # 比 intent_parser 高一些，让暖心回话更自然

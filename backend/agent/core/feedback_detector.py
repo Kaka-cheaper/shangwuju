@@ -47,6 +47,14 @@ _FEEDBACK_KEYWORDS: tuple[str, ...] = (
     # 「以内/以下/之内」（强信号但需配合单位，由正则补充）
     # spec planning-quality-deep-review R8（Task 7）：单段时长抱怨
     "太久", "太长", "盯不住", "无聊", "扛不住", "腻了",
+    # ============================================================
+    # spec feedback-routing-fix R2：语义类反馈（无数字单位，靠语义表达）
+    # 这些是用户对方案的口语化反馈，曾被漏判 → 当作新需求重规划（反馈无用 bug）
+    # ============================================================
+    # 节奏 / 强度类
+    "节奏", "太赶", "赶", "轻松", "悠闲", "慢一点", "慢点", "紧凑", "太满", "太累",
+    # 主观评价类（对方案不满意）
+    "不太好", "一般", "没意思", "优雅", "高级", "普通",
 )
 
 # ============================================================
@@ -90,8 +98,10 @@ def looks_like_feedback(message: str) -> bool:
         3. 短输入（<15 字）+ 「以内 / 以下 / 之内」
 
     Note:
-        本函数不读 conversation state——caller 必须结合 state.itinerary
-        是否存在一起判断（无 itinerary 即不可能是反馈，所有 True 都应忽略）。
+        本函数是**高召回粗筛**——含「换 / 改」等弱信号词也返 True，但这些词
+        在「换成和朋友打球」这类新需求里也会出现。caller 必须结合 state.itinerary
+        是否存在一起判断（无 itinerary 即不可能是反馈）。
+        需要「不会误吞新需求」的强信号子集时，用 looks_like_feedback_strong()。
     """
     if not message:
         return False
@@ -118,4 +128,57 @@ def looks_like_feedback(message: str) -> bool:
     return False
 
 
-__all__ = ["looks_like_feedback"]
+# ============================================================
+# 强信号子集（spec feedback-routing-fix R4）
+# ============================================================
+# 这些词 / 模式几乎不可能出现在「全新需求」的开头，命中即可直接判 feedback，
+# 不必再走 LLM。区别于全集里的弱信号词（"换 / 改 / 时间"——这些在
+# "换成和朋友打球" / "改成看电影" 这类新需求里也出现，必须交 LLM 区分）。
+
+_STRONG_FEEDBACK_KEYWORDS: tuple[str, ...] = (
+    # 距离类（明确指向"上一轮太远了"）
+    "太远", "近一点", "近点", "别走太远", "别太远", "再近",
+    "公里以内", "km以内", "公里内", "km内", "公里之内",
+    # 节奏 / 强度类（明确指向"上一轮安排"）
+    "太赶", "太满", "太累", "太久", "太长", "盯不住", "扛不住", "腻了",
+    "节奏", "紧凑",
+    # 评价类（明确否定上一轮）
+    "不太好", "不喜欢", "不太行", "不合适", "没意思",
+    # 价格类
+    "太贵", "便宜点",
+)
+
+
+def looks_like_feedback_strong(message: str) -> bool:
+    """强信号反馈判定（spec feedback-routing-fix R4）。
+
+    仅命中「几乎不可能是新需求开头」的强信号词 / 数字单位模式时返 True，
+    供 router_node Layer 1 用——命中即直接判 feedback 不调 LLM，且不会误吞
+    「换成和朋友打球」这类含弱信号词的新需求（弱信号交 LLM）。
+    """
+    if not message:
+        return False
+    txt = message.strip()
+    if not txt:
+        return False
+
+    # 强信号关键词
+    for kw in _STRONG_FEEDBACK_KEYWORDS:
+        if kw in txt:
+            return True
+
+    # 数字 + 单位（"3 公里" / "1.5 小时"——明确的量化调整）
+    for pat in _PATTERNS:
+        if pat.search(txt):
+            return True
+
+    # 短输入 + 「以内/以下/之内」
+    if len(txt) < 15:
+        for hint in _WITHIN_HINTS:
+            if hint in txt:
+                return True
+
+    return False
+
+
+__all__ = ["looks_like_feedback", "looks_like_feedback_strong"]

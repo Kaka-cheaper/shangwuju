@@ -85,6 +85,54 @@ def _route_after_ils(state: AgentState) -> str:
 _compiled_graph: Any = None
 
 
+def _build_checkpoint_serde():
+    """构造注册了业务 Pydantic 类型的 msgpack serde（spec feedback-routing-fix R5）。
+
+    背景：InMemorySaver 默认 JsonPlusSerializer 的 allowed_msgpack_modules=True
+    语义是「全允许但对未注册类型发警告」（langgraph 1.2 源码 _check_allowed）。
+    跨 turn 反序列化 AgentState 里的 Poi / Restaurant / IntentExtraction / Itinerary
+    等会刷一堆「Deserializing unregistered type ... blocked in future version」警告。
+
+    本函数传**具体类型清单**（非 True），消除警告。清单由 scripts 动态穷举跨 turn +
+    rule/llm 双路径实际序列化的全部顶层类型得到（Pydantic 模型整体作为一个 msgpack ext，
+    内部嵌套字段不单独触发，所以只需顶层 11 类）。
+
+    重要：传具体清单后，**不在清单的类型会被 block**（langgraph STRICT 逻辑）。
+    因此清单必须覆盖所有路径会序列化的类型；新增 state 业务类型时需同步补此清单。
+    失败兜底：构造异常时回退默认 InMemorySaver（保留警告但功能不受影响）。
+    """
+    from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+
+    # AgentState 跨 turn + rule/llm 双路径实际序列化的全部顶层类型
+    # （由 scripts 动态穷举 emit_serde_event 得到；新增 state 业务类型需同步补充）
+    from schemas.domain import Poi, Restaurant
+    from schemas.intent import IntentExtraction
+    from schemas.itinerary import Itinerary
+    from schemas.router import InputKind, RouterDecision
+    from schemas.tools import GetUserProfileOutput
+    from agent.planning.weights_llm import PlanningWeights
+    from agent.planning.critic._rules.types import (
+        Severity,
+        Violation,
+        ViolationCode,
+    )
+
+    allowlist = [
+        Poi,
+        Restaurant,
+        IntentExtraction,
+        Itinerary,
+        InputKind,
+        RouterDecision,
+        GetUserProfileOutput,
+        PlanningWeights,
+        ViolationCode,
+        Severity,
+        Violation,
+    ]
+    return JsonPlusSerializer(allowed_msgpack_modules=allowlist)
+
+
 def build_graph(*, with_checkpointer: bool = True) -> Any:
     """构造并编译 LangGraph。
 
@@ -193,7 +241,13 @@ def build_graph(*, with_checkpointer: bool = True) -> Any:
 
     # ---- 编译 ----
     if with_checkpointer:
-        return g.compile(checkpointer=InMemorySaver())
+        # spec feedback-routing-fix R5：注册业务类型，消除反序列化警告 + 防未来 block
+        try:
+            serde = _build_checkpoint_serde()
+            return g.compile(checkpointer=InMemorySaver(serde=serde))
+        except Exception:  # noqa: BLE001
+            # 注册 API 不可用（langgraph 版本差异）→ 回退默认（保留警告但不阻断）
+            return g.compile(checkpointer=InMemorySaver())
     return g.compile()
 
 
