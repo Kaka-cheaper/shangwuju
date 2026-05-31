@@ -216,7 +216,7 @@
     {
       "id": "f-intent-parse",
       "name": "意图解析",
-      "summary": "把自然语言抽取为 §5.7 IntentExtraction；注入 persona/memory prior；3 次重试 + 默认值兜底",
+      "summary": "把自然语言抽取为 §5.7 IntentExtraction；保留明示餐饮品类（撸串/烧烤→preferred_poi_types）+ 独处场景反例约束；注入 persona/memory prior；3 次重试 + 默认值兜底",
       "epicId": "input",
       "triggers": [
         { "kind": "event", "detail": "LangGraph router→intent 边触发" }
@@ -974,7 +974,7 @@
     {
       "id": "f-plan-critic",
       "name": "Critic 客观验证",
-      "summary": "Evaluator 阶段：critics_v2 跑 7 类约束（时长 / 距离 / 段集合 / 餐厅满 / 时序 / 调性 / 饮食）；critical 触发 backprompt，warning 仅 log",
+      "summary": "Evaluator 阶段：critics_v2 跑 8 类约束（时长 / 距离 / 段集合 / 餐厅满 / 时序 / 调性 / 饮食 / 用餐时段）；critical 触发 backprompt，warning（含用餐时段不合理）仅 log + narration 提示",
       "epicId": "planning",
       "triggers": [
         { "kind": "event", "detail": "assemble → critic 边" }
@@ -994,7 +994,7 @@
         },
         {
           "id": "run_critics",
-          "name": "跑 7 类约束",
+          "name": "跑 8 类约束",
           "role": "validation",
           "refs": [{ "file": "backend/agent/v2/critics_v2.py" }]
         },
