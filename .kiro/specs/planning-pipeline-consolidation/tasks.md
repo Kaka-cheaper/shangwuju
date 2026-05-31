@@ -87,7 +87,7 @@
   - 验证：评测脚本输出 + pytest + verify:all
   - _需求: R6.1, R6.2, R6.3, R6.4_
 
-- [ ] 10. 收尾：problem.md + commit + CodeSee sync
+- [x] 10. 收尾：problem.md + commit + CodeSee sync
   - problem.md 追加本 spec 会话日志
   - git commit（中文 message，精确 stage）
   - CodeSee features.json sync（如适用）+ 校验
