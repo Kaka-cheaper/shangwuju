@@ -9062,3 +9062,52 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 ```
 
 **遗留（非本次范围，概率性）**：撸串场景 LLM 偶尔仍加"真人CS馆"——已在 blueprint prompt 加「单一诉求就单段」约束，属概率性改善。
+
+
+---
+
+## 问题：第一次发消息对话框出现两条不一样的 agent 消息
+
+**用户原问**：为什么我第一次发，对话框中会有两条不一样的消息？
+
+**根因分析（浏览器实测复现）**：
+
+```text
+| 步骤 | 发现                                                         |
+|------|-------------------------------------------------------------|
+| 注入 fetch 计数 | 单次点场景按钮只发 1 次 /chat/turn（排除双发）            |
+| 读 DOM 气泡 | 对话框里同时有「商务接待方案」+「朋友 4 人」两条不同 agent 消息 |
+| 关键 | 这不是重复，是**两个不同场景的两轮对话堆在同一 session 里**     |
+| 根因 | QuickScenarios/CommandPalette 点场景按钮调 sendMessage，**不清空上一轮**——评委依次点 商务→朋友→撸串，每条 agent 回复都累积在同一对话框，看起来像"一次发出现多条" |
+```
+
+用户感知的"第一次发"其实是上一个场景的残留消息 + 新场景消息混在一起（截图里 商务/朋友/撸串 三条都在），因为 demo 场景按钮没有"开启全新探索"语义。
+
+**解决方案**：
+
+新增 `sendScenario` store action（区别于 `sendMessage`）：
+- 点演示场景按钮 = 开启一次干净的独立探索
+- 若当前会话已有内容（messages 非空 / 已有 itinerary）→ 先静默开新 session（新 session_id + 清空 messages/itinerary/thoughts，保留 user/persona/scenarios 缓存，无 toast）再发送
+- 手动输入框（ChatDock）仍用 `sendMessage` 保持连续对话（支持追问/反馈）
+- QuickScenarios + CommandPalette 的场景命令都改用 sendScenario
+
+**修改的代码文件**：
+
+- `frontend/lib/store.ts`（新增 sendScenario action）
+- `frontend/lib/store/types.ts`（ChatActions 加 sendScenario 签名 + Bound 类型）
+- `frontend/components/QuickScenarios.tsx`（onClick 改 sendScenario）
+- `frontend/components/CommandPalette.tsx`（场景命令改 sendScenario，移除未用的 sendMessage）
+
+**应当达成的效果 / 验证证据（浏览器实测）**：
+
+```text
+| 验证项                          | 结果                              |
+|--------------------------------|----------------------------------|
+| 前端 verify:all                | 4/4（tsc+lint+vitest+build）      |
+| 点 S4 朋友                     | session rz73gg，1 条用户消息 ✓     |
+| 再点 S7 商务                   | session 切到 ae1zlo（新会话）✓     |
+| 切场景后朋友消息               | 0（已清空，不再串台）✓             |
+| 切场景后商务消息               | 1（只有当前场景）✓                 |
+```
+
+**设计取舍**：场景按钮 = 干净独立探索（自动开新会话）；手动输入 = 连续对话（保留历史支持追问）。两种入口语义分离，既解决评委依次点场景时的串台问题，又保留正常对话的上下文连续性。

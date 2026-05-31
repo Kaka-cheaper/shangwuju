@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 export default function QuickScenarios({ enlarged = false }: { enlarged?: boolean }) {
   const scenarios = useChatStore((s) => s.scenarios);
   const streaming = useChatStore((s) => s.streaming);
-  const sendMessage = useChatStore((s) => s.sendMessage);
+  const sendScenario = useChatStore((s) => s.sendScenario);
 
   if (!scenarios.length) {
     return (
@@ -44,7 +44,7 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
             <button
               key={s.id}
               disabled={streaming}
-              onClick={() => sendMessage(s.input, s.id)}
+              onClick={() => sendScenario(s.input, s.id)}
               className={cn(
                 "group relative flex flex-col items-start gap-2 rounded-xl",
                 "bg-white border-2 border-[#FFD100]",

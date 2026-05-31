@@ -145,6 +145,7 @@ export interface ChatState {
   // actions
   loadScenarios: () => Promise<void>;
   sendMessage: (input: string, scenarioId?: string) => Promise<void>;
+  sendScenario: (input: string, scenarioId?: string) => Promise<void>;
   confirm: () => Promise<void>;
   refine: (feedbackText: string) => Promise<void>;
   cancel: () => void;
@@ -167,6 +168,7 @@ export type InitialChatState = Omit<
   ChatState,
   | "loadScenarios"
   | "sendMessage"
+  | "sendScenario"
   | "confirm"
   | "refine"
   | "cancel"

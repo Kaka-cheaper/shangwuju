@@ -40,7 +40,7 @@ export default function CommandPalette() {
   const personas = useChatStore((s) => s.personas);
   const plannerMode = useChatStore((s) => s.plannerMode);
   const currentUserId = useChatStore((s) => s.currentUserId);
-  const sendMessage = useChatStore((s) => s.sendMessage);
+  const sendScenario = useChatStore((s) => s.sendScenario);
   const setPlannerMode = useChatStore((s) => s.setPlannerMode);
   const setCurrentUserId = useChatStore((s) => s.setCurrentUserId);
   const cancel = useChatStore((s) => s.cancel);
@@ -75,7 +75,7 @@ export default function CommandPalette() {
         keywords: `${s.id} ${s.title} ${s.input}`,
         perform: () => {
           if (streaming) return;
-          sendMessage(s.input, s.id);
+          sendScenario(s.input, s.id);
           close();
         },
       });
@@ -189,7 +189,7 @@ export default function CommandPalette() {
     plannerMode,
     streaming,
     itinerary,
-    sendMessage,
+    sendScenario,
     setCurrentUserId,
     setPlannerMode,
     cancel,

@@ -177,6 +177,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
   },
 
+  sendScenario: async (input, scenarioId) => {
+    // 演示场景按钮 = 开启一次「全新探索」。若当前会话已有内容（之前点过别的场景
+    // 或发过消息），先静默开一个新 session 再发送——避免不同场景的方案堆在同一对话框里
+    // （评委依次点 商务/朋友/撸串 时，每个场景应是干净的独立上下文，不互相串台）。
+    if (get().streaming) return;
+    const hasHistory = get().messages.length > 0 || get().itinerary != null;
+    if (hasHistory) {
+      abortController?.abort();
+      const cur = get();
+      const newId = generateSessionId();
+      set({
+        ...initialState,
+        sessionId: newId,
+        plannerMode: cur.plannerMode,
+        currentUserId: cur.currentUserId,
+        personas: cur.personas,
+        personasLoaded: cur.personasLoaded,
+        preferences: cur.preferences,
+        scenarios: cur.scenarios,
+        scenariosLoaded: cur.scenariosLoaded,
+      });
+      upsertSession({
+        id: newId,
+        label: sessionLabelFromText(input),
+        createdAt: Date.now(),
+        lastMessageAt: Date.now(),
+      });
+    }
+    await get().sendMessage(input, scenarioId);
+  },
+
   confirm: async () => {
     if (get().streaming) return;
     if (!get().itinerary) return;
