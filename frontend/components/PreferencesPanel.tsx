@@ -80,7 +80,7 @@ export default function PreferencesPanel() {
         )
       : 0;
     const PersonaIcon = persona
-      ? personaIconFromEmoji(persona.icon)
+      ? personaIconFromEmoji(persona.icon, persona.label)
       : Icons.user;
     // 副标题：用 persona.notes 摘要，没有时退回静默引导
     const subtitle = persona?.notes ?? "点击查看 Agent 已学到的偏好";
@@ -166,7 +166,7 @@ export default function PreferencesPanel() {
     : [];
 
   const PersonaIcon = persona
-    ? personaIconFromEmoji(persona.icon)
+    ? personaIconFromEmoji(persona.icon, persona.label)
     : Icons.user;
 
   return (

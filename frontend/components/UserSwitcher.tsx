@@ -111,7 +111,7 @@ export default function UserSwitcher() {
 
   const current = personas.find((p) => p.user_id === currentUserId);
   const CurrentIcon = current
-    ? personaIconFromEmoji(current.icon)
+    ? personaIconFromEmoji(current.icon, current.label)
     : Icons.user;
   const display =
     current?.label ??
@@ -157,7 +157,7 @@ export default function UserSwitcher() {
             </div>
             <ul className="py-1 flex-1 min-h-0 overflow-auto">
               {personas.map((p) => {
-                const Icon = personaIconFromEmoji(p.icon);
+                const Icon = personaIconFromEmoji(p.icon, p.label);
                 const active = p.user_id === currentUserId;
                 return (
                   <li key={p.user_id}>

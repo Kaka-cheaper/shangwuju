@@ -272,7 +272,7 @@ function StageRow({
         <span
           className={cn(
             "mono text-xs tabular-nums",
-            timeChanged ? "text-amber-300 font-semibold" : "text-ink-500",
+            timeChanged ? "text-amber-700 font-semibold" : "text-ink-500",
           )}
         >
           {stage.start}-{stage.end}
@@ -281,7 +281,7 @@ function StageRow({
           className={cn(
             "px-1 py-0 rounded text-[9px] border",
             kindChanged
-              ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
               : "border-black/[0.06] bg-black/[0.03] text-ink-700",
           )}
         >
@@ -291,7 +291,7 @@ function StageRow({
       <div
         className={cn(
           "text-xs tracking-tight",
-          titleChanged ? "text-amber-200 font-medium" : "text-ink-800",
+          titleChanged ? "text-amber-800 font-medium" : "text-ink-800",
         )}
       >
         {stage.title}

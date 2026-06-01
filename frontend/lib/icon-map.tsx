@@ -17,9 +17,11 @@ import {
   Briefcase,
   CalendarHeart,
   CheckCircle2,
+  Clock,
   Coffee,
   Compass,
   Copy,
+  Footprints,
   Heart,
   Leaf,
   Loader2,
@@ -27,6 +29,7 @@ import {
   MapPin,
   Mic,
   Quote,
+  Salad,
   Sparkles,
   Sun,
   Trash2,
@@ -78,7 +81,24 @@ const PERSONA_EMOJI_MAP: Array<[RegExp, LucideIcon]> = [
   [/🎓/, UserCog],
 ];
 
-export function personaIconFromEmoji(emoji: string | undefined): LucideIcon {
+/** 按 persona label 文字匹配图标（优先于 emoji 匹配） */
+const PERSONA_LABEL_MAP: Array<[RegExp, LucideIcon]> = [
+  [/爸爸|爸|父/, Baby],
+  [/白领|商务|接待/, Briefcase],
+  [/孝顺|父母|长辈|老人/, Users],
+  [/独居|独处|一个人/, Leaf],
+  [/情侣|恋人|女朋友|男朋友|约会/, Heart],
+  [/闺蜜|朋友/, Coffee],
+];
+
+export function personaIconFromEmoji(emoji: string | undefined, label?: string): LucideIcon {
+  // 优先按 label 文字匹配
+  if (label) {
+    for (const [re, icon] of PERSONA_LABEL_MAP) {
+      if (re.test(label)) return icon;
+    }
+  }
+  // 再按 emoji 匹配
   if (!emoji) return User;
   for (const [re, icon] of PERSONA_EMOJI_MAP) {
     if (re.test(emoji)) return icon;
@@ -108,6 +128,15 @@ export const Icons = {
   pin: MapPin,
   pulse: Activity,
   sun: Sun,
+  // 标签语义图标
+  clock: Clock,
+  baby: Baby,
+  leaf: Leaf,
+  salad: Salad,
+  utensils: UtensilsCrossed,
+  footprints: Footprints,
+  heart: Heart,
+  users: Users,
 } as const;
 
 export type IconKey = keyof typeof Icons;
