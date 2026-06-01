@@ -126,6 +126,16 @@ describe("store · refinement", () => {
     expect(s.toasts).toHaveLength(0);
   });
 
+  it("setPlannerMode persist:false：更新 mode 但不写 cookie（/health 静默同步用）", () => {
+    // 模拟 /health 同步：跟随后端 env 到 llm，但不落 cookie
+    // → 让无 cookie 的浏览器每次 mount 都能重新跟随后端，不被旧值锁死
+    useChatStore.getState().setPlannerMode("llm", { silent: true, persist: false });
+    const s = useChatStore.getState();
+    expect(s.plannerMode).toBe("llm");
+    expect(globalThis.document.cookie).not.toMatch(/shangwuju_planner_mode/);
+    expect(s.toasts).toHaveLength(0);
+  });
+
   it("setPlannerMode 同 mode：不重复推 toast / 不重写 cookie", () => {
     useChatStore.getState().setPlannerMode("llm");
     expect(useChatStore.getState().toasts).toHaveLength(1);

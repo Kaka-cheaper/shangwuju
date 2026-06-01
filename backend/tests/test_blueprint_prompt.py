@@ -273,3 +273,22 @@ def test_module_exports_contract() -> None:
     assert hasattr(mod, "build_user_message")
     assert isinstance(mod.BLUEPRINT_SYSTEM_PROMPT, str)
     assert callable(mod.build_user_message)
+
+
+# ---- Test：kind 字段语义约束（spec narration-and-intent-fidelity Bug A 修复）----
+
+
+def test_system_prompt_clarifies_kind_is_node_role() -> None:
+    """prompt 必须明确 kind 是节点角色（主活动/用餐）而非用户诉求标签（看展/猫咖）。
+
+    背景：S5 实测猫咖被标 kind「看展」——根因是旧 prompt 输出示例用 "kind": "看展"
+    误导 LLM 把 kind 当诉求标签。修复后必须明确 kind 取节点角色词。
+    """
+    text = BLUEPRINT_SYSTEM_PROMPT
+    # 必须有 kind 语义说明段
+    assert "节点角色" in text, "prompt 缺少 kind 是节点角色的说明"
+    # 必须点名「主活动」作为正确取值，且把诉求词（看展/猫咖/KTV）归到主活动
+    assert "主活动" in text
+    assert "看展" in text and "猫咖" in text
+    # 输出示例不应再用 "kind": "看展" 误导（示例 kind 应是节点角色词）
+    assert '"kind": "看展"' not in text, "输出示例仍用『看展』当 kind，会误导 LLM"

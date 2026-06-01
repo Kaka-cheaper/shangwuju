@@ -426,7 +426,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setPlannerMode: (mode, options) => {
     if (get().plannerMode === mode) return;
-    setPlannerModeCookie(mode);
+    // persist 默认 true：用户显式点击切换才写 sticky cookie；
+    // /health 静默同步传 persist:false——不写 cookie，让无 cookie 的浏览器每次
+    // mount 都跟随后端 env（修顶栏默认值与后端不一致 + 旧 cookie 永久锁死的 bug）。
+    if (options?.persist !== false) {
+      setPlannerModeCookie(mode);
+    }
     set({ plannerMode: mode });
     if (options?.silent) return;
     get().pushToast({

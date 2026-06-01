@@ -37,7 +37,10 @@ export default function PlannerModeBadge() {
   const streaming = useChatStore((s) => s.streaming);
   const setPlannerMode = useChatStore((s) => s.setPlannerMode);
 
-  // 客户端 mount：cookie > /health 给一个初始值（静默不弹 toast）
+  // 客户端 mount：cookie（用户显式选择）> /health（后端 env）给初始值
+  // cookie 优先级最高 = 用户的 deliberate choice 永远保留；
+  // 无 cookie 时跟随后端 env，且 persist:false 不落 cookie——这样后端切了 env
+  // 后，没显式选过的浏览器每次 mount 都会重新跟随（修默认值不一致 bug）。
   useEffect(() => {
     const fromCookie = getPlannerModeFromCookie();
     if (fromCookie) {
@@ -50,8 +53,8 @@ export default function PlannerModeBadge() {
       .then((data) => {
         if (cancelled) return;
         if (data.planner_mode === "llm" || data.planner_mode === "rule") {
-          // 仅在 cookie 缺省时跟随后端 env
-          setPlannerMode(data.planner_mode, { silent: true });
+          // 仅在 cookie 缺省时跟随后端 env；persist:false 不写 cookie
+          setPlannerMode(data.planner_mode, { silent: true, persist: false });
         }
       })
       .catch(() => {

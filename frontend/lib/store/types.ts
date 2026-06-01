@@ -152,7 +152,7 @@ export interface ChatState {
   reset: () => void;
   startNewSession: () => void;
   switchSession: (sessionId: string) => void;
-  setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean }) => void;
+  setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean; persist?: boolean }) => void;
   setCurrentUserId: (userId: string, options?: { silent?: boolean }) => void;
   loadPersonas: () => Promise<void>;
   refreshPreferences: () => Promise<void>;
