@@ -1048,3 +1048,17 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. mock_data 建设期可不做坐标精准化（专注于业务字段），但前端必须有兜底
   3. 圆弧微扰仅影响 marker 视觉位置，不改 itinerary.nodes 数据本身——info window / 路线段仍用原坐标
 - **优先级**：P2（不影响行程正确性；但截图只见单个 marker 让评委误以为系统漏了节点）
+
+
+### [P2] 2026-06-01 两阶段检索缺「按明示诉求重排」→ 用户说看展方案里没展
+
+- **现象**：S5「带女朋友看个展」真 LLM 实测，experience_tags 正确抽出「看展」，mock 也有 P002 西溪艺术展中心（tag 含看展、3.8km、suitable_for 情侣亲密，召回阶段就在候选里），但最终方案是猫咖→甜品→电影院，一个展都没有。
+- **根因**：`search_pois_for_intent` → `search_pois` 是两阶段检索——召回宽松（has_any_tag OR 过滤）+ 排序只按 rating + top_k 静态截断。P002（rating 4.4）被高分猫咖（4.7）/电影院（4.6）按 rating 挤出 top_5 → 喂给 blueprint LLM 的预览里根本没展。这是典型 RAG「召回 OK 但缺 rerank（相关性重排）」。餐厅侧早已有 `_rerank_by_preferred_cuisine`，POI 侧一直缺。
+- **陷阱（差点踩第二个坑）**：想直接把 `intent.preferred_poi_types` 塞进 `SearchPoisInput.preferred_types` 让工具过滤——但工具是**精确** `poi.type not in` 匹配，用户口语「看展」≠ POI type「展览」，精确匹配会**归零**（一个候选都搜不到）。
+- **解法**：编排层（search_adapter）加轻量词法重排 `_rerank_by_preferred_poi_types`（双向 substring 命中 type/name/tags 任一即前置），召回仍走宽松 OR 不归零；+ intent prompt 让点名活动品类镜像进 preferred_poi_types（高信号通道）；+ detect_unmet_poi_preference 诚实告知兜底。纯字符串运算，无 embedding/LLM 打分/白名单/type 映射字典（守 D9）。
+- **防再犯**：
+  1. 凡是「召回→排序→top_k 截断」的两阶段检索，只按静态分（rating）排序 = 必然忽略 query 相关性；用户明示诉求必须有专门的重排通道把对味候选顶进 top_k。
+  2. 工具层「支持某字段过滤」≠「能直接打通用」——先看过滤是精确还是模糊匹配；精确匹配遇口语诉求会归零，重排要放编排层做宽松匹配。
+  3. 新增「按明示诉求优先」机制时先查对称侧是否已有（餐厅 cuisine 重排 ↔ POI type 重排），镜像已有实现比新造概念稳。
+  4. 重排判命中与诚实告知判未满足必须**同源词法 helper**（poi_desire_match 单一 SoT），否则会出现「重排说有、告知说没有」的不一致。
+- **优先级**：P2（不影响系统崩溃，但直接丢失用户核心诉求，评委可见性高——「我说看展你给我猫咖」）

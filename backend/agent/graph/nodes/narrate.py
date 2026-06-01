@@ -105,6 +105,39 @@ def _detect_unmet_cuisines(intent: Any, itinerary: Any) -> list[str]:
         return []
 
 
+def _detect_unmet_poi(intent: Any, itinerary: Any) -> list[str]:
+    """检测用户明示活动诉求（看展/KTV/密室等）是否未排进最终行程的 POI（诚实告知用）。
+
+    取 intent.preferred_poi_types + 行程中 target_kind=poi 节点的 type/name/tags
+    （靠 target_id 查 mock pois），交给 narrator.detect_unmet_poi_preference 判定。
+    与 _detect_unmet_cuisines 对称（cuisine 走餐厅 cuisine 字段，本函数走 POI 维度）。
+    任何异常返空（降级为不告知，宁缺毋误报）。
+    """
+    try:
+        from agent.intent.narrator import detect_unmet_poi_preference
+        from data.loader import load_pois
+
+        prefs = list(getattr(intent, "preferred_poi_types", []) or [])
+        if not prefs:
+            return []
+        poi_by_id = {p.id: p for p in load_pois()}
+        poi_types: list[str] = []
+        poi_names: list[str] = []
+        poi_tags: list[str] = []
+        for n in itinerary.nodes:
+            if getattr(n, "target_kind", None) != "poi":
+                continue
+            pid = getattr(n, "target_id", None)
+            p = poi_by_id.get(pid)
+            if p:
+                poi_types.append(p.type or "")
+                poi_names.append(p.name or "")
+                poi_tags.extend(list(p.tags or []))
+        return detect_unmet_poi_preference(prefs, poi_types, poi_names, poi_tags)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def narrate_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     itinerary = state.get("itinerary")
@@ -126,9 +159,16 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     critic_summary = _build_critic_summary(state.get("critic_attempts") or [])
     quality_warnings = _extract_quality_warnings(state)
 
-    # 诚实告知（用户观察的 bug）：用户明示品类（如烧烤）但因超距/无候选未排进行程
-    # → 检测未满足品类，让 narrator 诚实说明"附近没找到 X，帮你换了替代品"
+    # 诚实告知（用户观察的 bug）：用户明示诉求但因超距/无候选/重排仍未选上而未排进行程
+    # → 检测未满足诉求，让 narrator 诚实说明"附近没找到 X，帮你换了替代品"。
+    # cuisine 版走餐厅菜系维度，poi 版走活动场所维度（spec narration-and-intent-fidelity R4）；
+    # 两者合并成统一的未满足诉求列表喂给 narrator（去重保序）。
     unmet_cuisines = _detect_unmet_cuisines(intent, itinerary)
+    unmet_pois = _detect_unmet_poi(intent, itinerary)
+    unmet_desires: list[str] = []
+    for d in [*unmet_cuisines, *unmet_pois]:
+        if d and d not in unmet_desires:
+            unmet_desires.append(d)
 
     text = generate_narration(
         intent=intent,
@@ -137,7 +177,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         use_llm=use_llm,
         critic_summary=critic_summary,
         quality_warnings=quality_warnings,
-        unmet_cuisines=unmet_cuisines,
+        unmet_cuisines=unmet_desires,
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate

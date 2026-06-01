@@ -97,3 +97,23 @@ def test_prompt_has_solo_context_reverse_rule() -> None:
             break
         idx += len("独处放空")
     assert found, "独处反例规则未与『安静聊天』禁令同段"
+
+
+# ---- Test 4：活动品类镜像规则（spec narration-and-intent-fidelity R2）----
+
+
+def test_prompt_has_activity_mirror_rule() -> None:
+    """词典内活动品类（如「看展」）被点名时，须镜像写进 preferred_poi_types。
+
+    这是给下游检索做相关性重排的高信号通道——experience_tags 会混入氛围词
+    （安静聊天）当不了干净信号，所以点名的活动品类要同时镜像到 preferred_poi_types。
+    """
+    text = INTENT_PARSER_SYSTEM_PROMPT
+    assert "镜像" in text, "prompt 缺少活动品类镜像进 preferred_poi_types 的规则"
+    # 规则段应以「看展」为锚点，且点名高信号通道语义
+    assert "看展" in text
+    assert "preferred_poi_types" in text
+    # 定位镜像规则段：「镜像」附近窗口应同时含「看展」与「preferred_poi_types」
+    idx = text.find("镜像")
+    window = text[max(0, idx - 80) : idx + 200]
+    assert "preferred_poi_types" in window, "镜像规则未与 preferred_poi_types 同段"

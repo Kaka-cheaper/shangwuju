@@ -9256,3 +9256,94 @@ Layer 3 兜底从 `route_kind != "planning"` 收窄为 `route_kind == "ambiguous
 ```
 
 **说明**：.env 在 .gitignore 不入仓，本次实际入仓的是 .env.example（3 项注释补全 + LLM_PROVIDER 语义澄清）。
+
+
+---
+
+## 问题：浏览器实测发现的两个 bug —— narration 漏段 + 意图诉求覆盖窄（看展没展）
+
+**用户原问**（多轮合并）：
+1. 浏览器真 LLM 实测 S3/S5 识别 bug
+2. 「这两个都修。确实第二个感觉问题在于覆盖面太窄了」
+3. 「太规则化了，活动诉求白名单限制太大；用户反馈/约束应该第一优先级，应在检索阶段保证满足」
+4. 「查一下，如果第一点不满足就是工具设计不成熟」
+5. 「也就是说其实是类似于 RAG 重排策略的问题？需要引入重排策略吗」
+
+**根因分析（4 阶段，已逐行读码验证）**：
+
+```text
+Bug #1（narration 漏段）：行程「活动→用餐→活动」3 段，narration 讲到吃饭就收尾。
+  根因 A：narrator_prompt 字数硬上限 50-80 + few-shot 全是「餐尾收尾」范例 → LLM 学会讲到吃饭就停
+  根因 B：_template_narration 有 phrases[:3] 截断 → 模板路径也砍掉餐后活动
+
+Bug #2（看展没展）：用户明说看展，experience_tags 抽出「看展」，mock 有 P002 展览中心
+  （tag 含看展、3.8km、suitable_for 情侣亲密，召回阶段就在候选里），但方案是猫咖→甜品→电影院。
+  根因（RAG 重排缺失）：POI 检索是两阶段「召回宽松 + 排序只按 rating + top_k 静态截断」，
+  P002（rating 4.4）被高分猫咖（4.7）/电影院（4.6）按 rating 挤出 top_5 → LLM 预览里没展。
+  即缺少「按用户明示诉求做相关性重排」（餐厅侧已有 _rerank_by_preferred_cuisine，POI 侧缺失）。
+```
+
+**关键查证（推翻第一版白名单方案）**：
+- search_pois 工具**支持** preferred_types 过滤（`poi.type not in` 精确匹配），工具成熟。
+- 但直接把 preferred_poi_types 硬塞进 SearchPoisInput.preferred_types 会**归零**——「看展」∉ type「展览/画廊」精确匹配不上。
+- 第一版 spec 的「活动诉求白名单 + type 硬映射 + 事后诚实告知」违背 D9 意图开放铁律 + 搞反优先级，用户否定后**废弃重写**。
+
+**解决方案（轻量词法重排，去规则化）**：
+
+```text
+| 改动                              | 文件                                  | 性质            |
+|-----------------------------------|--------------------------------------|----------------|
+| R2 镜像通道：点名活动品类镜像进 preferred_poi_types | intent_parser_prompt.py | prompt 一句     |
+| R3 治本：POI 词法重排 _rerank_by_preferred_poi_types | search_adapter.py    | 镜像餐厅侧      |
+| R3 扩池：有诉求时 fetch_limit=15 再重排截断 | search_adapter.py            | 镜像餐厅侧      |
+| R4 兜底：detect_unmet_poi_preference 诚实告知 | narrator.py + narrate.py    | 镜像 cuisine 版 |
+| Bug#1 prompt：字数按节点弹性 + 餐后必讲 + 三节点 few-shot | narrator_prompt.py | prompt          |
+| Bug#1 模板：去 phrases[:3] 截断   | narrator.py                          | 确定性修复      |
+```
+
+核心：用纯字符串双向 substring 命中 type/name/tags（poi_desire_match 单一 SoT，R3 重排 + R4 检测共用），不引入 embedding/LLM 打分/白名单/type 映射字典。召回仍走宽松 has_any_tag（不归零），只动排序。
+
+**修改的代码文件**：
+
+新建：
+- `.kiro/specs/narration-and-intent-fidelity/{requirements,design,tasks}.md`（重写，废弃第一版白名单方案）
+- `backend/tests/test_search_adapter_poi_rerank.py`（11 项：词法 helper + 重排）
+- `backend/tests/test_detect_unmet_poi.py`（7 项：未满足检测兜底）
+- `backend/tests/test_narrator_full_nodes.py`（5 项：模板全节点 + prompt 规则）
+
+修改：
+- `backend/agent/runtime/tools/search_adapter.py`（poi_desire_match + _rerank_by_preferred_poi_types + search_pois_for_intent 扩池重排）
+- `backend/agent/intent/narrator.py`（detect_unmet_poi_preference + _template_narration 去截断）
+- `backend/agent/graph/nodes/narrate.py`（_detect_unmet_poi + 合并 unmet_desires）
+- `backend/agent/intent/prompts/narrator_prompt.py`（字数弹性 + 餐后必讲 + 三节点 few-shot + 诚实告知泛化）
+- `backend/agent/intent/prompts/intent_parser_prompt.py`（活动品类镜像进 preferred_poi_types）
+- `backend/tests/test_intent_keyword_retention.py`（加镜像规则断言）
+
+未动：
+- search_pois 工具（守 §3.4 场景无感）/ graph/build.py 拓扑 / mock_data / frontend
+
+**验证证据**：
+
+```text
+| 验证项                              | 结果                                       |
+|-------------------------------------|-------------------------------------------|
+| 本 spec 新增/改测试（7 文件）        | 49 passed                                 |
+| 全量后端回归 pytest -q              | 856 passed, 1 skipped                     |
+| R2 真 LLM 镜像                      | parse_intent → preferred_poi_types=['看展']|
+| R3 真 LLM 重排                      | search_pois_for_intent → P002 展馆排第 1   |
+| 端到端 S5（真 LLM 主路径）          | 方案含展（首位）+ narration 讲全展→甜品→猫咖→回家 |
+| 端到端 S3（真 LLM 主路径）          | 方案乐园+简餐 + narration 讲全 + 主动质疑   |
+| 前端 verify:all                     | 4 / 4                                      |
+```
+
+**应当达成的效果**：
+
+- Bug #2 治本：用户说看展，检索阶段就把展类 POI 重排进 top_k 预览，LLM 一定看得见 → 方案真有展（不靠事后道歉）。
+- Bug #1 修复：narration 复述全部活动节点，餐后活动（探索乐园/电影院）不再被漏讲。
+- 架构对称：POI 侧补齐餐厅侧已有的「明示诉求重排」机制，不引入新依赖/新概念。
+- 守 D9：纯词法双向 substring，无白名单/无 type 枚举/无 if type== 分支。
+
+**Out of Scope（单独修，记录待办）**：
+- 时间轴 kind 标签错配（S5 第 3 节点猫咖被标「看展」kind）——blueprint LLM 输出 kind 与 target 不一致。
+- 对话框 dock「收起」按钮点击无效——前端交互 bug。
+- 顶栏 planner 默认「规则」vs 后端「llm」不一致——前端默认值对齐。

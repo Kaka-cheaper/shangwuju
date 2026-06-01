@@ -138,6 +138,70 @@ def detect_unmet_cuisine_preference(
     return unmet
 
 
+def detect_unmet_poi_preference(
+    preferred_poi_types: list[str],
+    itinerary_poi_types: list[str],
+    itinerary_poi_names: list[str],
+    itinerary_poi_tags: list[str],
+) -> list[str]:
+    """检测用户明示的 POI 活动诉求是否未出现在最终行程的 POI 里（spec narration-and-intent-fidelity R4）。
+
+    诚实告知场景（用户观察的 bug 扩展）：用户明说「看展」，但方案里一个展都没有
+    （重排后仍没选上 / 本地无此类场所 / 被距离过滤）——应诚实告知"看展这次没安排上，
+    先帮你选了替代"，而非默默给个不相关的活动。这是 cuisine 版（detect_unmet_cuisine_preference）
+    在 POI 活动维度的对称扩展。
+
+    判定规则（与 search_adapter._rerank_by_preferred_poi_types 同源词法，保证
+    "重排说命中、告知说未命中"不会出现）：
+    - 对每个 preferred 诉求词：与行程任一 POI 的 type/name/tags 双向 substring 命中 → 满足
+    - 未命中任一行程 POI → 计入未满足
+    - **餐饮品类诉求**（含明显餐饮 token，如「烧烤」「火锅」）交给 cuisine 版处理，
+      本函数跳过，避免同一诉求被双重告知
+    - 无 preferred_poi_types → 返空列表（不告知）
+    - fail-safe：词法 helper 导入失败时降级为不告知（宁缺毋误报）
+
+    Returns:
+        未被满足的活动诉求词列表（保序去重）；空列表 = 全部满足或无需告知。
+    """
+    if not preferred_poi_types:
+        return []
+    try:
+        from agent.runtime.tools.search_adapter import poi_desire_match
+    except Exception:  # noqa: BLE001
+        return []
+
+    known_cuisines = _known_restaurant_cuisines()
+
+    unmet: list[str] = []
+    seen: set[str] = set()
+    for pref in preferred_poi_types:
+        p = (pref or "").strip()
+        if not p or p in seen:
+            continue
+        # 餐饮品类诉求交给 cuisine 版，POI 版不重复计（避免双重告知）
+        if _looks_like_cuisine_request(p, known_cuisines):
+            continue
+        # 满足判定：诉求词与行程任一 POI 的 type/name 命中，或与合并 tags 池任一命中。
+        # poi_desire_match 内部已对 type/name/tags 做双向 substring；这里把行程所有 POI
+        # 的 type 与 name 逐个喂进去（tags 用合并池，任一 POI 的 tag 命中即算满足）。
+        all_tags = list(itinerary_poi_tags or [])
+        satisfied = False
+        n_pois = max(len(itinerary_poi_types), len(itinerary_poi_names))
+        for i in range(n_pois):
+            ptype = itinerary_poi_types[i] if i < len(itinerary_poi_types) else ""
+            pname = itinerary_poi_names[i] if i < len(itinerary_poi_names) else ""
+            if poi_desire_match(p, ptype, pname, all_tags):
+                satisfied = True
+                break
+        # 行程无 POI 节点但有 tag（极端兜底）：仅按 tags 判定一次
+        if not satisfied and n_pois == 0 and all_tags:
+            satisfied = poi_desire_match(p, "", "", all_tags)
+        if not satisfied:
+            unmet.append(p)
+            seen.add(p)
+    return unmet
+
+
 # ============================================================
 # 模板兜底（规则模式 + LLM 失败回退）
 # ============================================================
@@ -270,7 +334,15 @@ def _template_narration(
     else:
         opener = f"下午 {total_h:.1f} 小时的安排——"
 
-    body = "，".join(phrases[:3]) if phrases else f"{itinerary.summary}"
+    # spec narration-and-intent-fidelity R1.4：复述全部活动节点（去掉旧 phrases[:3] 截断，
+    # 否则「活动→用餐→活动」结构里餐后活动被砍掉，narration 讲到吃饭就收尾）。
+    # demo 场景最多 3-4 活动；>6 活动时温和截断 + 「等」避免极端长文。
+    if not phrases:
+        body = f"{itinerary.summary}"
+    elif len(phrases) > 6:
+        body = "，".join(phrases[:6]) + " 等"
+    else:
+        body = "，".join(phrases)
 
     # spec R6 兜底质疑：含 ≤6 岁孩 + 任 node.duration_min > 90 → 强制追加
     challenge_text = ""

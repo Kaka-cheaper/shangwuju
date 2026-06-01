@@ -102,9 +102,15 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - 词典内有对应词 → 填进对应字段（如「日料」→ dietary_constraints 加 "日料"；「粤菜」→ 加 "粤菜"）。
 - 词典内**没有**对应词的品类（如「撸串」「烧烤」「夜宵」「火锅」「川菜」「KTV」「桌游」「密室」「真人 CS」「攀岩」等）
   → **必须**原样写进 `preferred_poi_types`（自由文本，如 ["烧烤", "啤酒"]），让下游据此搜索。
+- **活动品类即使词典内也要镜像进 preferred_poi_types（重要）**：像「看展」「网红打卡」这类
+  既是 experience_tags 词典词、又是用户点名的活动品类时，**除了**填进 experience_tags，
+  **还要同时**把它原样镜像写进 `preferred_poi_types`。原因：preferred_poi_types 是下游检索做
+  「相关性优先」的高信号通道，experience_tags 会混入氛围词（如「安静聊天」）当不了干净信号。
+  例：「带女朋友看个展」→ experience_tags 加 "看展" **且** preferred_poi_types 加 "看展"。
 - **禁止改写品类**：用户说「撸串/烧烤」就不要替换成「火锅」；说「火锅」就不要换成别的正餐。撸串≠火锅。
 - **禁止凭空添加**：用户没提的活动/品类（如真人 CS、密室、看展）**禁止添加**到 preferred_poi_types 或 experience_tags。
   用户只说「撸串喝酒」→ preferred_poi_types=["烧烤"]，**不要**自作主张加任何主活动。
+  没点名任何活动品类时 preferred_poi_types 保持空数组 []。
 
 【独处场景反例（关键 · 自相矛盾约束）】
 当 social_context = "独处放空"（一个人放空 / 加班想透气 / 想自己待会）时：
