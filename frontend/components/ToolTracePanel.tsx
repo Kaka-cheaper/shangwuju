@@ -229,12 +229,12 @@ export default function ToolTracePanel() {
             )}
             strokeWidth={2}
           />
-          <span className="text-xs font-medium text-ink-900 tracking-tight">
+          <span className="text-sm font-semibold text-ink-900 tracking-tight">
             {panelExpanded ? "Agent 思考链路" : `查看 Agent 决策过程（${totalCalls} 步）`}
           </span>
         </div>
-        <div className="text-sm text-ink-500 mono">
-          {totalCalls} 调用
+        <div className="text-sm text-ink-500">
+          <span className="mono">{totalCalls}</span> 调用
           {totalReplans > 0 && (
             <>
               <span className="mx-1.5 text-ink-400">·</span>
@@ -325,49 +325,53 @@ function EpicBlock({
         type="button"
         onClick={onToggle}
         className={cn(
-          "w-full flex items-center gap-2 rounded-md px-2 py-1.5",
+          "w-full flex items-center gap-2 rounded-md px-2 py-2",
           "hover:bg-black/[0.03] transition-colors duration-150",
           "text-left",
         )}
       >
         <ChevronDown
           className={cn(
-            "w-3 h-3 text-ink-500 shrink-0 transition-transform duration-200",
+            "w-3.5 h-3.5 text-ink-500 shrink-0 transition-transform duration-200",
             collapsed && "-rotate-90",
           )}
           strokeWidth={2.5}
         />
-        <span className={cn("text-xs font-medium tracking-tight", headerAccent)}>
-          {epic.label}
-        </span>
-        <span className="text-xs text-ink-500 truncate flex-1 min-w-0">
-          {epic.hint}
-        </span>
-        {fanoutBadgeText && (
-          <span
-            className="text-xs text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
-            title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
-          >
-            {fanoutBadgeText}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className={cn("text-sm font-semibold tracking-tight", headerAccent)}>
+              {epic.label}
+            </span>
+            {fanoutBadgeText && (
+              <span
+                className="text-xs text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
+                title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
+              >
+                {fanoutBadgeText}
+              </span>
+            )}
+            <span className="flex items-center gap-1.5 shrink-0 ml-auto">
+              {hasInProgress && (
+                <Loader2
+                  className="w-3 h-3 text-brand-600 animate-spin"
+                  strokeWidth={2}
+                />
+              )}
+              {hasReplan && !hasInProgress && (
+                <TriangleAlert
+                  className="w-3 h-3 text-amber-400"
+                  strokeWidth={2}
+                />
+              )}
+              <span className="text-xs text-ink-500 mono tabular-nums">
+                {callCount}× · {totalDurationMs}ms
+              </span>
+            </span>
+          </div>
+          <span className="block text-[11px] text-ink-400 mt-0.5 truncate">
+            {epic.hint}
           </span>
-        )}
-        <span className="flex items-center gap-1.5 shrink-0">
-          {hasInProgress && (
-            <Loader2
-              className="w-3 h-3 text-brand-600 animate-spin"
-              strokeWidth={2}
-            />
-          )}
-          {hasReplan && !hasInProgress && (
-            <TriangleAlert
-              className="w-3 h-3 text-amber-400"
-              strokeWidth={2}
-            />
-          )}
-          <span className="text-xs text-ink-500 mono tabular-nums">
-            {callCount}× · {totalDurationMs}ms
-          </span>
-        </span>
+        </div>
       </button>
 
       {!collapsed && (
@@ -455,17 +459,15 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
-            <div className="flex items-baseline gap-1.5 min-w-0">
-              <span className={cn("text-xs font-medium tracking-tight", textClass)}>
-                {TOOL_LABEL[call.tool] ?? call.tool}
-              </span>
-              <span className="text-xs text-ink-500 mono truncate">
-                {call.tool}
-              </span>
-            </div>
+            <span className={cn("text-sm font-medium tracking-tight", textClass)}>
+              {TOOL_LABEL[call.tool] ?? call.tool}
+            </span>
             <span className="text-xs text-ink-500 mono shrink-0 tabular-nums">
               {call.durationMs != null ? `${call.durationMs}ms` : "..."}
             </span>
+          </div>
+          <div className="text-[11px] text-ink-400 mono truncate mt-0.5">
+            {call.tool}
           </div>
 
           {Object.keys(call.input).length > 0 && (

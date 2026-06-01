@@ -221,11 +221,11 @@
      Chip / Tag：浅色版
      ============================================================ */
   .chip {
-    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md
-           text-[11px] font-medium tracking-tight;
-    background: rgb(0 0 0 / 0.04);
-    color: #374151;
-    border: 1px solid rgb(0 0 0 / 0.06);
+    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md
+           text-[12px] font-medium tracking-tight;
+    background: rgb(255 209 0 / 0.15);
+    color: #1f2937;
+    border: 1px solid rgb(255 209 0 / 0.3);
   }
   .chip-accent {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-md

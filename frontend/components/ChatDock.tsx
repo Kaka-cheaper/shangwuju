@@ -432,7 +432,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                         return (
                           <div
                             key={t.seq}
-                            className="flex items-start gap-1.5 text-xs text-ink-500 px-1 italic animate-fade-in-up"
+                            className="flex items-start gap-1.5 text-sm text-ink-500 px-1 animate-fade-in-up"
                           >
                             {inProgress ? (
                               <Icons.thinking

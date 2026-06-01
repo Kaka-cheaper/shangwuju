@@ -332,11 +332,11 @@ export default function ItineraryCard() {
               key={entry.ref_id || `node-${idx}`}
               className="relative flex items-start gap-3 animate-fade-in-up"
             >
-              <div className="flex flex-col items-center min-w-[44px] z-10">
-                <div className="text-xs text-ink-500 mono">{entry.start}</div>
-                {/* 暖橙→莓粉时间点 */}
+              <div className="flex flex-col items-center min-w-[52px] z-10">
+                <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
+                {/* 黄色时间点 */}
                 <div
-                  className="my-1 w-2 h-2 rounded-full ring-[3px] ring-white"
+                  className="my-1 w-2.5 h-2.5 rounded-full ring-[3px] ring-white"
                   style={{
                     background:
                       "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
@@ -344,7 +344,7 @@ export default function ItineraryCard() {
                       "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
                   }}
                 />
-                <div className="text-xs text-ink-500 mono">{entry.end}</div>
+                <div className="text-[11px] text-ink-400 mono">{entry.end}</div>
               </div>
               <div className="flex-1 pt-0.5">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
