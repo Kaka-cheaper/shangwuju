@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
@@ -61,9 +62,9 @@ export default function RefinementDialog({
     onClose();
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-30 flex items-center justify-center px-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 animate-fade-in"
       role="dialog"
       aria-modal="true"
       aria-labelledby="refine-title"
@@ -177,7 +178,8 @@ export default function RefinementDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

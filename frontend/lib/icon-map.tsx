@@ -28,6 +28,7 @@ import {
   type LucideIcon,
   MapPin,
   Mic,
+  Music,
   Quote,
   Salad,
   Sparkles,
@@ -48,14 +49,14 @@ import {
 // ============================================================
 
 const SCENARIO_ICONS: Record<string, LucideIcon> = {
-  S1: Users, // 家庭主线
-  S2: Compass, // 朋友 4 人
-  S3: Heart, // 情侣看展
-  S4: Leaf, // 带父母散步
-  S5: Coffee, // 闺蜜下午茶
-  S6: Briefcase, // 商务接待
-  S7: Sparkles, // 独处放空
-  S8: CalendarHeart, // 跨代际纪念日
+  S1: Music,           // 学生党 KTV
+  S2: UtensilsCrossed, // 兄弟撸串夜宵
+  S3: Baby,            // 家庭主线
+  S4: Users,           // 朋友 4 人
+  S5: Heart,           // 情侣看展
+  S6: Coffee,          // 闺蜜下午茶
+  S7: Briefcase,       // 商务接待
+  S8: Sun,             // 独处放空
 };
 
 /** 按 scenario id 拿 Lucide 图标组件，缺省回 MapPin。 */
