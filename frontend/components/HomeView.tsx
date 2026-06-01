@@ -115,7 +115,7 @@ export default function HomeView() {
           scrolled && "header-scrolled",
         )}
       >
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+        <div className="px-6 sm:px-10 h-14 flex items-center justify-between gap-4">
           {/* 左侧：品牌渐变 mark + breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center gap-2.5">

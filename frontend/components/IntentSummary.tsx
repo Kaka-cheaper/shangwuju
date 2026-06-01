@@ -22,24 +22,24 @@ export default function IntentSummary({
   const confidencePct = Math.round(intent.parse_confidence * 100);
 
   return (
-    <div className="card px-3.5 py-3 animate-fade-in-up">
-      <div className="flex items-center justify-between mb-2">
+    <div className="card px-4 py-3.5 animate-fade-in-up">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5">
           <Icons.spark
-            className="w-3.5 h-3.5 text-brand-600"
+            className="w-4 h-4 text-brand-600"
             strokeWidth={2.5}
           />
-          <span className="text-xs font-medium text-ink-800 tracking-tight">
+          <span className="text-sm font-semibold text-ink-900 tracking-tight">
             意图解析
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-ink-500 mono">
+          <span className="text-sm text-ink-600 mono">
             {confidencePct}%
           </span>
-          <div className="w-16 h-1 rounded-full bg-black/[0.06] overflow-hidden">
+          <div className="w-20 h-1.5 rounded-full bg-black/[0.06] overflow-hidden">
             <div
-              className="h-full transition-[width] duration-500"
+              className="h-full transition-[width] duration-500 rounded-full"
               style={{
                 width: `${confidencePct}%`,
                 background:
@@ -50,11 +50,11 @@ export default function IntentSummary({
           </div>
         </div>
       </div>
-      <div className="space-y-1 text-xs text-ink-800">
+      <div className="space-y-2 text-sm text-ink-800">
         <Row label="时间">
           {intent.start_time} · {dur}
         </Row>
-        <Row label="距离上限">
+        <Row label="距离">
           <span className="mono text-ink-900">{intent.distance_max_km} km</span>
         </Row>
         {companions && <Row label="同行">{companions}</Row>}
@@ -62,7 +62,7 @@ export default function IntentSummary({
           <span className="chip">{intent.social_context}</span>
         </Row>
         {tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 pt-1.5">
+          <div className="flex flex-wrap gap-1.5 pt-2">
             {tags.map((t) => (
               <span key={t} className="chip">
                 {t}
@@ -83,8 +83,8 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-xs text-ink-500 uppercase tracking-wider w-12 shrink-0">
+    <div className="flex items-baseline gap-3">
+      <span className="text-[13px] font-semibold text-ink-700 w-10 shrink-0">
         {label}
       </span>
       <span className="flex-1 min-w-0">{children}</span>

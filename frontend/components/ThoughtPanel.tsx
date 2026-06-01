@@ -139,31 +139,35 @@ export default function ThoughtPanel() {
           )}
           strokeWidth={2}
         />
-        <span className="text-xs font-medium text-ink-900 tracking-tight shrink-0">
-          Agent 在想什么
-        </span>
-        <span className="text-xs mono text-ink-500 shrink-0 tabular-nums">
-          {thoughts.length}
-          {replanCount > 0 && (
-            <>
-              <span className="mx-1 text-ink-400">·</span>
-              <span className="text-amber-400">{replanCount} 重规划</span>
-            </>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-ink-900 tracking-tight shrink-0">
+              Agent 在想什么
+            </span>
+            <span className="text-xs mono text-ink-500 shrink-0 tabular-nums">
+              {thoughts.length}
+              {replanCount > 0 && (
+                <>
+                  <span className="mx-1 text-ink-400">·</span>
+                  <span className="text-amber-500">{replanCount} 重规划</span>
+                </>
+              )}
+            </span>
+            {/* streaming 时脉冲点 */}
+            {streaming && (
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse shrink-0"
+                aria-label="正在思考"
+              />
+            )}
+          </div>
+          {/* 折叠态：摘要在第二行 */}
+          {!expanded && (
+            <span className="block text-[11px] text-ink-400 truncate mt-0.5">
+              {summary}
+            </span>
           )}
-        </span>
-        {/* streaming 时脉冲点 */}
-        {streaming && (
-          <span
-            className="inline-block w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse shrink-0"
-            aria-label="正在思考"
-          />
-        )}
-        {/* 折叠态：摘要 */}
-        {!expanded && (
-          <span className="text-xs text-ink-500 truncate flex-1 min-w-0 italic">
-            {summary}
-          </span>
-        )}
+        </div>
         <ChevronDown
           className={cn(
             "w-3.5 h-3.5 text-ink-500 shrink-0 ml-auto transition-transform duration-200",

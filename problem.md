@@ -8811,123 +8811,130 @@ llm 模式方案生成首次过 30s 阈值（5s 演示裕度）。
 
 ---
 
-## 问题：规划全链路有细节 bug，反馈有时无用
+## 问题10：前端测试显示流出错 OSError: [Errno 22] Invalid argument
 
-**用户原问**：重新从头到尾分析规划全链路，真实测试发现有细节 bug，甚至反馈无用。要求全面分析。
+**用户原问**：为什么我在前端测试显示流出错：unexpected: OSError: [Errno 22] Invalid argument
 
-**诊断（端到端实验定位）**：
+**初步诊断**：
 
-主路径 `/chat/turn` → `USE_LANGGRAPH=1` → `router_node` 三层反馈识别。实验确诊 5 个 bug：
+`OSError: [Errno 22] Invalid argument` 在 Windows 系统上通常由以下原因引起：
 
-```text
-| # | 严重度 | bug                                          | 实测证据                          |
-|---|------|---------------------------------------------|--------------------------------|
-| 1 | ★★★ | 长反馈（≥15字）被判 PLANNING，反馈丢失         | 「感觉这个安排有点累，想要更轻松悠闲一些的」→PLANNING |
-| 2 | ★★★ | feedback_detector 漏判语义类反馈措辞           | 太赶了/节奏太快/想轻松点/行程太满了/能不能轻松些 全 False |
-| 3 | ★★  | checkpointer 反序列化未注册类型，未来版本 block | 一堆 Deserializing unregistered type 警告 |
-| 4 | ★★  | Layer 3 兜底条件过窄（<15字 且 ambiguous/chitchat）| 长句反馈漏 |
-| 5 | ★   | refiner 重置候选 LLM 模式重搜成本高            | 记入后续优化，不在本 spec |
-```
+1. **后端进程状态异常**（最可能）：昨天启动的后端进程可能处于异常状态
+2. **文件路径问题**：Windows 对文件路径有严格限制（非法字符、路径过长）
+3. **文件权限问题**：mock_data 目录或文件权限异常
+4. **端口冲突**：8000 端口被占用导致后端无法正常响应
 
-根因：LLM router（Layer 2）看不到「上一轮有 itinerary」上下文，无法区分反馈 vs 新需求；真正能判断的信号只在 Layer 1（关键词词典窄）和 Layer 3（字数武断）用了。
+**实际问题**：
 
-**解决方案（spec feedback-routing-fix · Fix a Bug）**：
+经过排查，真正的问题是 **`.env` 文件中 `LLM_PROVIDER=stub` 被注释掉了**，导致后端没有使用 Stub 模式，而是尝试调用真实 LLM（但没有配置 API Key），从而导致各种错误。
 
-走完整 spec 流程（requirements → design → tasks → 实施），6 个任务：
+前端显示的"未找到资源"错误是因为后端 Tool 调用失败的连锁反应。
 
-```text
-| Task | 内容                                          |
-|------|----------------------------------------------|
-| 1    | feedback_detector 扩语义词典（节奏/轻松/太赶/太满/优雅/累等）|
-| 2    | classify_input 加 has_itinerary 参数 + router prompt 注入反馈上下文 |
-| 3    | router_node 三层重构（Layer1 用强信号子集 / Layer3 去字数限制）|
-| 4    | checkpointer 注册 11 个业务类型消除 unregistered 警告 |
-| 5    | 端到端回归（真 LLM 验证 B 长反馈 + C 真新需求）|
-| 6    | 收尾                                          |
-```
+**解决方案**：
 
-核心设计：把「是否反馈」的判断权从「关键词词典+字数」转移到「has_itinerary 上下文 + LLM 语义」。
+1. 修改 `backend/.env` 文件，取消注释 `LLM_PROVIDER=stub`：
+   ```env
+   # 开发/单测专用：不调真 LLM，返固定 fixture
+   LLM_PROVIDER=stub
+   ```
 
-关键防误伤设计（R4）：feedback_detector 拆强/弱信号——
-- 强信号子集（太远/太赶/数字单位/以内，不可能是新需求开头）→ Layer 1 直接判 feedback 不调 LLM
-- 弱信号词（换/改，可能是新需求如「换成和朋友打球」）→ 交 Layer 2 LLM + Layer 3 区分
+2. 重启后端：
+   ```powershell
+   cd c:\Users\zyf\Desktop\shangwuju\backend
+   uv run uvicorn main:app --port 8000 --reload
+   ```
+
+3. 刷新前端页面（Ctrl + Shift + R）
 
 **修改的代码文件**：
+- `backend/.env`（取消注释 LLM_PROVIDER=stub）
 
-- `backend/agent/core/feedback_detector.py`：扩 _FEEDBACK_KEYWORDS 语义词 + 新增 looks_like_feedback_strong 强信号子集
-- `backend/agent/intent/router.py`：classify_input 加 has_itinerary 参数 + _build_messages 注入上下文
-- `backend/agent/intent/prompts/router_prompt.py`：新增 FEEDBACK_CONTEXT_HINT 常量
-- `backend/agent/graph/nodes/router.py`：router_node 三层重构（Layer1 强信号子集 / Layer3 去字数限制改 has_itinerary+非planning）
-- `backend/agent/graph/build.py`：新增 _build_checkpoint_serde，InMemorySaver 传具体类型 allowlist
-- `backend/tests/test_feedback_detector.py`（新增）：16 项
-- `backend/tests/test_router_context.py`（新增）：3 项
-- `backend/tests/test_router_node_feedback.py`（新增）：9 项
-- `.kiro/specs/feedback-routing-fix/{requirements,design,tasks}.md`（新增）
+**应当达成的效果**：
 
-**应当达成的效果 / 验证证据**：
+- 前端能正常接收 SSE 事件流
+- 点击 8 个场景按钮能看到完整的意图解析 → Tool 调用 → 行程方案流程
+- 无 OSError 异常
+- Tool 调用显示正确的参数和结果
 
-```text
-| 验证项                              | 结果                          |
-|-----------------------------------|------------------------------|
-| 全量 backend pytest                | 729 passed + 1 skipped       |
-| 新增反馈测试                        | 28 passed                    |
-| serde unregistered / blocked       | 0 / 0（警告消除 + 无类型被拦）|
-| 真 LLM「感觉这个安排有点累…」→ feedback | ✓ 核心 bug 修复              |
-| 真 LLM「换成周末带爸妈吃粤菜」→ planning | ✓ R4 防误伤                 |
-| stub「太远了，3公里以内」→ feedback + distance 5→3 | ✓ 强信号 Layer1 兜底 |
-| 前端 verify:all                    | 4/4（本 spec 纯后端不破前端）|
-```
-
-**踩的坑（升级 pitfalls 备选）**：
-
-1. **checkpointer serde 注册的反直觉**：`allowed_msgpack_modules=True` 语义是「全允许但仍对未注册类型 warn」，必须传**具体类型清单**才能消警告；但传清单后**不在清单的类型会被 block**（STRICT 逻辑），漏一个嵌套类型就跨 turn 崩。用动态穷举脚本抓全 11 个顶层类型（Pydantic 模型整体作为一个 msgpack ext，内部嵌套不单独触发）才安全。
-2. **stub 模式 LLM router 不可靠**：长反馈在 stub 下判 PLANNING（StubLLMClient 不智能），但真实 LLM（评委路径）下 C3 prompt 上下文让其准确判 feedback。验证必须用真 LLM 测 router_node 这一层（不跑完整规划避免超时）。
-3. **feedback_detector 高召回 vs router 精判的职责边界**：含「换」的句子（换一家餐厅=反馈 / 换成打球=新需求）feedback_detector 无法区分，必须交 has_itinerary + LLM。Layer 1 误用全集会吞新需求。
+**用户反馈**：（待补充）
 
 
 ---
 
-## 问题：planning-pipeline-consolidation（架构梳理 + 规划质量修复合并 spec）
+## 前端暗色主题改浅色主题（美团黄白黑配色）
 
-**用户原问**（多轮决策）：评测真 LLM 8 场景发现 3 个规划质量 bug（餐厅排主活动前时间倒置 / 偏离意图凭空加活动 / 意图抽取丢关键约束）+ 架构问题（/chat/refine 走 V1 与 /chat/turn 走 V3 不一致）。决策：合并 spec（C 选项），R1 用餐"纯顺序"不算 bug只修非饭点正餐，R4 端点统一前端改打 /chat/turn 不重写后端，块B 接受 prompt 调优，连续执行。
+**用户原问**：将所有前端组件文件中的暗色主题颜色值改为浅色主题（美团黄白黑配色）。
 
-**诊断（真 LLM 8 场景评测确诊）**：
+**解决方案**：
 
-```text
-| bug | 现象                                   | 根因                                    |
-|-----|---------------------------------------|----------------------------------------|
-| R1  | S4 14:05 吃火锅再攀岩（餐在主活动前）    | blueprint prompt 缺用餐时段约束，LLM 自由排序 |
-| R2  | S2 只要撸串→给真人CS+火锅（凭空加+错配）  | prompt 无单一诉求约束 + 餐厅 cuisine 不匹配 |
-| R3  | S2 丢撸串/烧烤，S8 混入"安静聊天"        | intent prompt 无关键词保留规则 + 独处反例缺失 |
-| R4  | /chat/refine 走 V1，与 /chat/turn(V3) 不一致 | refine_real 不读 USE_LANGGRAPH       |
-```
+按用户提供的替换规则，逐文件修改 23 个组件的颜色值：
 
-**解决方案（10 任务 4 块改动）**：
+1. **Tailwind class 替换**：
+   - `bg-white/[0.0x]`（暗底上的半透白）→ `bg-black/[0.0x]`（白底上的半透黑）
+   - `border-white/[0.0x]` → `border-black/[0.0x]`
+   - `hover:bg-white/[0.0x]` → `hover:bg-black/[0.0x]`
+   - `bg-[#08080d]/70` → `bg-white/80`
+   - `bg-[#12121a]` / `bg-[#0c0c12]` → `bg-white`
+   - `bg-black/70`（modal backdrop）→ `bg-black/40`
+   - `text-brand-400`（#ffe552 在白底对比度不够）→ `text-brand-600`
+   - `text-brand-300` → `text-brand-800`
+   - `text-rose-300` / `text-emerald-300` / `text-amber-300` → 对应 600 色阶
+   - `text-white`（黄色按钮上）→ `text-ink-900`
 
-- **块A 用餐时段（R1）**：① critic 新增 `MEAL_TIME_UNREASONABLE`（WARNING 级，正餐落午餐11:00-13:30/晚餐17:00-20:00/夜宵21:00后，茶点类不约束）；② blueprint prompt 加「用餐时段规则」段。
-- **块B 意图忠实（R2/R3）**：① intent parser prompt 加「明示餐饮品类必须保留」（撸串/烧烤→preferred_poi_types）+「禁止凭空添加」+「独处反例（不放安静聊天）」；② blueprint prompt 加「选 restaurant 须匹配 preferred_poi_types 品类」；③ 编排层 `search_restaurants_for_intent` 加 cuisine 重排（preferred_poi_types 命中候选前置 + 扩池15再截断）；④ mock R046 老王烧烤摊坐标挪进 demo_user 5km 内（6.71km→3.6km，原本所有烧烤被距离过滤）。
-- **块C 端点统一（R4）**：前端 store.ts refine() 的 URL `/chat/refine`→`/chat/turn`，body 改 `{message, session_id}`；后端 refine_real.py / V3 refiner 完全不动。排查确认 V3 已 emit REFINEMENT_START/DONE，ComparisonView 仍可渲染（RefinementSummaryBanner 因 changed_fields=[] 降级，可接受）；补 checkpointer allowlist（PlanBlueprint/BlueprintNode/BlueprintTargetKind）保跨轮恢复 blueprint。
-- **块D 架构重构（R5）**：.env/.env.example 标注 PLANNER_LLM_STRATEGY/PLANNER_USE_REAL/USE_REACT_AGENT 为死配置；weights_llm.py FROZEN 注释修正（实际被 V3 planner + V1 hybrid 共用）；AGENTS.md §3.3.2 加三路线权威表（版本/端点映射/env生效/共享底层）；react_agent.py 顶部加 deprecated 标注（不删保留 fallback）。
+2. **Inline style 替换**：
+   - `rgba(20,20,23,0.95)` → `rgba(255,255,255,0.95)`
+   - `linear-gradient(135deg, #f97316, #ec4899)` → `#FFD100`（用户消息气泡）
+   - 暖橙渐变 → 美团黄渐变（#FFD100, #f59e0b, #fbbf24）
+   - 莓粉渐变 → 琥珀渐变
+   - 紫色渐变 → 浅黄渐变
+   - `ring-[#08080d]` → `ring-white`
+
+3. **DecisionTraceCard 特殊处理**：
+   - `slate-*` 系列（暗色主题专用）→ `ink-*` / `amber-*` 系列
+   - `bg-gradient-to-br from-slate-900/60 to-slate-800/40` → `bg-gradient-to-br from-amber-50/60 to-white`
+
+4. **保持不变的**：
+   - emerald 系列（成功色）
+   - rose/red 系列（错误色）
+   - amber 系列（警告色）
+   - MapOverlay 中的地图标注 marker HTML 颜色
+   - Confetti 烟花颜色
+   - NumberTicker / ShimmerStripe（已在 globals.css 中用 shimmer-skeleton 适配）
 
 **修改的代码文件**：
 
-- `backend/agent/planning/critic/_rules/types.py`（加 MEAL_TIME_UNREASONABLE）
-- `backend/agent/planning/critic/_rules/checks.py`（加 check_meal_time）
-- `backend/agent/planning/critic/critics_v2.py`（接入 meal_time）
-- `backend/agent/planning/blueprint/prompts/blueprint_prompt.py`（用餐时段 + cuisine 匹配，长度 2200 cap 内）
-- `backend/agent/intent/prompts/intent_parser_prompt.py`（关键词保留 + 凭空禁令 + 独处反例）
-- `backend/agent/runtime/tools/search_adapter.py`（cuisine 重排 + 扩池）
-- `backend/agent/graph/build.py`（msgpack allowlist 补 3 个 blueprint 类型）
-- `backend/agent/planning/weights_llm.py`（FROZEN 注释修正）
-- `backend/agent/runtime/react_agent.py`（deprecated 标注）
-- `backend/.env` / `backend/.env.example`（死配置标注）
-- `AGENTS.md`（§3.3.2 三路线架构表）
-- `mock_data/restaurants.json`（R046 坐标）
-- 新增测试：`test_meal_time_critic.py`（6）/ `test_intent_keyword_retention.py`（4）/ `test_search_adapter_cuisine_rerank.py`（4）；扩 `test_blueprint_prompt.py`（+2）
-- `.kiro/specs/planning-pipeline-consolidation/{requirements,design,tasks}.md`
-- `frontend/lib/store.ts`（refine URL+body）
+- `frontend/components/HomeView.tsx`
+- `frontend/components/ChatDock.tsx`
+- `frontend/components/QuickScenarios.tsx`
+- `frontend/components/ChitchatBubble.tsx`
+- `frontend/components/IntentSummary.tsx`
+- `frontend/components/ToolTracePanel.tsx`
+- `frontend/components/ThoughtPanel.tsx`
+- `frontend/components/ItineraryCard.tsx`
+- `frontend/components/ComparisonView.tsx`
+- `frontend/components/PreferencesPanel.tsx`
+- `frontend/components/CommandPalette.tsx`
+- `frontend/components/ShareModal.tsx`
+- `frontend/components/CollabBar.tsx`
+- `frontend/components/MockModeBadge.tsx`
+- `frontend/components/PlannerModeBadge.tsx`
+- `frontend/components/OfflineReadyBadge.tsx`
+- `frontend/components/RefinementDialog.tsx`
+- `frontend/components/UserSwitcher.tsx`
+- `frontend/components/ToastStack.tsx`
+- `frontend/components/VoteButtons.tsx`
+- `frontend/components/DecisionTraceCard.tsx`
+- `frontend/components/TtsPlayer.tsx`
+- `frontend/components/PosterGenerator.tsx`
+- `frontend/components/MapOverlay.tsx`
 
-**应当达成的效果 / 验证证据**：
+**应当达成的效果**：
+
+- 所有组件在白色背景下有足够的对比度和可读性
+- 品牌色统一为美团黄（#FFD100）系列
+- 用户消息气泡从暖橙→莓粉渐变改为纯美团黄底色
+- 所有 modal/dropdown 背景从深色改为白色半透明
+- `pnpm typecheck` 编译通过（已验证）
 
 ```text
 | 验证项                          | 结果                                   |
