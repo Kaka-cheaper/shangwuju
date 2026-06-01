@@ -63,76 +63,195 @@
       "summary": "POST /chat/turn 单一入口；3 层 fallback：LangGraph(默认) → ReAct → rule planner",
       "epicId": "input",
       "triggers": [
-        { "kind": "http", "detail": "POST /chat/turn" },
-        { "kind": "ui", "detail": "前端 ChatDock 输入框 / 快捷场景按钮提交" }
+        {
+          "kind": "http",
+          "detail": "POST /chat/turn"
+        },
+        {
+          "kind": "ui",
+          "detail": "前端 ChatDock 输入框 / 快捷场景按钮提交"
+        }
       ],
       "steps": [
         {
           "id": "receive",
           "name": "接收请求",
           "role": "input",
-          "refs": [{ "file": "backend/main.py", "lines": [842, 870] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                842,
+                870
+              ]
+            }
+          ]
         },
         {
           "id": "resolve_user",
           "name": "解析用户身份",
           "role": "compute",
           "note": "body.user_id > X-User-Id > demo_user",
-          "refs": [{ "file": "backend/main.py", "lines": [180, 195] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                180,
+                195
+              ]
+            }
+          ]
         },
         {
           "id": "probe_langgraph",
           "name": "探活 LangGraph",
           "role": "validation",
-          "refs": [{ "file": "backend/main.py", "lines": [870, 905] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                870,
+                905
+              ]
+            }
+          ]
         },
         {
           "id": "run_graph",
           "name": "走 LangGraph 主路径",
           "role": "side-effect",
-          "refs": [{ "file": "backend/main.py", "lines": [905, 945] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                905,
+                945
+              ]
+            }
+          ]
         },
         {
           "id": "fallback_react",
           "name": "降级 ReAct 路径",
           "role": "side-effect",
           "note": "LangGraph 探活失败时 fallback 到 Pydantic AI ReAct（v0 路径）",
-          "refs": [{ "file": "backend/main.py", "lines": [945, 980] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                945,
+                980
+              ]
+            }
+          ]
         },
         {
           "id": "fallback_rule",
           "name": "降级旧 router 路径",
           "role": "side-effect",
           "note": "ReAct 不可用 → router → planner / refiner（rule mode）",
-          "refs": [{ "file": "backend/main.py", "lines": [980, 1020] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                980,
+                1020
+              ]
+            }
+          ]
         },
         {
           "id": "stream_sse",
           "name": "推送事件流",
           "role": "output",
-          "refs": [{ "file": "backend/main.py", "lines": [930, 945] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                930,
+                945
+              ]
+            }
+          ]
         },
         {
           "id": "fail_validate",
           "name": "请求体校验失败",
           "role": "error",
-          "refs": [{ "file": "backend/main.py", "lines": [165, 175] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                165,
+                175
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "receive", "to": "resolve_user", "kind": "conditional", "condition": "请求体合法" },
-        { "from": "receive", "to": "fail_validate", "kind": "error", "condition": "message 空 / 超长" },
-        { "from": "resolve_user", "to": "probe_langgraph", "kind": "next" },
-        { "from": "probe_langgraph", "to": "run_graph", "kind": "conditional", "condition": "USE_LANGGRAPH=1 且探活成功" },
-        { "from": "probe_langgraph", "to": "fallback_react", "kind": "error", "condition": "LangGraph import 失败" },
-        { "from": "fallback_react", "to": "fallback_rule", "kind": "error", "condition": "ReAct 不可用" },
-        { "from": "run_graph", "to": "stream_sse", "kind": "next" },
-        { "from": "fallback_react", "to": "stream_sse", "kind": "next" },
-        { "from": "fallback_rule", "to": "stream_sse", "kind": "next" }
+        {
+          "from": "receive",
+          "to": "resolve_user",
+          "kind": "conditional",
+          "condition": "请求体合法"
+        },
+        {
+          "from": "receive",
+          "to": "fail_validate",
+          "kind": "error",
+          "condition": "message 空 / 超长"
+        },
+        {
+          "from": "resolve_user",
+          "to": "probe_langgraph",
+          "kind": "next"
+        },
+        {
+          "from": "probe_langgraph",
+          "to": "run_graph",
+          "kind": "conditional",
+          "condition": "USE_LANGGRAPH=1 且探活成功"
+        },
+        {
+          "from": "probe_langgraph",
+          "to": "fallback_react",
+          "kind": "error",
+          "condition": "LangGraph import 失败"
+        },
+        {
+          "from": "fallback_react",
+          "to": "fallback_rule",
+          "kind": "error",
+          "condition": "ReAct 不可用"
+        },
+        {
+          "from": "run_graph",
+          "to": "stream_sse",
+          "kind": "next"
+        },
+        {
+          "from": "fallback_react",
+          "to": "stream_sse",
+          "kind": "next"
+        },
+        {
+          "from": "fallback_rule",
+          "to": "stream_sse",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/main.py", "lines": [842, 1020] },
-        { "file": "backend/api_contract.md" }
+        {
+          "file": "backend/main.py",
+          "lines": [
+            842,
+            1020
+          ]
+        },
+        {
+          "file": "backend/api_contract.md"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -145,7 +264,10 @@
       "summary": "4 层防御：注入检测(off_topic 婉拒) → feedback 启发式 → LLM 6 类分类 → ambiguous 兜底反馈；分发到 intent / refiner / chitchat",
       "epicId": "input",
       "triggers": [
-        { "kind": "event", "detail": "LangGraph START 节点首次进入" }
+        {
+          "kind": "event",
+          "detail": "LangGraph START 节点首次进入"
+        }
       ],
       "steps": [
         {
@@ -154,15 +276,31 @@
           "role": "validation",
           "note": "Layer 0：detect_injection 命中 high → off_topic 安全婉拒,不调 LLM、不回显攻击文本",
           "refs": [
-            { "file": "backend/agent/graph/nodes/router.py", "lines": [56, 80] },
-            { "file": "backend/agent/core/injection_detector.py" }
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                56,
+                80
+              ]
+            },
+            {
+              "file": "backend/agent/core/injection_detector.py"
+            }
           ]
         },
         {
           "id": "input_text",
           "name": "接收用户输入",
           "role": "input",
-          "refs": [{ "file": "backend/agent/graph/nodes/router.py", "lines": [40, 55] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                40,
+                55
+              ]
+            }
+          ]
         },
         {
           "id": "feedback_heuristic",
@@ -170,8 +308,16 @@
           "role": "validation",
           "note": "已有 itinerary + 命中关键词 → 直接 feedback",
           "refs": [
-            { "file": "backend/agent/graph/nodes/router.py", "lines": [22, 38] },
-            { "file": "backend/agent/feedback_detector.py" }
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                22,
+                38
+              ]
+            },
+            {
+              "file": "backend/agent/feedback_detector.py"
+            }
           ]
         },
         {
@@ -180,45 +326,129 @@
           "role": "compute",
           "note": "6 类：planning / chitchat / meta / emotional / off_topic / ambiguous",
           "refs": [
-            { "file": "backend/agent/graph/nodes/router.py", "lines": [60, 78] },
-            { "file": "backend/agent/router.py", "lines": [1, 142] }
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                60,
+                78
+              ]
+            },
+            {
+              "file": "backend/agent/router.py",
+              "lines": [
+                1,
+                142
+              ]
+            }
           ]
         },
         {
           "id": "fallback_keyword",
           "name": "失败关键词兜底",
           "role": "error",
-          "refs": [{ "file": "backend/agent/router.py", "lines": [120, 142] }]
+          "refs": [
+            {
+              "file": "backend/agent/router.py",
+              "lines": [
+                120,
+                142
+              ]
+            }
+          ]
         },
         {
           "id": "short_input_rescue",
           "name": "短输入弱信号纠偏",
           "role": "compute",
           "note": "已有方案 + 输入 <15 字 + 非 planning → 改判 feedback",
-          "refs": [{ "file": "backend/agent/graph/nodes/router.py", "lines": [82, 95] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                82,
+                95
+              ]
+            }
+          ]
         },
         {
           "id": "decide_route",
           "name": "决定下一节点",
           "role": "output",
-          "refs": [{ "file": "backend/agent/graph/nodes/router.py", "lines": [100, 115] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                100,
+                115
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "injection_gate", "to": "decide_route", "kind": "conditional", "condition": "命中注入 → off_topic 婉拒" },
-        { "from": "injection_gate", "to": "input_text", "kind": "conditional", "condition": "未命中注入" },
-        { "from": "input_text", "to": "feedback_heuristic", "kind": "next" },
-        { "from": "feedback_heuristic", "to": "decide_route", "kind": "conditional", "condition": "命中反馈强信号" },
-        { "from": "feedback_heuristic", "to": "call_router_llm", "kind": "conditional", "condition": "未命中反馈" },
-        { "from": "call_router_llm", "to": "short_input_rescue", "kind": "conditional", "condition": "LLM 成功" },
-        { "from": "call_router_llm", "to": "fallback_keyword", "kind": "error", "condition": "LLM 异常 / JSON 失败" },
-        { "from": "fallback_keyword", "to": "short_input_rescue", "kind": "next" },
-        { "from": "short_input_rescue", "to": "decide_route", "kind": "next" }
+        {
+          "from": "injection_gate",
+          "to": "decide_route",
+          "kind": "conditional",
+          "condition": "命中注入 → off_topic 婉拒"
+        },
+        {
+          "from": "injection_gate",
+          "to": "input_text",
+          "kind": "conditional",
+          "condition": "未命中注入"
+        },
+        {
+          "from": "input_text",
+          "to": "feedback_heuristic",
+          "kind": "next"
+        },
+        {
+          "from": "feedback_heuristic",
+          "to": "decide_route",
+          "kind": "conditional",
+          "condition": "命中反馈强信号"
+        },
+        {
+          "from": "feedback_heuristic",
+          "to": "call_router_llm",
+          "kind": "conditional",
+          "condition": "未命中反馈"
+        },
+        {
+          "from": "call_router_llm",
+          "to": "short_input_rescue",
+          "kind": "conditional",
+          "condition": "LLM 成功"
+        },
+        {
+          "from": "call_router_llm",
+          "to": "fallback_keyword",
+          "kind": "error",
+          "condition": "LLM 异常 / JSON 失败"
+        },
+        {
+          "from": "fallback_keyword",
+          "to": "short_input_rescue",
+          "kind": "next"
+        },
+        {
+          "from": "short_input_rescue",
+          "to": "decide_route",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/router.py" },
-        { "file": "backend/agent/router.py" },
-        { "file": "backend/agent/feedback_detector.py" }
+        {
+          "file": "backend/agent/graph/nodes/router.py"
+        },
+        {
+          "file": "backend/agent/router.py"
+        },
+        {
+          "file": "backend/agent/feedback_detector.py"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -228,10 +458,13 @@
     {
       "id": "f-intent-parse",
       "name": "意图解析",
-      "summary": "把自然语言抽取为 §5.7 IntentExtraction；保留明示餐饮品类（撸串/烧烤→preferred_poi_types）+ 独处场景反例约束；注入 persona/memory prior；3 次重试 + 默认值兜底",
+      "summary": "把自然语言抽取为 §5.7 IntentExtraction；保留明示餐饮/活动品类（撸串/烧烤→preferred_poi_types；看展等词典内活动品类镜像进 preferred_poi_types 作检索高信号）+ 独处场景反例约束；注入 persona/memory prior；3 次重试 + 默认值兜底",
       "epicId": "input",
       "triggers": [
-        { "kind": "event", "detail": "LangGraph router→intent 边触发" }
+        {
+          "kind": "event",
+          "detail": "LangGraph router→intent 边触发"
+        }
       ],
       "steps": [
         {
@@ -240,8 +473,20 @@
           "role": "data-read",
           "note": "compute_priors(user_id) 合并 persona + memory（accepted/rejected tags）",
           "refs": [
-            { "file": "backend/data/memory_store.py", "lines": [180, 263] },
-            { "file": "backend/agent/intent_parser.py", "lines": [40, 80] }
+            {
+              "file": "backend/data/memory_store.py",
+              "lines": [
+                180,
+                263
+              ]
+            },
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                40,
+                80
+              ]
+            }
           ]
         },
         {
@@ -249,27 +494,59 @@
           "name": "拼装提示词",
           "role": "transform",
           "note": "system prompt 注入 prior 摘要 + user message",
-          "refs": [{ "file": "backend/agent/prompts/system_prompt.py", "lines": [200, 310] }]
+          "refs": [
+            {
+              "file": "backend/agent/prompts/system_prompt.py",
+              "lines": [
+                200,
+                310
+              ]
+            }
+          ]
         },
         {
           "id": "call_llm",
           "name": "请求模型抽取",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/intent_parser.py", "lines": [80, 100] }]
+          "refs": [
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                80,
+                100
+              ]
+            }
+          ]
         },
         {
           "id": "parse_json",
           "name": "解析 JSON",
           "role": "transform",
-          "refs": [{ "file": "backend/agent/intent_parser.py", "lines": [100, 115] }]
+          "refs": [
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                100,
+                115
+              ]
+            }
+          ]
         },
         {
           "id": "validate",
           "name": "校验意图字段",
           "role": "validation",
           "refs": [
-            { "file": "backend/agent/intent_parser.py", "lines": [115, 130] },
-            { "file": "backend/schemas/intent.py" }
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                115,
+                130
+              ]
+            },
+            {
+              "file": "backend/schemas/intent.py"
+            }
           ]
         },
         {
@@ -277,13 +554,29 @@
           "name": "回灌错误重试",
           "role": "compute",
           "note": "校验失败时把错误信息塞回 prompt 让 LLM 重出（最多 3 次）",
-          "refs": [{ "file": "backend/agent/intent_parser.py", "lines": [130, 150] }]
+          "refs": [
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                130,
+                150
+              ]
+            }
+          ]
         },
         {
           "id": "fill_default",
           "name": "兜底默认意图",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/intent_parser.py", "lines": [150, 170] }]
+          "refs": [
+            {
+              "file": "backend/agent/intent_parser.py",
+              "lines": [
+                150,
+                170
+              ]
+            }
+          ]
         },
         {
           "id": "output",
@@ -292,22 +585,76 @@
         }
       ],
       "flow": [
-        { "from": "load_priors", "to": "build_messages", "kind": "next" },
-        { "from": "build_messages", "to": "call_llm", "kind": "next" },
-        { "from": "call_llm", "to": "parse_json", "kind": "next" },
-        { "from": "parse_json", "to": "validate", "kind": "conditional", "condition": "JSON 解析成功" },
-        { "from": "parse_json", "to": "feedback_retry", "kind": "error", "condition": "JSON 解析失败" },
-        { "from": "validate", "to": "output", "kind": "conditional", "condition": "schema 校验通过" },
-        { "from": "validate", "to": "feedback_retry", "kind": "error", "condition": "schema 校验失败" },
-        { "from": "feedback_retry", "to": "build_messages", "kind": "loop", "condition": "重试次数未超 3" },
-        { "from": "feedback_retry", "to": "fill_default", "kind": "error", "condition": "重试耗尽" },
-        { "from": "fill_default", "to": "output", "kind": "next" }
+        {
+          "from": "load_priors",
+          "to": "build_messages",
+          "kind": "next"
+        },
+        {
+          "from": "build_messages",
+          "to": "call_llm",
+          "kind": "next"
+        },
+        {
+          "from": "call_llm",
+          "to": "parse_json",
+          "kind": "next"
+        },
+        {
+          "from": "parse_json",
+          "to": "validate",
+          "kind": "conditional",
+          "condition": "JSON 解析成功"
+        },
+        {
+          "from": "parse_json",
+          "to": "feedback_retry",
+          "kind": "error",
+          "condition": "JSON 解析失败"
+        },
+        {
+          "from": "validate",
+          "to": "output",
+          "kind": "conditional",
+          "condition": "schema 校验通过"
+        },
+        {
+          "from": "validate",
+          "to": "feedback_retry",
+          "kind": "error",
+          "condition": "schema 校验失败"
+        },
+        {
+          "from": "feedback_retry",
+          "to": "build_messages",
+          "kind": "loop",
+          "condition": "重试次数未超 3"
+        },
+        {
+          "from": "feedback_retry",
+          "to": "fill_default",
+          "kind": "error",
+          "condition": "重试耗尽"
+        },
+        {
+          "from": "fill_default",
+          "to": "output",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/intent.py" },
-        { "file": "backend/agent/intent_parser.py" },
-        { "file": "backend/agent/prompts/system_prompt.py" },
-        { "file": "backend/schemas/intent.py" }
+        {
+          "file": "backend/agent/graph/nodes/intent.py"
+        },
+        {
+          "file": "backend/agent/intent_parser.py"
+        },
+        {
+          "file": "backend/agent/prompts/system_prompt.py"
+        },
+        {
+          "file": "backend/schemas/intent.py"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -320,8 +667,14 @@
       "summary": "首屏 8 个演示场景一键提交；首屏拉 GET /scenarios；命令面板共用同一份配置",
       "epicId": "input",
       "triggers": [
-        { "kind": "ui", "detail": "用户点击 8 个演示场景之一" },
-        { "kind": "startup", "detail": "首屏 mount 时拉 GET /scenarios" }
+        {
+          "kind": "ui",
+          "detail": "用户点击 8 个演示场景之一"
+        },
+        {
+          "kind": "startup",
+          "detail": "首屏 mount 时拉 GET /scenarios"
+        }
       ],
       "steps": [
         {
@@ -329,44 +682,106 @@
           "name": "拉取场景配置",
           "role": "data-read",
           "refs": [
-            { "file": "backend/main.py", "lines": [333, 336] },
-            { "file": "frontend/lib/store.ts", "lines": [193, 205] }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                333,
+                336
+              ]
+            },
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                193,
+                205
+              ]
+            }
           ]
         },
         {
           "id": "render_grid",
           "name": "渲染按钮网格",
           "role": "output",
-          "refs": [{ "file": "frontend/components/QuickScenarios.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/QuickScenarios.tsx"
+            }
+          ]
         },
         {
           "id": "click",
           "name": "点击场景按钮",
           "role": "input",
-          "refs": [{ "file": "frontend/components/QuickScenarios.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/QuickScenarios.tsx"
+            }
+          ]
         },
         {
           "id": "submit",
           "name": "触发流式发送",
           "role": "side-effect",
-          "refs": [{ "file": "frontend/lib/store.ts", "lines": [207, 280] }]
+          "refs": [
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                207,
+                280
+              ]
+            }
+          ]
         },
         {
           "id": "fetch_fail",
           "name": "拉取失败降级",
           "role": "error",
-          "refs": [{ "file": "frontend/lib/store.ts", "lines": [200, 205] }]
+          "refs": [
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                200,
+                205
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "fetch_scenarios", "to": "render_grid", "kind": "conditional", "condition": "拉取成功" },
-        { "from": "fetch_scenarios", "to": "fetch_fail", "kind": "error", "condition": "网络失败" },
-        { "from": "render_grid", "to": "click", "kind": "next" },
-        { "from": "click", "to": "submit", "kind": "next" }
+        {
+          "from": "fetch_scenarios",
+          "to": "render_grid",
+          "kind": "conditional",
+          "condition": "拉取成功"
+        },
+        {
+          "from": "fetch_scenarios",
+          "to": "fetch_fail",
+          "kind": "error",
+          "condition": "网络失败"
+        },
+        {
+          "from": "render_grid",
+          "to": "click",
+          "kind": "next"
+        },
+        {
+          "from": "click",
+          "to": "submit",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/QuickScenarios.tsx" },
-        { "file": "backend/main.py", "lines": [70, 134] }
+        {
+          "file": "frontend/components/QuickScenarios.tsx"
+        },
+        {
+          "file": "backend/main.py",
+          "lines": [
+            70,
+            134
+          ]
+        }
       ],
       "confidence": 0.94,
       "provenance": "ai",
@@ -379,9 +794,18 @@
       "summary": "persona 档案（mock）+ memory 累积（accepted/rejected/visited tags）；切 user 时重新拉取偏好",
       "epicId": "input",
       "triggers": [
-        { "kind": "ui", "detail": "顶栏 UserSwitcher 切换 persona" },
-        { "kind": "http", "detail": "GET /personas / GET /preferences/{user_id} / POST /preferences/{user_id}/reset" },
-        { "kind": "event", "detail": "confirm/refine 完成后异步累积记忆" }
+        {
+          "kind": "ui",
+          "detail": "顶栏 UserSwitcher 切换 persona"
+        },
+        {
+          "kind": "http",
+          "detail": "GET /personas / GET /preferences/{user_id} / POST /preferences/{user_id}/reset"
+        },
+        {
+          "kind": "event",
+          "detail": "confirm/refine 完成后异步累积记忆"
+        }
       ],
       "steps": [
         {
@@ -389,8 +813,16 @@
           "name": "列出可用画像",
           "role": "data-read",
           "refs": [
-            { "file": "backend/main.py", "lines": [437, 455] },
-            { "file": "mock_data/personas.json" }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                437,
+                455
+              ]
+            },
+            {
+              "file": "mock_data/personas.json"
+            }
           ]
         },
         {
@@ -398,59 +830,144 @@
           "name": "切换用户身份",
           "role": "compute",
           "refs": [
-            { "file": "frontend/components/UserSwitcher.tsx" },
-            { "file": "frontend/lib/store.ts", "lines": [400, 460] }
+            {
+              "file": "frontend/components/UserSwitcher.tsx"
+            },
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                400,
+                460
+              ]
+            }
           ]
         },
         {
           "id": "compute_priors",
           "name": "合并画像与记忆",
           "role": "compute",
-          "refs": [{ "file": "backend/data/memory_store.py", "lines": [180, 263] }]
+          "refs": [
+            {
+              "file": "backend/data/memory_store.py",
+              "lines": [
+                180,
+                263
+              ]
+            }
+          ]
         },
         {
           "id": "record_accepted",
           "name": "确认后累积命中标签",
           "role": "data-write",
           "refs": [
-            { "file": "backend/main.py", "lines": [620, 720] },
-            { "file": "backend/data/memory_store.py", "lines": [120, 180] }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                620,
+                720
+              ]
+            },
+            {
+              "file": "backend/data/memory_store.py",
+              "lines": [
+                120,
+                180
+              ]
+            }
           ]
         },
         {
           "id": "record_rejected",
           "name": "反馈后累积拒绝标签",
           "role": "data-write",
-          "refs": [{ "file": "backend/main.py", "lines": [725, 745] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                725,
+                745
+              ]
+            }
+          ]
         },
         {
           "id": "publish_panel",
           "name": "推送偏好面板",
           "role": "output",
-          "refs": [{ "file": "frontend/components/PreferencesPanel.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/PreferencesPanel.tsx"
+            }
+          ]
         },
         {
           "id": "reset",
           "name": "清空记忆",
           "role": "error",
           "note": "演示完清场用",
-          "refs": [{ "file": "backend/main.py", "lines": [468, 475] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                468,
+                475
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "list_personas", "to": "switch_user", "kind": "next" },
-        { "from": "switch_user", "to": "compute_priors", "kind": "next" },
-        { "from": "compute_priors", "to": "publish_panel", "kind": "next" },
-        { "from": "record_accepted", "to": "compute_priors", "kind": "async", "condition": "confirm 后异步累积" },
-        { "from": "record_rejected", "to": "compute_priors", "kind": "async", "condition": "refine 后异步累积" },
-        { "from": "publish_panel", "to": "reset", "kind": "error", "condition": "用户点清空记忆" }
+        {
+          "from": "list_personas",
+          "to": "switch_user",
+          "kind": "next"
+        },
+        {
+          "from": "switch_user",
+          "to": "compute_priors",
+          "kind": "next"
+        },
+        {
+          "from": "compute_priors",
+          "to": "publish_panel",
+          "kind": "next"
+        },
+        {
+          "from": "record_accepted",
+          "to": "compute_priors",
+          "kind": "async",
+          "condition": "confirm 后异步累积"
+        },
+        {
+          "from": "record_rejected",
+          "to": "compute_priors",
+          "kind": "async",
+          "condition": "refine 后异步累积"
+        },
+        {
+          "from": "publish_panel",
+          "to": "reset",
+          "kind": "error",
+          "condition": "用户点清空记忆"
+        }
       ],
       "refs": [
-        { "file": "backend/data/memory_store.py" },
-        { "file": "backend/schemas/persona.py" },
-        { "file": "mock_data/personas.json" },
-        { "file": "frontend/components/UserSwitcher.tsx" },
-        { "file": "frontend/components/PreferencesPanel.tsx" }
+        {
+          "file": "backend/data/memory_store.py"
+        },
+        {
+          "file": "backend/schemas/persona.py"
+        },
+        {
+          "file": "mock_data/personas.json"
+        },
+        {
+          "file": "frontend/components/UserSwitcher.tsx"
+        },
+        {
+          "file": "frontend/components/PreferencesPanel.tsx"
+        }
       ],
       "confidence": 0.86,
       "provenance": "ai",
@@ -463,7 +980,10 @@
       "summary": "looks_like_feedback：关键词 + 数字单位 + 短句兜底；让 dock 直接输入也能进 refiner",
       "epicId": "input",
       "triggers": [
-        { "kind": "event", "detail": "router_node 第一层防御调用" }
+        {
+          "kind": "event",
+          "detail": "router_node 第一层防御调用"
+        }
       ],
       "steps": [
         {
@@ -475,14 +995,26 @@
           "id": "check_itinerary",
           "name": "判已有方案",
           "role": "validation",
-          "refs": [{ "file": "backend/agent/graph/nodes/router.py", "lines": [22, 35] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                22,
+                35
+              ]
+            }
+          ]
         },
         {
           "id": "match_keywords",
           "name": "匹配关键词",
           "role": "compute",
           "note": "太远 / 太贵 / 不那么 / 换一个 等",
-          "refs": [{ "file": "backend/agent/feedback_detector.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/feedback_detector.py"
+            }
+          ]
         },
         {
           "id": "match_distance",
@@ -497,15 +1029,41 @@
         }
       ],
       "flow": [
-        { "from": "input_text", "to": "check_itinerary", "kind": "next" },
-        { "from": "check_itinerary", "to": "match_keywords", "kind": "conditional", "condition": "已有 itinerary" },
-        { "from": "check_itinerary", "to": "decide", "kind": "conditional", "condition": "无 itinerary 直判否" },
-        { "from": "match_keywords", "to": "match_distance", "kind": "next" },
-        { "from": "match_distance", "to": "decide", "kind": "next" }
+        {
+          "from": "input_text",
+          "to": "check_itinerary",
+          "kind": "next"
+        },
+        {
+          "from": "check_itinerary",
+          "to": "match_keywords",
+          "kind": "conditional",
+          "condition": "已有 itinerary"
+        },
+        {
+          "from": "check_itinerary",
+          "to": "decide",
+          "kind": "conditional",
+          "condition": "无 itinerary 直判否"
+        },
+        {
+          "from": "match_keywords",
+          "to": "match_distance",
+          "kind": "next"
+        },
+        {
+          "from": "match_distance",
+          "to": "decide",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/feedback_detector.py" },
-        { "file": "backend/tests/test_feedback_detector.py" }
+        {
+          "file": "backend/agent/feedback_detector.py"
+        },
+        {
+          "file": "backend/tests/test_feedback_detector.py"
+        }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -518,32 +1076,67 @@
       "summary": "Plan-and-Execute 的 execute 阶段：3 worker 同时跑（搜地点 / 搜餐厅 / 取画像）+ split-per-worker state key 防 reducer 覆盖；estimate_routes_worker 是 14h 切高德时的路线图",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "intent / refiner 完成后多边并发" }
+        {
+          "kind": "event",
+          "detail": "intent / refiner 完成后多边并发"
+        }
       ],
       "steps": [
         {
           "id": "fanout",
           "name": "扇出并行任务",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [113, 130] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                113,
+                130
+              ]
+            }
+          ]
         },
         {
           "id": "search_pois_w",
           "name": "搜地点 worker",
           "role": "data-read",
-          "refs": [{ "file": "backend/agent/graph/nodes/execute.py", "lines": [40, 50] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute.py",
+              "lines": [
+                40,
+                50
+              ]
+            }
+          ]
         },
         {
           "id": "search_rests_w",
           "name": "搜餐厅 worker",
           "role": "data-read",
-          "refs": [{ "file": "backend/agent/graph/nodes/execute.py", "lines": [50, 60] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute.py",
+              "lines": [
+                50,
+                60
+              ]
+            }
+          ]
         },
         {
           "id": "user_profile_w",
           "name": "读画像 worker",
           "role": "data-read",
-          "refs": [{ "file": "backend/agent/graph/nodes/execute.py", "lines": [60, 67] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute.py",
+              "lines": [
+                60,
+                67
+              ]
+            }
+          ]
         },
         {
           "id": "tag_relax",
@@ -551,8 +1144,12 @@
           "role": "compute",
           "note": "命中 0 候选时按规则降级标签（pois_relaxed_tags / restaurants_relaxed_tags 单独存避冲突）",
           "refs": [
-            { "file": "backend/agent/tools/search_adapter.py" },
-            { "file": "backend/tests/test_tag_relaxation.py" }
+            {
+              "file": "backend/agent/tools/search_adapter.py"
+            },
+            {
+              "file": "backend/tests/test_tag_relaxation.py"
+            }
           ]
         },
         {
@@ -560,24 +1157,105 @@
           "name": "汇聚候选",
           "role": "compute",
           "note": "join point，给 planner_node 一个稳定入口",
-          "refs": [{ "file": "backend/agent/graph/nodes/execute.py", "lines": [69, 80] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute.py",
+              "lines": [
+                69,
+                80
+              ]
+            }
+          ]
+        },
+        {
+          "id": "desire_rerank",
+          "name": "按明示诉求词法重排",
+          "role": "compute",
+          "note": "用户明示活动诉求（preferred_poi_types，如看展）时扩池抓取后按 type/name/tags 双向 substring 命中前置，让对味候选进 top_k 预览（治本 RAG 重排缺失，与餐厅侧 cuisine 重排对称）",
+          "refs": [
+            {
+              "file": "backend/agent/runtime/tools/search_adapter.py"
+            },
+            {
+              "file": "backend/tests/test_search_adapter_poi_rerank.py"
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "fanout", "to": "search_pois_w", "kind": "async" },
-        { "from": "fanout", "to": "search_rests_w", "kind": "async" },
-        { "from": "fanout", "to": "user_profile_w", "kind": "async" },
-        { "from": "search_pois_w", "to": "tag_relax", "kind": "error", "condition": "命中 0 → 放宽标签重搜" },
-        { "from": "search_rests_w", "to": "tag_relax", "kind": "error", "condition": "命中 0 → 放宽标签重搜" },
-        { "from": "search_pois_w", "to": "collect", "kind": "next" },
-        { "from": "search_rests_w", "to": "collect", "kind": "next" },
-        { "from": "user_profile_w", "to": "collect", "kind": "next" },
-        { "from": "tag_relax", "to": "collect", "kind": "next" }
+        {
+          "from": "fanout",
+          "to": "search_pois_w",
+          "kind": "async"
+        },
+        {
+          "from": "fanout",
+          "to": "search_rests_w",
+          "kind": "async"
+        },
+        {
+          "from": "fanout",
+          "to": "user_profile_w",
+          "kind": "async"
+        },
+        {
+          "from": "search_pois_w",
+          "to": "tag_relax",
+          "kind": "error",
+          "condition": "命中 0 → 放宽标签重搜"
+        },
+        {
+          "from": "search_rests_w",
+          "to": "tag_relax",
+          "kind": "error",
+          "condition": "命中 0 → 放宽标签重搜"
+        },
+        {
+          "from": "search_pois_w",
+          "to": "collect",
+          "kind": "next"
+        },
+        {
+          "from": "search_rests_w",
+          "to": "collect",
+          "kind": "next"
+        },
+        {
+          "from": "user_profile_w",
+          "to": "collect",
+          "kind": "next"
+        },
+        {
+          "from": "tag_relax",
+          "to": "collect",
+          "kind": "next"
+        },
+        {
+          "from": "search_pois_w",
+          "to": "desire_rerank",
+          "kind": "conditional",
+          "condition": "有明示诉求 preferred_poi_types"
+        },
+        {
+          "from": "desire_rerank",
+          "to": "collect",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/execute.py" },
-        { "file": "backend/agent/tools/search_adapter.py" },
-        { "file": "backend/agent/graph/build.py", "lines": [113, 135] }
+        {
+          "file": "backend/agent/graph/nodes/execute.py"
+        },
+        {
+          "file": "backend/agent/tools/search_adapter.py"
+        },
+        {
+          "file": "backend/agent/graph/build.py",
+          "lines": [
+            113,
+            135
+          ]
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -590,34 +1268,115 @@
       "summary": "search_pois Tool：按距离 / tags / suitable_for / 同行年龄过滤 mock POI 候选",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "execute 阶段 search_pois_worker 调用" }
+        {
+          "kind": "event",
+          "detail": "execute 阶段 search_pois_worker 调用"
+        }
       ],
       "steps": [
-        { "id": "receive", "name": "接收查询参数", "role": "input" },
-        { "id": "validate", "name": "校验参数", "role": "validation" },
-        { "id": "load", "name": "加载 POI 全集", "role": "data-read" },
-        { "id": "filter_distance", "name": "过滤距离上限", "role": "compute" },
-        { "id": "filter_tags", "name": "过滤约束标签", "role": "compute" },
-        { "id": "filter_age", "name": "过滤同行年龄", "role": "compute" },
-        { "id": "rank", "name": "按评分排序", "role": "compute" },
-        { "id": "return", "name": "返回候选列表", "role": "output" },
-        { "id": "empty", "name": "返回空集降级", "role": "error" }
+        {
+          "id": "receive",
+          "name": "接收查询参数",
+          "role": "input"
+        },
+        {
+          "id": "validate",
+          "name": "校验参数",
+          "role": "validation"
+        },
+        {
+          "id": "load",
+          "name": "加载 POI 全集",
+          "role": "data-read"
+        },
+        {
+          "id": "filter_distance",
+          "name": "过滤距离上限",
+          "role": "compute"
+        },
+        {
+          "id": "filter_tags",
+          "name": "过滤约束标签",
+          "role": "compute"
+        },
+        {
+          "id": "filter_age",
+          "name": "过滤同行年龄",
+          "role": "compute"
+        },
+        {
+          "id": "rank",
+          "name": "按评分排序",
+          "role": "compute"
+        },
+        {
+          "id": "return",
+          "name": "返回候选列表",
+          "role": "output"
+        },
+        {
+          "id": "empty",
+          "name": "返回空集降级",
+          "role": "error"
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "load", "kind": "next" },
-        { "from": "load", "to": "filter_distance", "kind": "next" },
-        { "from": "filter_distance", "to": "filter_tags", "kind": "next" },
-        { "from": "filter_tags", "to": "filter_age", "kind": "next" },
-        { "from": "filter_age", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
-        { "from": "filter_age", "to": "empty", "kind": "error", "condition": "命中 0 条" },
-        { "from": "rank", "to": "return", "kind": "next" }
+        {
+          "from": "receive",
+          "to": "validate",
+          "kind": "next"
+        },
+        {
+          "from": "validate",
+          "to": "load",
+          "kind": "next"
+        },
+        {
+          "from": "load",
+          "to": "filter_distance",
+          "kind": "next"
+        },
+        {
+          "from": "filter_distance",
+          "to": "filter_tags",
+          "kind": "next"
+        },
+        {
+          "from": "filter_tags",
+          "to": "filter_age",
+          "kind": "next"
+        },
+        {
+          "from": "filter_age",
+          "to": "rank",
+          "kind": "conditional",
+          "condition": "命中 ≥ 1 条"
+        },
+        {
+          "from": "filter_age",
+          "to": "empty",
+          "kind": "error",
+          "condition": "命中 0 条"
+        },
+        {
+          "from": "rank",
+          "to": "return",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/tools/search_pois.py" },
-        { "file": "backend/tools/_helpers.py" },
-        { "file": "backend/data/loader.py" },
-        { "file": "mock_data/pois.json" }
+        {
+          "file": "backend/tools/search_pois.py"
+        },
+        {
+          "file": "backend/tools/_helpers.py"
+        },
+        {
+          "file": "backend/data/loader.py"
+        },
+        {
+          "file": "mock_data/pois.json"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -630,33 +1389,112 @@
       "summary": "search_restaurants Tool：按 dietary / 距离 / 桌型 / 包间 / suitable_for 过滤",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "execute 阶段 search_restaurants_worker 调用" }
+        {
+          "kind": "event",
+          "detail": "execute 阶段 search_restaurants_worker 调用"
+        }
       ],
       "steps": [
-        { "id": "receive", "name": "接收查询参数", "role": "input" },
-        { "id": "validate", "name": "校验参数", "role": "validation" },
-        { "id": "load", "name": "加载餐厅全集", "role": "data-read" },
-        { "id": "filter_distance", "name": "过滤距离上限", "role": "compute" },
-        { "id": "filter_tags", "name": "过滤饮食与体验标签", "role": "compute" },
-        { "id": "filter_capacity", "name": "过滤桌型与包间", "role": "compute" },
-        { "id": "rank", "name": "按评分排序", "role": "compute" },
-        { "id": "return", "name": "返回候选列表", "role": "output" },
-        { "id": "empty", "name": "返回空集降级", "role": "error" }
+        {
+          "id": "receive",
+          "name": "接收查询参数",
+          "role": "input"
+        },
+        {
+          "id": "validate",
+          "name": "校验参数",
+          "role": "validation"
+        },
+        {
+          "id": "load",
+          "name": "加载餐厅全集",
+          "role": "data-read"
+        },
+        {
+          "id": "filter_distance",
+          "name": "过滤距离上限",
+          "role": "compute"
+        },
+        {
+          "id": "filter_tags",
+          "name": "过滤饮食与体验标签",
+          "role": "compute"
+        },
+        {
+          "id": "filter_capacity",
+          "name": "过滤桌型与包间",
+          "role": "compute"
+        },
+        {
+          "id": "rank",
+          "name": "按评分排序",
+          "role": "compute"
+        },
+        {
+          "id": "return",
+          "name": "返回候选列表",
+          "role": "output"
+        },
+        {
+          "id": "empty",
+          "name": "返回空集降级",
+          "role": "error"
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "validate", "kind": "next" },
-        { "from": "validate", "to": "load", "kind": "next" },
-        { "from": "load", "to": "filter_distance", "kind": "next" },
-        { "from": "filter_distance", "to": "filter_tags", "kind": "next" },
-        { "from": "filter_tags", "to": "filter_capacity", "kind": "next" },
-        { "from": "filter_capacity", "to": "rank", "kind": "conditional", "condition": "命中 ≥ 1 条" },
-        { "from": "filter_capacity", "to": "empty", "kind": "error", "condition": "命中 0 条" },
-        { "from": "rank", "to": "return", "kind": "next" }
+        {
+          "from": "receive",
+          "to": "validate",
+          "kind": "next"
+        },
+        {
+          "from": "validate",
+          "to": "load",
+          "kind": "next"
+        },
+        {
+          "from": "load",
+          "to": "filter_distance",
+          "kind": "next"
+        },
+        {
+          "from": "filter_distance",
+          "to": "filter_tags",
+          "kind": "next"
+        },
+        {
+          "from": "filter_tags",
+          "to": "filter_capacity",
+          "kind": "next"
+        },
+        {
+          "from": "filter_capacity",
+          "to": "rank",
+          "kind": "conditional",
+          "condition": "命中 ≥ 1 条"
+        },
+        {
+          "from": "filter_capacity",
+          "to": "empty",
+          "kind": "error",
+          "condition": "命中 0 条"
+        },
+        {
+          "from": "rank",
+          "to": "return",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/tools/search_restaurants.py" },
-        { "file": "backend/tools/_helpers.py" },
-        { "file": "mock_data/restaurants.json" }
+        {
+          "file": "backend/tools/search_restaurants.py"
+        },
+        {
+          "file": "backend/tools/_helpers.py"
+        },
+        {
+          "file": "mock_data/restaurants.json"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -669,30 +1507,101 @@
       "summary": "check_restaurant_availability Tool：含 Mock 失败案例 E1（餐厅满座）+ 备选时段建议",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "确认前后规划闭环或 LLM 工具调用" }
+        {
+          "kind": "event",
+          "detail": "确认前后规划闭环或 LLM 工具调用"
+        }
       ],
       "steps": [
-        { "id": "receive", "name": "接收餐厅与时段", "role": "input" },
-        { "id": "load", "name": "加载餐厅全集", "role": "data-read" },
-        { "id": "lookup", "name": "查找餐厅与时段", "role": "compute" },
-        { "id": "determine", "name": "判断是否可订", "role": "compute" },
-        { "id": "suggest", "name": "推荐备选时段", "role": "compute" },
-        { "id": "return_ok", "name": "返回可订", "role": "output" },
-        { "id": "return_full", "name": "返回已满（埋点 E1）", "role": "error" },
-        { "id": "not_found", "name": "返回未找到", "role": "error" }
+        {
+          "id": "receive",
+          "name": "接收餐厅与时段",
+          "role": "input"
+        },
+        {
+          "id": "load",
+          "name": "加载餐厅全集",
+          "role": "data-read"
+        },
+        {
+          "id": "lookup",
+          "name": "查找餐厅与时段",
+          "role": "compute"
+        },
+        {
+          "id": "determine",
+          "name": "判断是否可订",
+          "role": "compute"
+        },
+        {
+          "id": "suggest",
+          "name": "推荐备选时段",
+          "role": "compute"
+        },
+        {
+          "id": "return_ok",
+          "name": "返回可订",
+          "role": "output"
+        },
+        {
+          "id": "return_full",
+          "name": "返回已满（埋点 E1）",
+          "role": "error"
+        },
+        {
+          "id": "not_found",
+          "name": "返回未找到",
+          "role": "error"
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "load", "kind": "next" },
-        { "from": "load", "to": "lookup", "kind": "next" },
-        { "from": "lookup", "to": "determine", "kind": "conditional", "condition": "餐厅与时段存在" },
-        { "from": "lookup", "to": "not_found", "kind": "error", "condition": "餐厅 id 或时段不存在" },
-        { "from": "determine", "to": "return_ok", "kind": "conditional", "condition": "available=true" },
-        { "from": "determine", "to": "suggest", "kind": "error", "condition": "available=false（E1 埋点）" },
-        { "from": "suggest", "to": "return_full", "kind": "next" }
+        {
+          "from": "receive",
+          "to": "load",
+          "kind": "next"
+        },
+        {
+          "from": "load",
+          "to": "lookup",
+          "kind": "next"
+        },
+        {
+          "from": "lookup",
+          "to": "determine",
+          "kind": "conditional",
+          "condition": "餐厅与时段存在"
+        },
+        {
+          "from": "lookup",
+          "to": "not_found",
+          "kind": "error",
+          "condition": "餐厅 id 或时段不存在"
+        },
+        {
+          "from": "determine",
+          "to": "return_ok",
+          "kind": "conditional",
+          "condition": "available=true"
+        },
+        {
+          "from": "determine",
+          "to": "suggest",
+          "kind": "error",
+          "condition": "available=false（E1 埋点）"
+        },
+        {
+          "from": "suggest",
+          "to": "return_full",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/tools/check_restaurant_availability.py" },
-        { "file": "mock_data/restaurants.json" }
+        {
+          "file": "backend/tools/check_restaurant_availability.py"
+        },
+        {
+          "file": "mock_data/restaurants.json"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -705,24 +1614,69 @@
       "summary": "estimate_route_time Tool：A→B 步行 / 打车 / 公交分时段预估；mock 缺失返 not_found",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "组装六段时间轴时调用" }
+        {
+          "kind": "event",
+          "detail": "组装六段时间轴时调用"
+        }
       ],
       "steps": [
-        { "id": "receive", "name": "接收起终点", "role": "input" },
-        { "id": "load", "name": "加载路线全集", "role": "data-read" },
-        { "id": "lookup", "name": "查找起终点对", "role": "compute" },
-        { "id": "return", "name": "返回三种交通耗时", "role": "output" },
-        { "id": "not_found", "name": "返回未找到", "role": "error" }
+        {
+          "id": "receive",
+          "name": "接收起终点",
+          "role": "input"
+        },
+        {
+          "id": "load",
+          "name": "加载路线全集",
+          "role": "data-read"
+        },
+        {
+          "id": "lookup",
+          "name": "查找起终点对",
+          "role": "compute"
+        },
+        {
+          "id": "return",
+          "name": "返回三种交通耗时",
+          "role": "output"
+        },
+        {
+          "id": "not_found",
+          "name": "返回未找到",
+          "role": "error"
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "load", "kind": "next" },
-        { "from": "load", "to": "lookup", "kind": "next" },
-        { "from": "lookup", "to": "return", "kind": "conditional", "condition": "命中起终点对" },
-        { "from": "lookup", "to": "not_found", "kind": "error", "condition": "未命中 mock 缺失" }
+        {
+          "from": "receive",
+          "to": "load",
+          "kind": "next"
+        },
+        {
+          "from": "load",
+          "to": "lookup",
+          "kind": "next"
+        },
+        {
+          "from": "lookup",
+          "to": "return",
+          "kind": "conditional",
+          "condition": "命中起终点对"
+        },
+        {
+          "from": "lookup",
+          "to": "not_found",
+          "kind": "error",
+          "condition": "未命中 mock 缺失"
+        }
       ],
       "refs": [
-        { "file": "backend/tools/estimate_route_time.py" },
-        { "file": "mock_data/routes.json" }
+        {
+          "file": "backend/tools/estimate_route_time.py"
+        },
+        {
+          "file": "mock_data/routes.json"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -735,24 +1689,69 @@
       "summary": "get_user_profile Tool：返回家位置 / 默认预算 / 交通偏好；多 persona 时按 user_id 路由",
       "epicId": "discovery",
       "triggers": [
-        { "kind": "event", "detail": "execute 阶段 get_user_profile_worker 调用" }
+        {
+          "kind": "event",
+          "detail": "execute 阶段 get_user_profile_worker 调用"
+        }
       ],
       "steps": [
-        { "id": "receive", "name": "接收调用", "role": "input" },
-        { "id": "load", "name": "加载画像", "role": "data-read" },
-        { "id": "match", "name": "按身份匹配", "role": "compute" },
-        { "id": "return", "name": "返回画像", "role": "output" },
-        { "id": "not_found", "name": "返回未找到", "role": "error" }
+        {
+          "id": "receive",
+          "name": "接收调用",
+          "role": "input"
+        },
+        {
+          "id": "load",
+          "name": "加载画像",
+          "role": "data-read"
+        },
+        {
+          "id": "match",
+          "name": "按身份匹配",
+          "role": "compute"
+        },
+        {
+          "id": "return",
+          "name": "返回画像",
+          "role": "output"
+        },
+        {
+          "id": "not_found",
+          "name": "返回未找到",
+          "role": "error"
+        }
       ],
       "flow": [
-        { "from": "receive", "to": "load", "kind": "next" },
-        { "from": "load", "to": "match", "kind": "next" },
-        { "from": "match", "to": "return", "kind": "conditional", "condition": "命中 persona" },
-        { "from": "match", "to": "not_found", "kind": "error", "condition": "user_id 不存在" }
+        {
+          "from": "receive",
+          "to": "load",
+          "kind": "next"
+        },
+        {
+          "from": "load",
+          "to": "match",
+          "kind": "next"
+        },
+        {
+          "from": "match",
+          "to": "return",
+          "kind": "conditional",
+          "condition": "命中 persona"
+        },
+        {
+          "from": "match",
+          "to": "not_found",
+          "kind": "error",
+          "condition": "user_id 不存在"
+        }
       ],
       "refs": [
-        { "file": "backend/tools/get_user_profile.py" },
-        { "file": "mock_data/personas.json" }
+        {
+          "file": "backend/tools/get_user_profile.py"
+        },
+        {
+          "file": "mock_data/personas.json"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -765,8 +1764,14 @@
       "summary": "build_graph 编译完整拓扑：START → router → {chitchat | intent | refiner} → execute(并行) → planner → assemble → critic → {narrate | replan}；InMemorySaver checkpoint 跨 turn 持久 messages",
       "epicId": "planning",
       "triggers": [
-        { "kind": "startup", "detail": "/chat/turn 首次访问时 lazy compile 单例" },
-        { "kind": "event", "detail": "verify_langgraph.py 测试入口" }
+        {
+          "kind": "startup",
+          "detail": "/chat/turn 首次访问时 lazy compile 单例"
+        },
+        {
+          "kind": "event",
+          "detail": "verify_langgraph.py 测试入口"
+        }
       ],
       "steps": [
         {
@@ -774,60 +1779,142 @@
           "name": "定义全局 State",
           "role": "compute",
           "note": "TypedDict AgentState 复用 v1 schema：intent / itinerary / blueprint / weights / violations 等",
-          "refs": [{ "file": "backend/agent/graph/state.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/state.py"
+            }
+          ]
         },
         {
           "id": "init_graph",
           "name": "初始化空图",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [60, 75] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                60,
+                75
+              ]
+            }
+          ]
         },
         {
           "id": "add_nodes",
           "name": "注册节点",
           "role": "compute",
           "note": "router / chitchat / intent / refiner / 3 worker / collect / planner / assemble / critic / replan_router / ils_replan / narrate / execute_finalize",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [75, 110] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                75,
+                110
+              ]
+            }
+          ]
         },
         {
           "id": "wire_edges",
           "name": "连接边",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [110, 165] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                110,
+                165
+              ]
+            }
+          ]
         },
         {
           "id": "add_conditional",
           "name": "挂条件路由",
           "role": "compute",
           "note": "route_after_router / route_after_critic / route_after_replan / _route_after_ils",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [120, 165] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                120,
+                165
+              ]
+            }
+          ]
         },
         {
           "id": "compile",
           "name": "编译附保存器",
           "role": "compute",
           "note": "InMemorySaver checkpointer + thread_id=session_id（取代旧 ConversationStore）",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [170, 190] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                170,
+                190
+              ]
+            }
+          ]
         },
         {
           "id": "cache_singleton",
           "name": "缓存单例",
           "role": "data-write",
-          "refs": [{ "file": "backend/agent/graph/build.py", "lines": [190, 200] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/build.py",
+              "lines": [
+                190,
+                200
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "define_state", "to": "init_graph", "kind": "next" },
-        { "from": "init_graph", "to": "add_nodes", "kind": "next" },
-        { "from": "add_nodes", "to": "wire_edges", "kind": "next" },
-        { "from": "wire_edges", "to": "add_conditional", "kind": "next" },
-        { "from": "add_conditional", "to": "compile", "kind": "next" },
-        { "from": "compile", "to": "cache_singleton", "kind": "next" }
+        {
+          "from": "define_state",
+          "to": "init_graph",
+          "kind": "next"
+        },
+        {
+          "from": "init_graph",
+          "to": "add_nodes",
+          "kind": "next"
+        },
+        {
+          "from": "add_nodes",
+          "to": "wire_edges",
+          "kind": "next"
+        },
+        {
+          "from": "wire_edges",
+          "to": "add_conditional",
+          "kind": "next"
+        },
+        {
+          "from": "add_conditional",
+          "to": "compile",
+          "kind": "next"
+        },
+        {
+          "from": "compile",
+          "to": "cache_singleton",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/build.py" },
-        { "file": "backend/agent/graph/state.py" },
-        { "file": "backend/agent/graph/__init__.py" }
+        {
+          "file": "backend/agent/graph/build.py"
+        },
+        {
+          "file": "backend/agent/graph/state.py"
+        },
+        {
+          "file": "backend/agent/graph/__init__.py"
+        }
       ],
       "confidence": 0.95,
       "provenance": "ai",
@@ -840,7 +1927,10 @@
       "summary": "Plan 阶段：LLM 看候选 + critic 反馈出 PlanBlueprint；同时给 4 维 PlanningWeights；累计 alternatives 备选给 trace",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "execute_collect → planner 边" }
+        {
+          "kind": "event",
+          "detail": "execute_collect → planner 边"
+        }
       ],
       "steps": [
         {
@@ -858,20 +1948,32 @@
           "name": "出 4 维权重",
           "role": "compute",
           "note": "comfort/time/cost/smoothness；LLM 不可用时启发式 9 套场景预设兜底",
-          "refs": [{ "file": "backend/agent/weights_llm.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/weights_llm.py"
+            }
+          ]
         },
         {
           "id": "build_prompt",
           "name": "拼装提示词",
           "role": "transform",
-          "refs": [{ "file": "backend/agent/prompts/blueprint_prompt.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/prompts/blueprint_prompt.py"
+            }
+          ]
         },
         {
           "id": "include_feedback",
           "name": "回灌 critic 反馈",
           "role": "transform",
           "note": "backprompt 范式（LLM-Modulo）",
-          "refs": [{ "file": "backend/agent/blueprint_llm.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/blueprint_llm.py"
+            }
+          ]
         },
         {
           "id": "call_llm",
@@ -883,7 +1985,15 @@
           "name": "记录备选目标",
           "role": "compute",
           "note": "未中选的 top-2 ~ top-5 写到 state.alternatives 给决策面板",
-          "refs": [{ "file": "backend/agent/graph/nodes/planner.py", "lines": [70, 145] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/planner.py",
+              "lines": [
+                70,
+                145
+              ]
+            }
+          ]
         },
         {
           "id": "increment_attempt",
@@ -898,21 +2008,69 @@
         }
       ],
       "flow": [
-        { "from": "load_intent", "to": "load_candidates", "kind": "next" },
-        { "from": "load_candidates", "to": "compute_weights", "kind": "next" },
-        { "from": "compute_weights", "to": "build_prompt", "kind": "next" },
-        { "from": "build_prompt", "to": "include_feedback", "kind": "conditional", "condition": "非首次出 plan" },
-        { "from": "build_prompt", "to": "call_llm", "kind": "conditional", "condition": "首次出 plan" },
-        { "from": "include_feedback", "to": "call_llm", "kind": "next" },
-        { "from": "call_llm", "to": "build_alternatives", "kind": "conditional", "condition": "成功" },
-        { "from": "call_llm", "to": "fail_empty", "kind": "error", "condition": "BlueprintGenError" },
-        { "from": "build_alternatives", "to": "increment_attempt", "kind": "next" }
+        {
+          "from": "load_intent",
+          "to": "load_candidates",
+          "kind": "next"
+        },
+        {
+          "from": "load_candidates",
+          "to": "compute_weights",
+          "kind": "next"
+        },
+        {
+          "from": "compute_weights",
+          "to": "build_prompt",
+          "kind": "next"
+        },
+        {
+          "from": "build_prompt",
+          "to": "include_feedback",
+          "kind": "conditional",
+          "condition": "非首次出 plan"
+        },
+        {
+          "from": "build_prompt",
+          "to": "call_llm",
+          "kind": "conditional",
+          "condition": "首次出 plan"
+        },
+        {
+          "from": "include_feedback",
+          "to": "call_llm",
+          "kind": "next"
+        },
+        {
+          "from": "call_llm",
+          "to": "build_alternatives",
+          "kind": "conditional",
+          "condition": "成功"
+        },
+        {
+          "from": "call_llm",
+          "to": "fail_empty",
+          "kind": "error",
+          "condition": "BlueprintGenError"
+        },
+        {
+          "from": "build_alternatives",
+          "to": "increment_attempt",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/planner.py" },
-        { "file": "backend/agent/blueprint_llm.py" },
-        { "file": "backend/agent/blueprint.py" },
-        { "file": "backend/agent/weights_llm.py" }
+        {
+          "file": "backend/agent/graph/nodes/planner.py"
+        },
+        {
+          "file": "backend/agent/blueprint_llm.py"
+        },
+        {
+          "file": "backend/agent/blueprint.py"
+        },
+        {
+          "file": "backend/agent/weights_llm.py"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -925,7 +2083,10 @@
       "summary": "蓝图 → Itinerary：展开六段 / 算时长 / 注入 DecisionTrace（critic_attempts / fallback_chain / alternatives）",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "planner → assemble 边" }
+        {
+          "kind": "event",
+          "detail": "planner → assemble 边"
+        }
       ],
       "steps": [
         {
@@ -937,7 +2098,11 @@
           "id": "expand_stages",
           "name": "展开段落",
           "role": "transform",
-          "refs": [{ "file": "backend/agent/assemble_blueprint.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/assemble_blueprint.py"
+            }
+          ]
         },
         {
           "id": "compute_durations",
@@ -950,8 +2115,16 @@
           "role": "transform",
           "note": "DecisionTrace = blueprint_rationale + weights_explanation + critic_attempts + fallback_chain + alternatives",
           "refs": [
-            { "file": "backend/agent/graph/nodes/assemble.py", "lines": [25, 75] },
-            { "file": "backend/schemas/decision_trace.py" }
+            {
+              "file": "backend/agent/graph/nodes/assemble.py",
+              "lines": [
+                25,
+                75
+              ]
+            },
+            {
+              "file": "backend/schemas/decision_trace.py"
+            }
           ]
         },
         {
@@ -966,17 +2139,47 @@
         }
       ],
       "flow": [
-        { "from": "load_blueprint", "to": "expand_stages", "kind": "conditional", "condition": "蓝图非空" },
-        { "from": "load_blueprint", "to": "fail_invalid", "kind": "error", "condition": "蓝图空" },
-        { "from": "expand_stages", "to": "compute_durations", "kind": "next" },
-        { "from": "compute_durations", "to": "inject_trace", "kind": "next" },
-        { "from": "inject_trace", "to": "build_itinerary", "kind": "next" }
+        {
+          "from": "load_blueprint",
+          "to": "expand_stages",
+          "kind": "conditional",
+          "condition": "蓝图非空"
+        },
+        {
+          "from": "load_blueprint",
+          "to": "fail_invalid",
+          "kind": "error",
+          "condition": "蓝图空"
+        },
+        {
+          "from": "expand_stages",
+          "to": "compute_durations",
+          "kind": "next"
+        },
+        {
+          "from": "compute_durations",
+          "to": "inject_trace",
+          "kind": "next"
+        },
+        {
+          "from": "inject_trace",
+          "to": "build_itinerary",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/assemble.py" },
-        { "file": "backend/agent/assemble_blueprint.py" },
-        { "file": "backend/schemas/itinerary.py" },
-        { "file": "backend/schemas/decision_trace.py" }
+        {
+          "file": "backend/agent/graph/nodes/assemble.py"
+        },
+        {
+          "file": "backend/agent/assemble_blueprint.py"
+        },
+        {
+          "file": "backend/schemas/itinerary.py"
+        },
+        {
+          "file": "backend/schemas/decision_trace.py"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -989,7 +2192,10 @@
       "summary": "Evaluator 阶段：critics_v2 跑 8 类约束（时长 / 距离 / 段集合 / 餐厅满 / 时序 / 调性 / 饮食 / 用餐时段）；critical 触发 backprompt，warning（含用餐时段不合理）仅 log + narration 提示",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "assemble → critic 边" }
+        {
+          "kind": "event",
+          "detail": "assemble → critic 边"
+        }
       ],
       "steps": [
         {
@@ -1002,13 +2208,25 @@
           "name": "空行程直判 critical",
           "role": "compute",
           "note": "itinerary=None → STAGES_INCOMPLETE，触发 ILS 兜底",
-          "refs": [{ "file": "backend/agent/graph/nodes/critic.py", "lines": [20, 50] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/critic.py",
+              "lines": [
+                20,
+                50
+              ]
+            }
+          ]
         },
         {
           "id": "run_critics",
           "name": "跑 8 类约束",
           "role": "validation",
-          "refs": [{ "file": "backend/agent/v2/critics_v2.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/v2/critics_v2.py"
+            }
+          ]
         },
         {
           "id": "classify_severity",
@@ -1027,7 +2245,15 @@
           "name": "累积尝试快照",
           "role": "data-write",
           "note": "Step 8 决策追踪：每次 critic 跑后追加 CriticAttempt 到 trace",
-          "refs": [{ "file": "backend/agent/graph/nodes/critic.py", "lines": [70, 110] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/critic.py",
+              "lines": [
+                70,
+                110
+              ]
+            }
+          ]
         },
         {
           "id": "decide_branch",
@@ -1036,19 +2262,61 @@
         }
       ],
       "flow": [
-        { "from": "load_artifact", "to": "branch_empty", "kind": "next" },
-        { "from": "branch_empty", "to": "run_critics", "kind": "conditional", "condition": "itinerary 非空" },
-        { "from": "branch_empty", "to": "decide_branch", "kind": "error", "condition": "itinerary 空 → 直接走 replan" },
-        { "from": "run_critics", "to": "classify_severity", "kind": "next" },
-        { "from": "classify_severity", "to": "format_feedback", "kind": "conditional", "condition": "存在 critical" },
-        { "from": "format_feedback", "to": "track_attempts", "kind": "next" },
-        { "from": "classify_severity", "to": "track_attempts", "kind": "conditional", "condition": "无 critical" },
-        { "from": "track_attempts", "to": "decide_branch", "kind": "next" }
+        {
+          "from": "load_artifact",
+          "to": "branch_empty",
+          "kind": "next"
+        },
+        {
+          "from": "branch_empty",
+          "to": "run_critics",
+          "kind": "conditional",
+          "condition": "itinerary 非空"
+        },
+        {
+          "from": "branch_empty",
+          "to": "decide_branch",
+          "kind": "error",
+          "condition": "itinerary 空 → 直接走 replan"
+        },
+        {
+          "from": "run_critics",
+          "to": "classify_severity",
+          "kind": "next"
+        },
+        {
+          "from": "classify_severity",
+          "to": "format_feedback",
+          "kind": "conditional",
+          "condition": "存在 critical"
+        },
+        {
+          "from": "format_feedback",
+          "to": "track_attempts",
+          "kind": "next"
+        },
+        {
+          "from": "classify_severity",
+          "to": "track_attempts",
+          "kind": "conditional",
+          "condition": "无 critical"
+        },
+        {
+          "from": "track_attempts",
+          "to": "decide_branch",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/critic.py" },
-        { "file": "backend/agent/v2/critics_v2.py" },
-        { "file": "backend/tests/test_critics_v2.py" }
+        {
+          "file": "backend/agent/graph/nodes/critic.py"
+        },
+        {
+          "file": "backend/agent/v2/critics_v2.py"
+        },
+        {
+          "file": "backend/tests/test_critics_v2.py"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -1061,7 +2329,10 @@
       "summary": "Optimizer 阶段：retry≤2 走 LLM backprompt；retry>2 切 ILS 兜底；ILS 失败 → rule planner；都失败 → give_up",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "critic 检测到 has_critical=True" }
+        {
+          "kind": "event",
+          "detail": "critic 检测到 has_critical=True"
+        }
       ],
       "steps": [
         {
@@ -1078,7 +2349,15 @@
           "id": "decide_strategy",
           "name": "选 LLM 或 ILS",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/graph/nodes/replan.py", "lines": [35, 65] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/replan.py",
+              "lines": [
+                35,
+                65
+              ]
+            }
+          ]
         },
         {
           "id": "track_fallback",
@@ -1098,8 +2377,20 @@
           "role": "compute",
           "note": "TOPTW + ILS 30 轮（仅 5 段完整场景适用）",
           "refs": [
-            { "file": "backend/agent/planner_hybrid.py", "lines": [200, 480] },
-            { "file": "backend/agent/graph/nodes/replan.py", "lines": [85, 130] }
+            {
+              "file": "backend/agent/planner_hybrid.py",
+              "lines": [
+                200,
+                480
+              ]
+            },
+            {
+              "file": "backend/agent/graph/nodes/replan.py",
+              "lines": [
+                85,
+                130
+              ]
+            }
           ]
         },
         {
@@ -1107,8 +2398,16 @@
           "name": "Rule planner 兜底",
           "role": "compute",
           "refs": [
-            { "file": "backend/agent/planner.py" },
-            { "file": "backend/agent/graph/nodes/replan.py", "lines": [130, 165] }
+            {
+              "file": "backend/agent/planner.py"
+            },
+            {
+              "file": "backend/agent/graph/nodes/replan.py",
+              "lines": [
+                130,
+                165
+              ]
+            }
           ]
         },
         {
@@ -1119,18 +2418,56 @@
         }
       ],
       "flow": [
-        { "from": "input_violations", "to": "increment_retry", "kind": "next" },
-        { "from": "increment_retry", "to": "decide_strategy", "kind": "next" },
-        { "from": "decide_strategy", "to": "track_fallback", "kind": "next" },
-        { "from": "track_fallback", "to": "to_planner", "kind": "conditional", "condition": "retry_count ≤ 2" },
-        { "from": "track_fallback", "to": "ils_search", "kind": "conditional", "condition": "retry_count > 2" },
-        { "from": "ils_search", "to": "rule_fallback", "kind": "error", "condition": "ILS 不适用 / 失败" },
-        { "from": "rule_fallback", "to": "give_up", "kind": "error", "condition": "rule planner 也失败" }
+        {
+          "from": "input_violations",
+          "to": "increment_retry",
+          "kind": "next"
+        },
+        {
+          "from": "increment_retry",
+          "to": "decide_strategy",
+          "kind": "next"
+        },
+        {
+          "from": "decide_strategy",
+          "to": "track_fallback",
+          "kind": "next"
+        },
+        {
+          "from": "track_fallback",
+          "to": "to_planner",
+          "kind": "conditional",
+          "condition": "retry_count ≤ 2"
+        },
+        {
+          "from": "track_fallback",
+          "to": "ils_search",
+          "kind": "conditional",
+          "condition": "retry_count > 2"
+        },
+        {
+          "from": "ils_search",
+          "to": "rule_fallback",
+          "kind": "error",
+          "condition": "ILS 不适用 / 失败"
+        },
+        {
+          "from": "rule_fallback",
+          "to": "give_up",
+          "kind": "error",
+          "condition": "rule planner 也失败"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/replan.py" },
-        { "file": "backend/agent/planner_hybrid.py" },
-        { "file": "backend/agent/planner.py" }
+        {
+          "file": "backend/agent/graph/nodes/replan.py"
+        },
+        {
+          "file": "backend/agent/planner_hybrid.py"
+        },
+        {
+          "file": "backend/agent/planner.py"
+        }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -1140,10 +2477,13 @@
     {
       "id": "f-plan-narrate",
       "name": "暖语气文案",
-      "summary": "narrator 给最终方案出导游开场白；按 social_context 6 套语气；LLM 失败回模板兜底",
+      "summary": "narrator 给最终方案出导游开场白；按 social_context 6 套语气；字数按活动数弹性 + 复述全部活动节点（餐后活动不漏）；明示诉求未满足时诚实告知；LLM 失败回模板兜底",
       "epicId": "planning",
       "triggers": [
-        { "kind": "event", "detail": "critic 通过 → narrate / replan give_up → narrate" }
+        {
+          "kind": "event",
+          "detail": "critic 通过 → narrate / replan give_up → narrate"
+        }
       ],
       "steps": [
         {
@@ -1155,13 +2495,21 @@
           "id": "build_prompt",
           "name": "拼装暖语气提示词",
           "role": "transform",
-          "refs": [{ "file": "backend/agent/prompts/narrator_prompt.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/prompts/narrator_prompt.py"
+            }
+          ]
         },
         {
           "id": "call_llm",
           "name": "请求模型出文案",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/narrator.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/narrator.py"
+            }
+          ]
         },
         {
           "id": "template_fallback",
@@ -1173,19 +2521,74 @@
           "id": "write_narration",
           "name": "写回 state",
           "role": "data-write"
+        },
+        {
+          "id": "detect_unmet",
+          "name": "检测未满足诉求",
+          "role": "compute",
+          "note": "明示餐饮品类/活动诉求未排进行程时收集，喂给文案做诚实告知（附近没找到 X 帮你换了替代）",
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/narrate.py"
+            },
+            {
+              "file": "backend/agent/intent/narrator.py"
+            },
+            {
+              "file": "backend/tests/test_detect_unmet_poi.py"
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "load_itinerary", "to": "build_prompt", "kind": "next" },
-        { "from": "build_prompt", "to": "call_llm", "kind": "next" },
-        { "from": "call_llm", "to": "write_narration", "kind": "conditional", "condition": "LLM 成功" },
-        { "from": "call_llm", "to": "template_fallback", "kind": "error", "condition": "LLM 失败" },
-        { "from": "template_fallback", "to": "write_narration", "kind": "next" }
+        {
+          "from": "load_itinerary",
+          "to": "build_prompt",
+          "kind": "next"
+        },
+        {
+          "from": "build_prompt",
+          "to": "call_llm",
+          "kind": "next"
+        },
+        {
+          "from": "call_llm",
+          "to": "write_narration",
+          "kind": "conditional",
+          "condition": "LLM 成功"
+        },
+        {
+          "from": "call_llm",
+          "to": "template_fallback",
+          "kind": "error",
+          "condition": "LLM 失败"
+        },
+        {
+          "from": "template_fallback",
+          "to": "write_narration",
+          "kind": "next"
+        },
+        {
+          "from": "load_itinerary",
+          "to": "detect_unmet",
+          "kind": "next"
+        },
+        {
+          "from": "detect_unmet",
+          "to": "build_prompt",
+          "kind": "next"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/narrate.py" },
-        { "file": "backend/agent/narrator.py" },
-        { "file": "backend/agent/prompts/narrator_prompt.py" }
+        {
+          "file": "backend/agent/graph/nodes/narrate.py"
+        },
+        {
+          "file": "backend/agent/narrator.py"
+        },
+        {
+          "file": "backend/agent/prompts/narrator_prompt.py"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -1198,7 +2601,10 @@
       "summary": "graph.astream(updates) → 既有 SseEvent 序列；前端 0 改动复用所有事件 schema（intent_parsed / tool_call_* / replan_triggered / itinerary_ready / agent_narration / done）",
       "epicId": "planning",
       "triggers": [
-        { "kind": "http", "detail": "main.py /chat/turn 调 run_graph_stream" }
+        {
+          "kind": "http",
+          "detail": "main.py /chat/turn 调 run_graph_stream"
+        }
       ],
       "steps": [
         {
@@ -1216,7 +2622,15 @@
           "name": "推送心跳",
           "role": "output",
           "note": "防 8s 首字节超时",
-          "refs": [{ "file": "backend/agent/graph/sse_adapter.py", "lines": [60, 75] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/sse_adapter.py",
+              "lines": [
+                60,
+                75
+              ]
+            }
+          ]
         },
         {
           "id": "subscribe_updates",
@@ -1264,22 +2678,81 @@
         }
       ],
       "flow": [
-        { "from": "compile_graph", "to": "init_state", "kind": "next" },
-        { "from": "init_state", "to": "heartbeat", "kind": "next" },
-        { "from": "heartbeat", "to": "subscribe_updates", "kind": "next" },
-        { "from": "subscribe_updates", "to": "map_router", "kind": "conditional", "condition": "node=router" },
-        { "from": "subscribe_updates", "to": "map_execute", "kind": "conditional", "condition": "node=search_*_worker" },
-        { "from": "subscribe_updates", "to": "map_plan_critic", "kind": "conditional", "condition": "node=planner / critic" },
-        { "from": "subscribe_updates", "to": "map_replan_assemble", "kind": "conditional", "condition": "node=replan_router / ils_replan / assemble" },
-        { "from": "subscribe_updates", "to": "map_narrate", "kind": "conditional", "condition": "node=narrate" },
-        { "from": "subscribe_updates", "to": "emit_done", "kind": "next", "condition": "graph 结束" },
-        { "from": "subscribe_updates", "to": "stream_error", "kind": "error", "condition": "节点抛异常" }
+        {
+          "from": "compile_graph",
+          "to": "init_state",
+          "kind": "next"
+        },
+        {
+          "from": "init_state",
+          "to": "heartbeat",
+          "kind": "next"
+        },
+        {
+          "from": "heartbeat",
+          "to": "subscribe_updates",
+          "kind": "next"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "map_router",
+          "kind": "conditional",
+          "condition": "node=router"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "map_execute",
+          "kind": "conditional",
+          "condition": "node=search_*_worker"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "map_plan_critic",
+          "kind": "conditional",
+          "condition": "node=planner / critic"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "map_replan_assemble",
+          "kind": "conditional",
+          "condition": "node=replan_router / ils_replan / assemble"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "map_narrate",
+          "kind": "conditional",
+          "condition": "node=narrate"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "emit_done",
+          "kind": "next",
+          "condition": "graph 结束"
+        },
+        {
+          "from": "subscribe_updates",
+          "to": "stream_error",
+          "kind": "error",
+          "condition": "节点抛异常"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/sse_adapter.py" },
-        { "file": "backend/main.py", "lines": [905, 945] },
-        { "file": "backend/scripts/verify_langgraph.py" },
-        { "file": "backend/schemas/sse.py" }
+        {
+          "file": "backend/agent/graph/sse_adapter.py"
+        },
+        {
+          "file": "backend/main.py",
+          "lines": [
+            905,
+            945
+          ]
+        },
+        {
+          "file": "backend/scripts/verify_langgraph.py"
+        },
+        {
+          "file": "backend/schemas/sse.py"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -1292,15 +2765,25 @@
       "summary": "方案出炉后用户三选：确认（→ finalize 下单）/ 反馈（→ refiner 重规划）/ 取消（冻结按钮 + warn toast）",
       "epicId": "execution",
       "triggers": [
-        { "kind": "ui", "detail": "用户在行程卡片点击三按钮之一" },
-        { "kind": "http", "detail": "POST /chat/confirm（确认） / POST /chat/refine（反馈）" }
+        {
+          "kind": "ui",
+          "detail": "用户在行程卡片点击三按钮之一"
+        },
+        {
+          "kind": "http",
+          "detail": "POST /chat/confirm（确认） / POST /chat/refine（反馈）"
+        }
       ],
       "steps": [
         {
           "id": "show_card",
           "name": "展示行程卡片",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx"
+            }
+          ]
         },
         {
           "id": "wait_decision",
@@ -1312,8 +2795,20 @@
           "name": "确认并预约",
           "role": "side-effect",
           "refs": [
-            { "file": "backend/main.py", "lines": [787, 800] },
-            { "file": "frontend/lib/store.ts", "lines": [284, 330] }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                787,
+                800
+              ]
+            },
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                284,
+                330
+              ]
+            }
           ]
         },
         {
@@ -1321,8 +2816,16 @@
           "name": "提交反馈",
           "role": "side-effect",
           "refs": [
-            { "file": "backend/main.py", "lines": [801, 838] },
-            { "file": "frontend/components/RefinementDialog.tsx" }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                801,
+                838
+              ]
+            },
+            {
+              "file": "frontend/components/RefinementDialog.tsx"
+            }
           ]
         },
         {
@@ -1330,18 +2833,53 @@
           "name": "取消方案",
           "role": "error",
           "note": "冻结按钮 + 推 warn toast；不清空 trace 让评委复盘",
-          "refs": [{ "file": "frontend/lib/store.ts", "lines": [385, 405] }]
+          "refs": [
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                385,
+                405
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "show_card", "to": "wait_decision", "kind": "next" },
-        { "from": "wait_decision", "to": "confirm", "kind": "conditional", "condition": "用户点确认" },
-        { "from": "wait_decision", "to": "feedback", "kind": "conditional", "condition": "用户点说说哪不对" },
-        { "from": "wait_decision", "to": "cancel", "kind": "error", "condition": "用户点取消" }
+        {
+          "from": "show_card",
+          "to": "wait_decision",
+          "kind": "next"
+        },
+        {
+          "from": "wait_decision",
+          "to": "confirm",
+          "kind": "conditional",
+          "condition": "用户点确认"
+        },
+        {
+          "from": "wait_decision",
+          "to": "feedback",
+          "kind": "conditional",
+          "condition": "用户点说说哪不对"
+        },
+        {
+          "from": "wait_decision",
+          "to": "cancel",
+          "kind": "error",
+          "condition": "用户点取消"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/ItineraryCard.tsx" },
-        { "file": "frontend/lib/store.ts", "lines": [284, 405] }
+        {
+          "file": "frontend/components/ItineraryCard.tsx"
+        },
+        {
+          "file": "frontend/lib/store.ts",
+          "lines": [
+            284,
+            405
+          ]
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -1354,34 +2892,57 @@
       "summary": "execute_finalize 节点：reserve_restaurant + buy_ticket（仅收费 POI）+ generate_share_message；任一失败不阻塞其他",
       "epicId": "execution",
       "triggers": [
-        { "kind": "event", "detail": "用户 confirm 后由 graph execute_finalize 节点触发" }
+        {
+          "kind": "event",
+          "detail": "用户 confirm 后由 graph execute_finalize 节点触发"
+        }
       ],
       "steps": [
         {
           "id": "find_dining",
           "name": "找用餐 stage",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/graph/nodes/execute_finalize.py", "lines": [25, 40] }]
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute_finalize.py",
+              "lines": [
+                25,
+                40
+              ]
+            }
+          ]
         },
         {
           "id": "reserve_rest",
           "name": "调餐厅预约",
           "role": "side-effect",
-          "refs": [{ "file": "backend/tools/reserve_restaurant.py" }]
+          "refs": [
+            {
+              "file": "backend/tools/reserve_restaurant.py"
+            }
+          ]
         },
         {
           "id": "buy_ticket",
           "name": "调门票购买",
           "role": "side-effect",
           "note": "POI is_paid=true 时才调；含 E2 售罄埋点（P_SOLD）",
-          "refs": [{ "file": "backend/tools/buy_ticket.py" }]
+          "refs": [
+            {
+              "file": "backend/tools/buy_ticket.py"
+            }
+          ]
         },
         {
           "id": "generate_share",
           "name": "生成转发文案",
           "role": "side-effect",
           "note": "永远调；按 social_context 选模板（家长 / 闺蜜 / 商务等）",
-          "refs": [{ "file": "backend/tools/generate_share_message.py" }]
+          "refs": [
+            {
+              "file": "backend/tools/generate_share_message.py"
+            }
+          ]
         },
         {
           "id": "merge_back",
@@ -1397,19 +2958,60 @@
         }
       ],
       "flow": [
-        { "from": "find_dining", "to": "reserve_rest", "kind": "conditional", "condition": "用餐段存在" },
-        { "from": "reserve_rest", "to": "buy_ticket", "kind": "conditional", "condition": "POI 收费" },
-        { "from": "reserve_rest", "to": "generate_share", "kind": "conditional", "condition": "POI 免费" },
-        { "from": "buy_ticket", "to": "generate_share", "kind": "next" },
-        { "from": "generate_share", "to": "merge_back", "kind": "next" },
-        { "from": "reserve_rest", "to": "tolerate_failure", "kind": "error", "condition": "餐厅满 / 异常" },
-        { "from": "buy_ticket", "to": "tolerate_failure", "kind": "error", "condition": "售罄 / 数量非法" }
+        {
+          "from": "find_dining",
+          "to": "reserve_rest",
+          "kind": "conditional",
+          "condition": "用餐段存在"
+        },
+        {
+          "from": "reserve_rest",
+          "to": "buy_ticket",
+          "kind": "conditional",
+          "condition": "POI 收费"
+        },
+        {
+          "from": "reserve_rest",
+          "to": "generate_share",
+          "kind": "conditional",
+          "condition": "POI 免费"
+        },
+        {
+          "from": "buy_ticket",
+          "to": "generate_share",
+          "kind": "next"
+        },
+        {
+          "from": "generate_share",
+          "to": "merge_back",
+          "kind": "next"
+        },
+        {
+          "from": "reserve_rest",
+          "to": "tolerate_failure",
+          "kind": "error",
+          "condition": "餐厅满 / 异常"
+        },
+        {
+          "from": "buy_ticket",
+          "to": "tolerate_failure",
+          "kind": "error",
+          "condition": "售罄 / 数量非法"
+        }
       ],
       "refs": [
-        { "file": "backend/agent/graph/nodes/execute_finalize.py" },
-        { "file": "backend/tools/reserve_restaurant.py" },
-        { "file": "backend/tools/buy_ticket.py" },
-        { "file": "backend/tools/generate_share_message.py" }
+        {
+          "file": "backend/agent/graph/nodes/execute_finalize.py"
+        },
+        {
+          "file": "backend/tools/reserve_restaurant.py"
+        },
+        {
+          "file": "backend/tools/buy_ticket.py"
+        },
+        {
+          "file": "backend/tools/generate_share_message.py"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -1422,8 +3024,14 @@
       "summary": "POST /chat/refine：refiner 合并 feedback → 复用主路径重算；前端展示「已为你调整 N 项」摘要 + ComparisonView 前后对比",
       "epicId": "execution",
       "triggers": [
-        { "kind": "ui", "detail": "用户在 RefinementDialog 提交反馈文本" },
-        { "kind": "http", "detail": "POST /chat/refine" }
+        {
+          "kind": "ui",
+          "detail": "用户在 RefinementDialog 提交反馈文本"
+        },
+        {
+          "kind": "http",
+          "detail": "POST /chat/refine"
+        }
       ],
       "steps": [
         {
@@ -1431,14 +3039,26 @@
           "name": "打开反馈弹窗",
           "role": "input",
           "note": "6 条预设建议 chip（太远了 / 不那么贵 / 室内 / 时间短 / 想吃辣 / 安静）",
-          "refs": [{ "file": "frontend/components/RefinementDialog.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/RefinementDialog.tsx"
+            }
+          ]
         },
         {
           "id": "snapshot",
           "name": "保存前一版快照",
           "role": "data-write",
           "note": "structuredClone 当前 itinerary 给 ComparisonView",
-          "refs": [{ "file": "frontend/lib/store.ts", "lines": [340, 365] }]
+          "refs": [
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                340,
+                365
+              ]
+            }
+          ]
         },
         {
           "id": "submit",
@@ -1449,7 +3069,11 @@
           "id": "merge_feedback",
           "name": "refiner 合并意图",
           "role": "compute",
-          "refs": [{ "file": "backend/agent/refiner.py" }]
+          "refs": [
+            {
+              "file": "backend/agent/refiner.py"
+            }
+          ]
         },
         {
           "id": "validate_refined",
@@ -1472,7 +3096,11 @@
           "id": "show_comparison",
           "name": "展示前后对比",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ComparisonView.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ComparisonView.tsx"
+            }
+          ]
         },
         {
           "id": "fail_session",
@@ -1486,23 +3114,78 @@
         }
       ],
       "flow": [
-        { "from": "open_dialog", "to": "snapshot", "kind": "next" },
-        { "from": "snapshot", "to": "submit", "kind": "next" },
-        { "from": "submit", "to": "merge_feedback", "kind": "next" },
-        { "from": "merge_feedback", "to": "validate_refined", "kind": "next" },
-        { "from": "validate_refined", "to": "emit_done", "kind": "conditional", "condition": "新意图合法" },
-        { "from": "validate_refined", "to": "fail_validate", "kind": "error", "condition": "校验失败" },
-        { "from": "emit_done", "to": "replan", "kind": "next" },
-        { "from": "replan", "to": "show_comparison", "kind": "next" },
-        { "from": "submit", "to": "fail_session", "kind": "error", "condition": "session 不存在" }
+        {
+          "from": "open_dialog",
+          "to": "snapshot",
+          "kind": "next"
+        },
+        {
+          "from": "snapshot",
+          "to": "submit",
+          "kind": "next"
+        },
+        {
+          "from": "submit",
+          "to": "merge_feedback",
+          "kind": "next"
+        },
+        {
+          "from": "merge_feedback",
+          "to": "validate_refined",
+          "kind": "next"
+        },
+        {
+          "from": "validate_refined",
+          "to": "emit_done",
+          "kind": "conditional",
+          "condition": "新意图合法"
+        },
+        {
+          "from": "validate_refined",
+          "to": "fail_validate",
+          "kind": "error",
+          "condition": "校验失败"
+        },
+        {
+          "from": "emit_done",
+          "to": "replan",
+          "kind": "next"
+        },
+        {
+          "from": "replan",
+          "to": "show_comparison",
+          "kind": "next"
+        },
+        {
+          "from": "submit",
+          "to": "fail_session",
+          "kind": "error",
+          "condition": "session 不存在"
+        }
       ],
       "refs": [
-        { "file": "backend/main.py", "lines": [801, 838] },
-        { "file": "backend/agent/refiner.py" },
-        { "file": "backend/agent/graph/nodes/refiner.py" },
-        { "file": "backend/agent/prompts/refiner_prompt.py" },
-        { "file": "frontend/components/RefinementDialog.tsx" },
-        { "file": "frontend/components/ComparisonView.tsx" }
+        {
+          "file": "backend/main.py",
+          "lines": [
+            801,
+            838
+          ]
+        },
+        {
+          "file": "backend/agent/refiner.py"
+        },
+        {
+          "file": "backend/agent/graph/nodes/refiner.py"
+        },
+        {
+          "file": "backend/agent/prompts/refiner_prompt.py"
+        },
+        {
+          "file": "frontend/components/RefinementDialog.tsx"
+        },
+        {
+          "file": "frontend/components/ComparisonView.tsx"
+        }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -1515,9 +3198,18 @@
       "summary": "POST /room/create + WS /ws/{room_id}：发起人创建房间 → 同行人扫码加入 → 全员看见对话与中间过程",
       "epicId": "collab",
       "triggers": [
-        { "kind": "http", "detail": "POST /room/create" },
-        { "kind": "http", "detail": "WS /ws/{room_id}?user_id=...&nickname=..." },
-        { "kind": "ui", "detail": "ItineraryCard「邀请同行人」按钮 / ShareModal 扫码" }
+        {
+          "kind": "http",
+          "detail": "POST /room/create"
+        },
+        {
+          "kind": "http",
+          "detail": "WS /ws/{room_id}?user_id=...&nickname=..."
+        },
+        {
+          "kind": "ui",
+          "detail": "ItineraryCard「邀请同行人」按钮 / ShareModal 扫码"
+        }
       ],
       "steps": [
         {
@@ -1526,8 +3218,20 @@
           "role": "compute",
           "note": "6 位短 room_id；初始化 owner + 把当前规划事件 / 对话历史塞进房间",
           "refs": [
-            { "file": "backend/main.py", "lines": [2304, 2378] },
-            { "file": "backend/collab/room.py", "lines": [125, 155] }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                2304,
+                2378
+              ]
+            },
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                125,
+                155
+              ]
+            }
           ]
         },
         {
@@ -1535,8 +3239,16 @@
           "name": "WS 连接",
           "role": "compute",
           "refs": [
-            { "file": "backend/main.py", "lines": [2389, 2465] },
-            { "file": "frontend/lib/ws.ts" }
+            {
+              "file": "backend/main.py",
+              "lines": [
+                2389,
+                2465
+              ]
+            },
+            {
+              "file": "frontend/lib/ws.ts"
+            }
           ]
         },
         {
@@ -1544,7 +3256,15 @@
           "name": "推全量快照",
           "role": "output",
           "note": "新成员加入立即拿到 members + constraints + votes + itinerary + planning_events 历史",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [165, 185] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                165,
+                185
+              ]
+            }
+          ]
         },
         {
           "id": "broadcast_join",
@@ -1556,22 +3276,64 @@
           "name": "WS 断开",
           "role": "side-effect",
           "note": "全员离线时延迟清理（demo 直接保留房间，让评委可刷新页面）",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [200, 215] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                200,
+                215
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "create_room", "to": "ws_connect", "kind": "next" },
-        { "from": "ws_connect", "to": "send_snapshot", "kind": "next" },
-        { "from": "send_snapshot", "to": "broadcast_join", "kind": "async", "condition": "新成员加入广播给其他人" },
-        { "from": "broadcast_join", "to": "leave", "kind": "error", "condition": "WS 异常断开" }
+        {
+          "from": "create_room",
+          "to": "ws_connect",
+          "kind": "next"
+        },
+        {
+          "from": "ws_connect",
+          "to": "send_snapshot",
+          "kind": "next"
+        },
+        {
+          "from": "send_snapshot",
+          "to": "broadcast_join",
+          "kind": "async",
+          "condition": "新成员加入广播给其他人"
+        },
+        {
+          "from": "broadcast_join",
+          "to": "leave",
+          "kind": "error",
+          "condition": "WS 异常断开"
+        }
       ],
       "refs": [
-        { "file": "backend/collab/room.py" },
-        { "file": "backend/main.py", "lines": [2304, 2465] },
-        { "file": "frontend/lib/collab-store.ts" },
-        { "file": "frontend/lib/ws.ts" },
-        { "file": "frontend/components/CollabBar.tsx" },
-        { "file": "frontend/components/ShareModal.tsx" }
+        {
+          "file": "backend/collab/room.py"
+        },
+        {
+          "file": "backend/main.py",
+          "lines": [
+            2304,
+            2465
+          ]
+        },
+        {
+          "file": "frontend/lib/collab-store.ts"
+        },
+        {
+          "file": "frontend/lib/ws.ts"
+        },
+        {
+          "file": "frontend/components/CollabBar.tsx"
+        },
+        {
+          "file": "frontend/components/ShareModal.tsx"
+        }
       ],
       "confidence": 0.85,
       "provenance": "ai",
@@ -1584,14 +3346,25 @@
       "summary": "成员发约束 → 房间锁串行 → 中断旧规划任务 → 合并约束池 → 用 refiner 复跑 → 广播 planning_event 流",
       "epicId": "collab",
       "triggers": [
-        { "kind": "ui", "detail": "成员在 ChatDock 输入约束（协作模式下走 WS 而非 SSE）" }
+        {
+          "kind": "ui",
+          "detail": "成员在 ChatDock 输入约束（协作模式下走 WS 而非 SSE）"
+        }
       ],
       "steps": [
         {
           "id": "receive_text",
           "name": "接收约束文本",
           "role": "input",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [220, 240] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                220,
+                240
+              ]
+            }
+          ]
         },
         {
           "id": "broadcast",
@@ -1604,21 +3377,45 @@
           "name": "中断进行中规划",
           "role": "side-effect",
           "note": "asyncio.Task.cancel() + 推 planning_aborted",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [245, 265] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                245,
+                265
+              ]
+            }
+          ]
         },
         {
           "id": "merge_pool",
           "name": "合并约束池",
           "role": "compute",
           "note": "取最近 5 条约束 + 协作上下文摘要；nickname：text 拼接喂 refiner",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [435, 455] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                435,
+                455
+              ]
+            }
+          ]
         },
         {
           "id": "refine_or_plan",
           "name": "复跑规划",
           "role": "compute",
           "note": "有 current_intent → refiner 合并；无 → 用第一条约束作初始输入",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [305, 360] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                305,
+                360
+              ]
+            }
+          ]
         },
         {
           "id": "broadcast_events",
@@ -1631,20 +3428,60 @@
           "name": "累积 LLM 上下文",
           "role": "data-write",
           "note": "保留最近 20 条消息（用户约束 + agent 规划摘要），裁剪超长",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [475, 510] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                475,
+                510
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "receive_text", "to": "broadcast", "kind": "async" },
-        { "from": "receive_text", "to": "abort_task", "kind": "next" },
-        { "from": "abort_task", "to": "merge_pool", "kind": "next" },
-        { "from": "merge_pool", "to": "refine_or_plan", "kind": "next" },
-        { "from": "refine_or_plan", "to": "broadcast_events", "kind": "async" },
-        { "from": "refine_or_plan", "to": "append_context", "kind": "async" }
+        {
+          "from": "receive_text",
+          "to": "broadcast",
+          "kind": "async"
+        },
+        {
+          "from": "receive_text",
+          "to": "abort_task",
+          "kind": "next"
+        },
+        {
+          "from": "abort_task",
+          "to": "merge_pool",
+          "kind": "next"
+        },
+        {
+          "from": "merge_pool",
+          "to": "refine_or_plan",
+          "kind": "next"
+        },
+        {
+          "from": "refine_or_plan",
+          "to": "broadcast_events",
+          "kind": "async"
+        },
+        {
+          "from": "refine_or_plan",
+          "to": "append_context",
+          "kind": "async"
+        }
       ],
       "refs": [
-        { "file": "backend/collab/room.py", "lines": [220, 510] },
-        { "file": "frontend/lib/collab-store.ts" }
+        {
+          "file": "backend/collab/room.py",
+          "lines": [
+            220,
+            510
+          ]
+        },
+        {
+          "file": "frontend/lib/collab-store.ts"
+        }
       ],
       "confidence": 0.82,
       "provenance": "ai",
@@ -1657,20 +3494,35 @@
       "summary": "成员对每段 like/dislike：赞 → 锁定该段（重排时保留）；踩 → 翻译为约束触发重排",
       "epicId": "collab",
       "triggers": [
-        { "kind": "ui", "detail": "成员在 VoteButtons 点赞 / 踩某段" }
+        {
+          "kind": "ui",
+          "detail": "成员在 VoteButtons 点赞 / 踩某段"
+        }
       ],
       "steps": [
         {
           "id": "click_vote",
           "name": "点击投票",
           "role": "input",
-          "refs": [{ "file": "frontend/components/VoteButtons.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/VoteButtons.tsx"
+            }
+          ]
         },
         {
           "id": "update_vote",
           "name": "更新投票状态",
           "role": "data-write",
-          "refs": [{ "file": "backend/collab/room.py", "lines": [275, 310] }]
+          "refs": [
+            {
+              "file": "backend/collab/room.py",
+              "lines": [
+                275,
+                310
+              ]
+            }
+          ]
         },
         {
           "id": "broadcast",
@@ -1691,15 +3543,43 @@
         }
       ],
       "flow": [
-        { "from": "click_vote", "to": "update_vote", "kind": "next" },
-        { "from": "update_vote", "to": "broadcast", "kind": "async" },
-        { "from": "update_vote", "to": "lock_stage", "kind": "conditional", "condition": "action=like" },
-        { "from": "update_vote", "to": "vote_to_constraint", "kind": "conditional", "condition": "action=dislike" }
+        {
+          "from": "click_vote",
+          "to": "update_vote",
+          "kind": "next"
+        },
+        {
+          "from": "update_vote",
+          "to": "broadcast",
+          "kind": "async"
+        },
+        {
+          "from": "update_vote",
+          "to": "lock_stage",
+          "kind": "conditional",
+          "condition": "action=like"
+        },
+        {
+          "from": "update_vote",
+          "to": "vote_to_constraint",
+          "kind": "conditional",
+          "condition": "action=dislike"
+        }
       ],
       "refs": [
-        { "file": "backend/collab/room.py", "lines": [270, 330] },
-        { "file": "frontend/components/VoteButtons.tsx" },
-        { "file": "backend/scripts/verify_collab.py" }
+        {
+          "file": "backend/collab/room.py",
+          "lines": [
+            270,
+            330
+          ]
+        },
+        {
+          "file": "frontend/components/VoteButtons.tsx"
+        },
+        {
+          "file": "backend/scripts/verify_collab.py"
+        }
       ],
       "confidence": 0.82,
       "provenance": "ai",
@@ -1712,39 +3592,82 @@
       "summary": "fetch + ReadableStream 解析 SSE：粘围栏切分 / 跨 chunk token / 首字节超时 8s / 空闲超时 30s / 5 类错误降级",
       "epicId": "interface",
       "triggers": [
-        { "kind": "http", "detail": "前端调 streamSse(url, body, signal, handlers)" }
+        {
+          "kind": "http",
+          "detail": "前端调 streamSse(url, body, signal, handlers)"
+        }
       ],
       "steps": [
         {
           "id": "open_stream",
           "name": "发起 SSE 请求",
           "role": "side-effect",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [55, 100] }]
+          "refs": [
+            {
+              "file": "frontend/lib/sse.ts",
+              "lines": [
+                55,
+                100
+              ]
+            }
+          ]
         },
         {
           "id": "arm_watchdog",
           "name": "启动超时看门狗",
           "role": "compute",
           "note": "首字节 8s / 空闲 30s",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [110, 130] }]
+          "refs": [
+            {
+              "file": "frontend/lib/sse.ts",
+              "lines": [
+                110,
+                130
+              ]
+            }
+          ]
         },
         {
           "id": "decode",
           "name": "增量解码字节",
           "role": "transform",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [135, 175] }]
+          "refs": [
+            {
+              "file": "frontend/lib/sse.ts",
+              "lines": [
+                135,
+                175
+              ]
+            }
+          ]
         },
         {
           "id": "parse_block",
           "name": "解析事件块",
           "role": "transform",
-          "refs": [{ "file": "frontend/lib/sse.ts", "lines": [220, 250] }]
+          "refs": [
+            {
+              "file": "frontend/lib/sse.ts",
+              "lines": [
+                220,
+                250
+              ]
+            }
+          ]
         },
         {
           "id": "dispatch",
           "name": "分发到 store",
           "role": "compute",
-          "refs": [{ "file": "frontend/lib/store.ts", "lines": [475, 600] }]
+          "refs": [
+            {
+              "file": "frontend/lib/store.ts",
+              "lines": [
+                475,
+                600
+              ]
+            }
+          ]
         },
         {
           "id": "fallback",
@@ -1752,24 +3675,74 @@
           "role": "error",
           "note": "5 类：timeout_first_event / idle_timeout / network / http / stream",
           "refs": [
-            { "file": "frontend/lib/sse.ts", "lines": [180, 215] },
-            { "file": "frontend/lib/utils.ts", "lines": [44, 70] }
+            {
+              "file": "frontend/lib/sse.ts",
+              "lines": [
+                180,
+                215
+              ]
+            },
+            {
+              "file": "frontend/lib/utils.ts",
+              "lines": [
+                44,
+                70
+              ]
+            }
           ]
         }
       ],
       "flow": [
-        { "from": "open_stream", "to": "arm_watchdog", "kind": "next" },
-        { "from": "arm_watchdog", "to": "decode", "kind": "next" },
-        { "from": "decode", "to": "parse_block", "kind": "loop", "condition": "每收到一个 SSE 块" },
-        { "from": "parse_block", "to": "dispatch", "kind": "next" },
-        { "from": "dispatch", "to": "arm_watchdog", "kind": "async", "condition": "每条事件后重置空闲计时" },
-        { "from": "arm_watchdog", "to": "fallback", "kind": "error", "condition": "首字节 / 空闲超时" },
-        { "from": "open_stream", "to": "fallback", "kind": "error", "condition": "网络层 / HTTP 错误" }
+        {
+          "from": "open_stream",
+          "to": "arm_watchdog",
+          "kind": "next"
+        },
+        {
+          "from": "arm_watchdog",
+          "to": "decode",
+          "kind": "next"
+        },
+        {
+          "from": "decode",
+          "to": "parse_block",
+          "kind": "loop",
+          "condition": "每收到一个 SSE 块"
+        },
+        {
+          "from": "parse_block",
+          "to": "dispatch",
+          "kind": "next"
+        },
+        {
+          "from": "dispatch",
+          "to": "arm_watchdog",
+          "kind": "async",
+          "condition": "每条事件后重置空闲计时"
+        },
+        {
+          "from": "arm_watchdog",
+          "to": "fallback",
+          "kind": "error",
+          "condition": "首字节 / 空闲超时"
+        },
+        {
+          "from": "open_stream",
+          "to": "fallback",
+          "kind": "error",
+          "condition": "网络层 / HTTP 错误"
+        }
       ],
       "refs": [
-        { "file": "frontend/lib/sse.ts" },
-        { "file": "frontend/lib/sse.test.ts" },
-        { "file": "frontend/lib/store.ts" }
+        {
+          "file": "frontend/lib/sse.ts"
+        },
+        {
+          "file": "frontend/lib/sse.test.ts"
+        },
+        {
+          "file": "frontend/lib/store.ts"
+        }
       ],
       "confidence": 0.95,
       "provenance": "ai",
@@ -1782,42 +3755,81 @@
       "summary": "六段时间轴 stagger 动画 + 「为你考虑了」chips + 预留清单 + 转发文案 + 决策追踪 + 三按钮",
       "epicId": "interface",
       "triggers": [
-        { "kind": "event", "detail": "store 收到 itinerary_ready 事件" }
+        {
+          "kind": "event",
+          "detail": "store 收到 itinerary_ready 事件"
+        }
       ],
       "steps": [
         {
           "id": "subscribe",
           "name": "订阅行程数据",
           "role": "input",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [25, 45] }]
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx",
+              "lines": [
+                25,
+                45
+              ]
+            }
+          ]
         },
         {
           "id": "stagger_anim",
           "name": "时间轴 stagger 动画",
           "role": "output",
           "note": "stages 逐段长出（≤2 段 200ms / ≥3 段 400ms）；可点跳过；abort 兜底立即全显",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [70, 145] }]
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx",
+              "lines": [
+                70,
+                145
+              ]
+            }
+          ]
         },
         {
           "id": "intent_chips",
           "name": "渲染意图 chips",
           "role": "output",
           "note": "「为你考虑了」距离 / 同行 / 饮食 / 时长 4-6 个标签",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [625, 720] }]
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx",
+              "lines": [
+                625,
+                720
+              ]
+            }
+          ]
         },
         {
           "id": "refinement_banner",
           "name": "渲染调整摘要",
           "role": "output",
           "note": "lastRefinement.changedFields 非空 → 紫色 banner",
-          "refs": [{ "file": "frontend/components/ItineraryCard.tsx", "lines": [240, 260] }]
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx",
+              "lines": [
+                240,
+                260
+              ]
+            }
+          ]
         },
         {
           "id": "comparison_view",
           "name": "前后对比视图",
           "role": "output",
           "note": "lastRefinement + previousItinerary 同时非空 → ComparisonView",
-          "refs": [{ "file": "frontend/components/ComparisonView.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ComparisonView.tsx"
+            }
+          ]
         },
         {
           "id": "render_orders",
@@ -1835,7 +3847,11 @@
           "name": "渲染决策追踪",
           "role": "output",
           "note": "DecisionTraceCard：blueprint_rationale / weights / critic_attempts / fallback_chain / alternatives",
-          "refs": [{ "file": "frontend/components/DecisionTraceCard.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/DecisionTraceCard.tsx"
+            }
+          ]
         },
         {
           "id": "action_buttons",
@@ -1850,21 +3866,73 @@
         }
       ],
       "flow": [
-        { "from": "subscribe", "to": "stagger_anim", "kind": "conditional", "condition": "itinerary 非空" },
-        { "from": "subscribe", "to": "empty_state", "kind": "error", "condition": "尚未规划" },
-        { "from": "stagger_anim", "to": "intent_chips", "kind": "next" },
-        { "from": "stagger_anim", "to": "refinement_banner", "kind": "conditional", "condition": "lastRefinement.changedFields 非空" },
-        { "from": "stagger_anim", "to": "comparison_view", "kind": "conditional", "condition": "previousItinerary 非空" },
-        { "from": "stagger_anim", "to": "render_orders", "kind": "conditional", "condition": "orders 非空" },
-        { "from": "stagger_anim", "to": "render_share", "kind": "conditional", "condition": "share_message 非空" },
-        { "from": "stagger_anim", "to": "render_trace", "kind": "conditional", "condition": "decision_trace 非空" },
-        { "from": "stagger_anim", "to": "action_buttons", "kind": "conditional", "condition": "尚未下单且未取消" }
+        {
+          "from": "subscribe",
+          "to": "stagger_anim",
+          "kind": "conditional",
+          "condition": "itinerary 非空"
+        },
+        {
+          "from": "subscribe",
+          "to": "empty_state",
+          "kind": "error",
+          "condition": "尚未规划"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "intent_chips",
+          "kind": "next"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "refinement_banner",
+          "kind": "conditional",
+          "condition": "lastRefinement.changedFields 非空"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "comparison_view",
+          "kind": "conditional",
+          "condition": "previousItinerary 非空"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "render_orders",
+          "kind": "conditional",
+          "condition": "orders 非空"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "render_share",
+          "kind": "conditional",
+          "condition": "share_message 非空"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "render_trace",
+          "kind": "conditional",
+          "condition": "decision_trace 非空"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "action_buttons",
+          "kind": "conditional",
+          "condition": "尚未下单且未取消"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/ItineraryCard.tsx" },
-        { "file": "frontend/components/ComparisonView.tsx" },
-        { "file": "frontend/components/DecisionTraceCard.tsx" },
-        { "file": "frontend/components/RefinementDialog.tsx" }
+        {
+          "file": "frontend/components/ItineraryCard.tsx"
+        },
+        {
+          "file": "frontend/components/ComparisonView.tsx"
+        },
+        {
+          "file": "frontend/components/DecisionTraceCard.tsx"
+        },
+        {
+          "file": "frontend/components/RefinementDialog.tsx"
+        }
       ],
       "confidence": 0.92,
       "provenance": "ai",
@@ -1877,8 +3945,14 @@
       "summary": "ChatDock 4 段连续高度（96/180/340/70vh）：拖动 / 双击 / 「展开 N」按钮切换；timeline 时序合并 messages + chitchatReplies",
       "epicId": "interface",
       "triggers": [
-        { "kind": "ui", "detail": "用户输入 / 拖 handle / 点击展开按钮" },
-        { "kind": "event", "detail": "streaming 切换自动 peek" }
+        {
+          "kind": "ui",
+          "detail": "用户输入 / 拖 handle / 点击展开按钮"
+        },
+        {
+          "kind": "event",
+          "detail": "streaming 切换自动 peek"
+        }
       ],
       "steps": [
         {
@@ -1886,55 +3960,137 @@
           "name": "折叠态预览",
           "role": "output",
           "note": "76 / 104px：仅输入框 + 单行 agent 预览",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [195, 225] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                195,
+                225
+              ]
+            }
+          ]
         },
         {
           "id": "drag_handle",
           "name": "拖动调整高度",
           "role": "input",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [110, 165] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                110,
+                165
+              ]
+            }
+          ]
         },
         {
           "id": "merge_timeline",
           "name": "合并时序事件",
           "role": "transform",
           "note": "messages + chitchatReplies 按 ts 排序",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [275, 300] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                275,
+                300
+              ]
+            }
+          ]
         },
         {
           "id": "render_timeline",
           "name": "渲染时间线",
           "role": "output",
           "note": "agent thoughts 流（最新条转动，旧条静态）+ 用户气泡 + chitchat 气泡",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [340, 460] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                340,
+                460
+              ]
+            }
+          ]
         },
         {
           "id": "auto_peek",
           "name": "streaming 自动展开",
           "role": "compute",
           "note": "streaming 期间强制 peek；结束 1.6s 后自动收回 collapsed（除非用户拖大过）",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [177, 205] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                177,
+                205
+              ]
+            }
+          ]
         },
         {
           "id": "submit",
           "name": "提交输入",
           "role": "side-effect",
           "note": "协作模式走 WS sendConstraint；普通模式调 store.sendMessage",
-          "refs": [{ "file": "frontend/components/ChatDock.tsx", "lines": [248, 270] }]
+          "refs": [
+            {
+              "file": "frontend/components/ChatDock.tsx",
+              "lines": [
+                248,
+                270
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "render_collapsed", "to": "drag_handle", "kind": "loop", "condition": "用户多次拖动" },
-        { "from": "drag_handle", "to": "render_timeline", "kind": "conditional", "condition": "高度 ≥ 160" },
-        { "from": "render_timeline", "to": "merge_timeline", "kind": "next" },
-        { "from": "auto_peek", "to": "render_timeline", "kind": "next" },
-        { "from": "render_collapsed", "to": "submit", "kind": "conditional", "condition": "用户按 Enter" },
-        { "from": "render_timeline", "to": "submit", "kind": "conditional", "condition": "用户按 Enter" }
+        {
+          "from": "render_collapsed",
+          "to": "drag_handle",
+          "kind": "loop",
+          "condition": "用户多次拖动"
+        },
+        {
+          "from": "drag_handle",
+          "to": "render_timeline",
+          "kind": "conditional",
+          "condition": "高度 ≥ 160"
+        },
+        {
+          "from": "render_timeline",
+          "to": "merge_timeline",
+          "kind": "next"
+        },
+        {
+          "from": "auto_peek",
+          "to": "render_timeline",
+          "kind": "next"
+        },
+        {
+          "from": "render_collapsed",
+          "to": "submit",
+          "kind": "conditional",
+          "condition": "用户按 Enter"
+        },
+        {
+          "from": "render_timeline",
+          "to": "submit",
+          "kind": "conditional",
+          "condition": "用户按 Enter"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/ChatDock.tsx" },
-        { "file": "frontend/components/ChitchatBubble.tsx" },
-        { "file": "frontend/components/IntentSummary.tsx" }
+        {
+          "file": "frontend/components/ChatDock.tsx"
+        },
+        {
+          "file": "frontend/components/ChitchatBubble.tsx"
+        },
+        {
+          "file": "frontend/components/IntentSummary.tsx"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -1947,21 +4103,32 @@
       "summary": "可视化每步 Tool 调用 + 异常重规划 + agent_thought（评委加分项「Agent 行为可见性」）",
       "epicId": "interface",
       "triggers": [
-        { "kind": "event", "detail": "store 收到 tool_call_start / tool_call_end / replan_triggered / agent_thought 事件" }
+        {
+          "kind": "event",
+          "detail": "store 收到 tool_call_start / tool_call_end / replan_triggered / agent_thought 事件"
+        }
       ],
       "steps": [
         {
           "id": "subscribe",
           "name": "订阅调用记录",
           "role": "input",
-          "refs": [{ "file": "frontend/components/ToolTracePanel.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ToolTracePanel.tsx"
+            }
+          ]
         },
         {
           "id": "render_constraint",
           "name": "渲染意图约束流",
           "role": "output",
           "note": "ConstraintFeed：意图字段被解析时逐条出",
-          "refs": [{ "file": "frontend/components/ConstraintFeed.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ConstraintFeed.tsx"
+            }
+          ]
         },
         {
           "id": "render_tool_calls",
@@ -1979,19 +4146,49 @@
           "id": "render_thoughts",
           "name": "渲染 Agent 思考",
           "role": "output",
-          "refs": [{ "file": "frontend/components/ThoughtPanel.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/ThoughtPanel.tsx"
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "subscribe", "to": "render_constraint", "kind": "conditional", "condition": "intent 已解析" },
-        { "from": "subscribe", "to": "render_tool_calls", "kind": "loop", "condition": "每条 Tool 调用" },
-        { "from": "render_tool_calls", "to": "render_replan", "kind": "conditional", "condition": "replan_triggered 命中" },
-        { "from": "subscribe", "to": "render_thoughts", "kind": "loop", "condition": "每条 agent_thought" }
+        {
+          "from": "subscribe",
+          "to": "render_constraint",
+          "kind": "conditional",
+          "condition": "intent 已解析"
+        },
+        {
+          "from": "subscribe",
+          "to": "render_tool_calls",
+          "kind": "loop",
+          "condition": "每条 Tool 调用"
+        },
+        {
+          "from": "render_tool_calls",
+          "to": "render_replan",
+          "kind": "conditional",
+          "condition": "replan_triggered 命中"
+        },
+        {
+          "from": "subscribe",
+          "to": "render_thoughts",
+          "kind": "loop",
+          "condition": "每条 agent_thought"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/ToolTracePanel.tsx" },
-        { "file": "frontend/components/ConstraintFeed.tsx" },
-        { "file": "frontend/components/ThoughtPanel.tsx" }
+        {
+          "file": "frontend/components/ToolTracePanel.tsx"
+        },
+        {
+          "file": "frontend/components/ConstraintFeed.tsx"
+        },
+        {
+          "file": "frontend/components/ThoughtPanel.tsx"
+        }
       ],
       "confidence": 0.9,
       "provenance": "ai",
@@ -2004,7 +4201,10 @@
       "summary": "行程地点在高德地图上实时标注 + AMap.Driving 真实驾车路线；jscode 走后端代理 /_AMapService 安全注入",
       "epicId": "interface",
       "triggers": [
-        { "kind": "event", "detail": "ItineraryCard 渲染时挂载 MapOverlay" }
+        {
+          "kind": "event",
+          "detail": "ItineraryCard 渲染时挂载 MapOverlay"
+        }
       ],
       "steps": [
         {
@@ -2012,28 +4212,60 @@
           "name": "动态加载 SDK",
           "role": "side-effect",
           "note": "_AMapSecurityConfig.serviceHost=/_AMapService 后端注入 jscode",
-          "refs": [{ "file": "frontend/components/MapOverlay.tsx", "lines": [120, 165] }]
+          "refs": [
+            {
+              "file": "frontend/components/MapOverlay.tsx",
+              "lines": [
+                120,
+                165
+              ]
+            }
+          ]
         },
         {
           "id": "amap_proxy",
           "name": "后端代理高德 REST",
           "role": "side-effect",
           "note": "/_AMapService/{path:path} → restapi.amap.com/{path}?jscode=...",
-          "refs": [{ "file": "backend/main.py", "lines": [359, 435] }]
+          "refs": [
+            {
+              "file": "backend/main.py",
+              "lines": [
+                359,
+                435
+              ]
+            }
+          ]
         },
         {
           "id": "render_markers",
           "name": "渲染段落标注",
           "role": "output",
           "note": "stages 逐段亮起，配合 R1 stagger 动画 visibleCount",
-          "refs": [{ "file": "frontend/components/MapOverlay.tsx", "lines": [225, 265] }]
+          "refs": [
+            {
+              "file": "frontend/components/MapOverlay.tsx",
+              "lines": [
+                225,
+                265
+              ]
+            }
+          ]
         },
         {
           "id": "draw_route",
           "name": "绘制驾车路线",
           "role": "compute",
           "note": "AMap.Driving 真实路径；失败 fallback 直连 polyline",
-          "refs": [{ "file": "frontend/components/MapOverlay.tsx", "lines": [335, 410] }]
+          "refs": [
+            {
+              "file": "frontend/components/MapOverlay.tsx",
+              "lines": [
+                335,
+                410
+              ]
+            }
+          ]
         },
         {
           "id": "show_info",
@@ -2046,19 +4278,59 @@
           "name": "降级文字列表",
           "role": "error",
           "note": "无 NEXT_PUBLIC_AMAP_KEY / SDK 失败 → 渲染纯文字段落表",
-          "refs": [{ "file": "frontend/components/MapOverlay.tsx", "lines": [305, 332] }]
+          "refs": [
+            {
+              "file": "frontend/components/MapOverlay.tsx",
+              "lines": [
+                305,
+                332
+              ]
+            }
+          ]
         }
       ],
       "flow": [
-        { "from": "load_sdk", "to": "amap_proxy", "kind": "loop", "condition": "SDK 内每个 REST 请求" },
-        { "from": "load_sdk", "to": "render_markers", "kind": "conditional", "condition": "SDK 加载成功" },
-        { "from": "load_sdk", "to": "fallback_list", "kind": "error", "condition": "AMAP_KEY 缺失或 SDK 失败" },
-        { "from": "render_markers", "to": "draw_route", "kind": "next" },
-        { "from": "render_markers", "to": "show_info", "kind": "async", "condition": "用户点 marker" }
+        {
+          "from": "load_sdk",
+          "to": "amap_proxy",
+          "kind": "loop",
+          "condition": "SDK 内每个 REST 请求"
+        },
+        {
+          "from": "load_sdk",
+          "to": "render_markers",
+          "kind": "conditional",
+          "condition": "SDK 加载成功"
+        },
+        {
+          "from": "load_sdk",
+          "to": "fallback_list",
+          "kind": "error",
+          "condition": "AMAP_KEY 缺失或 SDK 失败"
+        },
+        {
+          "from": "render_markers",
+          "to": "draw_route",
+          "kind": "next"
+        },
+        {
+          "from": "render_markers",
+          "to": "show_info",
+          "kind": "async",
+          "condition": "用户点 marker"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/MapOverlay.tsx" },
-        { "file": "backend/main.py", "lines": [359, 435] }
+        {
+          "file": "frontend/components/MapOverlay.tsx"
+        },
+        {
+          "file": "backend/main.py",
+          "lines": [
+            359,
+            435
+          ]
+        }
       ],
       "confidence": 0.85,
       "provenance": "ai",
@@ -2071,28 +4343,47 @@
       "summary": "海报（modern-screenshot 截图）+ 语音播报（Web Speech API）+ 一键复制文案——评委「多模态」加分项",
       "epicId": "interface",
       "triggers": [
-        { "kind": "ui", "detail": "用户点击「生成海报」 / 「语音播报」 / 「复制文案」" }
+        {
+          "kind": "ui",
+          "detail": "用户点击「生成海报」 / 「语音播报」 / 「复制文案」"
+        }
       ],
       "steps": [
         {
           "id": "build_text",
           "name": "拼装语音文本",
           "role": "transform",
-          "refs": [{ "file": "frontend/components/TtsPlayer.tsx", "lines": [35, 55] }]
+          "refs": [
+            {
+              "file": "frontend/components/TtsPlayer.tsx",
+              "lines": [
+                35,
+                55
+              ]
+            }
+          ]
         },
         {
           "id": "speech_play",
           "name": "TTS 播放",
           "role": "side-effect",
           "note": "状态机 idle/playing/paused；不支持 speechSynthesis 时静默隐藏",
-          "refs": [{ "file": "frontend/components/TtsPlayer.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/TtsPlayer.tsx"
+            }
+          ]
         },
         {
           "id": "render_template",
           "name": "渲染海报模板",
           "role": "compute",
           "note": "off-screen 渲染 PosterTemplate（小红书暖色卡片风）",
-          "refs": [{ "file": "frontend/components/PosterGenerator.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/PosterGenerator.tsx"
+            }
+          ]
         },
         {
           "id": "screenshot",
@@ -2113,14 +4404,36 @@
         }
       ],
       "flow": [
-        { "from": "build_text", "to": "speech_play", "kind": "next" },
-        { "from": "render_template", "to": "screenshot", "kind": "next" },
-        { "from": "screenshot", "to": "save_or_copy", "kind": "conditional", "condition": "截图成功" },
-        { "from": "screenshot", "to": "fallback_text", "kind": "error", "condition": "渲染超时 / 失败" }
+        {
+          "from": "build_text",
+          "to": "speech_play",
+          "kind": "next"
+        },
+        {
+          "from": "render_template",
+          "to": "screenshot",
+          "kind": "next"
+        },
+        {
+          "from": "screenshot",
+          "to": "save_or_copy",
+          "kind": "conditional",
+          "condition": "截图成功"
+        },
+        {
+          "from": "screenshot",
+          "to": "fallback_text",
+          "kind": "error",
+          "condition": "渲染超时 / 失败"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/TtsPlayer.tsx" },
-        { "file": "frontend/components/PosterGenerator.tsx" }
+        {
+          "file": "frontend/components/TtsPlayer.tsx"
+        },
+        {
+          "file": "frontend/components/PosterGenerator.tsx"
+        }
       ],
       "confidence": 0.85,
       "provenance": "ai",
@@ -2133,28 +4446,54 @@
       "summary": "Cmd+K 打开：演示场景 / 切 Planner Mode / 切 user / 切会话 / 重置；fuzzy 搜索 + 上下键导航",
       "epicId": "interface",
       "triggers": [
-        { "kind": "ui", "detail": "Cmd+K / Ctrl+K 全局快捷键" },
-        { "kind": "ui", "detail": "顶栏「命令」按钮" }
+        {
+          "kind": "ui",
+          "detail": "Cmd+K / Ctrl+K 全局快捷键"
+        },
+        {
+          "kind": "ui",
+          "detail": "顶栏「命令」按钮"
+        }
       ],
       "steps": [
         {
           "id": "register_shortcut",
           "name": "注册全局快捷键",
           "role": "side-effect",
-          "refs": [{ "file": "frontend/components/HomeView.tsx", "lines": [70, 85] }]
+          "refs": [
+            {
+              "file": "frontend/components/HomeView.tsx",
+              "lines": [
+                70,
+                85
+              ]
+            }
+          ]
         },
         {
           "id": "load_sessions",
           "name": "加载历史会话",
           "role": "data-read",
-          "refs": [{ "file": "frontend/lib/utils.ts" }]
+          "refs": [
+            {
+              "file": "frontend/lib/utils.ts"
+            }
+          ]
         },
         {
           "id": "build_commands",
           "name": "构造命令清单",
           "role": "compute",
           "note": "场景 + 切 user + 切会话 + 切 mode + 重置 + 取消方案",
-          "refs": [{ "file": "frontend/components/CommandPalette.tsx", "lines": [60, 200] }]
+          "refs": [
+            {
+              "file": "frontend/components/CommandPalette.tsx",
+              "lines": [
+                60,
+                200
+              ]
+            }
+          ]
         },
         {
           "id": "fuzzy_match",
@@ -2173,14 +4512,39 @@
         }
       ],
       "flow": [
-        { "from": "register_shortcut", "to": "load_sessions", "kind": "conditional", "condition": "面板打开" },
-        { "from": "load_sessions", "to": "build_commands", "kind": "next" },
-        { "from": "build_commands", "to": "fuzzy_match", "kind": "loop", "condition": "用户输入 query" },
-        { "from": "fuzzy_match", "to": "navigate", "kind": "next" },
-        { "from": "navigate", "to": "perform", "kind": "conditional", "condition": "用户按 Enter" }
+        {
+          "from": "register_shortcut",
+          "to": "load_sessions",
+          "kind": "conditional",
+          "condition": "面板打开"
+        },
+        {
+          "from": "load_sessions",
+          "to": "build_commands",
+          "kind": "next"
+        },
+        {
+          "from": "build_commands",
+          "to": "fuzzy_match",
+          "kind": "loop",
+          "condition": "用户输入 query"
+        },
+        {
+          "from": "fuzzy_match",
+          "to": "navigate",
+          "kind": "next"
+        },
+        {
+          "from": "navigate",
+          "to": "perform",
+          "kind": "conditional",
+          "condition": "用户按 Enter"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/CommandPalette.tsx" }
+        {
+          "file": "frontend/components/CommandPalette.tsx"
+        }
       ],
       "confidence": 0.88,
       "provenance": "ai",
@@ -2193,8 +4557,14 @@
       "summary": "顶栏 chip 单击循环 rule ↔ llm；写 cookie + X-Planner-Mode header 透传；首屏 cookie / /health 兜底",
       "epicId": "interface",
       "triggers": [
-        { "kind": "ui", "detail": "用户点击 PlannerModeBadge" },
-        { "kind": "startup", "detail": "首屏 mount 时初始化 mode" }
+        {
+          "kind": "ui",
+          "detail": "用户点击 PlannerModeBadge"
+        },
+        {
+          "kind": "startup",
+          "detail": "首屏 mount 时初始化 mode"
+        }
       ],
       "steps": [
         {
@@ -2212,7 +4582,11 @@
           "id": "click_toggle",
           "name": "点击切换",
           "role": "input",
-          "refs": [{ "file": "frontend/components/PlannerModeBadge.tsx" }]
+          "refs": [
+            {
+              "file": "frontend/components/PlannerModeBadge.tsx"
+            }
+          ]
         },
         {
           "id": "write_cookie",
@@ -2232,17 +4606,53 @@
         }
       ],
       "flow": [
-        { "from": "init_from_cookie", "to": "init_from_health", "kind": "conditional", "condition": "cookie 缺省" },
-        { "from": "init_from_cookie", "to": "click_toggle", "kind": "conditional", "condition": "cookie 存在" },
-        { "from": "init_from_health", "to": "click_toggle", "kind": "next" },
-        { "from": "click_toggle", "to": "write_cookie", "kind": "next" },
-        { "from": "write_cookie", "to": "inject_header", "kind": "next" },
-        { "from": "inject_header", "to": "toast_feedback", "kind": "async" }
+        {
+          "from": "init_from_cookie",
+          "to": "init_from_health",
+          "kind": "conditional",
+          "condition": "cookie 缺省"
+        },
+        {
+          "from": "init_from_cookie",
+          "to": "click_toggle",
+          "kind": "conditional",
+          "condition": "cookie 存在"
+        },
+        {
+          "from": "init_from_health",
+          "to": "click_toggle",
+          "kind": "next"
+        },
+        {
+          "from": "click_toggle",
+          "to": "write_cookie",
+          "kind": "next"
+        },
+        {
+          "from": "write_cookie",
+          "to": "inject_header",
+          "kind": "next"
+        },
+        {
+          "from": "inject_header",
+          "to": "toast_feedback",
+          "kind": "async"
+        }
       ],
       "refs": [
-        { "file": "frontend/components/PlannerModeBadge.tsx" },
-        { "file": "frontend/lib/store.ts", "lines": [410, 440] },
-        { "file": "frontend/lib/utils.ts" }
+        {
+          "file": "frontend/components/PlannerModeBadge.tsx"
+        },
+        {
+          "file": "frontend/lib/store.ts",
+          "lines": [
+            410,
+            440
+          ]
+        },
+        {
+          "file": "frontend/lib/utils.ts"
+        }
       ],
       "confidence": 0.85,
       "provenance": "ai",
@@ -2251,62 +4661,340 @@
     }
   ],
   "cross_feature": [
-    { "from": "f-quick-input", "to": "f-chat-turn-entry", "kind": "triggers", "note": "快捷场景按钮提交触发主入口" },
-    { "from": "f-chat-dock", "to": "f-chat-turn-entry", "kind": "triggers", "note": "Dock 输入框提交触发主入口" },
-    { "from": "f-chat-turn-entry", "to": "f-graph-orchestration", "kind": "triggers", "note": "USE_LANGGRAPH=1 时调 run_graph_stream 触发拓扑" },
-    { "from": "f-chat-turn-entry", "to": "f-sse-adapter", "kind": "flow", "mode": "async", "note": "graph 节点更新流推 SSE 给前端" },
-    { "from": "f-graph-orchestration", "to": "f-graph-router", "kind": "depends_on", "note": "拓扑首节点是 router" },
-    { "from": "f-graph-router", "to": "f-feedback-detector", "kind": "depends_on", "note": "第一层启发式调 feedback_detector" },
-    { "from": "f-graph-router", "to": "f-intent-parse", "kind": "triggers", "note": "planning 路径分发到 intent" },
-    { "from": "f-graph-router", "to": "f-refine-loop", "kind": "triggers", "note": "feedback 路径分发到 refiner" },
-    { "from": "f-intent-parse", "to": "f-persona-memory", "kind": "depends_on", "note": "意图解析时注入 persona/memory prior" },
-    { "from": "f-intent-parse", "to": "f-execute-parallel", "kind": "flow", "note": "意图就绪后触发并行候选发现" },
-    { "from": "f-refine-loop", "to": "f-execute-parallel", "kind": "flow", "note": "新意图就绪后重新触发候选发现" },
-    { "from": "f-execute-parallel", "to": "f-search-pois", "kind": "depends_on", "note": "search_pois_worker 调真 Tool" },
-    { "from": "f-execute-parallel", "to": "f-search-restaurants", "kind": "depends_on", "note": "search_restaurants_worker 调真 Tool" },
-    { "from": "f-execute-parallel", "to": "f-user-profile-tool", "kind": "depends_on", "note": "get_user_profile_worker 调真 Tool" },
-    { "from": "f-execute-parallel", "to": "f-plan-blueprint", "kind": "flow", "note": "候选汇聚后触发蓝图规划" },
-    { "from": "f-plan-blueprint", "to": "f-plan-assemble", "kind": "flow", "note": "蓝图就绪后拼装行程" },
-    { "from": "f-plan-assemble", "to": "f-plan-critic", "kind": "flow", "note": "行程拼装后触发 critic 验证" },
-    { "from": "f-plan-critic", "to": "f-plan-narrate", "kind": "flow", "note": "无 critical 违规 → 暖语气文案" },
-    { "from": "f-plan-critic", "to": "f-plan-replan", "kind": "flow", "note": "存在 critical 违规 → 双层重排" },
-    { "from": "f-plan-replan", "to": "f-plan-blueprint", "kind": "flow", "note": "llm_backprompt：带 critic feedback 回 plan 重出" },
-    { "from": "f-plan-replan", "to": "f-plan-narrate", "kind": "flow", "note": "give_up：用兜底方案直接 narrate" },
-    { "from": "f-plan-narrate", "to": "f-itinerary-card", "kind": "flow", "mode": "async", "note": "narrate 完触发 itinerary_ready 给前端卡片" },
-    { "from": "f-sse-adapter", "to": "f-sse-stream-client", "kind": "flow", "mode": "async", "note": "后端推事件 → 前端 fetch ReadableStream 消费" },
-    { "from": "f-sse-stream-client", "to": "f-itinerary-card", "kind": "flow", "note": "itinerary_ready 事件触发卡片渲染" },
-    { "from": "f-sse-stream-client", "to": "f-tool-trace-panel", "kind": "flow", "note": "tool_call_* / replan / agent_thought 事件触发链路面板" },
-    { "from": "f-sse-stream-client", "to": "f-chat-dock", "kind": "flow", "note": "chitchat_reply / messages 事件触发 dock 时间线" },
-    { "from": "f-itinerary-card", "to": "f-amap-overlay", "kind": "depends_on", "note": "卡片内嵌 MapOverlay" },
-    { "from": "f-itinerary-card", "to": "f-multi-modal-output", "kind": "depends_on", "note": "卡片内嵌海报 / 语音播报" },
-    { "from": "f-itinerary-card", "to": "f-user-decision", "kind": "triggers", "note": "卡片三按钮触发用户决策" },
-    { "from": "f-user-decision", "to": "f-finalize-orders", "kind": "triggers", "note": "确认 → execute_finalize 节点下单" },
-    { "from": "f-user-decision", "to": "f-refine-loop", "kind": "triggers", "note": "反馈 → /chat/refine → refiner 复跑" },
-    { "from": "f-finalize-orders", "to": "f-persona-memory", "kind": "flow", "note": "确认下单后异步累积 accepted tags" },
-    { "from": "f-refine-loop", "to": "f-persona-memory", "kind": "flow", "note": "反馈合并后异步累积 rejected tags" },
-    { "from": "f-finalize-orders", "to": "f-itinerary-card", "kind": "flow", "note": "下单完写回 orders / share_message 让卡片重渲染" },
-    { "from": "f-quick-input", "to": "f-persona-memory", "kind": "depends_on", "note": "提交输入时携带 user_id" },
-    { "from": "f-persona-memory", "to": "f-intent-parse", "kind": "flow", "note": "compute_priors 输出喂给意图解析的 prior" },
-    { "from": "f-collab-room", "to": "f-collab-constraint", "kind": "triggers", "note": "成员加入后开放约束输入通道" },
-    { "from": "f-collab-room", "to": "f-collab-vote", "kind": "triggers", "note": "成员加入后开放投票通道" },
-    { "from": "f-collab-constraint", "to": "f-refine-loop", "kind": "depends_on", "note": "有 current_intent 时调 refiner 合并" },
-    { "from": "f-collab-constraint", "to": "f-graph-orchestration", "kind": "depends_on", "note": "无基线时调 LangGraph 主路径出方案" },
-    { "from": "f-collab-vote", "to": "f-collab-constraint", "kind": "triggers", "note": "踩 → 翻译为约束触发重排" },
-    { "from": "f-itinerary-card", "to": "f-collab-room", "kind": "triggers", "note": "「邀请同行人」按钮创建房间" },
-    { "from": "f-chat-dock", "to": "f-collab-constraint", "kind": "triggers", "note": "协作模式下输入走 WS 而非 SSE" },
-    { "from": "f-command-palette", "to": "f-quick-input", "kind": "triggers", "note": "面板内点演示场景一键提交" },
-    { "from": "f-command-palette", "to": "f-persona-memory", "kind": "triggers", "note": "面板内切 user 重载偏好" },
-    { "from": "f-command-palette", "to": "f-planner-mode-toggle", "kind": "triggers", "note": "面板内切 Planner 模式" },
-    { "from": "f-planner-mode-toggle", "to": "f-chat-turn-entry", "kind": "depends_on", "note": "X-Planner-Mode header 透传给主入口" }
+    {
+      "from": "f-quick-input",
+      "to": "f-chat-turn-entry",
+      "kind": "triggers",
+      "note": "快捷场景按钮提交触发主入口"
+    },
+    {
+      "from": "f-chat-dock",
+      "to": "f-chat-turn-entry",
+      "kind": "triggers",
+      "note": "Dock 输入框提交触发主入口"
+    },
+    {
+      "from": "f-chat-turn-entry",
+      "to": "f-graph-orchestration",
+      "kind": "triggers",
+      "note": "USE_LANGGRAPH=1 时调 run_graph_stream 触发拓扑"
+    },
+    {
+      "from": "f-chat-turn-entry",
+      "to": "f-sse-adapter",
+      "kind": "flow",
+      "mode": "async",
+      "note": "graph 节点更新流推 SSE 给前端"
+    },
+    {
+      "from": "f-graph-orchestration",
+      "to": "f-graph-router",
+      "kind": "depends_on",
+      "note": "拓扑首节点是 router"
+    },
+    {
+      "from": "f-graph-router",
+      "to": "f-feedback-detector",
+      "kind": "depends_on",
+      "note": "第一层启发式调 feedback_detector"
+    },
+    {
+      "from": "f-graph-router",
+      "to": "f-intent-parse",
+      "kind": "triggers",
+      "note": "planning 路径分发到 intent"
+    },
+    {
+      "from": "f-graph-router",
+      "to": "f-refine-loop",
+      "kind": "triggers",
+      "note": "feedback 路径分发到 refiner"
+    },
+    {
+      "from": "f-intent-parse",
+      "to": "f-persona-memory",
+      "kind": "depends_on",
+      "note": "意图解析时注入 persona/memory prior"
+    },
+    {
+      "from": "f-intent-parse",
+      "to": "f-execute-parallel",
+      "kind": "flow",
+      "note": "意图就绪后触发并行候选发现"
+    },
+    {
+      "from": "f-refine-loop",
+      "to": "f-execute-parallel",
+      "kind": "flow",
+      "note": "新意图就绪后重新触发候选发现"
+    },
+    {
+      "from": "f-execute-parallel",
+      "to": "f-search-pois",
+      "kind": "depends_on",
+      "note": "search_pois_worker 调真 Tool"
+    },
+    {
+      "from": "f-execute-parallel",
+      "to": "f-search-restaurants",
+      "kind": "depends_on",
+      "note": "search_restaurants_worker 调真 Tool"
+    },
+    {
+      "from": "f-execute-parallel",
+      "to": "f-user-profile-tool",
+      "kind": "depends_on",
+      "note": "get_user_profile_worker 调真 Tool"
+    },
+    {
+      "from": "f-execute-parallel",
+      "to": "f-plan-blueprint",
+      "kind": "flow",
+      "note": "候选汇聚后触发蓝图规划"
+    },
+    {
+      "from": "f-plan-blueprint",
+      "to": "f-plan-assemble",
+      "kind": "flow",
+      "note": "蓝图就绪后拼装行程"
+    },
+    {
+      "from": "f-plan-assemble",
+      "to": "f-plan-critic",
+      "kind": "flow",
+      "note": "行程拼装后触发 critic 验证"
+    },
+    {
+      "from": "f-plan-critic",
+      "to": "f-plan-narrate",
+      "kind": "flow",
+      "note": "无 critical 违规 → 暖语气文案"
+    },
+    {
+      "from": "f-plan-critic",
+      "to": "f-plan-replan",
+      "kind": "flow",
+      "note": "存在 critical 违规 → 双层重排"
+    },
+    {
+      "from": "f-plan-replan",
+      "to": "f-plan-blueprint",
+      "kind": "flow",
+      "note": "llm_backprompt：带 critic feedback 回 plan 重出"
+    },
+    {
+      "from": "f-plan-replan",
+      "to": "f-plan-narrate",
+      "kind": "flow",
+      "note": "give_up：用兜底方案直接 narrate"
+    },
+    {
+      "from": "f-plan-narrate",
+      "to": "f-itinerary-card",
+      "kind": "flow",
+      "mode": "async",
+      "note": "narrate 完触发 itinerary_ready 给前端卡片"
+    },
+    {
+      "from": "f-sse-adapter",
+      "to": "f-sse-stream-client",
+      "kind": "flow",
+      "mode": "async",
+      "note": "后端推事件 → 前端 fetch ReadableStream 消费"
+    },
+    {
+      "from": "f-sse-stream-client",
+      "to": "f-itinerary-card",
+      "kind": "flow",
+      "note": "itinerary_ready 事件触发卡片渲染"
+    },
+    {
+      "from": "f-sse-stream-client",
+      "to": "f-tool-trace-panel",
+      "kind": "flow",
+      "note": "tool_call_* / replan / agent_thought 事件触发链路面板"
+    },
+    {
+      "from": "f-sse-stream-client",
+      "to": "f-chat-dock",
+      "kind": "flow",
+      "note": "chitchat_reply / messages 事件触发 dock 时间线"
+    },
+    {
+      "from": "f-itinerary-card",
+      "to": "f-amap-overlay",
+      "kind": "depends_on",
+      "note": "卡片内嵌 MapOverlay"
+    },
+    {
+      "from": "f-itinerary-card",
+      "to": "f-multi-modal-output",
+      "kind": "depends_on",
+      "note": "卡片内嵌海报 / 语音播报"
+    },
+    {
+      "from": "f-itinerary-card",
+      "to": "f-user-decision",
+      "kind": "triggers",
+      "note": "卡片三按钮触发用户决策"
+    },
+    {
+      "from": "f-user-decision",
+      "to": "f-finalize-orders",
+      "kind": "triggers",
+      "note": "确认 → execute_finalize 节点下单"
+    },
+    {
+      "from": "f-user-decision",
+      "to": "f-refine-loop",
+      "kind": "triggers",
+      "note": "反馈 → /chat/refine → refiner 复跑"
+    },
+    {
+      "from": "f-finalize-orders",
+      "to": "f-persona-memory",
+      "kind": "flow",
+      "note": "确认下单后异步累积 accepted tags"
+    },
+    {
+      "from": "f-refine-loop",
+      "to": "f-persona-memory",
+      "kind": "flow",
+      "note": "反馈合并后异步累积 rejected tags"
+    },
+    {
+      "from": "f-finalize-orders",
+      "to": "f-itinerary-card",
+      "kind": "flow",
+      "note": "下单完写回 orders / share_message 让卡片重渲染"
+    },
+    {
+      "from": "f-quick-input",
+      "to": "f-persona-memory",
+      "kind": "depends_on",
+      "note": "提交输入时携带 user_id"
+    },
+    {
+      "from": "f-persona-memory",
+      "to": "f-intent-parse",
+      "kind": "flow",
+      "note": "compute_priors 输出喂给意图解析的 prior"
+    },
+    {
+      "from": "f-collab-room",
+      "to": "f-collab-constraint",
+      "kind": "triggers",
+      "note": "成员加入后开放约束输入通道"
+    },
+    {
+      "from": "f-collab-room",
+      "to": "f-collab-vote",
+      "kind": "triggers",
+      "note": "成员加入后开放投票通道"
+    },
+    {
+      "from": "f-collab-constraint",
+      "to": "f-refine-loop",
+      "kind": "depends_on",
+      "note": "有 current_intent 时调 refiner 合并"
+    },
+    {
+      "from": "f-collab-constraint",
+      "to": "f-graph-orchestration",
+      "kind": "depends_on",
+      "note": "无基线时调 LangGraph 主路径出方案"
+    },
+    {
+      "from": "f-collab-vote",
+      "to": "f-collab-constraint",
+      "kind": "triggers",
+      "note": "踩 → 翻译为约束触发重排"
+    },
+    {
+      "from": "f-itinerary-card",
+      "to": "f-collab-room",
+      "kind": "triggers",
+      "note": "「邀请同行人」按钮创建房间"
+    },
+    {
+      "from": "f-chat-dock",
+      "to": "f-collab-constraint",
+      "kind": "triggers",
+      "note": "协作模式下输入走 WS 而非 SSE"
+    },
+    {
+      "from": "f-command-palette",
+      "to": "f-quick-input",
+      "kind": "triggers",
+      "note": "面板内点演示场景一键提交"
+    },
+    {
+      "from": "f-command-palette",
+      "to": "f-persona-memory",
+      "kind": "triggers",
+      "note": "面板内切 user 重载偏好"
+    },
+    {
+      "from": "f-command-palette",
+      "to": "f-planner-mode-toggle",
+      "kind": "triggers",
+      "note": "面板内切 Planner 模式"
+    },
+    {
+      "from": "f-planner-mode-toggle",
+      "to": "f-chat-turn-entry",
+      "kind": "depends_on",
+      "note": "X-Planner-Mode header 透传给主入口"
+    }
   ],
   "epic_flow": [
-    { "from": "input", "to": "discovery", "kind": "next", "note": "意图抽取完成后并行查候选" },
-    { "from": "discovery", "to": "planning", "kind": "next", "note": "候选齐全后进入 Plan-and-Execute 拓扑" },
-    { "from": "planning", "to": "execution", "kind": "next", "note": "方案出炉后等用户三按钮决策" },
-    { "from": "execution", "to": "input", "kind": "depends_on", "note": "反馈 / 取消后回到入口（refiner 复跑或新会话）" },
-    { "from": "collab", "to": "input", "kind": "depends_on", "note": "协作约束广播后复用 input 阶段的 refiner / intent 算法" },
-    { "from": "collab", "to": "planning", "kind": "depends_on", "note": "约束触发重规划复用 planning 阶段全套节点" },
-    { "from": "interface", "to": "planning", "kind": "depends_on", "note": "前端通过 SSE 消费 planning 阶段产出的事件流" },
-    { "from": "interface", "to": "execution", "kind": "depends_on", "note": "三按钮 / 反馈弹窗 / 海报 / 语音都依赖 execution 产出的方案与订单" }
+    {
+      "from": "input",
+      "to": "discovery",
+      "kind": "next",
+      "note": "意图抽取完成后并行查候选"
+    },
+    {
+      "from": "discovery",
+      "to": "planning",
+      "kind": "next",
+      "note": "候选齐全后进入 Plan-and-Execute 拓扑"
+    },
+    {
+      "from": "planning",
+      "to": "execution",
+      "kind": "next",
+      "note": "方案出炉后等用户三按钮决策"
+    },
+    {
+      "from": "execution",
+      "to": "input",
+      "kind": "depends_on",
+      "note": "反馈 / 取消后回到入口（refiner 复跑或新会话）"
+    },
+    {
+      "from": "collab",
+      "to": "input",
+      "kind": "depends_on",
+      "note": "协作约束广播后复用 input 阶段的 refiner / intent 算法"
+    },
+    {
+      "from": "collab",
+      "to": "planning",
+      "kind": "depends_on",
+      "note": "约束触发重规划复用 planning 阶段全套节点"
+    },
+    {
+      "from": "interface",
+      "to": "planning",
+      "kind": "depends_on",
+      "note": "前端通过 SSE 消费 planning 阶段产出的事件流"
+    },
+    {
+      "from": "interface",
+      "to": "execution",
+      "kind": "depends_on",
+      "note": "三按钮 / 反馈弹窗 / 海报 / 语音都依赖 execution 产出的方案与订单"
+    }
   ]
 }
