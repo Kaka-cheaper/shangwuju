@@ -9208,3 +9208,44 @@ Layer 3 兜底从 `route_kind != "planning"` 收窄为 `route_kind == "ambiguous
 ```
 
 **设计取舍**：检测器 fail-open（异常放行,靠 L2/L3 兜底,宁漏检不误杀正常用户）；命中回显固定常量绝不 echo 攻击文本；L1 检测是主力、L2 角色锁定+L3 隔离是纵深兜底,三层叠加达生产级。
+
+
+---
+
+## 问题：.env 没有模式设置？全面审查 env 配置完整性
+
+**用户原问**：为什么现在的 env 里没有模式设置？怀疑 env 设置不全面，全面审查一次——① 看需不需要这个 ② 看还有没有漏掉的。
+
+**审查方法**：grep 全量 `os.getenv`/`os.environ` 得到代码读取的权威 env 清单，逐项对照 .env / .env.example 覆盖情况。
+
+**结论 ①（stub 模式开关）**：不需要新增独立行。stub 由 `LLM_PROVIDER=stub` 触发，该项在 L6 段以注释形式存在是合理的（demo/生产默认真 LLM，stub 仅单测/离线兜底，不该常驻）。但原注释没写清"留空=真 LLM / =stub=假客户端"语义，已补充说明。
+
+**结论 ②（遗漏项）**：grep 发现 3 个代码读取但 .env/.env.example 完全没有的 env：
+
+```text
+| 变量                     | 作用                          | 默认行为(不配)        |
+|-------------------------|------------------------------|---------------------|
+| ENABLE_DEMO_FULL_CHECK  | critic 全量检查开关(默认开)     | "1" 开启,demo 正常   |
+| SHANGWUJU_MEMORY_DIR    | 用户记忆磁盘持久化目录          | 纯内存,重启清空       |
+| SHANGWUJU_PERSONAS_FILE | persona 画像文件路径覆盖       | 走内置默认           |
+```
+
+三者都有安全默认值（不配也正常跑，所以 demo 没出问题），但按"`.env.example` 应是代码 env 完整镜像"原则补进注释。
+
+**修改的代码文件**：
+
+- `backend/.env`（补 3 项注释 + LLM_PROVIDER 取值语义说明 + 去重）
+- `backend/.env.example`（同步补 3 项注释 + LLM_PROVIDER 说明）
+
+**应当达成的效果 / 验证证据**：
+
+```text
+| 验证项                          | 结果                              |
+|--------------------------------|----------------------------------|
+| 代码 env 清单 vs .env.example   | 全覆盖（3 个遗漏已补）              |
+| .env dotenv 解析                | 正常(LLM_MODEL/USE_LANGGRAPH 不变)|
+| 三补全项注释态                  | None=走代码默认（不改 demo 行为）  |
+| 改动性质                        | 纯注释，零运行值变更，零功能影响    |
+```
+
+**说明**：.env 在 .gitignore 不入仓，本次实际入仓的是 .env.example（3 项注释补全 + LLM_PROVIDER 语义澄清）。
