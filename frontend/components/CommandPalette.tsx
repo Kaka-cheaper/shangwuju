@@ -88,7 +88,7 @@ export default function CommandPalette() {
         label: `切到「${p.label}」`,
         hint: p.notes,
         group: "切换用户",
-        icon: personaIconFromEmoji(p.icon),
+        icon: personaIconFromEmoji(p.icon, p.label),
         keywords: `user persona ${p.user_id} ${p.label} ${p.notes}`,
         perform: () => {
           setCurrentUserId(p.user_id);

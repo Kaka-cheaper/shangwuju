@@ -119,7 +119,32 @@ export default function HomeView() {
           {/* 左侧：品牌渐变 mark + breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center gap-2.5">
-              <div className="brand-mark" aria-hidden />
+              <div className="w-9 h-9 flex items-center justify-center shrink-0" aria-hidden>
+                <svg
+                  width="32"
+                  height="32"
+                  viewBox="0 0 32 32"
+                  fill="none"
+                >
+                  {/* 定位针轮廓（深墨色，高对比） */}
+                  <path
+                    d="M16 3.5 C 21 3.5, 25 7.3, 25 12.2 C 25 18.5, 16 27.5, 16 27.5 C 16 27.5, 7 18.5, 7 12.2 C 7 7.3, 11 3.5, 16 3.5 Z"
+                    fill="none"
+                    stroke="#1f2937"
+                    strokeWidth="2.2"
+                    strokeLinejoin="round"
+                  />
+                  {/* 针内午后太阳：黄色实心圆 + 半圆地平线意象 */}
+                  <circle cx="16" cy="11.8" r="4.2" fill="#FFD100" />
+                  {/* 太阳下半被地平线遮，用墨色短线表现地平线 */}
+                  <line
+                    x1="11.6" y1="13.2" x2="20.4" y2="13.2"
+                    stroke="#1f2937"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
               <div className="flex flex-col leading-none">
                 <h1 className="text-[17px] font-semibold tracking-tight text-ink-900 shrink-0">
                   晌午局

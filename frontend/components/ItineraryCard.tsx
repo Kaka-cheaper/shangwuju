@@ -231,7 +231,7 @@ export default function ItineraryCard() {
           </span>
         </div>
         <div className="mt-0.5 text-[15px] font-semibold text-ink-900 tracking-tight">
-          {itinerary.summary}
+          <HighlightSummary text={itinerary.summary} />
         </div>
       </div>
 
@@ -290,15 +290,30 @@ export default function ItineraryCard() {
 
       {/* Timeline */}
       <ol className="relative px-4 py-4 space-y-3.5">
-        {/* 时间轴竖线（暖橙→紫渐变） */}
+        {/* 时间轴竖线 */}
         <div
           aria-hidden
           className="absolute left-[51px] top-6 bottom-6 w-px"
           style={{
             background:
-              "linear-gradient(180deg, rgba(255,209,0,0.5) 0%, rgba(245,158,11,0.3) 50%, rgba(251,191,36,0.15) 100%)",
+              "linear-gradient(180deg, rgba(16,185,129,0.5) 0%, rgba(255,209,0,0.5) 30%, rgba(245,158,11,0.3) 70%, rgba(239,68,68,0.5) 100%)",
           }}
         />
+
+        {/* 起点绿点：从家出发 */}
+        <li className="flex items-center gap-3">
+          <div className="flex flex-col items-center min-w-[52px] z-10">
+            <div
+              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
+              style={{
+                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                boxShadow: "0 0 0 1px rgba(16,185,129,0.3), 0 0 6px rgba(16,185,129,0.4)",
+              }}
+            />
+          </div>
+          <span className="text-base font-semibold text-emerald-600">出发咯 🚀</span>
+        </li>
+
         {visibleEntries.map((entry, idx) => {
           // R1: stagger 控制——idx 超出 visibleCount 时不渲染
           if (idx >= visibleCount) return null;
@@ -332,11 +347,12 @@ export default function ItineraryCard() {
               key={entry.ref_id || `node-${idx}`}
               className="relative flex items-start gap-3 animate-fade-in-up"
             >
+              {/* 左侧：时间 + 黄点（竖排，黄点居中） */}
               <div className="flex flex-col items-center min-w-[52px] z-10">
                 <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
                 {/* 黄色时间点 */}
                 <div
-                  className="my-1 w-2.5 h-2.5 rounded-full ring-[3px] ring-white"
+                  className="my-1 w-3 h-3 rounded-full ring-[3px] ring-white"
                   style={{
                     background:
                       "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
@@ -344,9 +360,10 @@ export default function ItineraryCard() {
                       "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
                   }}
                 />
-                <div className="text-[11px] text-ink-400 mono">{entry.end}</div>
+                <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
               </div>
-              <div className="flex-1 pt-0.5">
+              {/* 右侧内容：用 pt 让标题行对准黄点 */}
+              <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="chip">{nodeKindLabel(itinerary, entry.ref_id)}</span>
                   <span className="text-base font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
@@ -365,6 +382,20 @@ export default function ItineraryCard() {
             </li>
           );
         })}
+
+        {/* 终点红点：结束行程 */}
+        <li className="flex items-center gap-3">
+          <div className="flex flex-col items-center min-w-[52px] z-10">
+            <div
+              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
+              style={{
+                background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+                boxShadow: "0 0 0 1px rgba(239,68,68,0.3), 0 0 6px rgba(239,68,68,0.4)",
+              }}
+            />
+          </div>
+          <span className="text-base font-semibold text-red-600">满载而归 ✨</span>
+        </li>
       </ol>
 
       {/* T8/R2: 高德地图标注（配合 R1 stagger 逐段亮起） */}
@@ -698,7 +729,7 @@ function NarrationBlock({
           )}
           strokeWidth={2}
         />
-        <p className="whitespace-pre-wrap">{text}</p>
+        <p className="whitespace-pre-wrap"><HighlightText text={text} /></p>
       </div>
     </div>
   );
@@ -846,34 +877,41 @@ function buildIntentChips(intent: IntentExtraction): ChipItem[] {
       (c) => c.age != null && c.age >= 60,
     );
     let label: string;
+    let icon: keyof typeof Icons;
     if (hasChild) {
       const child = intent.companions.find((c) => c.age != null && c.age <= 12);
       label = `带 ${child?.age ?? ""} 岁孩子`;
+      icon = "baby";
     } else if (hasElder) {
       label = "陪长辈";
+      icon = "heart";
     } else if (totalCount > 1) {
       label = `${totalCount} 人同行`;
+      icon = "users";
     } else {
       label = intent.companions[0].role || "同行";
+      icon = "user";
     }
-    chips.push({ icon: "user", label });
+    chips.push({ icon, label });
   } else if (intent.social_context && intent.social_context.includes("独处")) {
-    chips.push({ icon: "user", label: "独处时间" });
+    chips.push({ icon: "sun", label: "独处时间" });
   }
 
-  // 饮食偏好（合并展示，最多 2 个）
+  // 饮食偏好（按内容匹配图标）
   const dietary = (intent.dietary_constraints || []).slice(0, 2);
   for (const d of dietary) {
-    chips.push({ icon: "spark", label: d });
+    const icon = matchDietaryIcon(d);
+    chips.push({ icon, label: d });
   }
 
-  // 物理约束（无台阶/亲子友好等，最多 1 个，避免太多 chip）
-  const physical = (intent.physical_constraints || []).slice(0, 1);
+  // 物理约束（按内容匹配图标）
+  const physical = (intent.physical_constraints || []).slice(0, 2);
   for (const p of physical) {
-    chips.push({ icon: "spark", label: p });
+    const icon = matchPhysicalIcon(p);
+    chips.push({ icon, label: p });
   }
 
-  // 时长（如果用户给了具体范围）
+  // 时长
   if (
     intent.duration_hours &&
     Array.isArray(intent.duration_hours) &&
@@ -881,13 +919,33 @@ function buildIntentChips(intent: IntentExtraction): ChipItem[] {
   ) {
     const [lo, hi] = intent.duration_hours;
     if (lo === hi) {
-      chips.push({ icon: "thinking", label: `${lo} 小时` });
+      chips.push({ icon: "clock", label: `${lo} 小时` });
     } else {
-      chips.push({ icon: "thinking", label: `${lo}-${hi} 小时` });
+      chips.push({ icon: "clock", label: `${lo}-${hi} 小时` });
     }
   }
 
-  return chips.slice(0, 6); // 上限 6 个，避免一行挤
+  return chips.slice(0, 6);
+}
+
+/** 饮食约束 → 图标匹配 */
+function matchDietaryIcon(text: string): keyof typeof Icons {
+  if (/低脂|减脂|少油/.test(text)) return "leaf";
+  if (/健康|轻食|沙拉/.test(text)) return "salad";
+  if (/素食|蔬菜/.test(text)) return "leaf";
+  if (/清淡|少盐/.test(text)) return "leaf";
+  if (/甜|糖/.test(text)) return "utensils";
+  return "utensils";
+}
+
+/** 物理约束 → 图标匹配 */
+function matchPhysicalIcon(text: string): keyof typeof Icons {
+  if (/亲子|儿童|孩子|宝宝/.test(text)) return "baby";
+  if (/无障碍|轮椅|台阶/.test(text)) return "footprints";
+  if (/低强度|不累|轻松/.test(text)) return "sun";
+  if (/室内|遮阳|空调/.test(text)) return "sun";
+  if (/步行|走路/.test(text)) return "footprints";
+  return "spark";
 }
 
 function IntentChips({ intent }: { intent: IntentExtraction }) {
@@ -971,3 +1029,162 @@ function nodeNote(itinerary: Itinerary, ref_id: string): string | null {
   return n?.note ?? null;
 }
 
+
+// ============================================================
+// HighlightText —— 自动识别关键信息并高亮
+// 规则：
+//   - 时间（HH:MM 格式）：加粗 + 品牌色
+//   - 数字+单位（如 5.7小时、196分钟、3km）：加粗
+//   - 地点名（被「」或引号包裹的内容）：黄色背景高亮
+//   - 人物关系词（老婆/孩子/宝贝/爸妈/闺蜜/朋友等）：下划线强调
+// ============================================================
+
+function HighlightText({ text }: { text: string }) {
+  // 正则匹配各类关键信息
+  const pattern =
+    /(\d{1,2}:\d{2})|(\d+\.?\d*\s*(?:小时|分钟|km|公里|人|岁|h))|([「」""][^「」""]+[「」""])|(\b(?:老婆|老公|孩子|宝贝|宝宝|爸妈|父母|闺蜜|朋友|同事|爱人|妻子|丈夫|女儿|儿子|妈妈|爸爸|奶奶|爷爷|外婆|外公)\b)/g;
+
+  const parts: Array<{ text: string; type: "plain" | "time" | "number" | "place" | "person" }> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    // 前面的普通文本
+    if (match.index > lastIndex) {
+      parts.push({ text: text.slice(lastIndex, match.index), type: "plain" });
+    }
+    // 判断匹配类型
+    if (match[1]) {
+      parts.push({ text: match[0], type: "time" });
+    } else if (match[2]) {
+      parts.push({ text: match[0], type: "number" });
+    } else if (match[3]) {
+      parts.push({ text: match[0], type: "place" });
+    } else if (match[4]) {
+      parts.push({ text: match[0], type: "person" });
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  // 剩余文本
+  if (lastIndex < text.length) {
+    parts.push({ text: text.slice(lastIndex), type: "plain" });
+  }
+
+  // 没有匹配到任何关键词，直接返回原文
+  if (parts.length === 0) return <>{text}</>;
+
+  return (
+    <>
+      {parts.map((part, i) => {
+        switch (part.type) {
+          case "time":
+            return (
+              <span key={i} className="font-bold text-brand-700 mono">
+                {part.text}
+              </span>
+            );
+          case "number":
+            return (
+              <span key={i} className="font-bold text-ink-900">
+                {part.text}
+              </span>
+            );
+          case "place":
+            return (
+              <span
+                key={i}
+                className="font-semibold bg-[#FFD100]/20 px-0.5 rounded"
+              >
+                {part.text}
+              </span>
+            );
+          case "person":
+            return (
+              <span
+                key={i}
+                className="font-semibold underline decoration-[#FFD100] decoration-2 underline-offset-2"
+              >
+                {part.text}
+              </span>
+            );
+          default:
+            return <span key={i}>{part.text}</span>;
+        }
+      })}
+    </>
+  );
+}
+
+// ============================================================
+// HighlightSummary —— 标题行专用高亮
+// 规则：
+//   - 主要地点名（→ 或 · 分隔的核心实体）：黄色背景高亮
+//   - 括号内容（大型主题/健康简餐等）：灰色次要
+//   - 「备选 POI：」后面的内容：缩小 + 灰色（次要信息）
+// ============================================================
+
+function HighlightSummary({ text }: { text: string }) {
+  // 先拆分「备选 POI」部分（如果有的话，作为次要信息缩小显示）
+  const poiSplit = text.split(/[;；]\s*备选\s*POI[：:]/);
+  const mainPart = poiSplit[0] || text;
+  const poiPart = poiSplit[1] || null;
+
+  // 主体部分：高亮地点名（中文名词，排除连接符号和括号内容）
+  // 匹配模式：括号内容变灰，→·等分隔符保留，其余为地点名加亮
+  const pattern = /([（(][^）)]+[）)])|([→·])/g;
+  const parts: Array<{ text: string; type: "name" | "bracket" | "sep" }> = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = pattern.exec(mainPart)) !== null) {
+    if (m.index > lastIdx) {
+      parts.push({ text: mainPart.slice(lastIdx, m.index), type: "name" });
+    }
+    if (m[1]) {
+      parts.push({ text: m[0], type: "bracket" });
+    } else if (m[2]) {
+      parts.push({ text: m[0], type: "sep" });
+    }
+    lastIdx = m.index + m[0].length;
+  }
+  if (lastIdx < mainPart.length) {
+    parts.push({ text: mainPart.slice(lastIdx), type: "name" });
+  }
+
+  return (
+    <>
+      {parts.map((p, i) => {
+        switch (p.type) {
+          case "name":
+            // 去掉前后空白后判断是否是实际地点名（长度>1才高亮）
+            return p.text.trim().length > 1 ? (
+              <span key={i} className="bg-[#FFD100]/20 px-0.5 rounded">
+                {p.text}
+              </span>
+            ) : (
+              <span key={i}>{p.text}</span>
+            );
+          case "bracket":
+            return (
+              <span key={i} className="text-ink-500 font-normal text-[13px]">
+                {p.text}
+              </span>
+            );
+          case "sep":
+            return (
+              <span key={i} className="text-ink-400 mx-0.5">
+                {p.text}
+              </span>
+            );
+          default:
+            return <span key={i}>{p.text}</span>;
+        }
+      })}
+      {poiPart && (
+        <span className="block mt-0.5 text-[12px] font-normal text-ink-500">
+          备选：{poiPart.trim()}
+        </span>
+      )}
+    </>
+  );
+}
