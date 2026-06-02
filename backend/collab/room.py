@@ -56,15 +56,19 @@ class Room:
     """协作房间。"""
     room_id: str
     owner_id: str
+    session_id: Optional[str] = None
     members: dict[str, Member] = field(default_factory=dict)
     constraints: list[Constraint] = field(default_factory=list)
     votes: dict[int, dict[str, str]] = field(default_factory=dict)  # stage_idx → {user_id: "like"|"dislike"}
     current_intent_dict: Optional[dict[str, Any]] = None
     current_itinerary_dict: Optional[dict[str, Any]] = None
+    previous_itinerary_dict: Optional[dict[str, Any]] = None
     # 规划过程事件历史（用于新成员加入时同步 ToolTracePanel）
     planning_events_history: list[dict[str, Any]] = field(default_factory=list)
     # 对话历史（用于新成员加入时同步 ChatPanel）
     chat_messages: list[dict[str, Any]] = field(default_factory=list)
+    # 前端主 store 快照（用于同步新增的 UI 组件状态）
+    chat_state_snapshot: Optional[dict[str, Any]] = None
     # LLM 上下文历史（ModelMessage 格式，重规划时喂给 LLM 保持完整上下文）
     llm_context_messages: list[Any] = field(default_factory=list)
     planning_task: Optional[asyncio.Task] = None
@@ -107,10 +111,13 @@ class Room:
             "constraints": self.constraint_list,
             "votes": {str(k): v for k, v in self.votes.items()},
             "itinerary": self.current_itinerary_dict,
+            "previous_itinerary": self.previous_itinerary_dict,
             "intent": self.current_intent_dict,
             "locked_stages": list(self.locked_stages),
             "planning_events": self.planning_events_history,
             "chat_messages": self.chat_messages,
+            "chat_state": self.chat_state_snapshot,
+            "planning_active": self.planning_task is not None and not self.planning_task.done(),
         }
 
 
@@ -202,6 +209,14 @@ class RoomManager:
 
             # 广播约束
             nickname = room.members.get(user_id, Member(user_id=user_id, nickname=user_id, role="participant")).nickname
+            room.chat_messages.append(
+                {
+                    "id": f"collab-{int(constraint.timestamp * 1000)}",
+                    "role": "user",
+                    "text": f"{nickname}：{text}",
+                    "createdAt": int(constraint.timestamp * 1000),
+                }
+            )
             await self.broadcast(room, {
                 "type": "constraint_added",
                 "user_id": user_id,
@@ -260,6 +275,23 @@ class RoomManager:
                     user_id=user_id, text=constraint_text, source="vote_dislike"
                 )
                 room.constraints.append(constraint)
+                nickname = room.members.get(user_id, Member(user_id=user_id, nickname=user_id, role="participant")).nickname
+                room.chat_messages.append(
+                    {
+                        "id": f"collab-{int(constraint.timestamp * 1000)}",
+                        "role": "user",
+                        "text": f"{nickname}：{constraint_text}",
+                        "createdAt": int(constraint.timestamp * 1000),
+                    }
+                )
+                await self.broadcast(room, {
+                    "type": "constraint_added",
+                    "user_id": user_id,
+                    "nickname": nickname,
+                    "text": constraint_text,
+                    "source": "vote_dislike",
+                    "timestamp": constraint.timestamp,
+                })
 
                 # 中断 + 重规划
                 if room.planning_task and not room.planning_task.done():
@@ -295,6 +327,76 @@ class RoomManager:
             if uid in room.members:
                 room.members[uid].ws = None
 
+    async def confirm(
+        self, room: Room, user_id: str, *, mode: str = "rule"
+    ) -> None:
+        """由房间发起人触发确认预约，并把确认阶段 SSE 事件广播给全员。"""
+        if user_id != room.owner_id:
+            member = room.members.get(user_id)
+            if member and member.ws is not None:
+                await self._send(
+                    member.ws,
+                    {
+                        "type": "error",
+                        "message": "只有发起人可以确认预约",
+                    },
+                )
+            return
+
+        if room.planning_task and not room.planning_task.done():
+            room.planning_task.cancel()
+            try:
+                await room.planning_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        room.planning_events_history.clear()
+        room.chat_state_snapshot = None
+
+        await self.broadcast(
+            room,
+            {
+                "type": "planning_started",
+                "trigger": "confirm",
+                "trigger_user": user_id,
+            },
+        )
+
+        session_id = getattr(room, "session_id", None) or f"collab_{room.room_id}"
+        room.session_id = session_id
+
+        from api._session_store import SESSION_STORE
+        from api._streams.models import ChatConfirmRequest
+        from api._streams.stub_confirm import _stub_confirm
+
+        cached = SESSION_STORE.get(session_id, {})
+        if room.current_itinerary_dict:
+            SESSION_STORE[session_id] = {
+                **cached,
+                "intent": room.current_intent_dict or cached.get("intent"),
+                "itinerary": room.current_itinerary_dict,
+                "user_id": room.owner_id,
+            }
+
+        req = ChatConfirmRequest(session_id=session_id, decision="confirm")
+        async for ev in _stub_confirm(req, mode=mode):
+            event = ev.model_dump(mode="json")
+            if event.get("type") == "itinerary_ready":
+                room.current_itinerary_dict = event.get("payload")
+            elif event.get("type") == "agent_narration":
+                payload = event.get("payload") or {}
+                text = payload.get("text")
+                if text:
+                    room.chat_messages.append(
+                        {
+                            "id": f"agent-{int(time.time() * 1000)}",
+                            "role": "agent",
+                            "text": text,
+                            "createdAt": int(time.time() * 1000),
+                        }
+                    )
+            await self._broadcast_planning_event(room, event)
+
     # ============================================================
     # 内部方法
     # ============================================================
@@ -304,7 +406,9 @@ class RoomManager:
     ) -> None:
         """合并约束池 → 重新规划 → 广播规划事件。"""
         # 清空旧的规划事件历史（新一轮规划开始）
+        room.previous_itinerary_dict = room.current_itinerary_dict
         room.planning_events_history.clear()
+        room.chat_state_snapshot = None
 
         await self.broadcast(room, {
             "type": "planning_started",

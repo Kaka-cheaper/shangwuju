@@ -10,7 +10,9 @@
 
 import { create } from "zustand";
 import { createWsClient, type WsClient, type WsMessage } from "./ws";
-import { useChatStore } from "./store";
+import { useChatStore, type ChatState } from "./store";
+import { nextArrival, resetArrival } from "./store/arrival-counter";
+import { handleEvent } from "./store/event-handlers";
 import type { SseEvent } from "./types";
 
 // ============================================================
@@ -61,8 +63,36 @@ export interface CollabState {
   sendConstraint: (text: string) => void;
   sendVote: (stageIndex: number, action: VoteAction) => void;
   sendConfirm: () => void;
-  createRoom: (userId: string, nickname: string, sessionId?: string, planningEvents?: Record<string, unknown>[], chatMessages?: Record<string, unknown>[]) => Promise<string | null>;
+  createRoom: (
+    userId: string,
+    nickname: string,
+    sessionId?: string,
+    planningEvents?: Record<string, unknown>[],
+    chatMessages?: Record<string, unknown>[],
+    chatState?: CollabChatStateSnapshot,
+  ) => Promise<string | null>;
 }
+
+export type CollabChatStateSnapshot = Partial<
+  Pick<
+    ChatState,
+    | "streaming"
+    | "streamError"
+    | "streamPhase"
+    | "messages"
+    | "intent"
+    | "toolCalls"
+    | "replans"
+    | "thoughts"
+    | "itinerary"
+    | "previousItinerary"
+    | "narration"
+    | "cancelled"
+    | "lastRefinement"
+    | "chitchatReplies"
+    | "memoryPersisted"
+  >
+>;
 
 const initialCollabState: Omit<
   CollabState,
@@ -140,12 +170,16 @@ export const useCollabStore = create<CollabState>((set, get) => ({
 
   sendConfirm: () => {
     const client = get()._wsClient;
+    if (get().myRole !== "owner") {
+      set({ connectionError: "只有发起人可以确认预约" });
+      return;
+    }
     if (client) {
       client.send({ type: "confirm" });
     }
   },
 
-  createRoom: async (userId, nickname, sessionId?, planningEvents?, chatMessages?) => {
+  createRoom: async (userId, nickname, sessionId?, planningEvents?, chatMessages?, chatState?) => {
     try {
       const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
       const resp = await fetch(`${API_BASE}/room/create`, {
@@ -157,6 +191,7 @@ export const useCollabStore = create<CollabState>((set, get) => ({
           session_id: sessionId || null,
           planning_events: planningEvents || null,
           chat_messages: chatMessages || null,
+          chat_state: chatState || null,
         }),
       });
       if (!resp.ok) return null;
@@ -192,19 +227,35 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
         myRole: myMember?.role || "participant",
       });
       // 如果有行程，同步到主 store
-      if (msg.itinerary) {
-        useChatStore.setState({ itinerary: msg.itinerary as any });
-      }
-      if (msg.intent) {
-        useChatStore.setState({ intent: msg.intent as any });
+      const chatState = msg.chat_state as CollabChatStateSnapshot | null;
+      if (chatState) {
+        hydrateChatStateSnapshot(chatState);
+      } else {
+        resetArrival();
+        useChatStore.setState({
+          streaming: Boolean(msg.planning_active),
+          streamError: null,
+          streamPhase: Boolean(msg.planning_active) ? "stream" : "idle",
+          toolCalls: [],
+          replans: [],
+          thoughts: [],
+          itinerary: (msg.itinerary as any) || null,
+          previousItinerary: (msg.previous_itinerary as any) || null,
+          intent: (msg.intent as any) || null,
+          narration: null,
+          lastRefinement: null,
+          chitchatReplies: [],
+          memoryPersisted: null,
+        });
       }
       // 回放规划事件历史（让新加入者看到 ToolTracePanel）
       const events = (msg.planning_events as SseEvent[]) || [];
-      if (events.length > 0) {
-        // 清空主 store 的中间过程再回放
-        useChatStore.setState({ toolCalls: [], replans: [], thoughts: [] });
+      if (events.length > 0 && !chatState) {
         for (const event of events) {
           dispatchPlanningEvent(event);
+          if (event.type === "done") {
+            finishCollabStream();
+          }
         }
       }
       // 同步对话历史（让新加入者看到 ChatPanel）
@@ -286,19 +337,36 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
     }
 
     case "planning_started": {
+      const trigger = msg.trigger as string;
       set({
         planningActive: true,
-        planningTrigger: msg.trigger as string,
+        planningTrigger: trigger,
       });
-      // 清空主 store 的中间过程（新一轮规划开始）
-      useChatStore.setState({
-        toolCalls: [],
-        replans: [],
-        thoughts: [],
-        itinerary: null,
-        narration: null,
-        streaming: true,
-      });
+      if (trigger === "confirm") {
+        useChatStore.setState({
+          streaming: true,
+          streamError: null,
+          streamPhase: "confirm",
+        });
+      } else {
+        const currentItinerary = useChatStore.getState().itinerary;
+        resetArrival();
+        // 清空主 store 的中间过程（新一轮规划开始），同时保留旧方案快照供对比视图使用
+        useChatStore.setState({
+          toolCalls: [],
+          replans: [],
+          thoughts: [],
+          itinerary: null,
+          previousItinerary: currentItinerary ? cloneForCollab(currentItinerary) : null,
+          narration: null,
+          streaming: true,
+          streamError: null,
+          streamPhase: "refine",
+          cancelled: false,
+          lastRefinement: null,
+          memoryPersisted: null,
+        });
+      }
       break;
     }
 
@@ -316,7 +384,7 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
         // 如果是 done，标记规划结束
         if (event.type === "done") {
           set({ planningActive: false });
-          useChatStore.setState({ streaming: false });
+          finishCollabStream();
         }
       }
       break;
@@ -340,89 +408,195 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
 
 /**
  * 把 WS 下行的 planning_event 转发给主 store 的事件处理逻辑。
- * 复用 store.ts 里的 handleEvent 函数（通过直接操作 useChatStore.setState）。
+ * 直接复用主 store 的 SSE 分发，避免协作通道遗漏新事件类型或 payload 字段。
  */
 function dispatchPlanningEvent(event: SseEvent): void {
-  const store = useChatStore;
-  const state = store.getState();
+  handleEvent(
+    useChatStore.setState as any,
+    useChatStore.getState as any,
+    event,
+  );
+}
 
-  switch (event.type) {
-    case "intent_parsed":
-      store.setState({ intent: event.payload as any });
-      break;
+function finishCollabStream(): void {
+  const state = useChatStore.getState();
+  const text =
+    state.narration?.text ||
+    (state.itinerary ? `已为你规划：${state.itinerary.summary}` : "");
 
-    case "tool_call_start": {
-      const p = event.payload as any;
-      const toolCalls = state.toolCalls;
-      const arrivalIdx = toolCalls.length;
-      store.setState({
-        toolCalls: [
-          ...toolCalls,
-          {
-            id: `${p.tool}-${arrivalIdx}`,
-            tool: p.tool,
-            input: p.input || {},
-            startedAtSeq: event.seq,
-            arrivalIdx,
-          },
-        ],
+  if (text) {
+    useChatStore.setState((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: `a-${Date.now()}`,
+          role: "agent",
+          text: state.streamPhase === "refine" ? `已根据反馈重新规划——${text}` : text,
+          createdAt: Date.now(),
+        },
+      ],
+    }));
+  }
+
+  useChatStore.setState({
+    streaming: false,
+    streamPhase: "idle",
+  });
+}
+
+function hydrateChatStateSnapshot(snapshot: CollabChatStateSnapshot): void {
+  resetArrival();
+  useChatStore.setState({
+    streaming: Boolean(snapshot.streaming),
+    streamError: snapshot.streamError ?? null,
+    streamPhase: snapshot.streamPhase ?? "idle",
+    messages: snapshot.messages ?? [],
+    intent: snapshot.intent ?? null,
+    toolCalls: snapshot.toolCalls ?? [],
+    replans: snapshot.replans ?? [],
+    thoughts: snapshot.thoughts ?? [],
+    itinerary: snapshot.itinerary ?? null,
+    previousItinerary: snapshot.previousItinerary ?? null,
+    narration: snapshot.narration ?? null,
+    cancelled: Boolean(snapshot.cancelled),
+    lastRefinement: snapshot.lastRefinement ?? null,
+    chitchatReplies: snapshot.chitchatReplies ?? [],
+    memoryPersisted: snapshot.memoryPersisted ?? null,
+  });
+  primeArrivalCounter(snapshot);
+}
+
+export function buildCollabChatStateSnapshot(state: ChatState): CollabChatStateSnapshot {
+  return cloneForCollab({
+    streaming: false,
+    streamError: state.streamError,
+    streamPhase: "idle" as const,
+    messages: state.messages,
+    intent: state.intent,
+    toolCalls: state.toolCalls,
+    replans: state.replans,
+    thoughts: state.thoughts,
+    itinerary: state.itinerary,
+    previousItinerary: state.previousItinerary,
+    narration: state.narration,
+    cancelled: state.cancelled,
+    lastRefinement: state.lastRefinement,
+    chitchatReplies: state.chitchatReplies,
+    memoryPersisted: state.memoryPersisted,
+  });
+}
+
+export function buildCollabPlanningEvents(state: ChatState): Record<string, unknown>[] {
+  const events: Record<string, unknown>[] = [];
+  const now = Date.now();
+  let maxSeq = 0;
+
+  if (state.intent) {
+    events.push({ type: "intent_parsed", seq: 0, payload: state.intent, timestamp_ms: now });
+  }
+
+  for (const tc of state.toolCalls) {
+    maxSeq = Math.max(maxSeq, tc.startedAtSeq, tc.endedAtSeq ?? 0);
+    events.push({
+      type: "tool_call_start",
+      seq: tc.startedAtSeq,
+      payload: {
+        tool: tc.tool,
+        input: tc.input,
+        group_id: tc.groupId ?? null,
+        parallel: tc.parallel ?? false,
+      },
+      timestamp_ms: now,
+    });
+    if (tc.endedAtSeq != null) {
+      events.push({
+        type: "tool_call_end",
+        seq: tc.endedAtSeq,
+        payload: {
+          tool: tc.tool,
+          output: tc.output || {},
+          duration_ms: tc.durationMs || 0,
+          group_id: tc.groupId ?? null,
+          parallel: tc.parallel ?? false,
+        },
+        timestamp_ms: now,
       });
-      break;
     }
+  }
 
-    case "tool_call_end": {
-      const p = event.payload as any;
-      const arr = [...state.toolCalls];
-      for (let i = arr.length - 1; i >= 0; i--) {
-        if (arr[i].tool === p.tool && arr[i].endedAtSeq == null) {
-          arr[i] = {
-            ...arr[i],
-            endedAtSeq: event.seq,
-            durationMs: p.duration_ms,
-            success: p.output?.success,
-            reason: p.output?.reason ?? null,
-            output: p.output,
-          };
-          break;
-        }
-      }
-      store.setState({ toolCalls: arr });
-      break;
-    }
+  for (const rp of state.replans) {
+    maxSeq = Math.max(maxSeq, rp.seq);
+    events.push({
+      type: "replan_triggered",
+      seq: rp.seq,
+      payload: { reason: rp.reason, from_tool: rp.fromTool },
+      timestamp_ms: now,
+    });
+  }
 
-    case "replan_triggered": {
-      const p = event.payload as any;
-      store.setState((s: any) => ({
-        replans: [
-          ...s.replans,
-          { seq: event.seq, arrivalIdx: s.replans.length, reason: p.reason, fromTool: p.from_tool },
-        ],
-      }));
-      break;
-    }
+  for (const th of state.thoughts) {
+    maxSeq = Math.max(maxSeq, th.seq);
+    events.push({
+      type: "agent_thought",
+      seq: th.seq,
+      payload: { text: th.text },
+      timestamp_ms: th.timestamp_ms ?? now,
+    });
+  }
 
-    case "agent_thought": {
-      const p = event.payload as any;
-      store.setState((s: any) => ({
-        thoughts: [...s.thoughts, { seq: event.seq, text: p.text, timestamp_ms: event.timestamp_ms ?? null }],
-      }));
-      break;
-    }
+  if (state.lastRefinement) {
+    maxSeq += 1;
+    events.push({
+      type: "refinement_done",
+      seq: maxSeq,
+      payload: {
+        refined_intent: state.intent,
+        changed_fields: state.lastRefinement.changedFields,
+        refiner_note: state.lastRefinement.refinerNote ?? null,
+      },
+      timestamp_ms: state.lastRefinement.timestampMs ?? now,
+    });
+  }
 
-    case "itinerary_ready":
-      store.setState({ itinerary: event.payload as any });
-      break;
+  if (state.itinerary) {
+    maxSeq += 1;
+    events.push({ type: "itinerary_ready", seq: maxSeq, payload: state.itinerary, timestamp_ms: now });
+  }
 
-    case "agent_narration": {
-      const p = event.payload as any;
-      store.setState({ narration: { text: p.text, stage: p.stage } });
-      break;
-    }
+  if (state.narration) {
+    maxSeq += 1;
+    events.push({ type: "agent_narration", seq: maxSeq, payload: state.narration, timestamp_ms: now });
+  }
 
-    case "stream_error": {
-      const p = event.payload as any;
-      store.setState({ streamError: `${p.reason}: ${p.detail || ""}` });
-      break;
-    }
+  if (state.memoryPersisted) {
+    maxSeq += 1;
+    events.push({
+      type: "memory_persisted",
+      seq: maxSeq,
+      payload: {
+        social_context: state.memoryPersisted.socialContext,
+        summary_preview: state.memoryPersisted.summaryPreview,
+        success: state.memoryPersisted.success,
+        skipped_reason: state.memoryPersisted.skippedReason,
+      },
+      timestamp_ms: now,
+    });
+  }
+
+  return cloneForCollab(events).sort((a, b) => Number(a.seq) - Number(b.seq));
+}
+
+function cloneForCollab<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function primeArrivalCounter(snapshot: CollabChatStateSnapshot): void {
+  const maxArrival = Math.max(
+    -1,
+    ...(snapshot.toolCalls ?? []).map((tc) => tc.arrivalIdx),
+    ...(snapshot.replans ?? []).map((rp) => rp.arrivalIdx),
+  );
+  for (let i = 0; i <= maxArrival; i += 1) {
+    nextArrival();
   }
 }

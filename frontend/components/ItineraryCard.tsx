@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
-import { useCollabStore } from "@/lib/collab-store";
+import {
+  buildCollabChatStateSnapshot,
+  buildCollabPlanningEvents,
+  useCollabStore,
+} from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type {
   HopMode,
@@ -37,7 +41,9 @@ export default function ItineraryCard() {
   const collabMode = useCollabStore((s) => s.collabMode);
   const createRoom = useCollabStore((s) => s.createRoom);
   const joinRoom = useCollabStore((s) => s.joinRoom);
+  const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
   const roomId = useCollabStore((s) => s.roomId);
+  const myRole = useCollabStore((s) => s.myRole);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
@@ -213,6 +219,8 @@ export default function ItineraryCard() {
   const hasOrders = itinerary.orders.length > 0;
   // R1: animating 期间也禁用按钮（避免用户在动画进行中点确认）
   const canAct = !streaming && !hasOrders && !cancelled && !animating;
+  const canConfirm = canAct && (!collabMode || myRole === "owner");
+  const handleConfirm = collabMode ? sendCollabConfirm : confirm;
 
   return (
     <div className={cn("card animate-fade-in", spotlight && "spotlight-once")}>
@@ -464,9 +472,13 @@ export default function ItineraryCard() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
               className={cn("btn-primary", streaming && "shimmer-border")}
-              disabled={!canAct}
-              onClick={confirm}
-              title="确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
+              disabled={!canConfirm}
+              onClick={handleConfirm}
+              title={
+                collabMode && myRole !== "owner"
+                  ? "只有房间发起人可以确认预约"
+                  : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
+              }
             >
               {streaming ? (
                 <>
@@ -476,7 +488,7 @@ export default function ItineraryCard() {
               ) : (
                 <>
                   <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
-                  <span>确认并预约</span>
+                  <span>{collabMode && myRole !== "owner" ? "等待发起人确认" : "确认并预约"}</span>
                 </>
               )}
             </button>
@@ -513,29 +525,17 @@ export default function ItineraryCard() {
               setCreatingRoom(true);
               const sessionId = useChatStore.getState().sessionId;
               const userId = useChatStore.getState().currentUserId || "demo_user";
-              // 把当前规划过程事件构造为历史（新成员加入时回放 ToolTracePanel）
               const state = useChatStore.getState();
-              const planningEvents: Record<string, unknown>[] = [];
-              // intent_parsed
-              if (state.intent) {
-                planningEvents.push({ type: "intent_parsed", seq: 0, payload: state.intent, timestamp_ms: Date.now() });
-              }
-              // tool_call_start + tool_call_end
-              for (const tc of state.toolCalls) {
-                planningEvents.push({ type: "tool_call_start", seq: tc.startedAtSeq, payload: { tool: tc.tool, input: tc.input }, timestamp_ms: Date.now() });
-                if (tc.endedAtSeq != null) {
-                  planningEvents.push({ type: "tool_call_end", seq: tc.endedAtSeq, payload: { tool: tc.tool, output: tc.output || {}, duration_ms: tc.durationMs || 0 }, timestamp_ms: Date.now() });
-                }
-              }
-              // replans
-              for (const rp of state.replans) {
-                planningEvents.push({ type: "replan_triggered", seq: rp.seq, payload: { reason: rp.reason, from_tool: rp.fromTool }, timestamp_ms: Date.now() });
-              }
-              // thoughts
-              for (const th of state.thoughts) {
-                planningEvents.push({ type: "agent_thought", seq: th.seq, payload: { text: th.text }, timestamp_ms: Date.now() });
-              }
-              const newRoomId = await createRoom(userId, "发起人", sessionId, planningEvents, state.messages as any);
+              const planningEvents = buildCollabPlanningEvents(state);
+              const chatState = buildCollabChatStateSnapshot(state);
+              const newRoomId = await createRoom(
+                userId,
+                "发起人",
+                sessionId,
+                planningEvents,
+                state.messages as any,
+                chatState,
+              );
               if (newRoomId) {
                 // 自动加入房间
                 joinRoom(newRoomId, userId, "发起人");

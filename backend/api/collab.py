@@ -10,12 +10,14 @@
 from __future__ import annotations
 
 import time
+import os
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from collab import get_room_manager
+from schemas import resolve_planner_mode
 
 from ._session_store import SESSION_STORE
 
@@ -32,6 +34,8 @@ class CreateRoomRequest(BaseModel):
     chat_messages: Optional[list[dict[str, Any]]] = Field(default=None)
     # 可选：前端规划事件历史（参与者加入时回放 ToolTracePanel）
     planning_events: Optional[list[dict[str, Any]]] = Field(default=None)
+    # 可选：前端主 store 快照（参与者加入时同步所有展示组件）
+    chat_state: Optional[dict[str, Any]] = Field(default=None)
 
 
 class CreateRoomResponse(BaseModel):
@@ -49,6 +53,7 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
     """
     manager = get_room_manager()
     room = manager.create_room(owner_id=req.user_id, nickname=req.nickname)
+    room.session_id = req.session_id
 
     # 如果有现有 session 的行程，带入房间
     # 优先从 ConversationRepository 取（LangGraph/ReAct 路径存这里）
@@ -79,9 +84,21 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
     # 带入对话历史（前端传入）
     if req.chat_messages:
         room.chat_messages = list(req.chat_messages)
+    if req.chat_state:
+        room.chat_state_snapshot = dict(req.chat_state)
+        room.current_itinerary_dict = room.current_itinerary_dict or req.chat_state.get("itinerary")
+        room.current_intent_dict = room.current_intent_dict or req.chat_state.get("intent")
     # 带入规划事件历史（前端传入，优先级高于后端 SESSION_STORE 里的）
     if req.planning_events:
         room.planning_events_history = list(req.planning_events)
+    if req.session_id and room.current_itinerary_dict:
+        SESSION_STORE[req.session_id] = {
+            **SESSION_STORE.get(req.session_id, {}),
+            "intent": room.current_intent_dict,
+            "itinerary": room.current_itinerary_dict,
+            "user_id": req.user_id,
+            "planning_events": room.planning_events_history,
+        }
     # 初始化 LLM 上下文：把初始行程摘要写入，让后续重规划时 LLM 知道"之前规划了什么"
     if room.current_itinerary_dict:
         summary = room.current_itinerary_dict.get("summary", "已有行程")
@@ -190,16 +207,8 @@ async def ws_collab(websocket: WebSocket, room_id: str):
                         }
                     )
                     continue
-                # 触发确认流程（复用现有 confirm 逻辑）
-                if room.current_itinerary_dict:
-                    await manager.broadcast(
-                        room,
-                        {
-                            "type": "confirmed",
-                            "itinerary": room.current_itinerary_dict,
-                            "confirmed_by": user_id,
-                        },
-                    )
+                mode = resolve_planner_mode(env_value=os.getenv("PLANNER_MODE"))
+                await manager.confirm(room, user_id, mode=mode)
 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})
