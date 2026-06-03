@@ -40,8 +40,8 @@ async def main():
 
         # 4. 带 session 行程创建房间
         # 先模拟一个 session 有行程
-        from main import _SESSION_STORE
-        _SESSION_STORE["test_sess"] = {
+        from api._session_store import SESSION_STORE
+        SESSION_STORE["test_sess"] = {
             "intent": {"raw_input": "测试", "distance_max_km": 5},
             "itinerary": {"summary": "测试行程", "stages": []},
         }

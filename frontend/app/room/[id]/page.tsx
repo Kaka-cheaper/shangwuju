@@ -22,6 +22,7 @@ export default function RoomPage() {
   const searchParams = useSearchParams();
   const roomId = params.id as string;
   const nickname = searchParams.get("nickname") || "参与者";
+  const queryUserId = searchParams.get("user_id");
 
   const joinRoom = useCollabStore((s) => s.joinRoom);
   const collabMode = useCollabStore((s) => s.collabMode);
@@ -29,6 +30,7 @@ export default function RoomPage() {
   const connectionError = useCollabStore((s) => s.connectionError);
 
   const [userId] = useState(() => {
+    if (queryUserId?.trim()) return queryUserId.trim();
     // 从 localStorage 读或生成
     if (typeof window === "undefined") return "anon";
     const stored = localStorage.getItem("collab_user_id");

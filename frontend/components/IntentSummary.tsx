@@ -9,17 +9,22 @@ export default function IntentSummary({
 }: {
   intent: IntentExtraction;
 }) {
+  const physicalConstraints = intent.physical_constraints || [];
+  const dietaryConstraints = intent.dietary_constraints || [];
+  const experienceTags = intent.experience_tags || [];
+  const durationHours = intent.duration_hours || [0, 0];
+  const companionList = intent.companions || [];
   const tags: string[] = [
-    ...intent.physical_constraints,
-    ...intent.dietary_constraints,
-    ...intent.experience_tags,
+    ...physicalConstraints,
+    ...dietaryConstraints,
+    ...experienceTags,
   ];
-  const dur = `${intent.duration_hours[0]}-${intent.duration_hours[1]} 小时`;
-  const companions = intent.companions
+  const dur = `${durationHours[0]}-${durationHours[1]} 小时`;
+  const companions = companionList
     .map((c) => `${c.role}${c.age ? `(${c.age}岁)` : ""}×${c.count}`)
     .join("、");
 
-  const confidencePct = Math.round(intent.parse_confidence * 100);
+  const confidencePct = Math.round((intent.parse_confidence ?? 0.88) * 100);
 
   return (
     <div className="card px-4 py-3.5 animate-fade-in-up">
