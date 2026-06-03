@@ -223,7 +223,14 @@ export default function ItineraryCard() {
   const handleConfirm = collabMode ? sendCollabConfirm : confirm;
 
   return (
-    <div className={cn("card animate-fade-in", spotlight && "spotlight-once")}>
+    <div className={cn("relative card animate-fade-in", spotlight && "spotlight-once")}>
+      {/* streaming 时顶部流动黄光带 */}
+      {streaming && (
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 h-px shimmer-bar z-10"
+        />
+      )}
       {/* Header */}
       <div className="px-4 py-3 border-b border-black/[0.06]">
         <div className="flex items-center justify-between">

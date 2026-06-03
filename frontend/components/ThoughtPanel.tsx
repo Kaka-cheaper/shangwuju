@@ -120,7 +120,14 @@ export default function ThoughtPanel() {
   const replanCount = replans.length;
 
   return (
-    <div className="card mt-3 overflow-hidden">
+    <div className="relative card mt-3 overflow-hidden">
+      {/* streaming 时顶部流动黄光带 */}
+      {streaming && (
+        <div
+          aria-hidden
+          className="absolute top-0 left-0 right-0 h-[2px] shimmer-bar z-10"
+        />
+      )}
       {/* 折叠头 */}
       <button
         type="button"
