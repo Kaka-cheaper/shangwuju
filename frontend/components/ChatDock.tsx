@@ -367,14 +367,6 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
       )}
       style={activated ? { height: `${renderHeight}px` } : undefined}
     >
-      {/* 激活态：顶部暖色发光线（仅 streaming 时显示） */}
-      {activated && streaming && (
-        <div
-          aria-hidden
-          className="absolute top-0 left-0 right-0 h-px shimmer-bar z-0"
-        />
-      )}
-
       <div className={cn(
         "mx-auto max-w-7xl px-4 sm:px-6 flex flex-col",
         activated && "h-full",
@@ -390,8 +382,15 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
             {activated && showTimeline && (
               <div
                 ref={timelineScrollRef}
-                className="flex-1 min-h-0 overflow-y-auto pt-3 pb-2 px-4 animate-fade-in rounded-2xl bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated mb-2"
+                className="relative flex-1 min-h-0 overflow-y-auto pt-3 pb-2 px-4 animate-fade-in rounded-2xl bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated mb-2"
               >
+                {/* streaming 时顶部流动黄光带 */}
+                {streaming && (
+                  <div
+                    aria-hidden
+                    className="absolute top-0 left-0 right-0 h-px shimmer-bar z-10"
+                  />
+                )}
                 <div className="space-y-3">
                   {/* 空态 */}
                   {timeline.length === 0 && !streaming && (
