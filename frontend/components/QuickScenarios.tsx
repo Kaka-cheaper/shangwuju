@@ -46,15 +46,15 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
               disabled={streaming}
               onClick={() => sendScenario(s.input, s.id)}
               className={cn(
-                "group relative flex flex-col items-start gap-2 rounded-xl",
+                "group relative flex flex-col items-center justify-center gap-2 rounded-xl",
                 "bg-white border-2 border-[#FFD100]",
-                "text-left transition-all duration-200",
+                "text-center transition-all duration-200",
                 "hover:border-[#e6bc00] hover:shadow-sm",
                 "active:scale-[0.98]",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
                 "disabled:hover:bg-white disabled:hover:border-black/[0.08] disabled:hover:shadow-none",
                 "overflow-hidden",
-                enlarged ? "px-4 py-4 pb-5" : "px-3 py-2.5 pb-4",
+                enlarged ? "px-4 py-5 min-h-[100px]" : "px-3 py-4 min-h-[80px]",
               )}
               title={s.input}
             >
@@ -66,15 +66,15 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
               <Icon
                 className={cn(
                   "relative text-ink-600 group-hover:text-ink-800 transition-colors",
-                  enlarged ? "w-6 h-6" : "w-5 h-5",
+                  enlarged ? "w-7 h-7" : "w-6 h-6",
                 )}
                 strokeWidth={1.75}
               />
               <span className={cn(
-                "relative font-medium text-ink-700 group-hover:text-ink-900 line-clamp-1 tracking-tight",
+                "relative font-medium text-ink-700 group-hover:text-ink-900 tracking-tight text-center",
                 enlarged ? "text-base" : "text-sm",
               )}>
-                <span className="mono text-sm text-ink-500 mr-1">
+                <span className="mono text-[10px] text-ink-500 mr-1">
                   {s.id}
                 </span>
                 {s.title}

@@ -468,7 +468,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
             )}
 
             {/* 展开/折叠箭头指示器（黄色、加宽） */}
-            {activated && (latestChitchat || latestAgent || showTimeline) && (
+            {activated && (latestChitchat || latestAgent || showTimeline || streaming) && (
               <button
                 type="button"
                 onClick={onTogglePeek}
