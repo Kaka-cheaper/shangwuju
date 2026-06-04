@@ -216,7 +216,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController = new AbortController();
     // confirm 流不重置 toolCalls / replans / thoughts / itinerary——
     // 这是接续之前规划好的链路继续往下走，UI 上应保留前一阶段的事件展示，
-    // 仅追加 confirm 阶段的 reserve_restaurant / generate_share_message / memory_persisted。
+    // 仅追加 confirm 阶段的 reserve_restaurant / buy_ticket / order_extra_service / generate_share_message / memory_persisted。
     set({ streaming: true, streamError: null, streamPhase: "confirm" });
 
     await streamSse(

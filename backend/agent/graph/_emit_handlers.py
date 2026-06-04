@@ -366,6 +366,26 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
 
 def emit_execute_finalize(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     out: list[SseEvent] = []
+    for item in diff.get("execution_tool_results") or []:
+        tool = item.get("tool")
+        if not tool:
+            continue
+        out.append(
+            ctx.emit(
+                SseEventType.TOOL_CALL_START,
+                {"tool": tool, "input": item.get("input") or {}},
+            )
+        )
+        out.append(
+            ctx.emit(
+                SseEventType.TOOL_CALL_END,
+                {
+                    "tool": tool,
+                    "output": item.get("output") or {},
+                    "duration_ms": item.get("duration_ms") or 0,
+                },
+            )
+        )
     itin = diff.get("itinerary")
     if itin is not None:
         out.append(ctx.emit(SseEventType.ITINERARY_READY, itin.model_dump()))

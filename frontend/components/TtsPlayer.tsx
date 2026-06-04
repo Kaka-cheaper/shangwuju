@@ -71,7 +71,15 @@ function hasSpeechSynthesis(): boolean {
 
 type TtsStatus = "idle" | "playing" | "paused";
 
-export default function TtsPlayer() {
+interface TtsPlayerProps {
+  compact?: boolean;
+  className?: string;
+}
+
+export default function TtsPlayer({
+  compact = false,
+  className,
+}: TtsPlayerProps) {
   const itinerary = useChatStore((s) => s.itinerary);
   const [status, setStatus] = useState<TtsStatus>("idle");
   const [supported, setSupported] = useState(false);
@@ -140,11 +148,12 @@ export default function TtsPlayer() {
         type="button"
         onClick={play}
         className={cn(
-          "mt-2 w-full py-1.5 rounded-lg",
+          compact ? "h-9 w-full rounded-md px-3" : "mt-2 w-full py-1.5 rounded-lg",
           "bg-black/[0.03] hover:bg-black/[0.05]",
           "border border-black/[0.08] hover:border-black/[0.12]",
           "text-ink-700 hover:text-ink-900 text-sm",
           "transition-all flex items-center justify-center gap-1.5",
+          className,
         )}
         title="使用浏览器内置语音朗读行程摘要"
       >
@@ -157,9 +166,10 @@ export default function TtsPlayer() {
   return (
     <div
       className={cn(
-        "mt-2 w-full py-1.5 px-3 rounded-lg",
+        compact ? "h-9 w-full rounded-md px-2" : "mt-2 w-full py-1.5 px-3 rounded-lg",
         "bg-brand-500/10 border border-brand-500/30",
         "flex items-center gap-2",
+        className,
       )}
       role="status"
       aria-live="polite"

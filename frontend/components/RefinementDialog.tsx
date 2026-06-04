@@ -4,7 +4,7 @@
  * 「我说说哪不对」反馈弹窗（B+D 范式：去 ✕ emoji，灰阶克制）。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Icons } from "@/lib/icon-map";
@@ -30,7 +30,7 @@ const MAX_LEN = 200;
 export default function RefinementDialog({
   open,
   onClose,
-}: RefinementDialogProps) {
+}: RefinementDialogProps): ReactNode {
   const refine = useChatStore((s) => s.refine);
   const streaming = useChatStore((s) => s.streaming);
 
@@ -180,6 +180,6 @@ export default function RefinementDialog({
       </div>
     </div>,
     document.body,
-  );
+  ) as unknown as ReactNode;
 }
 

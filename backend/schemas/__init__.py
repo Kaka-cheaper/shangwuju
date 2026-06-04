@@ -15,7 +15,7 @@
 ```
 [基础常量层]                       无依赖底座，被所有其他文件 import
 - tags.py 139行                    4 类 tag 词典 + Literal 类型（PhysicalTag / DietaryTag / ExperienceTag / SocialContext）
-- errors.py 34行                   FailureReason 8 个失败枚举
+- errors.py 34行                   FailureReason 9 个失败枚举
 
 [核心契约层]                       业务核心数据结构（Agent 编排层 + Tool 层 + 前端共享）
 - intent.py 171行                  IntentExtraction（§5.7 D-SoT 唯一权威）+ Companion + PaceProfile
@@ -27,7 +27,7 @@
 - decision_trace.py 153行          CriticAttempt / AlternativeCandidate / FallbackHop / DecisionTrace（评审可见性）
 
 [API 契约层]                       跨 4 层架构边界（HTTP / SSE / Tool I/O）
-- tools.py 274行                   8 个 Tool 的 Input / Output（OpenAI Function Calling spec 来源）
+- tools.py 274行                   9 个 Tool 的 Input / Output（OpenAI Function Calling spec 来源）
 - sse.py 90行                      SseEventType 枚举 + SseEvent（前端 EventSource 消费契约）
 - router.py 103行                  InputKind 6 类输入域路由 + RouterDecision + CtaChip
 - refine.py 68行                   RefinementInput / RefinementOutput（/chat/refine 端点）
@@ -64,6 +64,7 @@ from schemas.domain import (
     RestaurantCapacity,
     ReservationSlot,
     Restaurant,
+    ExtraService,
     Route,
     UserProfile,
 )
@@ -108,6 +109,8 @@ from schemas.tools import (
     ReserveRestaurantOutput,
     BuyTicketInput,
     BuyTicketOutput,
+    OrderExtraServiceInput,
+    OrderExtraServiceOutput,
     GenerateShareMessageInput,
     GenerateShareMessageOutput,
 )
@@ -138,6 +141,7 @@ __all__ = [
     "RestaurantCapacity",
     "ReservationSlot",
     "Restaurant",
+    "ExtraService",
     "Route",
     "UserProfile",
     # itinerary (edge_v1)
@@ -176,6 +180,8 @@ __all__ = [
     "ReserveRestaurantOutput",
     "BuyTicketInput",
     "BuyTicketOutput",
+    "OrderExtraServiceInput",
+    "OrderExtraServiceOutput",
     "GenerateShareMessageInput",
     "GenerateShareMessageOutput",
     # sse

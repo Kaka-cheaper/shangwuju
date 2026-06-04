@@ -298,6 +298,23 @@ def test_executor_reservation_filled_after_plan():
     assert final.share_message
 
 
+def test_executor_extra_service_filled_for_birthday_scene():
+    """S8 生日场景：executor 可按 intent.extra_services 加购蛋糕。"""
+    intent = INTENTS["S8"]
+    plan_result = plan_itinerary(intent)
+    assert plan_result.success
+    party_size = max(intent.capacity_requirement or 1, sum(c.count for c in intent.companions) or 1)
+    exec_result = execute_plan(
+        plan_result.itinerary,
+        party_size=party_size,
+        social_context=intent.social_context,
+        audience="家人",
+        extra_services=intent.extra_services,
+    )
+    final = exec_result.itinerary
+    assert any(o.kind == "蛋糕加购" for o in final.orders)
+
+
 # ============================================================
 # 异常分支：E2 门票售罄
 # ============================================================

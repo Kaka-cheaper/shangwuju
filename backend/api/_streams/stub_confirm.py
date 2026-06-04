@@ -1,13 +1,17 @@
 """_stub_confirm —— /chat/confirm demo fixture。
 
-reserve_restaurant + generate_share_message 模拟 + memory 累积 + ConversationStore 同步。
+reserve_restaurant + order_extra_service + generate_share_message 模拟
+memory 累积 + ConversationStore 同步。
 """
 
 from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
+import tools  # noqa: F401  触发 order_extra_service 等执行类 Tool 注册
 from schemas import IntentExtraction, Itinerary, SseEvent, SseEventType
+from schemas.tools import OrderExtraServiceInput, OrderExtraServiceOutput
+from tools.registry import invoke_tool
 
 from ..health import _use_real_planner
 from .._session_store import SESSION_STORE
@@ -22,7 +26,7 @@ async def _stub_confirm(
     *,
     mode: str = "rule",
 ) -> AsyncIterator[SseEvent]:
-    """MVP-2 stub：confirm → reserve_restaurant + generate_share_message。
+    """MVP-2 stub：confirm → reserve_restaurant + order_extra_service + generate_share_message。
 
     mode 控制 confirm 阶段 narration 是否调 LLM：
     - "rule"：use_llm=False 走模板（毫秒级）
@@ -44,9 +48,18 @@ async def _stub_confirm(
         yield emit(SseEventType.DONE, {})
         return
 
+    cached = SESSION_STORE.get(req.session_id, {})
+    itin_dict = dict(cached.get("itinerary") or {})
+    restaurant_nodes = [
+        n for n in (itin_dict.get("nodes") or [])
+        if n.get("target_kind") == "restaurant"
+    ]
+
     # spec execution-quality-review R2：白名单校验（hallucination 防护）
-    # stub 默认拿 R001；如果前端传入 allowed_restaurant_ids 且不含 R001 → 拒绝
-    target_restaurant_id = "R001"
+    # 先用当前 itinerary 中的首个餐厅；缺省时沿用 R001 demo fallback。
+    first_restaurant = restaurant_nodes[0] if restaurant_nodes else {}
+    target_restaurant_id = first_restaurant.get("target_id") or "R001"
+    target_restaurant_name = first_restaurant.get("title") or "轻语沙拉 · 西溪店"
     if req.allowed_restaurant_ids is not None and target_restaurant_id not in req.allowed_restaurant_ids:
         yield emit(
             SseEventType.STREAM_ERROR,
@@ -66,7 +79,11 @@ async def _stub_confirm(
         SseEventType.TOOL_CALL_START,
         {
             "tool": "reserve_restaurant",
-            "input": {"restaurant_id": target_restaurant_id, "time": "17:30", "party_size": 3},
+            "input": {
+                "restaurant_id": target_restaurant_id,
+                "time": "17:30",
+                "party_size": 3,
+            },
         },
     )
     await _delay(320)
@@ -77,7 +94,7 @@ async def _stub_confirm(
             "output": {
                 "success": True,
                 "order_id": "R20260516_001",
-                "restaurant_id": "R001",
+                "restaurant_id": target_restaurant_id,
                 "confirmed_time": "17:30",
                 "confirmed_party_size": 3,
             },
@@ -85,6 +102,58 @@ async def _stub_confirm(
         },
     )
     await _delay()
+
+    # order_extra_service：生日蛋糕 / 鲜花等附加服务。
+    extra_orders: list[dict[str, Any]] = []
+    intent_dict = cached.get("intent") or {}
+    extra_services = [
+        str(x).strip()
+        for x in (intent_dict.get("extra_services") or [])
+        if str(x).strip()
+    ]
+    social_context = intent_dict.get("social_context") or "家庭日常"
+    for service_type in extra_services:
+        inp = OrderExtraServiceInput(
+            service_type=service_type,
+            target_kind="restaurant",
+            target_id=target_restaurant_id,
+            quantity=1,
+            scheduled_time="17:30",
+            recipient_note=f"{social_context}场景",
+        )
+        yield emit(
+            SseEventType.TOOL_CALL_START,
+            {"tool": "order_extra_service", "input": inp.model_dump()},
+        )
+        await _delay(260)
+        result = invoke_tool("order_extra_service", inp.model_dump())
+        yield emit(
+            SseEventType.TOOL_CALL_END,
+            {
+                "tool": "order_extra_service",
+                "output": _jsonable_output(result.output),
+                "duration_ms": result.duration_ms,
+            },
+        )
+        if result.success:
+            out = OrderExtraServiceOutput.model_validate(result.output)
+            if out.success and out.order_id:
+                service_name = out.service.name if out.service else service_type
+                extra_orders.append(
+                    {
+                        "order_id": out.order_id,
+                        "kind": f"{out.service_type}加购",
+                        "target_kind": "restaurant",
+                        "target_id": target_restaurant_id,
+                        "target_name": target_restaurant_name,
+                        "detail": (
+                            f"{out.scheduled_time or '17:30'} 送达 / "
+                            f"{service_name} x{out.quantity or 1} / "
+                            f"总价 {out.total_price or 0} 元"
+                        ),
+                    }
+                )
+        await _delay()
 
     # generate_share_message
     yield emit(
@@ -114,18 +183,17 @@ async def _stub_confirm(
     await _delay()
 
     # 把订单与文案合并写回 itinerary 并再推一次 itinerary_ready
-    cached = SESSION_STORE.get(req.session_id, {})
-    itin_dict = dict(cached.get("itinerary") or {})
     if itin_dict:
         itin_dict["orders"] = [
             {
                 "order_id": "R20260516_001",
                 "kind": "餐厅预约",
                 "target_kind": "restaurant",
-                "target_id": "R001",
-                "target_name": "轻语沙拉 · 西溪店",
+                "target_id": target_restaurant_id,
+                "target_name": target_restaurant_name,
                 "detail": "17:30 三人位",
-            }
+            },
+            *extra_orders,
         ]
         itin_dict["share_message"] = share_msg
         SESSION_STORE[req.session_id] = {**cached, "itinerary": itin_dict}
@@ -172,3 +240,11 @@ async def _stub_confirm(
             pass
 
     yield emit(SseEventType.DONE, {})
+
+
+def _jsonable_output(output: dict[str, Any]) -> dict[str, Any]:
+    data = dict(output or {})
+    reason = data.get("reason")
+    if hasattr(reason, "value"):
+        data["reason"] = reason.value
+    return data

@@ -1,0 +1,54 @@
+# ============================================================
+# 仓库根 .dockerignore
+#
+# 作用域：后端镜像构建（docker-compose.yml → backend.build.context: .）。
+# 关键：Docker 只读取 build context 根目录下的 .dockerignore，
+#       因此 backend/.dockerignore 在 context=仓库根 时【不生效】，
+#       排除规则必须写在这里。
+#       （前端 context=./frontend，由 frontend/.dockerignore 负责，与本文件无关。）
+#
+# 目标：
+#   1. 让 `COPY backend /app` 不带入本地 .venv（Windows 二进制，会污染 Linux venv）、
+#      __pycache__、.env（凭据）、tests 等。
+#   2. 缩小发送给 docker daemon 的 build context（排除 frontend、.git 等大块）。
+# ============================================================
+
+# --- 后端构建用不到的大块目录（镜像只需 backend/ + mock_data/ + docs/legal/）---
+frontend/
+.git/
+.gitignore
+.codesee/
+.agents/
+.kiro/
+
+# --- Python 缓存 / 虚拟环境（本地 .venv 是 Windows 二进制，绝不能进 Linux 镜像）---
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+backend/.venv/
+backend/venv/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+
+# --- 测试 / 日志 / 临时（运行时不需要）---
+backend/tests/
+backend/*.log
+backend/exp_log.txt
+backend/logs/
+**/*.tmp
+**/*.bak
+
+# --- 环境与凭据（镜像里不留 .env；运行时由 compose env_file 注入；.env.example 不受影响）---
+**/.env
+**/.env.local
+**/.env.*.local
+
+# --- 编辑器 / IDE ---
+**/.vscode/
+**/.idea/
+**/*.swp
+
+# --- Docker 自身 ---
+**/Dockerfile
+**/.dockerignore

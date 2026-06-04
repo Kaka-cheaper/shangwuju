@@ -146,6 +146,7 @@ class AgentState(TypedDict, total=False):
     refine_feedback: Optional[str]
     orders: list[Any]           # list[Order]
     share_message: Optional[str]
+    execution_tool_results: list[Any]  # confirm 阶段执行类 Tool 调用结果（SSE 适配用）
 
     # ---- chitchat 输出（非 planning 路径用）----
     chitchat_reply_text: Optional[str]
@@ -180,6 +181,7 @@ def make_initial_state(
         plan_attempt=0,
         retry_count=0,
         orders=[],
+        execution_tool_results=[],
         chitchat_chips=[],
         fallback_chain=[],
         critic_attempts=[],

@@ -1,4 +1,4 @@
-"""tests.test_tools —— 7 个 Tool 的成功 + 失败分支覆盖。
+"""tests.test_tools —— 9 个 Tool 的成功 + 失败分支覆盖。
 
 每个 Tool 至少 2 个用例（一成功一失败），并把演示场景集 §四 的覆盖率自检也
 转成断言，确保 Mock 数据始终满足 Demo 跑通的最低门槛。
@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 import tools  # noqa: F401  触发注册
-from data.loader import load_pois, load_restaurants
+from data.loader import load_extra_services, load_pois, load_restaurants
 from schemas.errors import FailureReason
 from schemas.tools import (
     BuyTicketInput,
@@ -17,6 +17,7 @@ from schemas.tools import (
     EstimateRouteTimeInput,
     GenerateShareMessageInput,
     GetUserProfileInput,
+    OrderExtraServiceInput,
     ReserveRestaurantInput,
     SearchPoisInput,
     SearchRestaurantsInput,
@@ -27,6 +28,7 @@ from tools.check_restaurant_availability import check_restaurant_availability
 from tools.estimate_route_time import estimate_route_time
 from tools.generate_share_message import generate_share_message
 from tools.get_user_profile import get_user_profile
+from tools.order_extra_service import order_extra_service
 from tools.reserve_restaurant import reserve_restaurant
 from tools.search_pois import search_pois
 from tools.search_restaurants import search_restaurants
@@ -36,7 +38,7 @@ from tools.search_restaurants import search_restaurants
 # T0 注册表元测试
 # ============================================================
 
-def test_registry_contains_seven_tools():
+def test_registry_contains_nine_tools():
     expected = {
         "search_pois",
         "search_restaurants",
@@ -44,6 +46,7 @@ def test_registry_contains_seven_tools():
         "estimate_route_time",
         "reserve_restaurant",
         "buy_ticket",
+        "order_extra_service",
         "generate_share_message",
         "get_user_profile",
     }
@@ -311,7 +314,55 @@ def test_buy_ticket_free_poi_zero_total():
 
 
 # ============================================================
-# T6 generate_share_message
+# T7 order_extra_service
+# ============================================================
+
+def test_order_extra_service_cake_success():
+    out = order_extra_service(
+        OrderExtraServiceInput(
+            service_type="蛋糕",
+            target_kind="restaurant",
+            target_id="R001",
+            quantity=1,
+            scheduled_time="17:30",
+            recipient_note="妈妈生日",
+        )
+    )
+    assert out.success
+    assert out.order_id and out.order_id.startswith("X-XS001-")
+    assert out.service is not None
+    assert out.service.name == "6 寸生日蛋糕"
+    assert out.total_price == 168.0
+
+
+def test_order_extra_service_unavailable():
+    out = order_extra_service(
+        OrderExtraServiceInput(
+            service_type="限定花盒",
+            target_kind="restaurant",
+            target_id="R001",
+            quantity=1,
+        )
+    )
+    assert not out.success
+    assert out.reason == FailureReason.EXTRA_SERVICE_UNAVAILABLE
+
+
+def test_order_extra_service_unknown_target():
+    out = order_extra_service(
+        OrderExtraServiceInput(
+            service_type="蛋糕",
+            target_kind="restaurant",
+            target_id="R999",
+            quantity=1,
+        )
+    )
+    assert not out.success
+    assert out.reason == FailureReason.NOT_FOUND
+
+
+# ============================================================
+# T8 generate_share_message
 # ============================================================
 
 def test_generate_share_family_tone():
@@ -351,7 +402,7 @@ def test_generate_share_blank_summary_invalid():
 
 
 # ============================================================
-# T7 get_user_profile
+# T9 get_user_profile
 # ============================================================
 
 def test_get_user_profile_success():
@@ -434,6 +485,22 @@ def test_coverage_birthday_cantonese():
         r for r in rs if "粤菜" in r.tags and r.capacity.six
     ]
     assert len(matched) >= 2
+
+
+def test_coverage_extra_services_for_birthday():
+    services = load_extra_services()
+    cakes = [
+        s for s in services
+        if s.available and s.service_type == "蛋糕" and "restaurant" in s.target_kinds
+    ]
+    flowers = [
+        s for s in services
+        if s.available and s.service_type == "鲜花" and "restaurant" in s.target_kinds
+    ]
+    sold = [s for s in services if not s.available or s.inventory == 0]
+    assert cakes, "缺生日蛋糕附加服务"
+    assert flowers, "缺鲜花附加服务"
+    assert sold, "缺附加服务不可用失败埋点"
 
 
 def test_coverage_failure_cases_at_least_eight():
@@ -559,3 +626,18 @@ def test_invoke_tool_e2e_check_restaurant_full():
     )
     assert not res.success
     assert res.reason == FailureReason.RESTAURANT_FULL
+
+
+def test_invoke_tool_e2e_order_extra_service():
+    res = invoke_tool(
+        "order_extra_service",
+        {
+            "service_type": "蛋糕",
+            "target_kind": "restaurant",
+            "target_id": "R001",
+            "quantity": 1,
+            "scheduled_time": "17:30",
+        },
+    )
+    assert res.success
+    assert res.output["order_id"].startswith("X-XS001-")

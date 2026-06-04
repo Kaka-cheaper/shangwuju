@@ -16,17 +16,17 @@
 - intent_node      : LLM 意图抽取（复用 intent_parser.py）
 - planner_node     : LLM 出 PlanBlueprint + 4 维 weights
                      （复用 blueprint_llm + weights_llm）
-- execute_node     : Send API 并行调 8 工具
+- execute_node     : Send API 并行调查询类工具
 - assemble_node    : 蓝图→Itinerary（复用 assemble_blueprint）
 - critic_node      : 7 类 ViolationCode（复用 critics_v2）
 - replan_router    : LLM backprompt（≤2 次） / ILS 兜底（复用 planner_hybrid）
 - narrate_node     : 暖语气文案（复用 narrator）
 - interrupt(plan)  : HITL 等三按钮决策
 - refiner_node     : 反馈合并（复用 refiner）
-- execute_finalize : reserve / buy / share
+- execute_finalize : reserve / buy / extra / share
 
 不负责（仍由旧模块管）：
-- 8 工具实现       (在 backend/tools/)
+- 9 工具实现       (在 backend/tools/)
 - LLM 客户端       (在 agent/llm_client.py)
 - ToolProvider     (在 agent/v2/tool_provider.py，graph 复用)
 - ConversationStore (在 agent/v2/conversation.py，graph 复用)

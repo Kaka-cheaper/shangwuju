@@ -30,7 +30,10 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 
-from agent.graph.nodes.execute_finalize import execute_finalize_node  # noqa: E402
+from agent.graph.nodes.execute_finalize import (  # noqa: E402
+    _ceil_to_half_hour,
+    execute_finalize_node,
+)
 from agent.graph.nodes.narrate import narrate_node  # noqa: E402
 from schemas.sse import SseEventType  # noqa: E402
 from tests.test_critics_v2 import _make_intent, _make_legal_itinerary  # noqa: E402
@@ -109,6 +112,51 @@ def test_finalize_node_returns_memory_status_on_confirm(
     assert ms["skipped_reason"] is None
 
 
+def test_finalize_node_fast_confirm_defers_llm_and_memory(monkeypatch):
+    """Fast /chat/confirm should not block execution tools on LLM narration or memory."""
+
+    def fail_get_llm_client():
+        raise AssertionError("fast confirm must not load LLM client synchronously")
+
+    narration_use_llm: list[bool] = []
+
+    def fake_generate_narration(*, use_llm: bool, **kwargs):
+        narration_use_llm.append(use_llm)
+        return "已按你的方案完成预约。"
+
+    monkeypatch.setattr(
+        "agent.graph.nodes.execute_finalize.get_llm_client",
+        fail_get_llm_client,
+    )
+    monkeypatch.setattr(
+        "agent.graph.nodes.execute_finalize.generate_narration",
+        fake_generate_narration,
+    )
+    monkeypatch.setattr(
+        "agent.planning.memory_writer.persist_memory",
+        lambda *args, **kwargs: pytest.fail(
+            "fast confirm must defer memory persistence"
+        ),
+    )
+
+    intent = _make_intent(social_context="家庭日常")
+    itinerary = _make_legal_itinerary()
+    state = {
+        "intent": intent,
+        "itinerary": itinerary,
+        "user_decision": "confirm",
+        "user_id": "demo_user",
+        "defer_post_confirm_effects": True,
+    }
+
+    result = execute_finalize_node(state)
+
+    assert result["post_confirm_effects_deferred"] is True
+    assert "memory_status" not in result
+    assert result["narration"] == "已按你的方案完成预约。"
+    assert narration_use_llm == [False]
+
+
 def test_narrate_node_does_not_persist_memory(
     mock_user_profile_path, monkeypatch
 ):
@@ -167,3 +215,51 @@ def test_finalize_node_summary_preview_format(
     assert "活动" in preview or "用餐" in preview
     assert "→" in preview  # 节点序列分隔符
     assert len(preview) <= 80
+
+
+def test_finalize_node_executes_reserve_ticket_extra_and_share(monkeypatch):
+    """V3 confirm glue 应正确解析 ToolInvocationResult.output 并回填三类订单。"""
+    stub_client = MagicMock()
+    stub_client.provider = "stub"
+    monkeypatch.setattr(
+        "agent.graph.nodes.execute_finalize.get_llm_client",
+        lambda: stub_client,
+    )
+    monkeypatch.setattr(
+        "agent.planning.memory_writer.persist_memory",
+        lambda *args, **kwargs: True,
+    )
+
+    intent = _make_intent(social_context="纪念日仪式感").model_copy(
+        update={"extra_services": ["蛋糕"]}
+    )
+    itinerary = _make_legal_itinerary()
+    state = {
+        "intent": intent,
+        "itinerary": itinerary,
+        "user_decision": "confirm",
+        "user_id": "demo_user",
+    }
+
+    result = execute_finalize_node(state)
+    final_itinerary = result["itinerary"]
+    order_kinds = [o.kind for o in final_itinerary.orders]
+
+    assert any(k == "餐厅预约" for k in order_kinds)
+    assert any(k == "门票" for k in order_kinds)
+    assert any(k == "蛋糕加购" for k in order_kinds)
+    assert final_itinerary.share_message
+
+    tools_called = [x["tool"] for x in result["execution_tool_results"]]
+    assert tools_called == [
+        "reserve_restaurant",
+        "buy_ticket",
+        "order_extra_service",
+        "generate_share_message",
+    ]
+
+
+def test_finalize_reservation_time_rounds_up_to_half_hour():
+    assert _ceil_to_half_hour("17:04") == "17:30"
+    assert _ceil_to_half_hour("17:30") == "17:30"
+    assert _ceil_to_half_hour("17:31") == "18:00"

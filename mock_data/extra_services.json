@@ -1,0 +1,62 @@
+[
+  {
+    "id": "XS001",
+    "service_type": "蛋糕",
+    "name": "6 寸生日蛋糕",
+    "target_kinds": ["restaurant"],
+    "target_ids": ["*"],
+    "price": 168,
+    "available": true,
+    "inventory": 12,
+    "lead_time_min": 60,
+    "description": "适合生日、纪念日场景，可随餐送达。"
+  },
+  {
+    "id": "XS002",
+    "service_type": "鲜花",
+    "name": "小束鲜花",
+    "target_kinds": ["restaurant"],
+    "target_ids": ["*"],
+    "price": 128,
+    "available": true,
+    "inventory": 16,
+    "lead_time_min": 45,
+    "description": "适合生日、纪念日、情侣约会，可提前放到餐位。"
+  },
+  {
+    "id": "XS003",
+    "service_type": "生日布置",
+    "name": "餐位生日布置",
+    "target_kinds": ["restaurant"],
+    "target_ids": ["R001", "R018", "R024", "R025", "R026", "R027", "R028"],
+    "price": 98,
+    "available": true,
+    "inventory": 8,
+    "lead_time_min": 90,
+    "description": "含桌面小摆件和生日祝福牌。"
+  },
+  {
+    "id": "XS004",
+    "service_type": "儿童餐具",
+    "name": "儿童餐具与宝宝椅",
+    "target_kinds": ["restaurant"],
+    "target_ids": ["*"],
+    "price": 0,
+    "available": true,
+    "inventory": 20,
+    "lead_time_min": 10,
+    "description": "亲子用餐场景提前备注，现场预留。"
+  },
+  {
+    "id": "XS_SOLD",
+    "service_type": "限定花盒",
+    "name": "限定玫瑰花盒",
+    "target_kinds": ["restaurant"],
+    "target_ids": ["*"],
+    "price": 268,
+    "available": false,
+    "inventory": 0,
+    "lead_time_min": 120,
+    "description": "售罄埋点，用于演示附加服务不可用。"
+  }
+]

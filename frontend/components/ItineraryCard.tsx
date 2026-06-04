@@ -3,11 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
-import {
-  buildCollabChatStateSnapshot,
-  buildCollabPlanningEvents,
-  useCollabStore,
-} from "@/lib/collab-store";
+import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type {
   HopMode,
@@ -19,16 +15,11 @@ import { cn } from "@/lib/utils";
 
 import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
-import ShareModal from "./ShareModal";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
 import MapOverlay from "./MapOverlay";
-import PosterGenerator from "./PosterGenerator";
-import TtsPlayer from "./TtsPlayer";
-import VoteButtons from "./VoteButtons";
-import DecisionTraceCard from "./DecisionTraceCard";
 
-/** 行程卡片：六段时间轴 + 已为你预留 + 转发文案 + 三按钮（黄昏深色主题）。 */
+/** 行程卡片：聚焦方案摘要、时间轴、地图、预订结果和主执行动作。 */
 export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const intent = useChatStore((s) => s.intent);
@@ -39,13 +30,8 @@ export default function ItineraryCard() {
 
   // 协作模式
   const collabMode = useCollabStore((s) => s.collabMode);
-  const createRoom = useCollabStore((s) => s.createRoom);
-  const joinRoom = useCollabStore((s) => s.joinRoom);
   const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
-  const roomId = useCollabStore((s) => s.roomId);
   const myRole = useCollabStore((s) => s.myRole);
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [creatingRoom, setCreatingRoom] = useState(false);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const confirm = useChatStore((s) => s.confirm);
@@ -460,11 +446,6 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* AI 思考（决策可解释性，Step 8） */}
-      <div className="px-4 pb-3">
-        <DecisionTraceCard trace={itinerary.decision_trace} />
-      </div>
-
       {/* M4：方案就绪后预告「点确认会发生什么」——把评委永远看不到的「确认后一键顺滑执行」
             从「需点击触发」变成「默认可见」。下单前显示，下单后由「已为你预留」订单卡接力 */}
       {!hasOrders && !cancelled && (
@@ -519,62 +500,6 @@ export default function ItineraryCard() {
             </button>
           </div>
         )}
-        {/* R6 语音播报 + R5 海报生成：行程的多模态输出（itinerary 存在时即可用） */}
-        <TtsPlayer />
-        <PosterGenerator />
-        {/* M5：邀请同行人按钮——双行设计让评委一眼看到「multi-user 协同」工程深度 */}
-        {!hasOrders && !cancelled && itinerary && !collabMode && (
-          <button
-            className="mt-2 w-full py-2.5 rounded-lg bg-white hover:bg-ink-100 border-2 border-[#FFD100] hover:border-[#e6bc00] text-ink-800 text-sm font-medium transition-all flex flex-col items-center justify-center gap-0.5 disabled:opacity-50"
-            disabled={creatingRoom || streaming}
-            title="基于 WebSocket 的多人协作模式 · 房间内成员的约束实时合并、按段投票决策"
-            onClick={async () => {
-              setCreatingRoom(true);
-              const sessionId = useChatStore.getState().sessionId;
-              const userId = useChatStore.getState().currentUserId || "demo_user";
-              const state = useChatStore.getState();
-              const planningEvents = buildCollabPlanningEvents(state);
-              const chatState = buildCollabChatStateSnapshot(state);
-              const newRoomId = await createRoom(
-                userId,
-                "发起人",
-                sessionId,
-                planningEvents,
-                state.messages as any,
-                chatState,
-              );
-              if (newRoomId) {
-                // 自动加入房间
-                joinRoom(newRoomId, userId, "发起人");
-                setShareModalOpen(true);
-              }
-              setCreatingRoom(false);
-            }}
-          >
-            {creatingRoom ? (
-              <span>创建中…</span>
-            ) : (
-              <>
-                <span className="flex items-center gap-1.5">
-                  <span aria-hidden>🤝</span>
-                  <span>开多人房间，让同行人一起拿主意</span>
-                </span>
-                <span className="text-xs text-ink-500 font-normal tracking-wide">
-                  约束实时合并 · 按段投票决策
-                </span>
-              </>
-            )}
-          </button>
-        )}
-        {/* 协作模式下显示分享按钮 */}
-        {collabMode && roomId && (
-          <button
-            className="mt-2 w-full py-1.5 rounded-lg bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] text-ink-500 text-xs transition-all flex items-center justify-center gap-1.5"
-            onClick={() => setShareModalOpen(true)}
-          >
-            🔗 分享链接给同行人
-          </button>
-        )}
         {hasOrders && (
           <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-400">
             <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
@@ -592,13 +517,6 @@ export default function ItineraryCard() {
         open={refineOpen}
         onClose={() => setRefineOpen(false)}
       />
-      {roomId && (
-        <ShareModal
-          open={shareModalOpen}
-          onClose={() => setShareModalOpen(false)}
-          roomId={roomId}
-        />
-      )}
     </div>
   );
 }
@@ -762,6 +680,13 @@ function ConfirmPreviewCard({
     intent?.companions?.reduce((acc, c) => acc + (c.count ?? 1), 0) ?? 0;
   const partySizeText = partySize > 0 ? `${partySize + 1} 人位` : "桌位";
   const socialCtx = intent?.social_context || "";
+  const extraServices = (intent?.extra_services ?? [])
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const extraLine =
+    extraServices.length > 0
+      ? `；并加购${extraServices.slice(0, 3).join("、")}`
+      : "";
 
   // 三件事的简短描述（按"动词 + 名词"模式，避免 + 堆叠）
   const restaurantLine = firstRestaurant
@@ -787,7 +712,7 @@ function ConfirmPreviewCard({
       </div>
 
       <p className="text-amber-900/85 mb-2.5">
-        {restaurantLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
+        {restaurantLine}{extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-700/80">
@@ -799,6 +724,12 @@ function ConfirmPreviewCard({
           <span aria-hidden>📝</span>
           <span>备转发文案</span>
         </span>
+        {extraServices.length > 0 && (
+          <span className="inline-flex items-center gap-1">
+            <span aria-hidden>+</span>
+            <span>加购{extraServices[0]}</span>
+          </span>
+        )}
         <span className="inline-flex items-center gap-1">
           <span aria-hidden>🧠</span>
           <span>记本次偏好</span>

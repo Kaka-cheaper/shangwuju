@@ -21,6 +21,7 @@ from schemas import (
 from ._session_store import SESSION_STORE, resolve_user_id
 from ._sse_helpers import safe_stream
 from ._streams.models import ChatConfirmRequest, ChatStreamRequest
+from ._streams.graph_confirm import _graph_confirm
 from ._streams.planner_stream import _planner_stream
 from ._streams.refine_real import _refine_stream_real
 from ._streams.route import _routed_stream_real, _routed_stream_stub
@@ -81,19 +82,24 @@ async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSource
 
     防 hallucination：
         - 前端从 ItineraryReady 收到合法 ID 集合，confirm 时回传
-        - reserve_restaurant / buy_ticket 仅能在该集合内派发
+        - reserve_restaurant / buy_ticket / order_extra_service 仅能在该集合内派发
         - 缺省时不做白名单校验（向后兼容；demo 短路径不破）
 
     SSE 序列：
-        reserve_restaurant → buy_ticket（如有 POI 票）→ generate_share_message →
-        itinerary_ready（含 orders + share_message）→ memory_persisted → done
+        reserve_restaurant → buy_ticket（如有 POI 票）→ order_extra_service（如有蛋糕/鲜花）→ generate_share_message →
+        itinerary_ready（含 orders + share_message）→ agent_narration → done
+
+    V3 LangGraph confirm 会把记忆回写与 ConversationStore 记录放到后台执行；
+    预约成功不再等待真实 LLM narrator / memory_writer。
     """
     mode = resolve_planner_mode(
         header_value=request.headers.get("X-Planner-Mode"),
         env_value=os.getenv("PLANNER_MODE"),
     )
+    use_langgraph = (os.getenv("USE_LANGGRAPH") or "0").strip() == "1"
+    inner = _graph_confirm(req) if use_langgraph else _stub_confirm(req, mode=mode)
     return EventSourceResponse(
-        safe_stream(_stub_confirm(req, mode=mode)),
+        safe_stream(inner),
         media_type="text/event-stream",
         headers={"X-Planner-Mode": mode},
     )
@@ -152,7 +158,7 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
     无需小团 App 自己维护"现在该调哪个端点"的状态机。
 
     Phase 0.12 起增加 ReAct 路径(USE_REACT_AGENT=1,默认 ON):
-        1. ReAct 单一 Agent:让 LLM 看到全部 8 工具,自主决策何时调用
+        1. ReAct 单一 Agent:让 LLM 看到全部 9 工具,自主决策何时调用
         2. critic 兜底:output_validator 验证违规 → ModelRetry 让 LLM 自纠错
         3. 上下文跨 turn 持久:用 ConversationRepository.messages 喂 message_history
 

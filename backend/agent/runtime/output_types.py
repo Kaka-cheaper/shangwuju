@@ -84,7 +84,7 @@ class ItineraryResponse(BaseModel):
             "`nodes`（活动节点，首尾固定 home，中间节点 ≥ 1）、`hops`（相邻节点之间的通勤段，"
             "长度 = nodes - 1）、`schedule`（按时间序展平的派生只读视图，前端时间轴消费）。"
             "另含可选 orders + 可选 share_message + total_minutes。"
-            "orders 在规划阶段必须为空数组（[]）——下单由 reserve_restaurant / buy_ticket "
+            "orders 在规划阶段必须为空数组（[]）——下单由 reserve_restaurant / buy_ticket / order_extra_service "
             "工具完成后由后端追加，LLM 不要假装已下单。"
         ),
     )

@@ -110,10 +110,18 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 // ============================================================
-// 主组件：触发按钮 + 内联预览
+// 主组件：触发按钮 + 海报预览
 // ============================================================
 
-export default function PosterGenerator() {
+interface PosterGeneratorProps {
+  compact?: boolean;
+  className?: string;
+}
+
+export default function PosterGenerator({
+  compact = false,
+  className,
+}: PosterGeneratorProps) {
   const itinerary = useChatStore((s) => s.itinerary);
   const pushToast = useChatStore((s) => s.pushToast);
 
@@ -216,12 +224,13 @@ export default function PosterGenerator() {
         onClick={generate}
         disabled={generating}
         className={cn(
-          "mt-2 w-full py-1.5 rounded-lg",
+          compact ? "h-9 w-full rounded-md px-3" : "mt-2 w-full py-1.5 rounded-lg",
           "bg-black/[0.03] hover:bg-black/[0.05]",
           "border border-black/[0.08] hover:border-black/[0.12]",
           "text-ink-700 hover:text-ink-900 text-sm",
           "transition-all flex items-center justify-center gap-1.5",
           "disabled:opacity-50 disabled:cursor-not-allowed",
+          className,
         )}
         title="把行程渲染成竖版海报图，可保存转发到微信群"
       >

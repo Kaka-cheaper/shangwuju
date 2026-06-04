@@ -66,7 +66,12 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - backend/.env
+      # required: false → 没有 backend/.env 也能起（走 Dockerfile 内置 stub 默认值），
+      # 实现「git clone 即 docker compose up」。要接真 LLM：
+      #   cp backend/.env.example backend/.env 后填 key。
+      # 注：此 path/required 语法需 Docker Compose v2.24+（2024 起的版本均支持）。
+      - path: backend/.env
+        required: false
     environment:
       # 容器内访问 Redis 用 service name
       REDIS_URL: redis://redis:6379/0
@@ -100,7 +105,9 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # 容器互通用容器名访问 backend
+        # NEXT_PUBLIC_* 是 build-time 注入、最终在【用户浏览器】里执行，
+        # 所以这里必须是浏览器能访问到的地址 = 宿主机映射端口 localhost:8000。
+        # 【不要】改成容器名 backend:8000（浏览器解析不了 docker service name）。
         NEXT_PUBLIC_API_BASE: "http://localhost:8000"
         NEXT_PUBLIC_AMAP_KEY: "${NEXT_PUBLIC_AMAP_KEY:-}"
     image: shangwujue-frontend:dev
@@ -111,8 +118,11 @@ services:
     environment:
       NODE_ENV: production
     depends_on:
+      # 仅等 backend 进程启动（service_started），不等 /ready 通过。
+      # 原因：前端是浏览器端调 API，后端 /ready 若因 LLM key 未配而返回 503，
+      # 不应阻断前端启动（否则整栈起不来）。后端真实就绪由它自己的 healthcheck 反映。
       backend:
-        condition: service_healthy
+        condition: service_started
     networks:
       - shangwujue-net
 

@@ -1,4 +1,4 @@
-"""tool_provider —— 8 个工具的数据源抽象层。
+"""tool_provider —— 9 个工具的数据源抽象层。
 
 商业演进路径（让评委看到「数据源可切换」的扩展性）：
 
@@ -9,7 +9,7 @@
 切换方式：仅改 .env 中的 DATA_PROVIDER=mock|gaode|dianping，业务代码零改动。
 
 设计要点（参考 AGENTS.md §3.4 Tool 设计纪律）：
-- ToolProvider Protocol 锁死 8 个方法签名 —— 实现可换、契约不变
+- ToolProvider Protocol 锁死 9 个方法签名 —— 实现可换、契约不变
 - MockToolProvider 用 ``asyncio.to_thread`` 包同步 Tool —— 避免事件循环阻塞
 - Stub Provider 不静默失败，抛 NotImplementedError 含「如何接入」指引
 - 不在本模块发明新 Pydantic 模型；全部复用 schemas/tools.py（Agent A 的领域）
@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 from typing import Protocol, runtime_checkable
 
-# 复用 schemas/tools.py 的 8 对 Input/Output 模型（不发明新模型）
+# 复用 schemas/tools.py 的 9 对 Input/Output 模型（不发明新模型）
 from schemas.tools import (
     BuyTicketInput,
     BuyTicketOutput,
@@ -37,6 +37,8 @@ from schemas.tools import (
     GenerateShareMessageOutput,
     GetUserProfileInput,
     GetUserProfileOutput,
+    OrderExtraServiceInput,
+    OrderExtraServiceOutput,
     ReserveRestaurantInput,
     ReserveRestaurantOutput,
     SearchPoisInput,
@@ -47,12 +49,12 @@ from schemas.tools import (
 
 
 # ============================================================
-# Protocol —— 8 个工具的统一接口
+# Protocol —— 9 个工具的统一接口
 # ============================================================
 
 @runtime_checkable
 class ToolProvider(Protocol):
-    """8 个工具的统一接口。
+    """9 个工具的统一接口。
 
     所有方法签名稳定，实现可换。任何符合本协议的对象都可以作为
     数据源喂给 Agent 编排层 —— 这是「商业演进可切换」的契约基础。
@@ -87,6 +89,10 @@ class ToolProvider(Protocol):
     ) -> ReserveRestaurantOutput: ...
 
     async def buy_ticket(self, inp: BuyTicketInput) -> BuyTicketOutput: ...
+
+    async def order_extra_service(
+        self, inp: OrderExtraServiceInput
+    ) -> OrderExtraServiceOutput: ...
 
     async def generate_share_message(
         self, inp: GenerateShareMessageInput
@@ -153,6 +159,13 @@ class MockToolProvider:
 
         return await asyncio.to_thread(_impl, inp)
 
+    async def order_extra_service(
+        self, inp: OrderExtraServiceInput
+    ) -> OrderExtraServiceOutput:
+        from tools.order_extra_service import order_extra_service as _impl
+
+        return await asyncio.to_thread(_impl, inp)
+
     async def generate_share_message(
         self, inp: GenerateShareMessageInput
     ) -> GenerateShareMessageOutput:
@@ -197,7 +210,7 @@ class GaodeToolProviderStub:
     1. 抽象层确实做出来了（不是 demo 写死）
     2. 真接入有明确文档锚点（不是「以后再说」）
 
-    真接入时 8 个方法逐个替换为 httpx 调高德 OpenAPI 即可，业务代码零改动。
+    真接入时 9 个方法逐个替换为 httpx 调高德 OpenAPI 即可，业务代码零改动。
     """
 
     name = "gaode"
@@ -232,6 +245,11 @@ class GaodeToolProviderStub:
 
     async def buy_ticket(self, inp: BuyTicketInput) -> BuyTicketOutput:
         raise _gaode_not_impl("buy_ticket")
+
+    async def order_extra_service(
+        self, inp: OrderExtraServiceInput
+    ) -> OrderExtraServiceOutput:
+        raise _gaode_not_impl("order_extra_service")
 
     async def generate_share_message(
         self, inp: GenerateShareMessageInput
@@ -278,6 +296,11 @@ class DianpingToolProviderStub:
 
     async def buy_ticket(self, inp: BuyTicketInput) -> BuyTicketOutput:
         raise _dianping_not_impl("buy_ticket")
+
+    async def order_extra_service(
+        self, inp: OrderExtraServiceInput
+    ) -> OrderExtraServiceOutput:
+        raise _dianping_not_impl("order_extra_service")
 
     async def generate_share_message(
         self, inp: GenerateShareMessageInput

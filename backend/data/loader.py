@@ -27,7 +27,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from schemas.domain import Poi, Restaurant, Route, UserProfile
+from schemas.domain import ExtraService, Poi, Restaurant, Route, UserProfile
 
 
 _DEFAULT_MOCK_DIR = Path(__file__).resolve().parents[2] / "mock_data"
@@ -67,6 +67,12 @@ def load_routes() -> list[Route]:
 
 
 @lru_cache(maxsize=1)
+def load_extra_services() -> list[ExtraService]:
+    """加载可加购的附加服务。"""
+    return [ExtraService.model_validate(x) for x in _load_json("extra_services.json")]
+
+
+@lru_cache(maxsize=1)
 def load_user_profile() -> UserProfile:
     """加载默认用户画像（demo_user）。兼容旧单对象格式。"""
     return UserProfile.model_validate(_load_json("user_profile.json"))
@@ -94,4 +100,6 @@ def reset_cache() -> None:
     load_pois.cache_clear()
     load_restaurants.cache_clear()
     load_routes.cache_clear()
+    load_extra_services.cache_clear()
     load_user_profile.cache_clear()
+    load_user_profiles.cache_clear()

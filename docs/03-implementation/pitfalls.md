@@ -1062,3 +1062,38 @@ spec D 起草时编排者犯了**两次**审计错误：
   3. 新增「按明示诉求优先」机制时先查对称侧是否已有（餐厅 cuisine 重排 ↔ POI type 重排），镜像已有实现比新造概念稳。
   4. 重排判命中与诚实告知判未满足必须**同源词法 helper**（poi_desire_match 单一 SoT），否则会出现「重排说有、告知说没有」的不一致。
 - **优先级**：P2（不影响系统崩溃，但直接丢失用户核心诉求，评委可见性高——「我说看展你给我猫咖」）
+
+
+### [P1] 2026-06-02 SSE 首帧后同步阻塞事件循环 → 前端误报首字节超时
+
+- **现象**：用户点「确认并预约」后，后端日志显示 `POST /chat/confirm 200 OK`，但前端 8 秒后显示「流出错：后端无响应（首字节超时）」；Uvicorn 没有明显异常日志。
+- **根因**：`/chat/confirm` 的 `_graph_confirm` 虽然在代码上先 `yield agent_thought`，但随后马上在同一个 async generator / event loop 中同步调用 `execute_finalize_node`。该节点内部会执行确认工具、confirm narrator、memory writer，其中 narrator / memory writer 可能触发真实 LLM 调用并阻塞 30 秒级。ASGI transport 的小块数据还没机会 flush 到浏览器，事件循环就被同步调用占住，于是前端在 8 秒内没有解析到第一条 SSE。
+- **修复**：把同步 finalize 放到 `asyncio.to_thread`，首帧先返回，等待期间按 `FINALIZE_HEARTBEAT_S=1.5` 持续推 `agent_thought` 心跳；异常转 `stream_error + done`。新增 `backend/tests/test_graph_confirm_heartbeat.py` 用慢 finalize 验证心跳在 finalize 完成前可到达。
+- **相关文件**：
+  - `backend/api/_streams/graph_confirm.py`
+  - `backend/tests/test_graph_confirm_heartbeat.py`
+- **防再犯**：
+  1. SSE generator 里任何可能超过 1 秒的同步函数、LLM 调用、文件 IO、第三方请求，都必须 `to_thread` / 后台 task / async client 化，不能直接在 event loop 里跑。
+  2. 「先 yield 一个事件」不等于浏览器一定收到首帧；如果 yield 后马上同步阻塞，flush 仍可能被饿死。
+  3. 新增 SSE 流时至少补一条慢任务回归测试：模拟内部任务 sleep，断言首帧和心跳在任务完成前能产出。
+  4. 修改 backend agent / graph 代码后，如果 uvicorn 不是 `--reload` 启动，必须重启后端；否则浏览器仍命中旧进程，现象会和代码不一致。
+- **优先级**：P1（直接影响 demo 体感，用户会认为后端无响应；但不改变规划正确性）
+
+
+### [P1] 2026-06-03 确认 Tool 已执行但 tool_call 迟迟不出 → 后置 LLM 副作用串在主链路
+
+- **现象**：真实 HTTP 复测中，`/chat/confirm` 已能 1ms 收到首帧并每 1.5s 心跳，不再触发首字节超时；但约 31s 后才看到 `tool_call_start/end`，前端仍像“预约很久才成功”。
+- **根因**：`_graph_confirm` 等整个 `execute_finalize_node` 返回后才发 Tool 事件；而 `execute_finalize_node` 在执行完 `reserve_restaurant / buy_ticket / order_extra_service / generate_share_message` 后，又同步调用真实 LLM confirm narrator 与 `memory_writer.persist_memory`。Tool 本身已经完成，但事件被后置 LLM / 记忆写入挡住。
+- **修复**：
+  1. `/chat/confirm` 传 `defer_post_confirm_effects=True`，确认节点只同步执行 Tool 与本地模板确认文案。
+  2. `execute_finalize_node` 默认行为保持不变；只有 V3 graph confirm fast path 跳过同步 LLM narrator / memory_writer，避免破坏 direct-node memory 测试语义。
+  3. `_graph_confirm` 在推送 `itinerary_ready` 后把 `memory_writer` 与 `record_confirm_result` 放入后台 task；`tool_call / itinerary_ready / agent_narration / done` 不再等待这些副作用。
+- **相关文件**：
+  - `backend/api/_streams/graph_confirm.py`
+  - `backend/agent/graph/nodes/execute_finalize.py`
+  - `backend/tests/test_memory_persisted_sse.py`
+- **防再犯**：
+  1. “确认预约成功”的同步路径只能包含执行类 Tool 和必要的行程回填；LLM 文案润色、记忆写入、ConversationStore 记录都属于后置副作用。
+  2. SSE 事件顺序应优先暴露用户可感知结果：`tool_call_* → itinerary_ready → done`；不得为了内部记录延迟用户结果。
+  3. 给 fast path 加单测：同步确认路径中 `get_llm_client` 和 `persist_memory` 不应被调用。
+- **优先级**：P1（不再首字节超时，但仍会让评委误以为“预约动作很慢”；直接影响 demo 体感）

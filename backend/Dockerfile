@@ -6,8 +6,8 @@
 #   - 与 FC Custom Container 兼容：监听 0.0.0.0:9000（FC 默认）
 #   - 本地 docker compose up 与 FC 同一镜像（PORT env 切端口）
 #
-# 构建：
-#   docker build -t shangwujue-backend:latest -f backend/Dockerfile backend
+# 构建（build context 必须是仓库根，因为要 COPY mock_data / docs/legal）：
+#   docker build -t shangwujue-backend:latest -f backend/Dockerfile .
 #
 # 运行（本地）：
 #   docker run -p 8000:8000 -e PORT=8000 --env-file backend/.env shangwujue-backend:latest
@@ -50,7 +50,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
 # 仅 copy 依赖描述文件，提升缓存命中率
-COPY pyproject.toml uv.lock ./
+# 注意：build context 是仓库根（docker-compose.yml → backend.build.context: .），
+# 而 pyproject.toml / uv.lock 在 backend/ 下，所以必须带 backend/ 前缀，否则 COPY not found。
+COPY backend/pyproject.toml backend/uv.lock ./
 
 # 装依赖（含 runtime extras，含 fastapi / uvicorn / sse-starlette）
 # 不装项目自己（--no-install-project），项目代码在 runtime stage 才 copy

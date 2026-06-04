@@ -18,7 +18,7 @@ graph 路径下用户确认的执行入口是 graph/nodes/execute_finalize。
 
 职责：
 - 接 Itinerary（来自 planner）+ 用户确认信号
-- 调 reserve_restaurant / buy_ticket / generate_share_message
+- 调 reserve_restaurant / buy_ticket / order_extra_service / generate_share_message
 - 把订单号回填到 Itinerary.orders
 - 处理执行类 Tool 的失败（E2 门票售罄等）
 
@@ -58,6 +58,8 @@ from schemas.tools import (
     BuyTicketOutput,
     GenerateShareMessageInput,
     GenerateShareMessageOutput,
+    OrderExtraServiceInput,
+    OrderExtraServiceOutput,
     ReserveRestaurantInput,
     ReserveRestaurantOutput,
 )
@@ -82,6 +84,7 @@ def execute_plan(
     audience: str | None = None,
     tracer: Tracer | None = None,
     buy_ticket_for_main_poi: bool = False,
+    extra_services: list[str] | None = None,
 ) -> ExecutionResult:
     """用户确认后的执行流。
 
@@ -91,8 +94,9 @@ def execute_plan(
     2. 门票（可选）：buy_ticket_for_main_poi=True 时找 target_kind=="poi" 的节点，
        调 buy_ticket
        - E2 售罄 → 不阻塞流程，记 failed_tools
-    3. 转发文案：调 generate_share_message
-    4. 把订单号回填 itinerary.orders；把文案填 itinerary.share_message
+    3. 附加服务（可选）：extra_services 非空时挂靠餐厅节点调 order_extra_service
+    4. 转发文案：调 generate_share_message
+    5. 把订单号回填 itinerary.orders；把文案填 itinerary.share_message
     """
     tracer = tracer or Tracer()
     failed: list[tuple[str, FailureReason]] = []
@@ -164,7 +168,54 @@ def execute_plan(
             else:
                 failed.append(("buy_ticket", result.reason or FailureReason.UPSTREAM_FAILURE))
 
-    # ---- 3. 转发文案 ----
+    # ---- 3. 附加服务（可选）----
+    for service_type in [s.strip() for s in (extra_services or []) if s.strip()]:
+        target_node = restaurant_node or next(
+            (n for n in itinerary.nodes if n.target_kind == "poi"), None
+        )
+        if target_node is None:
+            continue
+        result = _call(
+            tracer,
+            "order_extra_service",
+            OrderExtraServiceInput(
+                service_type=service_type,
+                target_kind=target_node.target_kind,
+                target_id=target_node.target_id,
+                quantity=1,
+                scheduled_time=(
+                    _extract_reserved_time(target_node.note)
+                    or target_node.start_time
+                ),
+                recipient_note=f"{social_context}场景",
+            ).model_dump(),
+        )
+        if result.success:
+            out = OrderExtraServiceOutput.model_validate(result.output)
+            if out.success and out.order_id:
+                service_name = out.service.name if out.service else service_type
+                orders.append(
+                    OrderRecord(
+                        order_id=out.order_id,
+                        kind=f"{out.service_type}加购",
+                        target_kind=target_node.target_kind,
+                        target_id=target_node.target_id,
+                        target_name=target_node.title,
+                        detail=(
+                            f"{out.scheduled_time or target_node.start_time} 送达 / "
+                            f"{service_name} x{out.quantity or 1} / "
+                            f"总价 {out.total_price or 0} 元"
+                        ),
+                    )
+                )
+            elif out.reason:
+                failed.append(("order_extra_service", out.reason))
+        else:
+            failed.append(
+                ("order_extra_service", result.reason or FailureReason.UPSTREAM_FAILURE)
+            )
+
+    # ---- 4. 转发文案 ----
     share_message: str | None = itinerary.share_message
     msg_result = _call(
         tracer,

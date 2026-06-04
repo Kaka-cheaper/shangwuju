@@ -231,7 +231,7 @@ PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent Plann
 2. 校验：用 check_restaurant_availability 确认餐厅指定时段有位
 3. 路线：用 estimate_route_time 估算关键节点之间通勤时间
 4. 异常恢复：餐厅满 (reason=restaurant_full) → 切其他时段或备选；门票售罄 (reason=ticket_sold_out) → 替换 POI
-5. 执行：用户确认后调 reserve_restaurant / buy_ticket / generate_share_message
+5. 执行：用户确认后调 reserve_restaurant / buy_ticket / order_extra_service / generate_share_message
 6. 输出：组装六段行程（出发 / 主活动 / 转场 / 用餐 / 附加 / 返回），返回结构化 Itinerary
 
 【调用纪律】

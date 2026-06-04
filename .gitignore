@@ -32,3 +32,8 @@ recordings/
 *.mov
 *.webm
 *.avi
+
+# 本地实验产物 / 临时文件（勿入库）
+/image.png
+/output/
+backend/exp_log*

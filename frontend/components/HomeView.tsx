@@ -16,7 +16,9 @@ import CollabBar from "./CollabBar";
 import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ConstraintFeed from "./ConstraintFeed";
+import DecisionTraceCard from "./DecisionTraceCard";
 import ItineraryCard from "./ItineraryCard";
+import ItineraryUtilityBar from "./ItineraryUtilityBar";
 import MockModeBadge from "./MockModeBadge";
 import OfflineReadyBadge from "./OfflineReadyBadge";
 import PlannerModeBadge from "./PlannerModeBadge";
@@ -46,11 +48,9 @@ export default function HomeView() {
   const [scrolled, setScrolled] = useState(false);
 
   // 协作模式
-  const collabMode = useCollabStore((s) => s.collabMode);
   const roomId = useCollabStore((s) => s.roomId);
-  const createRoom = useCollabStore((s) => s.createRoom);
-  const joinRoom = useCollabStore((s) => s.joinRoom);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const decisionTrace = useChatStore((s) => s.itinerary?.decision_trace);
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
@@ -240,14 +240,18 @@ export default function HomeView() {
             !activated && "opacity-0 pointer-events-none h-0 overflow-hidden mt-0",
           )}
         >
-          <section className="lg:col-span-1">
+          <section className="order-1 lg:order-2 lg:col-span-3 space-y-3">
+            <ItineraryUtilityBar
+              onOpenShareModal={() => setShareModalOpen(true)}
+            />
+            <ItineraryCard />
+          </section>
+
+          <section className="order-2 lg:order-1 lg:col-span-1">
             <ConstraintFeed />
             <ToolTracePanel />
             <ThoughtPanel />
-          </section>
-
-          <section className="lg:col-span-3">
-            <ItineraryCard />
+            <DecisionTraceCard trace={decisionTrace} />
           </section>
         </div>
       </main>

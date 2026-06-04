@@ -1,4 +1,4 @@
-"""tools —— 7 个 Tool 的实现 + Function Calling 注册表。
+"""tools —— 9 个 Tool 的实现 + Function Calling 注册表。
 
 每个 Tool 一个文件，模块顶部 docstring 必须说明：
 - 这个 Tool 做什么（一句话）
@@ -15,7 +15,7 @@
 - 规划决策（不允许 Tool 互相调用）
 
 注册副作用：
-- 导入本模块即把 7 个 Tool 注册进 TOOL_REGISTRY；
+- 导入本模块即把 9 个 Tool 注册进 TOOL_REGISTRY；
 - 顺序无关，但保留下面 import 顺序便于人工 grep。
 """
 
@@ -29,6 +29,7 @@ from . import (  # noqa: F401  ── side-effect import
     estimate_route_time,
     reserve_restaurant,
     buy_ticket,
+    order_extra_service,
     generate_share_message,
     get_user_profile,
 )

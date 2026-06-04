@@ -1,4 +1,4 @@
-"""tools —— 8 个 Tool 的 Input / Output Pydantic 模型。
+"""tools —— 9 个 Tool 的 Input / Output Pydantic 模型。
 
 每个 Tool 一对模型（Input / Output）。Input 用于 LLM Function Calling 的参数校验，
 Output 用于 Agent 接收 Tool 返回值并继续规划。
@@ -10,22 +10,19 @@ Output 用于 Agent 接收 Tool 返回值并继续规划。
 
 Tool 清单：
 查询类：search_pois / search_restaurants / check_restaurant_availability / estimate_route_time
-执行类：reserve_restaurant / buy_ticket / generate_share_message
+执行类：reserve_restaurant / buy_ticket / order_extra_service / generate_share_message
 画像  ：get_user_profile
-
-可选（MVP-2 才上）：
-- order_extra_service（暂未在本文件落 schema，待 P1 实现时补）
 
 不负责：
 - Tool 实现逻辑（在 backend/tools/）。
 - Mock 数据加载（在 mock_data/ + Tool 实现）。
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
-from schemas.domain import Poi, Restaurant, Route, UserProfile
+from schemas.domain import ExtraService, Poi, Restaurant, Route, UserProfile
 from schemas.errors import FailureReason
 from schemas.tags import (
     DietaryTag,
@@ -238,7 +235,37 @@ class BuyTicketOutput(ToolOutputBase):
 
 
 # ============================================================
-# T7. generate_share_message
+# T7. order_extra_service
+# ============================================================
+
+class OrderExtraServiceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    service_type: str = Field(..., min_length=1, description="如 蛋糕 / 鲜花")
+    target_kind: Literal["restaurant", "poi"] = Field(
+        ..., description="附加服务挂靠目标类型"
+    )
+    target_id: str = Field(..., min_length=1, description="餐厅或 POI id")
+    quantity: NonNegativeInt = Field(default=1, description="购买数量")
+    scheduled_time: Optional[str] = Field(default=None, description='形如 "17:30"')
+    recipient_note: Optional[str] = Field(
+        default=None, description="给商家的简短备注，如 妈妈生日"
+    )
+
+
+class OrderExtraServiceOutput(ToolOutputBase):
+    order_id: Optional[str] = None
+    service: Optional[ExtraService] = None
+    service_type: str
+    target_kind: Literal["restaurant", "poi"]
+    target_id: str
+    quantity: Optional[NonNegativeInt] = None
+    total_price: Optional[NonNegativeFloat] = None
+    scheduled_time: Optional[str] = None
+
+
+# ============================================================
+# T8. generate_share_message
 # ============================================================
 
 class GenerateShareMessageInput(BaseModel):
@@ -261,7 +288,7 @@ class GenerateShareMessageOutput(ToolOutputBase):
 
 
 # ============================================================
-# T8. get_user_profile
+# T9. get_user_profile
 # ============================================================
 
 class GetUserProfileInput(BaseModel):

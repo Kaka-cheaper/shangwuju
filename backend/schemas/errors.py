@@ -20,6 +20,8 @@ class FailureReason(str, Enum):
     RESTAURANT_FULL = "restaurant_full"
     # E2：门票售罄
     TICKET_SOLD_OUT = "ticket_sold_out"
+    # E5：附加服务不可用
+    EXTRA_SERVICE_UNAVAILABLE = "extra_service_unavailable"
     # E3：距离超限
     DISTANCE_EXCEEDED = "distance_exceeded"
     # E4：总时长超限

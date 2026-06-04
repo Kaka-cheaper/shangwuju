@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from agent.core.feedback_detector import looks_like_feedback, looks_like_feedback_strong
@@ -23,6 +24,83 @@ from agent.intent.router import classify_input, fallback_decision
 from agent.core.llm_client import get_llm_client
 
 logger = logging.getLogger("agent.graph.router")
+
+
+_PLANNING_TIME_SIGNALS = (
+    "今天下午",
+    "明天下午",
+    "周末",
+    "周日",
+    "周六",
+    "周五晚",
+    "周五晚上",
+    "今晚",
+    "今天晚上",
+    "明天晚上",
+    "下午",
+    "晚上",
+)
+
+_PLANNING_ACTION_SIGNALS = (
+    "出去玩",
+    "出去走",
+    "散步",
+    "出门",
+    "去玩",
+    "找个地方",
+    "看展",
+    "k 歌",
+    "k歌",
+    "ktv",
+    "唱歌",
+    "撸串",
+    "夜宵",
+    "下午茶",
+    "聚会",
+    "约会",
+    "见面",
+    "接待",
+    "安排",
+)
+
+_PLANNING_COMPANION_SIGNALS = (
+    "老婆",
+    "孩子",
+    "宝宝",
+    "娃",
+    "外公",
+    "外婆",
+    "爷爷",
+    "奶奶",
+    "父母",
+    "妈妈",
+    "爸爸",
+    "客户",
+    "闺蜜",
+    "女朋友",
+    "男朋友",
+    "朋友",
+    "兄弟",
+    "同事",
+    "同学",
+    "室友",
+)
+
+_PLANNING_CONSTRAINT_SIGNALS = (
+    "公里以内",
+    "公里内",
+    "km以内",
+    "km内",
+    "公里",
+    "千米",
+    "几个小时",
+    "几小时",
+    "半天",
+    "预算",
+    "人均",
+    "别太贵",
+    "别离家太远",
+)
 
 
 def _safe_refusal_decision() -> Any:
@@ -67,14 +145,37 @@ def _looks_like_feedback_strong(state: AgentState) -> bool:
     return looks_like_feedback_strong(txt)
 
 
+def _looks_like_new_planning(user_input: str) -> bool:
+    """Detect clear planning requests before asking the LLM router."""
+    text = (user_input or "").lower().strip()
+    if len(text) < 6:
+        return False
+
+    has_time = any(s in text for s in _PLANNING_TIME_SIGNALS)
+    has_action = any(s in text for s in _PLANNING_ACTION_SIGNALS)
+    has_companion = any(s in text for s in _PLANNING_COMPANION_SIGNALS)
+    has_constraint = any(s in text for s in _PLANNING_CONSTRAINT_SIGNALS)
+    has_group_size = bool(re.search(r"\b\d+\s*(?:个)?人\b", text))
+
+    if has_time and (has_action or has_companion or has_group_size):
+        return True
+    if has_action and (has_companion or has_constraint or has_group_size):
+        return True
+    if has_companion and has_constraint:
+        return True
+    return False
+
+
 def router_node(state: AgentState) -> dict[str, Any]:
     """同步节点。LLM 分类（异常时启发式兜底）。
 
-    四层防御（spec feedback-routing-fix + prompt-injection-defense）：
+    五层防御（spec feedback-routing-fix + prompt-injection-defense）：
         Layer 0（注入检测，不调 LLM）：detect_injection 命中 high → off_topic 安全婉拒。
         Layer 1（强信号，不调 LLM）：has_itinerary + looks_like_feedback_strong
                   → feedback。强信号词（太远 / 太赶 / 数字单位 / 以内）几乎不可能是
                   新需求开头，直接判 feedback。弱信号词（换 / 改）不在强信号子集，下沉到 Layer 2。
+        Layer 1.5（正向规划 fast path，不调 LLM）：命中时间 / 活动 / 同行 / 预算距离时长等
+                  通用规划信号 → planning，避免典型规划句被 LLM router 误判成 chitchat。
         Layer 2（LLM 分类，带上下文）：classify_input(has_itinerary=...)
                   → has_itinerary 时 prompt 告知 LLM「用户已有方案」，使其能判反馈
                   （多判 ambiguous）；明确新需求仍判 planning。
@@ -108,6 +209,15 @@ def router_node(state: AgentState) -> dict[str, Any]:
         return {
             "route_kind": "feedback",
             "router_decision": None,  # refiner 不需要 RouterDecision
+        }
+
+    # ---- Layer 1.5：正向规划 fast path（无场景枚举，仅看通用规划信号）----
+    if _looks_like_new_planning(user_input):
+        return {
+            "route_kind": "planning",
+            "router_decision": fallback_decision(
+                user_input, reason="planning_fast_path"
+            ),
         }
 
     # ---- Layer 2：LLM 分类（带 has_itinerary 上下文） ----

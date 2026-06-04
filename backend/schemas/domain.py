@@ -13,7 +13,7 @@
 - 业务过滤算法（在 Tool 层）。
 """
 
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
@@ -259,6 +259,40 @@ class Restaurant(BaseModel):
             "Step 3 之后所有 Demo 餐厅应至少 2 条。"
         ),
     )
+
+
+# ============================================================
+# ExtraService（附加服务）
+# ============================================================
+
+
+class ExtraService(BaseModel):
+    """餐厅 / POI 可加购的本地生活附加服务。
+
+    Mock 层只描述可售资源，不保存运行时订单。执行类 Tool 返回伪订单号体现
+    "已下单"，不修改本文件或 mock_data。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description='形如 "XS001"')
+    service_type: str = Field(..., description="服务类型，如 蛋糕 / 鲜花 / 生日布置")
+    name: str = Field(..., description="服务展示名")
+    target_kinds: list[Literal["restaurant", "poi"]] = Field(
+        default_factory=list,
+        description="可挂靠的目标类型；通常为 restaurant",
+    )
+    target_ids: list[str] = Field(
+        default_factory=list,
+        description='支持的目标 id；包含 "*" 表示该 target_kind 下通用',
+    )
+    price: NonNegativeFloat = Field(..., description="单价（元）")
+    available: bool = Field(default=True, description="是否可售")
+    inventory: NonNegativeInt = Field(default=0, description="剩余库存")
+    lead_time_min: NonNegativeInt = Field(
+        default=30, description="最短提前准备时间（分钟）"
+    )
+    description: Optional[str] = Field(default=None, description="一句话服务说明")
 
 
 # ============================================================

@@ -34,7 +34,7 @@
     {
       "id": "execution",
       "name": "确认与执行",
-      "summary": "三按钮决策（确认 / 反馈 / 取消）→ 下单（餐厅 + 门票）+ 转发文案；反馈走 refiner 重规划闭环",
+      "summary": "三按钮决策（确认 / 反馈 / 取消）→ 下单（餐厅 + 门票 + 附加服务）+ 转发文案；反馈走 refiner 重规划闭环",
       "order": 3,
       "importance": "core",
       "tags": []
@@ -261,7 +261,7 @@
     {
       "id": "f-graph-router",
       "name": "LangGraph 路由节点",
-      "summary": "4 层防御：注入检测(off_topic 婉拒) → feedback 启发式 → LLM 6 类分类 → ambiguous 兜底反馈；分发到 intent / refiner / chitchat",
+      "summary": "5 层防御：注入检测(off_topic 婉拒) → feedback 强信号 → planning fast path → LLM 6 类分类 → ambiguous 兜底反馈；分发到 intent / refiner / chitchat",
       "epicId": "input",
       "triggers": [
         {
@@ -296,8 +296,8 @@
             {
               "file": "backend/agent/graph/nodes/router.py",
               "lines": [
-                40,
-                55
+                169,
+                206
               ]
             }
           ]
@@ -311,12 +311,44 @@
             {
               "file": "backend/agent/graph/nodes/router.py",
               "lines": [
-                22,
-                38
+                135,
+                145
               ]
             },
             {
-              "file": "backend/agent/feedback_detector.py"
+              "file": "backend/agent/core/feedback_detector.py"
+            }
+          ]
+        },
+        {
+          "id": "planning_fast_path",
+          "name": "识别明确规划",
+          "role": "compute",
+          "note": "命中时间 / 活动 / 同行 / 预算距离时长等通用信号 → 直接 planning，跳过不稳定 LLM router",
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                29,
+                103
+              ]
+            },
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                148,
+                166
+              ]
+            },
+            {
+              "file": "backend/agent/graph/nodes/router.py",
+              "lines": [
+                214,
+                221
+              ]
+            },
+            {
+              "file": "backend/tests/test_router_node_planning_fast_path.py"
             }
           ]
         },
@@ -329,15 +361,15 @@
             {
               "file": "backend/agent/graph/nodes/router.py",
               "lines": [
-                60,
-                78
+                223,
+                230
               ]
             },
             {
-              "file": "backend/agent/router.py",
+              "file": "backend/agent/intent/router.py",
               "lines": [
-                1,
-                142
+                102,
+                176
               ]
             }
           ]
@@ -348,7 +380,7 @@
           "role": "error",
           "refs": [
             {
-              "file": "backend/agent/router.py",
+              "file": "backend/agent/intent/router.py",
               "lines": [
                 120,
                 142
@@ -379,8 +411,8 @@
             {
               "file": "backend/agent/graph/nodes/router.py",
               "lines": [
-                100,
-                115
+                232,
+                264
               ]
             }
           ]
@@ -412,9 +444,21 @@
         },
         {
           "from": "feedback_heuristic",
-          "to": "call_router_llm",
+          "to": "planning_fast_path",
           "kind": "conditional",
           "condition": "未命中反馈"
+        },
+        {
+          "from": "planning_fast_path",
+          "to": "decide_route",
+          "kind": "conditional",
+          "condition": "明确规划请求"
+        },
+        {
+          "from": "planning_fast_path",
+          "to": "call_router_llm",
+          "kind": "conditional",
+          "condition": "仍需模型分类"
         },
         {
           "from": "call_router_llm",
@@ -444,16 +488,19 @@
           "file": "backend/agent/graph/nodes/router.py"
         },
         {
-          "file": "backend/agent/router.py"
+          "file": "backend/agent/intent/router.py"
         },
         {
-          "file": "backend/agent/feedback_detector.py"
+          "file": "backend/agent/core/feedback_detector.py"
+        },
+        {
+          "file": "backend/tests/test_router_node_planning_fast_path.py"
         }
       ],
       "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-02T00:00:00Z"
     },
     {
       "id": "f-intent-parse",
@@ -2796,10 +2843,17 @@
           "role": "side-effect",
           "refs": [
             {
-              "file": "backend/main.py",
+              "file": "backend/api/chat.py",
               "lines": [
-                787,
-                800
+                80,
+                98
+              ]
+            },
+            {
+              "file": "backend/api/_streams/graph_confirm.py",
+              "lines": [
+                25,
+                123
               ]
             },
             {
@@ -2889,7 +2943,7 @@
     {
       "id": "f-finalize-orders",
       "name": "确认下单与转发",
-      "summary": "execute_finalize 节点：reserve_restaurant + buy_ticket（仅收费 POI）+ generate_share_message；任一失败不阻塞其他",
+      "summary": "/chat/confirm 在 USE_LANGGRAPH=1 时进入真实 graph_confirm 流，先推首帧并把 execute_finalize 放入后台线程；确认主链路只等待 reserve_restaurant + buy_ticket + order_extra_service + generate_share_message，真实 LLM narrator / memory_writer / ConversationStore 记录转后台",
       "epicId": "execution",
       "triggers": [
         {
@@ -2899,15 +2953,48 @@
       ],
       "steps": [
         {
+          "id": "load_snapshot",
+          "name": "读取会话快照",
+          "role": "compute",
+          "note": "从 SESSION_STORE 取上一轮真实 LangGraph 产出的 intent / itinerary",
+          "refs": [
+            {
+              "file": "backend/api/_streams/graph_confirm.py",
+              "lines": [
+                59,
+                79
+              ]
+            }
+          ]
+        },
+        {
+          "id": "run_finalize_async",
+          "name": "后台执行确认",
+          "role": "compute",
+          "note": "首帧 agent_thought 后用 asyncio.to_thread 执行同步 finalize，等待期间按 FINALIZE_HEARTBEAT_S 推心跳；V3 confirm 传 defer_post_confirm_effects，避免真实 LLM narrator / memory_writer 挡住执行 Tool",
+          "refs": [
+            {
+              "file": "backend/api/_streams/graph_confirm.py",
+              "lines": [
+                87,
+                128
+              ]
+            },
+            {
+              "file": "backend/tests/test_graph_confirm_heartbeat.py"
+            }
+          ]
+        },
+        {
           "id": "find_dining",
-          "name": "找用餐 stage",
+          "name": "收集执行目标",
           "role": "compute",
           "refs": [
             {
               "file": "backend/agent/graph/nodes/execute_finalize.py",
               "lines": [
-                25,
-                40
+                37,
+                52
               ]
             }
           ]
@@ -2918,6 +3005,13 @@
           "role": "side-effect",
           "refs": [
             {
+              "file": "backend/agent/graph/nodes/execute_finalize.py",
+              "lines": [
+                54,
+                83
+              ]
+            },
+            {
               "file": "backend/tools/reserve_restaurant.py"
             }
           ]
@@ -2926,10 +3020,38 @@
           "id": "buy_ticket",
           "name": "调门票购买",
           "role": "side-effect",
-          "note": "POI is_paid=true 时才调；含 E2 售罄埋点（P_SOLD）",
+          "note": "遍历 POI 节点尝试购票；含 E2 售罄埋点（P_SOLD），失败不阻断",
           "refs": [
             {
+              "file": "backend/agent/graph/nodes/execute_finalize.py",
+              "lines": [
+                87,
+                111
+              ]
+            },
+            {
               "file": "backend/tools/buy_ticket.py"
+            }
+          ]
+        },
+        {
+          "id": "order_extra",
+          "name": "加购附加服务",
+          "role": "side-effect",
+          "note": "按 intent.extra_services 挂靠首个餐厅 / POI，支持蛋糕、鲜花、生日布置",
+          "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute_finalize.py",
+              "lines": [
+                114,
+                160
+              ]
+            },
+            {
+              "file": "backend/tools/order_extra_service.py"
+            },
+            {
+              "file": "mock_data/extra_services.json"
             }
           ]
         },
@@ -2939,6 +3061,13 @@
           "role": "side-effect",
           "note": "永远调；按 social_context 选模板（家长 / 闺蜜 / 商务等）",
           "refs": [
+            {
+              "file": "backend/agent/graph/nodes/execute_finalize.py",
+              "lines": [
+                162,
+                168
+              ]
+            },
             {
               "file": "backend/tools/generate_share_message.py"
             }
@@ -2951,6 +3080,46 @@
           "note": "orders + share_message 注入 itinerary"
         },
         {
+          "id": "emit_execution_trace",
+          "name": "推送执行链路",
+          "role": "output",
+          "note": "把 confirm 阶段执行 Tool 的 start/end 事件交给前端 ToolTracePanel",
+          "refs": [
+            {
+              "file": "backend/api/_streams/graph_confirm.py",
+              "lines": [
+                130,
+                144
+              ]
+            },
+            {
+              "file": "backend/agent/graph/_emit_handlers.py",
+              "lines": [
+                367,
+                389
+              ]
+            },
+            {
+              "file": "frontend/components/ToolTracePanel.tsx"
+            }
+          ]
+        },
+        {
+          "id": "persist_confirm",
+          "name": "后台记录确认",
+          "role": "data-write",
+          "note": "同步更新 SESSION_STORE；ConversationStore 与 memory_writer 作为后台副作用执行，不阻塞 tool_call / itinerary_ready / done",
+          "refs": [
+            {
+              "file": "backend/api/_streams/graph_confirm.py",
+              "lines": [
+                147,
+                217
+              ]
+            }
+          ]
+        },
+        {
           "id": "tolerate_failure",
           "name": "容忍部分失败",
           "role": "error",
@@ -2959,25 +3128,41 @@
       ],
       "flow": [
         {
+          "from": "load_snapshot",
+          "to": "run_finalize_async",
+          "kind": "next"
+        },
+        {
+          "from": "run_finalize_async",
+          "to": "find_dining",
+          "kind": "async",
+          "condition": "后台线程完成后返回 execution_tool_results"
+        },
+        {
           "from": "find_dining",
           "to": "reserve_rest",
           "kind": "conditional",
-          "condition": "用餐段存在"
+          "condition": "餐厅节点存在"
         },
         {
-          "from": "reserve_rest",
+          "from": "find_dining",
           "to": "buy_ticket",
           "kind": "conditional",
-          "condition": "POI 收费"
+          "condition": "POI 节点存在"
         },
         {
-          "from": "reserve_rest",
-          "to": "generate_share",
+          "from": "find_dining",
+          "to": "order_extra",
           "kind": "conditional",
-          "condition": "POI 免费"
+          "condition": "intent.extra_services 非空"
         },
         {
           "from": "buy_ticket",
+          "to": "order_extra",
+          "kind": "next"
+        },
+        {
+          "from": "order_extra",
           "to": "generate_share",
           "kind": "next"
         },
@@ -2985,6 +3170,23 @@
           "from": "generate_share",
           "to": "merge_back",
           "kind": "next"
+        },
+        {
+          "from": "merge_back",
+          "to": "emit_execution_trace",
+          "kind": "next"
+        },
+        {
+          "from": "emit_execution_trace",
+          "to": "persist_confirm",
+          "kind": "async",
+          "condition": "确认结果已推给前端后后台记录"
+        },
+        {
+          "from": "run_finalize_async",
+          "to": "tolerate_failure",
+          "kind": "error",
+          "condition": "finalize 抛异常"
         },
         {
           "from": "reserve_rest",
@@ -2997,9 +3199,18 @@
           "to": "tolerate_failure",
           "kind": "error",
           "condition": "售罄 / 数量非法"
+        },
+        {
+          "from": "order_extra",
+          "to": "tolerate_failure",
+          "kind": "error",
+          "condition": "附加服务售罄 / 目标不支持"
         }
       ],
       "refs": [
+        {
+          "file": "backend/api/_streams/graph_confirm.py"
+        },
         {
           "file": "backend/agent/graph/nodes/execute_finalize.py"
         },
@@ -3010,13 +3221,32 @@
           "file": "backend/tools/buy_ticket.py"
         },
         {
+          "file": "backend/tools/order_extra_service.py"
+        },
+        {
           "file": "backend/tools/generate_share_message.py"
+        },
+        {
+          "file": "mock_data/extra_services.json"
+        },
+        {
+          "file": "backend/tests/test_graph_confirm_stream.py"
+        },
+        {
+          "file": "frontend/components/ItineraryCard.tsx",
+          "lines": [
+            758,
+            805
+          ]
+        },
+        {
+          "file": "backend/tests/test_graph_confirm_heartbeat.py"
         }
       ],
-      "confidence": 0.9,
+      "confidence": 0.93,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "id": "f-refine-loop",
@@ -3208,7 +3438,7 @@
         },
         {
           "kind": "ui",
-          "detail": "ItineraryCard「邀请同行人」按钮 / ShareModal 扫码"
+          "detail": "ItineraryUtilityBar「开多人房间」按钮 / ShareModal 扫码"
         }
       ],
       "steps": [
@@ -3333,12 +3563,15 @@
         },
         {
           "file": "frontend/components/ShareModal.tsx"
+        },
+        {
+          "file": "frontend/components/ItineraryUtilityBar.tsx"
         }
       ],
       "confidence": 0.85,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "id": "f-collab-constraint",
@@ -3752,7 +3985,7 @@
     {
       "id": "f-itinerary-card",
       "name": "行程卡片渲染",
-      "summary": "六段时间轴 stagger 动画 + 「为你考虑了」chips + 预留清单 + 转发文案 + 决策追踪 + 三按钮",
+      "summary": "行程卡片聚焦方案摘要、时间轴、地图、预留清单、转发文案和三按钮；多模态工具与决策链路移到页面级区域",
       "epicId": "interface",
       "triggers": [
         {
@@ -3769,8 +4002,8 @@
             {
               "file": "frontend/components/ItineraryCard.tsx",
               "lines": [
-                25,
-                45
+                24,
+                46
               ]
             }
           ]
@@ -3784,8 +4017,8 @@
             {
               "file": "frontend/components/ItineraryCard.tsx",
               "lines": [
-                70,
-                145
+                72,
+                168
               ]
             }
           ]
@@ -3843,17 +4076,6 @@
           "note": "一键复制；clipboard 不可用时 textarea 兜底"
         },
         {
-          "id": "render_trace",
-          "name": "渲染决策追踪",
-          "role": "output",
-          "note": "DecisionTraceCard：blueprint_rationale / weights / critic_attempts / fallback_chain / alternatives",
-          "refs": [
-            {
-              "file": "frontend/components/DecisionTraceCard.tsx"
-            }
-          ]
-        },
-        {
           "id": "action_buttons",
           "name": "三按钮分发",
           "role": "output",
@@ -3909,12 +4131,6 @@
         },
         {
           "from": "stagger_anim",
-          "to": "render_trace",
-          "kind": "conditional",
-          "condition": "decision_trace 非空"
-        },
-        {
-          "from": "stagger_anim",
           "to": "action_buttons",
           "kind": "conditional",
           "condition": "尚未下单且未取消"
@@ -3928,16 +4144,13 @@
           "file": "frontend/components/ComparisonView.tsx"
         },
         {
-          "file": "frontend/components/DecisionTraceCard.tsx"
-        },
-        {
           "file": "frontend/components/RefinementDialog.tsx"
         }
       ],
       "confidence": 0.92,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "id": "f-chat-dock",
@@ -4100,7 +4313,7 @@
     {
       "id": "f-tool-trace-panel",
       "name": "调用链路面板",
-      "summary": "可视化每步 Tool 调用 + 异常重规划 + agent_thought（评委加分项「Agent 行为可见性」）",
+      "summary": "页面级 Agent 过程区可视化 Tool 调用、异常重规划、agent_thought 和 itinerary.decision_trace，保持评委可见性但不挤占行程卡片",
       "epicId": "interface",
       "triggers": [
         {
@@ -4151,6 +4364,24 @@
               "file": "frontend/components/ThoughtPanel.tsx"
             }
           ]
+        },
+        {
+          "id": "render_decision_trace",
+          "name": "展示决策链路",
+          "role": "output",
+          "note": "HomeView 将 DecisionTraceCard 放入左侧过程区，展示 blueprint rationale / critic / fallback / alternatives",
+          "refs": [
+            {
+              "file": "frontend/components/HomeView.tsx",
+              "lines": [
+                250,
+                255
+              ]
+            },
+            {
+              "file": "frontend/components/DecisionTraceCard.tsx"
+            }
+          ]
         }
       ],
       "flow": [
@@ -4177,6 +4408,12 @@
           "to": "render_thoughts",
           "kind": "loop",
           "condition": "每条 agent_thought"
+        },
+        {
+          "from": "subscribe",
+          "to": "render_decision_trace",
+          "kind": "conditional",
+          "condition": "decision_trace 非空"
         }
       ],
       "refs": [
@@ -4188,12 +4425,22 @@
         },
         {
           "file": "frontend/components/ThoughtPanel.tsx"
+        },
+        {
+          "file": "frontend/components/DecisionTraceCard.tsx"
+        },
+        {
+          "file": "frontend/components/HomeView.tsx",
+          "lines": [
+            250,
+            255
+          ]
         }
       ],
-      "confidence": 0.9,
+      "confidence": 0.93,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "id": "f-amap-overlay",
@@ -4340,15 +4587,37 @@
     {
       "id": "f-multi-modal-output",
       "name": "多模态输出",
-      "summary": "海报（modern-screenshot 截图）+ 语音播报（Web Speech API）+ 一键复制文案——评委「多模态」加分项",
+      "summary": "页面级方案工具条承载语音播报、海报生成和协作入口；行程卡片仅保留方案与执行主链路",
       "epicId": "interface",
       "triggers": [
         {
           "kind": "ui",
-          "detail": "用户点击「生成海报」 / 「语音播报」 / 「复制文案」"
+          "detail": "用户在 ItineraryUtilityBar 点击「语音播报」/「一键生成海报」/「开多人房间」"
         }
       ],
       "steps": [
+        {
+          "id": "render_toolbar",
+          "name": "展示方案工具条",
+          "role": "output",
+          "note": "HomeView 在行程卡片外渲染 ItineraryUtilityBar，桌面端位于卡片上方，移动端先于 Agent 过程区",
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryUtilityBar.tsx",
+              "lines": [
+                21,
+                137
+              ]
+            },
+            {
+              "file": "frontend/components/HomeView.tsx",
+              "lines": [
+                243,
+                247
+              ]
+            }
+          ]
+        },
         {
           "id": "build_text",
           "name": "拼装语音文本",
@@ -4405,6 +4674,18 @@
       ],
       "flow": [
         {
+          "from": "render_toolbar",
+          "to": "build_text",
+          "kind": "conditional",
+          "condition": "点击语音播报"
+        },
+        {
+          "from": "render_toolbar",
+          "to": "render_template",
+          "kind": "conditional",
+          "condition": "点击一键生成海报"
+        },
+        {
           "from": "build_text",
           "to": "speech_play",
           "kind": "next"
@@ -4433,12 +4714,22 @@
         },
         {
           "file": "frontend/components/PosterGenerator.tsx"
+        },
+        {
+          "file": "frontend/components/ItineraryUtilityBar.tsx"
+        },
+        {
+          "file": "frontend/components/HomeView.tsx",
+          "lines": [
+            243,
+            247
+          ]
         }
       ],
-      "confidence": 0.85,
+      "confidence": 0.9,
       "provenance": "ai",
       "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "updated_at": "2026-06-03T00:00:00Z"
     },
     {
       "id": "f-command-palette",

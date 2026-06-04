@@ -25,6 +25,7 @@ export function generateSessionId(): string {
 export const FAILURE_REASON_LABEL: Record<string, string> = {
   restaurant_full: "餐厅已满",
   ticket_sold_out: "门票售罄",
+  extra_service_unavailable: "附加服务不可用",
   distance_exceeded: "距离超限",
   duration_exceeded: "总时长超限",
   not_found: "未找到资源",

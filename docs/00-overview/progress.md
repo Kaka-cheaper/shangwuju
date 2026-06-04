@@ -6,7 +6,7 @@
 
 ## 一、当前位置
 
-**阶段**：**Phase 0.20 LangGraph Plan-and-Execute 业界标配重构完成**（2026-05-20）
+**阶段**：**Phase 0.24 Tool 执行闭环补齐完成**（2026-06-02）
 
 **MVP 状态**：
 
@@ -14,18 +14,18 @@
 | 阶段     | 完成度    | 说明                                                       |
 |----------|-----------|------------------------------------------------------------|
 | MVP-1    | 100% ✅    | 6 Tool + 主场景闭环 + E1 显式触发 + Web UI + SSE          |
-| MVP-2    | 95% ✅     | 8 Tool / 8 场景全跑通 / 用户确认 / 双 planner mode / 反馈重规划 |
+| MVP-2    | 100% ✅    | 9 Tool / 8 场景全跑通 / 用户确认 / 附加服务加购 / 双 planner mode / 反馈重规划 |
 | MVP-2.5  | 100% ✅    | LLM 客户端解耦（任意 OpenAI 兼容 base_url）                |
 | MVP-3 个性化 | 100% ✅ | persona prior 注入 + memory 累积 + 偏好画像面板（Phase 0.7） |
 | MVP-3 输入域路由 | 100% ✅ | LLM 前置 6 类分类 + 暖心气泡 + 引导按钮（Phase 0.8）  |
 | MVP-3 LLM-First Planner | 100% ✅ | LLM 自主决段 + critic backprompt + 4 级 fallback（Phase 0.10.3）|
-| MVP-3 ReAct 单一 Agent | 100% ✅ | LLM 看全部 8 工具自主决策 + critic 兜底（Phase 0.12，现 fallback）|
+| MVP-3 ReAct 单一 Agent | 100% ✅ | LLM 看全部 9 工具自主决策 + critic 兜底（Phase 0.12，现 fallback）|
 | MVP-3 商业抽象层 | 100% ✅ | ToolProvider / ConversationRepository / observability 三层骨架（Phase 0.11）|
 | MVP-3 LangGraph 主架构 | 100% ✅ | Plan-and-Execute + Routing + Evaluator-Optimizer 三大业界范式（Phase 0.20）|
 | MVP-3 演示 | 阻塞     | 真 LLM 链路已实测；剩录屏 3 版本 + 现场 dry run             |
 ```
 
-**测试矩阵**：267 项 pytest + 23 vitest + 7 store + 13 verify_refine + 7 verify_router + 4 verify_llm_first + 5 verify_react_agent + 5 verify_v2_react = 331 全过
+**最新测试矩阵（2026-06-02）**：上一轮后端全量基线 `uv run python -m pytest -q` 866 passed / 1 skipped，前端 `pnpm verify:all` 4/4 通过；本轮确认流 / router 修复后，定向回归 `51 passed`，并用真实 HTTP 复测 `/chat/turn` 与 `/chat/confirm`。下表为历史阶段拆分记录。
 
 ```
 | 套件                          | 通过项 |
@@ -66,6 +66,8 @@
 
 **已完成**：
 
+- **2026-06-02 confirm 首字节超时修复**：根因是 `_graph_confirm` 首帧 `yield` 后立刻在事件循环里同步跑 `execute_finalize_node`，其中 confirm narrator / memory writer 会触发真实 LLM，导致 ASGI 小块无法及时 flush，前端 8s 内解析不到首条 SSE。已改为 `asyncio.to_thread(execute_finalize_node, ...)` 后台执行，并按 `FINALIZE_HEARTBEAT_S=1.5` 持续推 `agent_thought` 心跳；新增 `test_graph_confirm_heartbeat.py`。同时给 V3 `router_node` 补正向 planning fast path，典型 S1/S3 规划句不再被真实 LLM router 误判成 chitchat；新增 `test_router_node_planning_fast_path.py`。真实 HTTP 复测：`/chat/turn` 5.1s 出 `itinerary_ready`，`/chat/confirm` 0.001s 出首帧、1.5s 心跳、最终 done。
+- **2026-06-02 Tool 执行闭环补齐**：新增 `order_extra_service` Tool + `mock_data/extra_services.json`；V3 `execute_finalize_node` 修复 `ToolInvocationResult.output` 解析，确认后会真实回填餐厅预约 / 门票 / 蛋糕鲜花等附加服务 / 转发文案；`/chat/confirm` 在 `USE_LANGGRAPH=1` 时走真实 `_graph_confirm → execute_finalize_node`，仅 `USE_LANGGRAPH=0` fallback 到 `_stub_confirm`；前端确认预告同步展示附加服务；CodeSee `f-finalize-orders` 已 sync 并通过校验。
 - 项目代号确定：**晌午局**
 - 收到 3 份赛题输入：`比赛详情.md` / `chatgpt分析.md` / `技术架构.md`
 - 文档体系骨架建立：`AGENTS.md` + `docs/{00-overview,01-requirements,03-implementation}/` 8 份文件（含本文件）
@@ -571,3 +573,16 @@
     - TravelAgent (Chen et al NeurIPS 2024) + TriFlow (Wang et al 2024) —— 三层用户画像 + memory 召回
     - Vansteenwegen 2009 (TOPTW + ILS) —— 启发式搜索骨架（保留）
   - **绝对不要做的 8 项**（联合审查 §7.4 + spec C 防再犯）：详见 pitfalls.md `[P0] 2026-05-24 spec C 算法重构「绝对不要做」清单`
+
+
+- **D-CONFIRM-FAST-FINALIZE** [2026-06-03]：V3 `/chat/confirm` 从“整个 finalize 完成后再吐 Tool 事件”改为 fast-confirm 主链路。
+  - 决策：确认预约成功只同步等待执行类 Tool（餐厅预约 / 门票 / 附加服务 / 转发文案）和必要的行程回填；真实 LLM confirm narrator、memory_writer、ConversationStore 记录全部后置为后台副作用。
+  - 理由：真实 HTTP 复测已修复首字节超时后，仍约 31s 才吐 `tool_call`；根因是 Tool 执行完成后被 LLM narrator / memory writer 串行挡住，评委会误以为“预约很慢”。
+  - 实现：`execute_finalize_node` 增加 `defer_post_confirm_effects` fast path；`_graph_confirm` 启用 fast path，并在 `itinerary_ready` 后调度后台 memory/confirm-record task；默认 direct-node 行为保留 `memory_status`，维持既有语义测试。
+  - 验证：`uv run python -m pytest tests/test_memory_persisted_sse.py tests/test_graph_confirm_stream.py tests/test_graph_confirm_heartbeat.py -q` → 9 passed；人为让后台 memory sleep 5 秒时，`tool_call` / `itinerary_ready` / `done` 均在 0.010s 内输出；CodeSee validate 通过。
+
+- **D-FRONTEND-ITINERARY-IA** [2026-06-03]：行程方案卡片从“全功能容器”拆成主卡片、方案工具条、Agent 过程区三层。
+  - 决策：`ItineraryCard` 只保留方案摘要、时间轴、地图、预订结果、转发文案、确认前预告与三按钮主执行；语音播报、海报生成、开多人房间、分享房间入口移到页面级 `ItineraryUtilityBar`；`DecisionTraceCard` 移到左侧 Agent 过程区。
+  - 理由：原卡片同时承担方案内容、执行动作、分享输出、协作入口和决策解释，导致主卡过长且卡片套卡片；页面外已有 `ToolTracePanel` / `ThoughtPanel`，决策链路应归入过程区而不是挤占行程主体。
+  - 实现：新增 `frontend/components/ItineraryUtilityBar.tsx`；`HomeView` 桌面端保持左过程/右方案，移动端用 CSS order 改成工具/行程优先、过程区后置；`TtsPlayer`、`PosterGenerator` 增加 `compact` / `className` props。
+  - 验证：`pnpm verify:all` → 4/4 通过（ESLint、TypeScript、Vitest 34 tests、Next build）；Playwright 桌面截图确认工具外置和决策链路外置；移动端 DOM 坐标确认 `方案工具` top=633、`行程方案` top=845、`Agent 思考链路` top=2254；CodeSee validate 通过。

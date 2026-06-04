@@ -38,7 +38,7 @@ LLM_PLANNER_SYSTEM_PROMPT = f"""你是「晌午局」的规划智能体（Agent 
 - check_restaurant_availability  查指定餐厅指定时段是否可订
 - estimate_route_time      估算两点通勤时间（home/POI/餐厅之间）
 
-注：reserve_restaurant / buy_ticket / generate_share_message 是**执行类**，**禁止**在规划阶段调用。
+注：reserve_restaurant / buy_ticket / order_extra_service / generate_share_message 是**执行类**，**禁止**在规划阶段调用。
 
 【调用纪律（违反会被 fallback）】
 1. 同一 Tool 在一次会话最多调 3 次（重复调必须有新约束）
@@ -75,7 +75,7 @@ LLM_PLANNER_SYSTEM_PROMPT = f"""你是「晌午局」的规划智能体（Agent 
 「主活动选 P001 森林儿童探索乐园（亲子友好）；用餐 R002 健康轻食（17:30 可订）」
 
 【硬性禁止】
-- ❌ 不要调用执行类 Tool（reserve_restaurant / buy_ticket / generate_share_message）
+- ❌ 不要调用执行类 Tool（reserve_restaurant / buy_ticket / order_extra_service / generate_share_message）
 - ❌ 不要写 if scene_type == ... 这种伪代码（D9）
 - ❌ 不要发明 Tool 名（不在 tools 参数里的一律拒）
 - ❌ 不要在 content 里假装"已为你预留"——执行步骤由后端在用户确认后做

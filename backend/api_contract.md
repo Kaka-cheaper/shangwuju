@@ -265,7 +265,7 @@ seq N+1 done
 两种规划范式并存：
 
 - **rule**：规则化 ReAct（默认；MVP-1/2 主路径，Demo 安全网，Tool 调用顺序写死）
-- **llm**：LLM Function Calling 自主决策（评分项 2 加分点；LLM 看 8 个 Tool spec 自己挑）
+- **llm**：LLM Function Calling 自主决策（评分项 2 加分点；LLM 看 9 个 Tool spec 自己挑）
 
 ### 切换通道（优先级从高到低）
 

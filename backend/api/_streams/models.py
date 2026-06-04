@@ -27,7 +27,7 @@ class ChatConfirmRequest(BaseModel):
     user_id: Optional[str] = Field(default=None, max_length=64)
     # spec execution-quality-review R2：execution Tool 的 hallucination 防护白名单
     # 规划阶段 ItineraryReady 中所有 target_id 由 backend 写入；前端在 confirm 时回传
-    # 让 reserve_restaurant / buy_ticket 等执行类工具仅能在该白名单内派发。
+    # 让 reserve_restaurant / buy_ticket / order_extra_service 等执行类工具仅能在该白名单内派发。
     # 攻击向量：LLM 在多轮反馈中编造 R999 / 用代词指代触发执行类工具调错对象。
     # 设计：可选字段（向后兼容），缺省时不做白名单校验（demo 短路径不破）。
     allowed_restaurant_ids: Optional[list[str]] = Field(
