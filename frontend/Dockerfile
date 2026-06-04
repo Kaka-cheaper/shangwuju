@@ -33,8 +33,14 @@ WORKDIR /app
 # 仅 copy 依赖描述文件，提升缓存命中
 COPY package.json pnpm-lock.yaml ./
 
-# pnpm 用的是 corepack（Node 16.10+ 自带）
+# pnpm 用 corepack（Node 16.10+ 自带）管理。
+# ⚠ 必须钉死 pnpm 版本：corepack 不 pin 会从 npm 拉【最新】pnpm。
+#   新版 pnpm(11.x)要求 Node ≥22.13（内部 require "node:sqlite"），
+#   本镜像是 node:20 → pnpm 启动即崩：ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite。
+#   9.15.9 = pnpm 9 系最新，匹配 pnpm-lock.yaml 的 lockfileVersion 9.0，
+#   也与 CI(.github/workflows/ci.yml → pnpm/action-setup version:9)保持一致。
 RUN corepack enable pnpm \
+    && corepack prepare pnpm@9.15.9 --activate \
     && pnpm install --frozen-lockfile
 
 # ============================================================
@@ -58,8 +64,15 @@ ENV NEXT_PUBLIC_API_BASE=${NEXT_PUBLIC_API_BASE} \
     NEXT_PUBLIC_AMAP_KEY=${NEXT_PUBLIC_AMAP_KEY} \
     NEXT_TELEMETRY_DISABLED=1
 
+# 同 deps 阶段：钉死 pnpm 9.15.9（否则 corepack 拉最新版在 node:20 上崩）
 RUN corepack enable pnpm \
+    && corepack prepare pnpm@9.15.9 --activate \
     && pnpm build
+
+# 兜底：本项目当前没有 public/ 目录（git 不跟踪空目录，clone 出的干净副本更不会有），
+# 但下面 runtime stage 会 COPY /app/public → 不兜底则报 "/app/public": not found 炸 build。
+# mkdir -p 幂等，将来在源码加了 public 静态资源也不受影响。
+RUN mkdir -p /app/public
 
 # ============================================================
 # Stage 3: runtime —— 仅 standalone 必需文件
@@ -91,7 +104,9 @@ USER nextjs
 EXPOSE 3000
 
 # 健康探针：访问首页（Next.js standalone 默认 server.js）
+# 探针用 127.0.0.1 而非 localhost：alpine 里 localhost 可能解析到 IPv6 ::1，
+# 而 Next standalone server 监听 0.0.0.0(IPv4) → wget 连 ::1 会 Connection refused 误报 unhealthy。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD wget --quiet --tries=1 --spider "http://localhost:${PORT}" || exit 1
+    CMD wget --quiet --tries=1 --spider "http://127.0.0.1:${PORT}" || exit 1
 
 CMD ["node", "server.js"]

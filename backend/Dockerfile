@@ -17,8 +17,8 @@
 #
 # 镜像层级：
 #   1. base       Python 3.11-slim 基础
-#   2. builder    装系统 build deps + uv sync（依赖编译都在这里）
-#   3. runtime    只 copy 应用代码 + site-packages，瘦身
+#   2. builder    uv sync 装依赖（零 apt：依赖都有 wheel，无需编译器）
+#   3. runtime    只 copy 应用代码 + site-packages，瘦身（零 apt）
 
 ARG PYTHON_VERSION=3.11
 
@@ -41,12 +41,13 @@ WORKDIR /app
 # ============================================================
 FROM base AS builder
 
-# 系统 build deps（仅 builder 需要；runtime 不带）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# 装 uv（官方推荐安装方式）
+# 本镜像刻意【零 apt 依赖】，全程不碰 deb.debian.org：
+#   - build-essential 不需要：后端依赖（pydantic/httpx/langgraph/uvicorn[standard] 等）
+#     都有 manylinux 预编译 wheel，uv sync 不编译 C 扩展；
+#   - ca-certificates 不需要：python:slim 自带 ca-certificates.crt，uv 走 HTTPS 可直接验证；
+#   - curl 不需要：healthcheck 改用 python 自带 urllib（见 runtime stage）。
+# 收益：① 国内网络/代理对 deb 源不稳（502/EOF）时也能稳构建；② 镜像更小、构建更快。
+# uv 是静态二进制，从官方镜像 COPY，不依赖任何系统包。
 COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
 # 仅 copy 依赖描述文件，提升缓存命中率
@@ -63,11 +64,9 @@ RUN uv sync --frozen --no-install-project --extra runtime
 # ============================================================
 FROM base AS runtime
 
-# 仅装运行时系统依赖（无 build deps）
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid 1000 app \
+# 创建非 root 运行用户（groupadd/useradd 是 python:slim 自带命令，无需 apt）。
+# 同 builder：runtime 也零 apt 依赖，不碰 deb.debian.org。
+RUN groupadd --gid 1000 app \
     && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash app
 
 # Copy 已装好的 venv（site-packages 都在 .venv）
@@ -97,9 +96,10 @@ ENV LLM_PROVIDER=stub \
 
 USER app
 
-# 健康探针：FC 启动后 30s 内首次调 /ready，180s 内首字节响应
+# 健康探针：用 python 自带 urllib（镜像不装 curl）。urllib 对 4xx/5xx 抛 HTTPError → 非0退出，
+# 与原 `curl -f` 语义一致（/ready 非 200 即 unhealthy）。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD curl -f "http://localhost:${PORT}/ready" || exit 1
+    CMD python3 -c "import os,urllib.request; urllib.request.urlopen('http://localhost:'+os.environ.get('PORT','8000')+'/ready', timeout=3)" || exit 1
 
 EXPOSE 8000 9000
 
