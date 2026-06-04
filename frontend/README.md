@@ -1,191 +1,204 @@
-# frontend —— Next.js 14 App Router
+# 晌午局前端
 
-> 晌午局 Web UI。Phase 0.8 完成（输入域路由 + 暖心气泡 + 引导按钮）。
+晌午局是一个对话式的「半日出行」规划界面：用户用一句话描述下午的安排，前端实时展示意图解析、工具调用链路与最终行程卡片。本目录是 Web 前端，基于 **Next.js 14 App Router + TypeScript + Tailwind CSS** 构建，所有规划逻辑都由后端通过 SSE / WebSocket 推送，前端只负责实时渲染与交互。
 
-## 启动前必读
+## 技术栈与版本
 
-1. **后端契约**：`backend/api_contract.md`（HTTP 路径 + SSE 事件序列）
-2. **类型来源**：`backend/schemas/{sse,itinerary,intent,refine,router,persona}.py`
-3. **演示场景**：`docs/01-requirements/演示场景集.md`（8 个场景的输入文案 + 调性）
-4. **环境变量**：`.env.local` 内填 `NEXT_PUBLIC_API_BASE=http://localhost:8000`
+版本以 `package.json` 为准。
 
-## 启动方式
+| 类别 | 依赖 | 版本 |
+| --- | --- | --- |
+| 框架 | next | 14.2.18（App Router，`output: "standalone"`） |
+| UI 库 | react / react-dom | 18.3.1 |
+| 状态管理 | zustand | 4.5.5 |
+| 样式 | tailwindcss | 3.4.13（配套 postcss 8.4.47 / autoprefixer 10.4.20） |
+| 地图 | @amap/amap-jsapi-loader | ^1.0.1（高德 JS API 2.0） |
+| 图标 | lucide-react | 0.453.0 |
+| 海报截图 | modern-screenshot | ^4.7.0（`domToBlob`，不使用 html2canvas） |
+| className 合并 | clsx 2.1.1 + tailwind-merge 2.5.4（`lib/utils.ts` 的 `cn`） |
+| 语言 | typescript | 5.6.2（`strict: true`） |
+| 测试 | vitest | ^2.0.0 |
+| Lint | eslint 8.57.1 + eslint-config-next 14.2.18 |
+
+字体在 `app/layout.tsx` 通过 `next/font/google` 加载 Inter（正文）与 JetBrains Mono（等宽，用于工具 JSON / session id / 订单号）。
+
+## 快速开始
+
+前置条件：
+
+- Node.js 18 或更高版本（CI 与镜像使用 Node 20）
+- pnpm 9（项目按 pnpm 9 系锁定，`pnpm-lock.yaml` 为 lockfileVersion 9.0；Docker/CI 钉死 `pnpm@9.15.9`）
+- 后端服务运行在 `http://localhost:8000`
 
 ```bash
-# 后端（stub 模式，无需 LLM API key）
-cd backend
-$env:LLM_PROVIDER='stub'   # PowerShell；Bash 用 export
-uv run uvicorn main:app --port 8000
-
-# 前端
-cd frontend
 pnpm install
 pnpm dev
 ```
 
-打开 http://localhost:3000 。
+打开 http://localhost:3000 。前端不带任何 mock 数据，必须先把后端跑起来（`/scenarios`、`/personas`、`/chat/turn` 等接口都来自后端），否则页面只会显示空状态。
 
-### 真 LLM 模式
+> 提示：`pnpm dev` 与 `pnpm build` 都会先执行 `predev` / `prebuild` 钩子里的 `scripts/clean-next.mjs` 强删 `.next/`，规避 Windows + pnpm + standalone 组合下的 EPERM 删除失败问题。
 
-`backend/.env` 填一份 OpenAI 兼容凭证（DeepSeek/通义/OpenAI/智谱/Ollama 等任意），然后：
+## 环境变量
 
-```bash
-cd backend
-uv run uvicorn main:app --port 8000   # 自动切真 planner + 真 router
+复制 `.env.local.example` 为 `.env.local` 后按需填写。变量都以 `NEXT_PUBLIC_` 开头，会在 `next build` 时打进浏览器 bundle（属于 build-time 注入，切换部署环境需重新 build）。
+
+| 变量 | 说明 | 缺省行为 |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_BASE` | 后端基址，对话 / 协作 / 地图代理都基于它。 | 代码默认 `http://localhost:8000`（见 `lib/utils.ts`） |
+| `NEXT_PUBLIC_AMAP_KEY` | 高德地图 Web 端 JS API Key（公开 key，可暴露给浏览器；配套的 jscode 安全密钥放在后端，通过 `/_AMapService` 代理注入）。 | 缺省时 `MapOverlay` 自动降级为纯文字地点列表，不影响主流程 |
+
+`.env.local.example` 只内置了 `NEXT_PUBLIC_API_BASE`；如需地图，请自行在 `.env.local` 追加 `NEXT_PUBLIC_AMAP_KEY=<你的高德 Web Key>`。
+
+## 目录结构
+
+```
+frontend/
+├── app/                      # Next.js App Router
+│   ├── layout.tsx            # 根布局（字体 + metadata）
+│   ├── page.tsx              # 首页（渲染 HomeView）
+│   ├── globals.css           # 全局样式 + Tailwind 指令
+│   └── room/[id]/page.tsx    # 协作房间入口（分享链接进入，自动连 WS）
+├── components/               # 29 个 React 组件（详见下文）
+├── lib/                      # 状态、SSE/WS 客户端、类型、工具
+│   ├── store.ts              # 主对话 store（useChatStore）
+│   ├── store/                # 拆分后的 store 内部模块
+│   │   ├── types.ts          #   状态/记录类型定义
+│   │   ├── initial-state.ts  #   初始状态
+│   │   ├── event-handlers.ts #   SSE 事件分发大 switch
+│   │   └── arrival-counter.ts#   跨流到达计数
+│   ├── collab-store.ts       # 协作房间 store（useCollabStore）
+│   ├── sse.ts                # 手写 SSE 解析（streamSse）
+│   ├── ws.ts                 # WebSocket 客户端 + 自动重连
+│   ├── types.ts              # 与后端对齐的 TS 类型（手工维护）
+│   ├── icon-map.tsx          # 工具/节点 → 图标映射
+│   ├── utils.ts              # cn / API_BASE / cookie / session 等工具
+│   └── *.test.ts             # vitest 单测
+└── scripts/                  # Node 运维/联调脚本（.mjs）
 ```
 
-前端零改动。在浏览器输入「我累死了」「你是谁」「1+1=?」即可看到 Phase 0.8 暖心气泡。
+## 核心模块
+
+### 两个 Zustand store
+
+- **`useChatStore`（`lib/store.ts`）** —— 主对话状态：消息流、意图、工具调用记录、重规划记录、思考、行程、叙述、Toast、planner 模式、当前用户、偏好画像等。`sendMessage` / `confirm` / `refine` 等 action 直接驱动 SSE 请求；store 实现拆分到 `lib/store/` 下（类型 / 初始状态 / 事件分发 / 到达计数）。
+- **`useCollabStore`（`lib/collab-store.ts`）** —— 协作房间状态：成员、约束池、投票、锁定段、WS 连接。下行的 `planning_event` 会复用主 store 的 `handleEvent`，确保协作通道与单人通道渲染逻辑一致。
+
+### 手写 SSE 解析（`lib/sse.ts`）
+
+浏览器原生 `EventSource` 只支持 GET，无法携带 POST body 与自定义 header，因此这里用 `fetch` + `ReadableStream` 手写了 `streamSse`，负责：
+
+- 按 SSE 规范以双换行（`\n\n` / `\r\n\r\n`）切分事件块，处理粘包与跨 chunk 的长 token；
+- 解析 `event:` / `data:`（多行 data 自动 join），把 JSON 反序列化为 `SseEvent`；
+- 首字节超时（默认 8s）与空闲超时（默认 60s）看门狗；
+- HTTP 错误读取后端 `detail` 字段；错误原因映射为中文（见 `lib/utils.ts` 的 `STREAM_ERROR_LABEL`）。
+
+### WebSocket 协作（`lib/ws.ts`）
+
+`createWsClient` 连接 `ws(s)://{host}:8000/ws/{roomId}?user_id=&nickname=`，支持 25s 心跳保活、最多 3 次指数退避重连（1s / 2s / 4s），并把下行消息按 `type` 分发给协作 store。
+
+### 高德地图（`components/MapOverlay.tsx`）
+
+用 `@amap/amap-jsapi-loader` 动态加载高德 JS API 2.0，按行程节点绘制 Marker、调用 `AMap.Driving` 真实路线规划（失败回退到直连 Polyline）。安全密钥通过 `window._AMapSecurityConfig.serviceHost` 指向后端 `/_AMapService` 代理。无 key 或加载失败时整体降级为文字地点列表。
+
+## 与后端的接口
+
+API 基址来自 `lib/utils.ts` 的 `API_BASE`（取 `NEXT_PUBLIC_API_BASE`，默认 `http://localhost:8000`）。
+
+| 用途 | 方法与路径 | 说明 |
+| --- | --- | --- |
+| 首轮对话 / 反馈重规划 | `POST /chat/turn`（SSE） | 首轮规划与反馈都走这条；后端据上下文判定是规划还是 feedback |
+| 确认预约 | `POST /chat/confirm`（SSE） | 接续已有方案，追加预约 / 购票 / 加购 / 转发文案等事件 |
+| 演示场景 | `GET /scenarios` | 首页快捷场景按钮数据 |
+| 用户档案 | `GET /personas` | 用户切换器的多 persona 列表 |
+| 偏好画像 | `GET /preferences/{userId}`、`POST /preferences/{userId}/reset` | 读取 / 清空当前用户记忆 |
+| 协作建房 | `POST /room/create` | 返回 `room_id` 用于生成分享链接 |
+| 协作实时通道 | `WS /ws/{roomId}` | 成员 / 约束 / 投票 / 规划事件回放 |
+| 地图代理 | `GET /_AMapService/...` | 高德 REST 请求经后端注入 jscode 后转发 |
+
+请求头：对话类接口带 `X-Planner-Mode`（`rule` / `llm`）与 `X-User-Id`（当前演示用户）。`lib/sse.ts` 仍保留对历史 `/chat/refine` 形态的兼容解析逻辑，但当前前端默认统一走 `/chat/turn`。
+
+## 可用脚本
+
+`package.json` 中的 npm scripts：
+
+| 命令 | 作用 |
+| --- | --- |
+| `pnpm dev` | 启动开发服务器（先 `clean-next`） |
+| `pnpm build` | 生产构建（先 `clean-next`，`output: standalone`） |
+| `pnpm start` | 运行生产构建产物 |
+| `pnpm lint` | `next lint`（ESLint） |
+| `pnpm typecheck` | `tsc --noEmit` |
+| `pnpm test` | `vitest run`（单测） |
+| `pnpm test:watch` | vitest 监听模式 |
+| `pnpm clean:next` | 手动强删 `.next/` |
+| `pnpm verify:all` | 串行跑 lint → typecheck → vitest → build（任一失败退出码非 0） |
+
+`scripts/` 下的 Node 脚本：
+
+| 脚本 | 作用 |
+| --- | --- |
+| `scripts/clean-next.mjs` | 强删 `.next/`，处理 Windows EPERM/EBUSY，由 `predev`/`prebuild` 自动触发 |
+| `scripts/verify-all.mjs` | `pnpm verify:all` 的实现，依次跑 4 项静态校验 |
+| `scripts/verify-refine.mjs` | 需后端在线：端到端验证反馈重规划事件序列与 `X-Planner-Mode` 透传 |
+| `scripts/pressure-test-scenarios.mjs` | 需后端在线：批量发送演示场景并断言 SSE 事件齐全 |
+
+联调脚本用法（先启动后端）：
+
+```bash
+node scripts/verify-refine.mjs
+node scripts/pressure-test-scenarios.mjs
+```
+
+## 测试
+
+单测用 vitest，覆盖 `lib/` 层逻辑，共 3 个测试文件、约 34 个用例：
+
+- `lib/sse.test.ts` —— SSE 解析鲁棒性（粘包、跨 chunk、CRLF、超时等，约 23 个用例）
+- `lib/store.test.ts` —— 主 store 行为（约 8 个用例）
+- `lib/collab-store.test.ts` —— 协作 store 行为（约 3 个用例）
+
+```bash
+pnpm test          # 跑一次
+pnpm test:watch    # 监听模式
+```
 
 ## 组件清单
 
-```
-| 组件                   | 职责                                                      |
-|------------------------|-----------------------------------------------------------|
-| HomeView               | 顶栏 + 7/5 网格（聊天 + 行程/链路双栏）                    |
-| QuickScenarios         | 8 个演示场景按钮，从 /scenarios 拉数据                     |
-| ChatPanel              | 消息流 + 意图卡 + 暖心气泡 + Agent 思考 + 输入框             |
-| ChitchatBubble         | Phase 0.8 暖心气泡（4 套 tone 配色 + 引导按钮）              |
-| IntentSummary          | §5.7 IntentExtraction 实时摘要                             |
-| ToolTracePanel         | 8 Tool 调用链路可视化 + 异常重规划高亮                       |
-| ItineraryCard          | 六段时间轴 + 三按钮（确认/反馈/取消）+ 转发文案复制          |
-| RefinementDialog       | 反馈弹窗（textarea + 6 chip 预设建议）                      |
-| PlannerModeBadge       | rule ↔ llm 一键切换 chip                                   |
-| UserSwitcher           | 5 persona 用户切换（cookie 持久化）                         |
-| PreferencesPanel       | 偏好画像 top 5 + 一键清空记忆                               |
-| ToastStack             | 右下角浮层（changed_fields / mode 切换 / 取消反馈）          |
-```
-
-## TypeScript 类型同步策略
-
-后端 Pydantic 模型 → 前端 TS 类型，本项目采用 **手抄方案**（`lib/types.ts`），原因：
-
-- `tags.Literal` 在 JSON Schema 上会被展开成大量 anyOf，自动生成结果难读
-- 项目体量手抄维护成本最低（~200 行）
-- 后端字段变动 → 先改 `backend/schemas/`，再 grep + 同步本目录 `lib/types.ts`，再 grep 组件代码
-
-## 与后端的硬契约
+`components/` 下共 29 个组件：
 
 ```
-| 字段             | 来源                  | 改动纪律                               |
-|------------------|-----------------------|----------------------------------------|
-| SseEvent         | schemas/sse.py        | 双方同时改，不能单边                    |
-| SseEventType     | schemas/sse.py        | 含 chitchat_reply（P0.8）/ refinement_*（P0.6）|
-| Itinerary        | schemas/itinerary.py  | 同上                                   |
-| IntentExtraction | schemas/intent.py     | §5.7 D-SoT，绝对禁止前端发明字段        |
-| RouterDecision   | schemas/router.py     | input_kind 6 类 + cta_chips 白名单       |
-| Persona / Memory | schemas/persona.py    | 5 mock + memory 累积                   |
-| /chat/stream     | api_contract.md §2    | 路径/方法/事件序列固定                  |
-| /chat/refine     | api_contract.md §7    | 反馈重规划事件序列                      |
+HomeView              页面骨架：顶栏 + 聊天 + 行程/链路双栏
+ChatDock              对话输入区与消息流
+QuickScenarios        首页演示场景快捷按钮
+IntentSummary         实时意图摘要卡片
+ToolTracePanel        工具调用链路可视化
+ThoughtPanel          Agent 思考过程
+DecisionTraceCard     决策依据卡片
+ItineraryCard         行程时间轴卡片（确认 / 反馈 / 取消）
+ItineraryUtilityBar   行程辅助操作条
+RefinementDialog      反馈重规划弹窗
+ComparisonView        新旧方案对比视图
+MapOverlay            高德地图行程标注（无 key 时降级文字列表）
+PosterGenerator       一键生成行程海报（modern-screenshot）
+ShareModal            分享 / 建协作房弹窗
+ConstraintFeed        协作约束流
+VoteButtons           协作分段投票
+CollabBar             协作房间成员 / 状态栏
+PlannerModeBadge      rule / llm 模式切换
+MockModeBadge         mock 模式标记
+OfflineReadyBadge     离线就绪标记
+UserSwitcher          多用户（persona）切换
+PreferencesPanel      偏好画像 + 清空记忆
+ChitchatBubble        闲聊 / 共情气泡 + 引导按钮
+CommandPalette        命令面板（Cmd/Ctrl+K）
+ToastStack            右下角浮层提示
+Confetti              成功庆祝动效
+ShimmerStripe         流式加载微光条
+NumberTicker          数字滚动动画
+TtsPlayer             文本转语音播放器
 ```
 
-## 校验脚本
+## 部署
 
-```bash
-pnpm verify:all   # lint + typecheck + vitest + next build 一气过
-pnpm test         # vitest（23 SSE 鲁棒性 + 7 store 共 30 项）
-pnpm build        # 生产构建（首页 ~21 kB / 加载 ~108 kB）
-```
-
-后端起来后还可以跑：
-
-```bash
-node frontend/scripts/pressure-test-scenarios.mjs   # 8 场景 SSE 端到端
-node frontend/scripts/verify-refine.mjs             # 反馈重规划联调
-```
-
-## 输入域路由（Phase 0.8 演示要点）
-
-```
-| 输入示例     | input_kind | tone        | 引导按钮                       |
-|--------------|------------|-------------|--------------------------------|
-| 你是谁       | meta       | neutral 🤖  | 带娃放电 / 一个人放空 / 商务接待 |
-| 你好         | chitchat   | warm ☀️     | 带娃放电 / 一个人放空           |
-| 我累死了     | emotional  | empathetic 🫶| 一个人放空                      |
-| 1+1=?        | off_topic  | playful 🌿  | 3 个白名单引导                  |
-| 出去玩       | ambiguous  | warm ☀️     | 带娃放电 / 一个人放空 / 商务接待 |
-| 带老婆孩子玩 | planning   | warm ☀️     | （透传到主路径，无 chips）       |
-```
-
-引导按钮的 `send` 字段经后端白名单校验——LLM 发明的输入文本会被丢弃，不会污染下游意图解析。
-
-## 演示录屏脚本
-
-录屏不入仓（`recordings/` 已加 `.gitignore`）。建议工具：OBS / Loom / Win+G 自带录屏。
-
-### 通用准备
-
-1. **关掉所有可能弹窗**：钉钉 / 微信 / 邮件通知
-2. **清空浏览器**：`Ctrl+Shift+Delete` 清掉前次会话；地址栏 `localhost:3000`
-3. **窗口大小**：建议 1440×900（DevTools Device Toolbar 设 Desktop）
-4. **后端先跑稳**：`curl http://localhost:8000/health` 看到 `"status":"ok"` 才开始
-5. **每次开拍前**：点页面右上「重置」按钮，确保是 fresh state
-
-### 3 分钟版（家庭主路径 + E1 异常恢复）
-
-```text
-| 时间    | 操作                                          | 旁白要点                                         |
-|---------|-----------------------------------------------|--------------------------------------------------|
-| 0-15s   | 介绍页面布局：8 场景 / 聊天 / 行程 / Tool 链路     | 「这是晌午局，本地半日出行管家」                  |
-| 15-25s  | 鼠标 hover S1 按钮看 tooltip 显示完整文案         | 「评委可一键提交 8 个预设场景」                   |
-| 25-30s  | 点击「S1 · 家庭主线」按钮                        | 「我是减肥的妈妈带 5 岁孩子」                     |
-| 30-50s  | 看意图卡片实时渲染：抽出 5 岁 / 低脂 / 家庭        | 「Agent 听懂了约束」                              |
-| 50-100s | 看 Tool 链路逐条出：用户画像 → POI → 餐厅 → 17:00 满 → 重规划 | 「评分项 5：异常韧性」              |
-| 100-130s| 看 17:30 改约成功 → 行程卡片六段时间轴渲染         | 「方案出来了」                                    |
-| 130-160s| 点「确认并预约」→ 订单号 + 转发文案出现           | 「转发文案给老婆，一键复制」                      |
-| 160-180s| 点「复制到剪贴板」→ 打开微信 / 文本框验证         | 「评委可以亲自看到文案落到剪贴板」                |
-```
-
-### 5 分钟版（含异常 + 一个开放场景）
-
-3 分钟版基础上：
-
-- 在第 130s 后增加 **S7 · 独处放空** 演示（评委想看不同社交语境）
-- 注意点 S7 前先点页面右上「重置」让 trace 面板归零
-- 旁白点出「同一套 Tool 不写 if scene_type 分支也能 cover 8 种社交场景」
-
-### Phase 0.8 加演（推荐 5 分钟版插一段）
-
-在主路径演示前，插入一组「评委即兴扔输入」段落（约 30 秒）：
-
-```text
-1. 输入「你是谁」    → 暖心气泡 + 3 个引导按钮
-2. 输入「我累死了」  → 共情气泡 + 推荐独处场景
-3. 点引导按钮一键回主路径
-```
-
-旁白：「Agent 不会被无关输入卡死——一句温柔回话再绕回主题。」
-
-### 完整版（8 场景全跑通）
-
-按 S1 → S8 顺序点完所有按钮。每个场景之间「重置」一次以避免 trace 残留。脚本：
-
-```bash
-# 后端 + 前端起好后，开 OBS 录屏；按下面顺序点
-# 实时间预算：每个场景平均 30s（流式 + 看链路）= 4 分钟
-# 加上意图旁白 1-2 分钟 = 总长 5-6 分钟
-node frontend/scripts/pressure-test-scenarios.mjs
-```
-
-把上面这条命令的输出当作「8 场景压测全过」的字幕证据。
-
-### Persona 加演（同句 × 不同 user 哇时刻，60 秒）
-
-```text
-1. 顶栏切「商务白领」→ 输入「今天下午想出去玩」→ 商务茶室方案（distance=8km）
-2. 顶栏切「新手爸爸」→ 输入完全相同 →    亲子绘本馆方案（distance=5km）
-3. 旁白：「同一句话，Agent 知道你是谁。」
-```
-
-### 录屏文件管理
-
-- 存放：`recordings/`（仓库根目录，**已 gitignore**）
-- 命名：`shangwuju_3min_<YYYYMMDD>.mp4` / `shangwuju_5min_<YYYYMMDD>.mp4` / `shangwuju_full_<YYYYMMDD>.mp4`
-- 备份：录完上传到云盘 / 飞书；`recordings/README.md` 记一行链接，**链接才入仓，文件不入仓**
-
-## 已决定（不再讨论）
-
-- 状态管理库：**Zustand**（lib/store.ts）
-- 主题色：暖橙 brand-orange + 沉静蓝灰 ink；ChitchatBubble 用 amber/sky/rose/emerald 4 套 tone；**避开紫粉**
-- 组件库：Tailwind 自手写组件（shadcn 原料 cn + clsx + tailwind-merge）
-- SSE 解析：fetch + ReadableStream 自手写（`lib/sse.ts`），不用 EventSource（不支持 POST + 自定义 header）
-- 类型同步：手抄（`lib/types.ts`），不上 OpenAPI 自动生成
+`Dockerfile` 为多阶段构建，产出 Next.js standalone 镜像（Node 20 + pnpm 9.15.9，最终镜像约 < 100MB）。`NEXT_PUBLIC_*` 在 build 阶段通过 `--build-arg` 注入，切换部署环境需重新构建。容器默认监听 `3000` 端口。
