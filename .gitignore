@@ -37,3 +37,12 @@ recordings/
 /image.png
 /output/
 backend/exp_log*
+
+# 内部文档：保留本地、不公开到线上仓库
+比赛详情.md
+技术架构.md
+评审.md
+项目说明.md
+AGENTS.md
+chatgpt分析.md
+problem.md
