@@ -136,8 +136,8 @@
      按钮：主按钮美团黄底 + 黑色文字
      ============================================================ */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           text-sm font-medium tracking-tight
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full
+           text-lg font-medium tracking-tight
            transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
     background: #FFD100;
@@ -163,8 +163,8 @@
 
   /* 次按钮：浅灰边框 */
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           text-sm font-medium tracking-tight
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full
+           text-lg font-medium tracking-tight
            transition-all duration-150
            disabled:opacity-50 disabled:cursor-not-allowed;
     background: #ffffff;
@@ -179,8 +179,8 @@
 
   /* 危险幽灵：取消方案 */
   .btn-danger-ghost {
-    @apply inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-md
-           text-sm font-medium tracking-tight
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-full
+           text-lg font-medium tracking-tight
            transition-all duration-150;
     background: transparent;
     color: rgb(0 0 0 / 0.5);
@@ -222,7 +222,7 @@
      ============================================================ */
   .chip {
     @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md
-           text-[12px] font-medium tracking-tight;
+           text-base font-medium tracking-tight;
     background: rgb(255 209 0 / 0.15);
     color: #1f2937;
     border: 1px solid rgb(255 209 0 / 0.3);

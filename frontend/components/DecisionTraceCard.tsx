@@ -95,17 +95,21 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
         aria-expanded={open}
         title="LLM-Modulo 论文范式 · 三层 critic 镜像"
       >
-        <div className="flex items-center gap-2">
-          <Icons.spark className="h-4 w-4 text-amber-500" />
-          <span className="text-sm font-semibold text-amber-800">决策链路</span>
-          <span className="text-xs text-amber-600/70">看 Agent 怎么想的</span>
-          <span className={cn(
-            "rounded-full border px-2 py-0.5 text-xs",
-            strategyColor,
-          )}>
-            {strategyLabel}
-          </span>
-          <span className="text-xs text-ink-500">· {summaryText}</span>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <Icons.spark className="h-4 w-4 text-ink-900" />
+            <span className="text-sm font-semibold text-ink-900">决策链路</span>
+            <span className="text-xs text-amber-600/70">看 Agent 怎么想的</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1 ml-6">
+            <span className={cn(
+              "rounded-full border px-2 py-0.5 text-xs",
+              strategyColor,
+            )}>
+              {strategyLabel}
+            </span>
+            <span className="text-xs text-ink-500">· {t.alternatives_considered.length} 个备选</span>
+          </div>
         </div>
         <span
           className={cn(
@@ -123,19 +127,28 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 1. 蓝图 rationale + 权重 ===== */}
           {(t.blueprint_rationale || t.weights_explanation) && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.spark className="h-3 w-3" />
                 规划思路
               </h4>
               {t.blueprint_rationale && (
-                <p className="mb-2 text-sm leading-relaxed text-ink-800">
-                  {t.blueprint_rationale}
-                </p>
+                <ul className="mb-2 space-y-1 text-sm leading-relaxed text-ink-800">
+                  {t.blueprint_rationale
+                    .split(/(?<=[。；])/)
+                    .filter((s) => s.trim())
+                    .map((point, idx) => (
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                        <span>{point.trim()}</span>
+                      </li>
+                    ))}
+                </ul>
               )}
               {t.weights_explanation && (
-                <p className="text-xs text-ink-500">
-                  权重：{t.weights_explanation}
-                </p>
+                <div className="text-xs text-ink-500">
+                  <div>权重：</div>
+                  <div className="ml-2">{t.weights_explanation}</div>
+                </div>
               )}
             </section>
           )}
@@ -187,38 +200,39 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
           {/* ===== 3. fallback 链 ===== */}
           {t.fallback_chain.length > 0 && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.pulse className="h-3 w-3" />
                 Fallback 链
               </h4>
-              <ol className="space-y-1.5">
+              <div className="space-y-1">
                 {t.fallback_chain.map((h, idx) => (
-                  <li
-                    key={idx}
-                    className="flex items-center gap-2 text-xs text-ink-600"
-                  >
-                    <span className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-xs">
-                      {h.from_stage}
-                    </span>
-                    <span className="text-ink-400">→</span>
-                    <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-xs text-amber-700">
-                      {h.to_stage}
-                    </span>
-                    <span className="text-ink-500">{h.reason}</span>
-                  </li>
+                  <div key={idx}>
+                    <div className="flex flex-col items-center gap-1 text-sm">
+                      <span className="rounded-sm bg-ink-200/50 px-1.5 py-0.5 text-ink-600">
+                        {h.from_stage}
+                      </span>
+                      <span className="text-ink-400">↓</span>
+                      <span className="rounded-sm bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
+                        {h.to_stage}
+                      </span>
+                    </div>
+                    {h.reason && (
+                      <div className="mt-1 text-center text-xs text-ink-500">{h.reason}</div>
+                    )}
+                  </div>
                 ))}
-              </ol>
+              </div>
             </section>
           )}
 
           {/* ===== 4. 备选候选 ===== */}
           {t.alternatives_considered.length > 0 && (
             <section>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
+              <h4 className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-amber-700">
                 <Icons.pin className="h-3 w-3" />
                 考虑过的备选
               </h4>
-              <ol className="space-y-1.5">
+              <ol className="space-y-2.5">
                 {t.alternatives_considered.map((a, idx) => (
                   <li
                     key={`${a.target_id}-${idx}`}
@@ -228,13 +242,13 @@ export default function DecisionTraceCard({ trace }: DecisionTraceCardProps) {
                       #{a.rank}
                     </span>
                     <div className="flex-1">
-                      <div className="text-ink-800">
+                      <div className="text-sm text-ink-800">
                         {a.target_name}
                         <span className="ml-1 text-ink-500">
                           ({a.target_kind === "poi" ? "活动" : "餐厅"})
                         </span>
                       </div>
-                      <div className="text-ink-500">{a.reason_rejected}</div>
+                      <div className="text-xs text-ink-500">{a.reason_rejected}</div>
                     </div>
                   </li>
                 ))}

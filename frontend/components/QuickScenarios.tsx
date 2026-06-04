@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useChatStore } from "@/lib/store";
-import { scenarioIcon } from "@/lib/icon-map";
+import { Icons, scenarioIcon } from "@/lib/icon-map";
 import { cn } from "@/lib/utils";
 
 /** 8 个快捷场景按钮（黄昏深色主题：玻璃描边 + hover 暖光晕）。 */
@@ -21,9 +21,8 @@ export default function QuickScenarios({ enlarged = false }: { enlarged?: boolea
   return (
     <div className="card px-4 py-3">
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="section-title">演示场景</span>
-          <span className="text-sm text-ink-400">8 个</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-semibold text-ink-900 tracking-tight">演示场景</span>
         </div>
         <div className="hidden sm:flex items-center gap-1 text-sm text-ink-400">
           <span>或按</span>

@@ -72,7 +72,10 @@ export default function ItineraryUtilityBar({
     <div className="card px-3 py-3 animate-fade-in">
       <div className="flex flex-col xl:flex-row xl:items-center gap-3">
         <div className="min-w-0 xl:w-36">
-          <div className="section-title">方案工具</div>
+          <div className="flex items-center gap-1.5">
+            <Icons.wrench className="w-3.5 h-3.5 text-ink-700" strokeWidth={2} />
+            <span className="text-sm font-semibold text-ink-900 tracking-tight">方案工具</span>
+          </div>
           <div className="mt-0.5 text-xs text-ink-500 truncate">
             {showShareRoom
               ? `协作房间 ${roomId}`
@@ -90,9 +93,9 @@ export default function ItineraryUtilityBar({
             <button
               type="button"
               className={cn(
-                "h-9 w-full rounded-md px-3",
+                "h-10 w-full rounded-full px-3",
                 "border border-[#FFD100] bg-white hover:bg-ink-100",
-                "text-sm font-medium text-ink-800",
+                "text-base font-medium text-ink-800",
                 "transition-all disabled:cursor-not-allowed disabled:opacity-50",
                 "flex items-center justify-center gap-1.5",
               )}

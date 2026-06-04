@@ -399,7 +399,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
     <div className="card mt-3 overflow-hidden">
       <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
         <MapPin className="w-3.5 h-3.5 text-brand-600" strokeWidth={2} />
-        <span className="text-xs font-medium text-ink-900 tracking-tight">
+        <span className="text-sm font-semibold text-ink-900 tracking-tight">
           行程地图
         </span>
         <span className="text-xs text-ink-500">
