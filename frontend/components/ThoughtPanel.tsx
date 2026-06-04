@@ -120,7 +120,7 @@ export default function ThoughtPanel() {
   const replanCount = replans.length;
 
   return (
-    <div className="relative card mt-3 overflow-hidden">
+    <div className="relative card mt-3 overflow-hidden border border-amber-400/20 bg-gradient-to-br from-amber-50/60 to-white">
       {/* streaming 时顶部流动黄光带 */}
       {streaming && (
         <div
@@ -170,7 +170,7 @@ export default function ThoughtPanel() {
           </div>
           {/* 折叠态：摘要在第二行 */}
           {!expanded && (
-            <span className="block text-[11px] text-ink-400 truncate mt-0.5">
+            <span className="block text-xs text-ink-400 truncate mt-0.5">
               {summary}
             </span>
           )}

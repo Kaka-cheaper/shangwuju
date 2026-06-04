@@ -197,7 +197,7 @@ export default function ToolTracePanel() {
   const totalReplans = replans.length;
 
   return (
-    <div className="card relative overflow-hidden">
+    <div className="card relative overflow-hidden border border-amber-400/20 bg-gradient-to-br from-amber-50/60 to-white">
       {streaming && (
         <div
           aria-hidden
@@ -317,7 +317,7 @@ function EpicBlock({
       ? "text-rose-400"
       : hasReplan
         ? "text-amber-400"
-        : "text-ink-800";
+        : "text-amber-700";
 
   return (
     <div className="rounded-md">
@@ -368,7 +368,7 @@ function EpicBlock({
               </span>
             </span>
           </div>
-          <span className="block text-[11px] text-ink-400 mt-0.5 truncate">
+          <span className="block text-xs text-ink-400 mt-0.5 truncate">
             {epic.hint}
           </span>
         </div>
@@ -459,14 +459,14 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
-            <span className={cn("text-sm font-medium tracking-tight", textClass)}>
+            <span className={cn("text-xs font-medium tracking-tight", textClass)}>
               {TOOL_LABEL[call.tool] ?? call.tool}
             </span>
             <span className="text-xs text-ink-500 mono shrink-0 tabular-nums">
               {call.durationMs != null ? `${call.durationMs}ms` : "..."}
             </span>
           </div>
-          <div className="text-[11px] text-ink-400 mono truncate mt-0.5">
+          <div className="text-xs text-ink-400 mono truncate mt-0.5">
             {call.tool}
           </div>
 

@@ -220,8 +220,11 @@ export default function ItineraryCard() {
       {/* Header */}
       <div className="px-4 py-3 border-b border-black/[0.06]">
         <div className="flex items-center justify-between">
-          <span className="section-title">行程方案</span>
-          <span className="text-xs text-ink-500">
+          <div className="flex items-center gap-1.5">
+            <Icons.clipboard className="w-3.5 h-3.5 text-ink-700" strokeWidth={2} />
+            <span className="text-sm font-semibold text-ink-900 tracking-tight">行程方案</span>
+          </div>
+          <span className="text-base text-ink-500">
             总时长{" "}
             <NumberTicker
               value={totalH}
@@ -231,7 +234,7 @@ export default function ItineraryCard() {
             <span className="text-ink-500">小时</span>
           </span>
         </div>
-        <div className="mt-0.5 text-[15px] font-semibold text-ink-900 tracking-tight">
+        <div className="mt-1.5 text-2xl font-semibold text-ink-900 tracking-tight">
           <HighlightSummary text={itinerary.summary} />
         </div>
       </div>
@@ -367,18 +370,18 @@ export default function ItineraryCard() {
               <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="chip">{nodeKindLabel(itinerary, entry.ref_id)}</span>
-                  <span className="text-base font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
+                  <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
                     {entry.title}
                   </span>
+                  {(() => {
+                    const note = nodeNote(itinerary, entry.ref_id);
+                    return note ? (
+                      <span className="ml-2 text-sm text-ink-600">
+                        {note}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
-                {(() => {
-                  const note = nodeNote(itinerary, entry.ref_id);
-                  return note ? (
-                    <div className="mt-1 text-xs text-ink-600 leading-relaxed">
-                      {note}
-                    </div>
-                  ) : null;
-                })()}
               </div>
             </li>
           );
@@ -459,7 +462,7 @@ export default function ItineraryCard() {
         {!hasOrders && !cancelled && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
-              className={cn("btn-primary", streaming && "shimmer-border")}
+              className={cn("btn-primary font-bold", streaming && "shimmer-border")}
               disabled={!canConfirm}
               onClick={handleConfirm}
               title={
@@ -635,7 +638,7 @@ function NarrationBlock({
   const isConfirm = stage === "confirm";
   return (
     <div
-      className="relative rounded-md px-3.5 py-3 text-sm leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
+      className="relative rounded-md px-3.5 py-3 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
         background: isConfirm
           ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(255,209,0,0.04) 100%)"
@@ -706,12 +709,12 @@ function ConfirmPreviewCard({
           className="w-3.5 h-3.5 text-amber-500"
           strokeWidth={2}
         />
-        <span className="font-medium text-amber-700 tracking-tight">
+        <span className="text-sm font-semibold text-amber-700 tracking-tight">
           点击「确认并预约」之后
         </span>
       </div>
 
-      <p className="text-amber-900/85 mb-2.5">
+      <p className="text-sm text-amber-900/85 mb-2.5">
         {restaurantLine}{extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
 
@@ -1067,6 +1070,9 @@ function HighlightSummary({ text }: { text: string }) {
   const mainPart = poiSplit[0] || text;
   const poiPart = poiSplit[1] || null;
 
+  // 过滤掉"约X小时"这类括号内容
+  const filteredMainPart = mainPart.replace(/[（(]约\s*\d+\.?\d*\s*小时[）)]/g, "").trim();
+
   // 主体部分：高亮地点名（中文名词，排除连接符号和括号内容）
   // 匹配模式：括号内容变灰，→·等分隔符保留，其余为地点名加亮
   const pattern = /([（(][^）)]+[）)])|([→·])/g;
@@ -1074,9 +1080,9 @@ function HighlightSummary({ text }: { text: string }) {
   let lastIdx = 0;
   let m: RegExpExecArray | null;
 
-  while ((m = pattern.exec(mainPart)) !== null) {
+  while ((m = pattern.exec(filteredMainPart)) !== null) {
     if (m.index > lastIdx) {
-      parts.push({ text: mainPart.slice(lastIdx, m.index), type: "name" });
+      parts.push({ text: filteredMainPart.slice(lastIdx, m.index), type: "name" });
     }
     if (m[1]) {
       parts.push({ text: m[0], type: "bracket" });
@@ -1085,8 +1091,8 @@ function HighlightSummary({ text }: { text: string }) {
     }
     lastIdx = m.index + m[0].length;
   }
-  if (lastIdx < mainPart.length) {
-    parts.push({ text: mainPart.slice(lastIdx), type: "name" });
+  if (lastIdx < filteredMainPart.length) {
+    parts.push({ text: filteredMainPart.slice(lastIdx), type: "name" });
   }
 
   return (
