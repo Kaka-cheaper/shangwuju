@@ -1,0 +1,30 @@
+# Redis 持久化 override —— 与 docker-compose.yml 叠加使用：
+#
+#   docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
+#
+# 作用：把会话状态从「单进程内存」切到「Redis」。
+#   - redis 服务换成 Redis Stack（含 RediSearch 模块），LangGraph 的 AsyncRedisSaver
+#     checkpointer 才能建索引（普通 redis:7-alpine 不含 RediSearch，checkpointer 会
+#     自动降级回 InMemorySaver）。
+#   - backend 打开 SESSION_STORE=redis + USE_LANGGRAPH=1，跨 turn 对话上下文 / 会话
+#     快照 / 对话仓库三者外置到 Redis。
+#
+# 默认 docker-compose.yml 保持轻量（redis:7-alpine + memory 模式），仅在需要真持久化
+# /多实例时才叠加本文件。详见 backend/README.md「Redis 持久化」一节。
+
+services:
+  redis:
+    # Redis Stack Server：普通 Redis 命令 + RediSearch ≥ 2.10（checkpointer 依赖）
+    image: redis/redis-stack-server:latest
+    # 清空基底的 redis-server command，改用镜像自带 entrypoint 以加载 RediSearch 模块；
+    # 持久化 / 内存参数通过 REDIS_ARGS 传入。
+    command: []
+    environment:
+      REDIS_ARGS: "--appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru"
+
+  backend:
+    environment:
+      # 打开 Redis 会话持久化（覆盖镜像内置的 SESSION_STORE=memory 默认）
+      SESSION_STORE: redis
+      USE_LANGGRAPH: "1"
+      REDIS_URL: redis://redis:6379/0

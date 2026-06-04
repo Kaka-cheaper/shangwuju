@@ -171,7 +171,8 @@ async def record_confirm_result(
         ModelResponse(parts=[TextPart(content=agent_message)])
     )
 
-    await s.save(state)
+    # confirm 续期：已成单的会话保留更久（redis 后端用 7d；memory 忽略 ttl）。
+    await s.save(state, ttl=getattr(s, "_CONFIRM_TTL_SECONDS", None))
     return state
 
 

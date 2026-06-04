@@ -143,11 +143,13 @@ def _build_checkpoint_serde():
     return JsonPlusSerializer(allowed_msgpack_modules=allowlist)
 
 
-def build_graph(*, with_checkpointer: bool = True) -> Any:
+def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> Any:
     """构造并编译 LangGraph。
 
     Args:
-        with_checkpointer: 是否加 InMemorySaver；测试时可关。
+        with_checkpointer: 是否加默认 InMemorySaver；测试时可关。
+        checkpointer: 显式传入的 checkpointer（如 AsyncRedisSaver）；传了就用它，
+            忽略 with_checkpointer。由 warm_up_graph() 在 SESSION_STORE=redis 时注入。
     """
     g = StateGraph(AgentState)
 
@@ -250,20 +252,80 @@ def build_graph(*, with_checkpointer: bool = True) -> Any:
     g.add_edge("execute_finalize", END)
 
     # ---- 编译 ----
+    if checkpointer is not None:
+        # 显式 checkpointer（redis 模式由 warm_up_graph 传入 AsyncRedisSaver）
+        return g.compile(checkpointer=checkpointer)
     if with_checkpointer:
-        # spec feedback-routing-fix R5：注册业务类型，消除反序列化警告 + 防未来 block
-        try:
-            serde = _build_checkpoint_serde()
-            return g.compile(checkpointer=InMemorySaver(serde=serde))
-        except Exception:  # noqa: BLE001
-            # 注册 API 不可用（langgraph 版本差异）→ 回退默认（保留警告但不阻断）
-            return g.compile(checkpointer=InMemorySaver())
+        return g.compile(checkpointer=_build_memory_checkpointer())
     return g.compile()
 
 
+def _build_memory_checkpointer() -> Any:
+    """InMemorySaver（memory 模式 / 默认）。注册业务类型消除反序列化警告。"""
+    # spec feedback-routing-fix R5：注册业务类型，消除反序列化警告 + 防未来 block
+    try:
+        serde = _build_checkpoint_serde()
+        return InMemorySaver(serde=serde)
+    except Exception:  # noqa: BLE001
+        # 注册 API 不可用（langgraph 版本差异）→ 回退默认（保留警告但不阻断）
+        return InMemorySaver()
+
+
+async def _build_redis_checkpointer() -> Any:
+    """AsyncRedisSaver（仅 SESSION_STORE=redis 时构造）。
+
+    懒导入 langgraph-checkpoint-redis，绝不影响 memory 路径。
+    asetup() 建 redisvl 索引（幂等）。默认 serde（JsonPlusRedisSerializer）对未注册
+    业务类型「全允许 + 警告」，功能不受影响；如需消除警告可改用 saver.with_allowlist(...)。
+    """
+    import os
+
+    from langgraph.checkpoint.redis.aio import AsyncRedisSaver
+
+    redis_url = os.getenv("REDIS_URL") or "redis://localhost:6379/0"
+    saver = AsyncRedisSaver(redis_url=redis_url)
+    await saver.asetup()
+    return saver
+
+
 def get_compiled_graph() -> Any:
-    """模块级单例。"""
+    """模块级单例（同步入口，sse_adapter / chat / room 等 5 处都用它）。
+
+    - 已被 warm_up_graph() 预初始化（redis 模式 startup）→ 直接返回该单例；
+    - 否则（memory 模式 / 测试 / 未预热）→ 同步构造 InMemorySaver 版，
+      与重构前行为 100% 一致，保证默认裸机路径零回归。
+    """
     global _compiled_graph
     if _compiled_graph is None:
         _compiled_graph = build_graph(with_checkpointer=True)
     return _compiled_graph
+
+
+async def warm_up_graph() -> str:
+    """startup 钩子：按 SESSION_STORE 预初始化 graph 单例，返回实际后端名。
+
+    - SESSION_STORE=redis → 用 AsyncRedisSaver（await asetup）编译并缓存单例，
+      使跨 turn checkpoint 落 Redis、多实例一致、进程重启可恢复；
+    - 其他（memory）→ 走默认 InMemorySaver（与不预热等价）；
+    - redis 初始化失败（如 redis 未起）→ 回退 InMemorySaver 保证可用，并 warning。
+    """
+    global _compiled_graph
+    import logging
+    import os
+
+    session_store = (os.getenv("SESSION_STORE") or "memory").strip().lower()
+    if session_store == "redis":
+        try:
+            cp = await _build_redis_checkpointer()
+            _compiled_graph = build_graph(checkpointer=cp)
+            logging.getLogger("graph").info("langgraph checkpointer backend: redis")
+            return "redis"
+        except Exception as e:  # noqa: BLE001
+            logging.getLogger("graph").warning(
+                "redis checkpointer init failed, fallback to InMemorySaver: %s: %s",
+                type(e).__name__,
+                e,
+            )
+    if _compiled_graph is None:
+        _compiled_graph = build_graph(with_checkpointer=True)
+    return "memory"

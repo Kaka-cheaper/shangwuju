@@ -29,6 +29,7 @@ runtime = [
   "logfire>=2.10",
   # 真持久化（FC 部署强制依赖；本地 docker compose 一键起 Redis）
   "redis>=5.0",
+  "langgraph-checkpoint-redis>=0.4.1",
 ]
 
 [build-system]
@@ -38,6 +39,11 @@ build-backend = "hatchling.build"
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[dependency-groups]
+dev = [
+    "fakeredis>=2.36.0",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["schemas", "scripts", "data", "tools", "agent", "auth", "api"]

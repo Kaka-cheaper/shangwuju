@@ -37,11 +37,49 @@ from dotenv import load_dotenv
 # 双重保险加载 .env（uvicorn --reload 子进程会跳过 CLI 入口）
 load_dotenv()
 
+import logging
+import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api import amap, chat, collab, health, legal, oauth, preferences, scenarios
 from api.health import VERSION
+
+
+# ============================================================
+# Lifespan：仅 SESSION_STORE=redis 时做 async 预初始化
+#   - memory 模式（默认 / 裸机）：此处零开销、绝不 import redis、行为同改造前
+#   - redis 模式：预编译带 Redis checkpointer 的 graph + 从 Redis 预热会话快照
+# ============================================================
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    session_store = (os.getenv("SESSION_STORE") or "memory").strip().lower()
+    if session_store == "redis":
+        # 1) LangGraph 用 AsyncRedisSaver（需 await asetup）——仅 USE_LANGGRAPH=1 时有意义
+        if (os.getenv("USE_LANGGRAPH") or "0").strip() == "1":
+            try:
+                from agent.graph.build import warm_up_graph
+
+                backend = await warm_up_graph()
+                logging.getLogger("main").info("graph checkpointer backend: %s", backend)
+            except Exception:  # noqa: BLE001
+                logging.getLogger("main").warning("graph warm-up failed", exc_info=True)
+        # 2) 会话快照从 Redis 预热回内存（confirm / refine / 协作创建依赖它）
+        try:
+            from api._session_store import SESSION_STORE
+
+            if hasattr(SESSION_STORE, "warm_from_redis"):
+                await SESSION_STORE.warm_from_redis()
+        except Exception:  # noqa: BLE001
+            logging.getLogger("main").warning(
+                "session snapshot warm-up failed", exc_info=True
+            )
+    yield
+    # shutdown：Redis 连接池随进程退出释放，无需显式清理
 
 
 # ============================================================
@@ -93,6 +131,7 @@ app = FastAPI(
             "description": "OAuth provider 接入位、用户协议、隐私政策（占位草案，真上线前需法务审核）。",
         },
     ],
+    lifespan=lifespan,
 )
 
 

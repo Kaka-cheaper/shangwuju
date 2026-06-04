@@ -88,7 +88,7 @@ class ConversationRepository(Protocol):
 
     async def get(self, session_id: str) -> Optional[ConversationState]: ...
 
-    async def save(self, state: ConversationState) -> None: ...
+    async def save(self, state: ConversationState, *, ttl: Optional[int] = None) -> None: ...
 
     async def delete(self, session_id: str) -> None: ...
 
@@ -148,8 +148,8 @@ class InMemoryRepository:
     async def get(self, session_id: str) -> Optional[ConversationState]:
         return self._states.get(session_id)
 
-    async def save(self, state: ConversationState) -> None:
-        """覆盖式保存。"""
+    async def save(self, state: ConversationState, *, ttl: Optional[int] = None) -> None:
+        """覆盖式保存（ttl 仅 redis 后端有意义，memory 忽略，仅为统一接口签名）。"""
         self._states[state.session_id] = state
 
     async def delete(self, session_id: str) -> None:
@@ -177,20 +177,22 @@ class RedisRepository:
     - messages 用 pydantic_ai.messages.ModelMessagesTypeAdapter（官方推荐）
     - intent_snapshot / itinerary_snapshot / extra 是 dict → json.dumps
     - user_id 是字符串
-    - 整个 ConversationState 序列化成单个 hash（HSET）
+    - 整个 ConversationState 序列化成单个 string（SET 一个 JSON envelope）
 
     key 规范：
     - `shangwuju:conv:{session_id}` —— 单 session 状态
-    - 默认 TTL 24h；confirm 后续期 7d（在 record_confirm_result hook 里调 EXPIRE）
+    - 默认 TTL 24h；confirm 后由 record_confirm_result 调 save(ttl=7d) 续期
+      （让已成单的会话保留更久）
 
     并发：
-    - asyncio.Lock 仅保单实例内顺序；跨实例互斥用 Redis WATCH/MULTI 模式
-      （demo 阶段单实例足够；多实例上线时再加分布式锁）
+    - asyncio.Lock 仅保单实例内顺序；跨实例互斥需 Redis WATCH/MULTI 或分布式锁
+      （单实例足够；多实例上线时再加分布式锁）
     """
 
     name = "redis"
     _KEY_PREFIX = "shangwuju:conv"
     _DEFAULT_TTL_SECONDS = 24 * 3600
+    _CONFIRM_TTL_SECONDS = 7 * 24 * 3600
 
     def __init__(self, redis_url: Optional[str] = None) -> None:
         self._redis_url = (
@@ -257,12 +259,13 @@ class RedisRepository:
     async def get(self, session_id: str) -> Optional[ConversationState]:
         return await self._load(session_id)
 
-    async def save(self, state: ConversationState) -> None:
-        await self._dump(state)
+    async def save(self, state: ConversationState, *, ttl: Optional[int] = None) -> None:
+        await self._dump(state, ttl=ttl)
 
     async def delete(self, session_id: str) -> None:
-        client = await self._get_client()
-        await client.delete(self._key(session_id))
+        async with self._lock_for(session_id):
+            client = await self._get_client()
+            await client.delete(self._key(session_id))
         self._locks.pop(session_id, None)
 
     def stats(self) -> dict[str, int]:
@@ -283,11 +286,13 @@ class RedisRepository:
             # 反序列化失败（schema drift / 损坏数据）→ 返 None 让上层重建
             return None
 
-    async def _dump(self, state: ConversationState) -> None:
+    async def _dump(self, state: ConversationState, *, ttl: Optional[int] = None) -> None:
         client = await self._get_client()
         payload = self._serialize(state)
         await client.set(
-            self._key(state.session_id), payload, ex=self._DEFAULT_TTL_SECONDS
+            self._key(state.session_id),
+            payload,
+            ex=ttl if ttl is not None else self._DEFAULT_TTL_SECONDS,
         )
 
     def _serialize(self, state: ConversationState) -> bytes:

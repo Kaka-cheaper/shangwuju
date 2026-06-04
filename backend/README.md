@@ -272,6 +272,30 @@ START
 
 `.env.example` 另含一批默认 OFF 的性能优化（HTTP/2 连接池、路由 fast path、任务级模型路由、主备双发）与算法可调常量（critic 反馈模式、replan 重试上限、grounding 候选过滤、ILS 参数等）。
 
+### Redis 持久化（`SESSION_STORE=redis`）
+
+默认 `memory`：单进程内存、零外部依赖、进程重启即清空——本地裸机开发 / 单实例 demo 足够。
+设 `SESSION_STORE=redis`（配合 `REDIS_URL`）后，三类跨 turn 状态分别外置到 Redis：
+
+| 状态 | 落地方式 | Redis 要求 |
+|------|----------|-----------|
+| 跨 turn 对话上下文（LangGraph 主路径，`USE_LANGGRAPH=1`） | `AsyncRedisSaver` checkpointer（`thread_id=session_id`，启动时 `warm_up_graph()` 建索引） | **需 Redis Stack（RediSearch ≥ 2.10）** |
+| 会话快照（confirm / refine / 协作初始行程取用） | `api/_session_store.py` 写时镜像 + 启动 `warm_from_redis()` 预热 | 普通 Redis 即可 |
+| 对话仓库（ReAct 旧路径 `USE_REACT_AGENT=1`） | `RedisRepository`（`SET`/`GET` JSON envelope，TTL 24h，confirm 续期 7d） | 普通 Redis 即可 |
+
+- **checkpointer 需 Redis Stack**（含 RediSearch 模块）。普通 `redis:7-alpine` 上 `asetup()` 会失败，此时自动**优雅降级**回 `InMemorySaver`（打 warning、不影响功能，但对话上下文不落 Redis）；要完整持久化用 `redis/redis-stack-server` 镜像。
+- **协作房间是单实例**：`collab/room.py` 的 `Room` 含 WebSocket 连接 / `asyncio.Task` 等进程内对象，不外置；多实例实时协作需额外 pub/sub 架构（不在当前范围）。
+- redis 相关代码全部 **gated + 懒导入**：`memory` 模式不会 `import` / 连接 redis，行为与未引入 redis 完全一致——本地裸机跑不受任何影响。
+
+docker compose 启用（叠加 `docker-compose.redis.yml`，换 Redis Stack 镜像 + 打开 redis 模式）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
+```
+
+验证：起 redis 后发起一轮对话 → 确认下单 → **重启后端进程** → 用同 `session_id` 再访问，
+确认会话快照与对话上下文仍在（checkpointer 的上下文恢复需 Redis Stack 环境）。
+
 ---
 
 ## 8. 测试
