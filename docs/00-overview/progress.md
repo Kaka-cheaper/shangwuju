@@ -586,3 +586,9 @@
   - 理由：原卡片同时承担方案内容、执行动作、分享输出、协作入口和决策解释，导致主卡过长且卡片套卡片；页面外已有 `ToolTracePanel` / `ThoughtPanel`，决策链路应归入过程区而不是挤占行程主体。
   - 实现：新增 `frontend/components/ItineraryUtilityBar.tsx`；`HomeView` 桌面端保持左过程/右方案，移动端用 CSS order 改成工具/行程优先、过程区后置；`TtsPlayer`、`PosterGenerator` 增加 `compact` / `className` props。
   - 验证：`pnpm verify:all` → 4/4 通过（ESLint、TypeScript、Vitest 34 tests、Next build）；Playwright 桌面截图确认工具外置和决策链路外置；移动端 DOM 坐标确认 `方案工具` top=633、`行程方案` top=845、`Agent 思考链路` top=2254；CodeSee validate 通过。
+
+- **D-CI-PNPM-TEST** [2026-06-04]：GitHub Actions 前端测试入口改为直接调用 package script。
+  - 决策：`.github/workflows/ci.yml` 的 Test 步骤使用 `pnpm test`，不再追加 `--run`。
+  - 理由：`frontend/package.json` 的 `test` 已经是 `vitest run`；`pnpm test --run` 在 pnpm 9 下会把 `--run` 解析为 pnpm 参数并报 `Unknown option: 'run'`，阻断 Frontend · Test & Build。
+  - 实现：CI Test 步骤从 `pnpm test --run` 改为 `pnpm test`。
+  - 验证：`pnpm test` → 34 passed；`pnpm verify:all` → 4/4 通过（ESLint、TypeScript、Vitest、Next build）。CodeSee 未更新，因为本次只改 CI 配置，不改变产品语义功能图。

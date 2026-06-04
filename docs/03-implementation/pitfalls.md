@@ -1097,3 +1097,18 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. SSE 事件顺序应优先暴露用户可感知结果：`tool_call_* → itinerary_ready → done`；不得为了内部记录延迟用户结果。
   3. 给 fast path 加单测：同步确认路径中 `get_llm_client` 和 `persist_memory` 不应被调用。
 - **优先级**：P1（不再首字节超时，但仍会让评委误以为“预约动作很慢”；直接影响 demo 体感）
+
+
+### [P2] 2026-06-04 GitHub Actions 里给 pnpm script 追加参数 → pnpm 9 报 unknown option
+
+- **现象**：GitHub Actions `Frontend · Test & Build` 在 `Run pnpm test --run` 步骤失败，日志为 `ERROR Unknown option: 'run'`；本地 `pnpm test` 实际可以通过。
+- **根因**：`frontend/package.json` 的 `test` 脚本已经是 `vitest run`。CI 再写 `pnpm test --run` 时，pnpm 9 会先解析 `--run`，而不是稳定地把它传给 Vitest，因此被当成 pnpm 未知参数。
+- **修复**：`.github/workflows/ci.yml` 的 Test 步骤改为 `pnpm test`，复用 package script 作为单一入口；本地用 `pnpm test` 和 `pnpm verify:all` 复测通过。
+- **相关文件**：
+  - `.github/workflows/ci.yml`
+  - `frontend/package.json`
+- **防再犯**：
+  1. CI 优先调用 package script 的稳定入口，例如 `pnpm test` / `pnpm verify:all`，不要在 workflow 里重复拼底层工具参数。
+  2. 如果必须向脚本透传参数，使用 pnpm 明确分隔写法：`pnpm run <script> -- <args>`，并先本地用同版本 pnpm 复测。
+  3. package script 已经包含 `run` / `--run` / `--watch=false` 等模式参数时，workflow 不再追加同义参数，避免双重解析。
+- **优先级**：P2（不影响产品运行，但会阻断 GitHub Actions 与部署验证，修复成本低且容易复发）
