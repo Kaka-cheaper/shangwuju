@@ -96,7 +96,7 @@ export default function PreferencesPanel() {
     const subtitle = persona?.notes ?? "点击查看 Agent 已学到的偏好";
 
     return (
-      <div className="w-full flex items-center gap-3">
+      <div className="w-full flex items-center gap-3 pr-20">
         {/* 左侧：文字部分 + 箭头 */}
         <div className="flex-1 flex items-center justify-end gap-2 px-4 py-3">
           {/* 主体：两行文字（label + notes 摘要），右对齐 */}
@@ -176,7 +176,7 @@ export default function PreferencesPanel() {
     : Icons.user;
 
   return (
-    <div className="w-full flex items-start gap-3 animate-fade-in">
+    <div className="w-full flex items-start gap-3 animate-fade-in pr-20">
       {/* 左侧：内容部分，透明背景 */}
       <div className="flex-1">
         {/* 内容区 */}
