@@ -551,7 +551,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
             <button
               className={cn(
-                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-full",
+                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-full text-sm",
                 streaming && "shimmer-border",
               )}
               onClick={submit}

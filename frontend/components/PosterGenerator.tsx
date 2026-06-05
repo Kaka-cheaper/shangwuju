@@ -225,9 +225,9 @@ export default function PosterGenerator({
         disabled={generating}
         className={cn(
           compact ? "h-10 w-full rounded-full px-3" : "mt-2 w-full py-1.5 rounded-full",
-          "bg-black/[0.03] hover:bg-black/[0.05]",
-          "border border-black/[0.08] hover:border-black/[0.12]",
-          "text-ink-700 hover:text-ink-900 text-base",
+          "bg-[#FFD100] hover:bg-[#ffe552]",
+          "border border-[#e6bc00]",
+          "text-ink-900 text-base",
           "transition-all flex items-center justify-center gap-1.5",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           className,
@@ -242,7 +242,7 @@ export default function PosterGenerator({
         ) : (
           <>
             <ImageIcon
-              className="w-3.5 h-3.5 text-brand-600"
+              className="w-3.5 h-3.5 text-ink-900"
               strokeWidth={2}
             />
             <span>一键生成海报</span>

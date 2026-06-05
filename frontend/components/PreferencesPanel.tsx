@@ -71,6 +71,16 @@ export default function PreferencesPanel() {
     if (currentUserId) refreshPreferences();
   }, [currentUserId, refreshPreferences]);
 
+  // 头像图片映射
+  const avatarMap: Record<string, string> = {
+    u_dad: "/avatars/xinshoubaba.png",
+    u_biz: "/avatars/shangwubailing.png",
+    u_grandma: "/avatars/xiaoshunernv.png",
+    u_solo: "/avatars/dujuqingnian.png",
+    u_couple: "/avatars/qinglvdang.png",
+  };
+  const currentAvatar = currentUserId ? avatarMap[currentUserId] : null;
+
   if (!open) {
     const persona = preferences?.persona;
     const acceptedCount = preferences?.memory
@@ -86,51 +96,28 @@ export default function PreferencesPanel() {
     const subtitle = persona?.notes ?? "点击查看 Agent 已学到的偏好";
 
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title="查看当前用户的偏好画像与历史记忆"
-        className={cn(
-          "w-full group relative flex items-center gap-3.5",
-          "rounded-xl border border-black/[0.06] bg-white",
-          "px-4 py-3 text-left",
-          "hover:border-black/[0.12] hover:shadow-sm",
-          "transition-all duration-200",
-          "active:scale-[0.99]",
-          "overflow-hidden",
-        )}
-      >
-        {/* 大 icon —— 视觉锚点 */}
-        <div
-          className="relative w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "#FFD100" }}
-        >
-          <PersonaIcon
-            className="w-5 h-5 text-ink-900"
-            strokeWidth={2}
-          />
-        </div>
-
-        {/* 主体：两行文字（label + notes 摘要），重点突出 */}
-        <div className="relative min-w-0 flex-1">
-          <div className="text-base font-semibold text-ink-900 truncate tracking-tight">
-            {persona?.label ?? "偏好画像"}
+      <div className="w-full flex items-center gap-3">
+        {/* 左侧：文字部分 + 箭头 */}
+        <div className="flex-1 flex items-center justify-end gap-2 px-4 py-3">
+          {/* 主体：两行文字（label + notes 摘要），右对齐 */}
+          <div className="text-right">
+            <div className="text-base font-semibold text-ink-900 truncate tracking-tight">
+              {persona?.label ?? "偏好画像"}
+            </div>
+            <div className="mt-0.5 text-sm text-ink-500 truncate leading-relaxed">
+              {subtitle}
+            </div>
           </div>
-          <div className="mt-0.5 text-sm text-ink-500 truncate leading-relaxed">
-            {subtitle}
-          </div>
-        </div>
 
-        {/* 右侧：已学计数（小）+ 展开箭头 */}
-        <div className="relative shrink-0 flex items-center gap-2">
-          {acceptedCount > 0 && (
-            <span className="chip-success text-xs">
-              已学 <span className="mono mx-0.5">{acceptedCount}</span>
-            </span>
-          )}
-          <span className="text-ink-400 group-hover:text-ink-700 transition-colors">
+          {/* 展开箭头（可点击） */}
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            title="展开偏好画像"
+            className="text-ink-400 hover:text-ink-700 transition-colors p-1"
+          >
             <svg
-              className="w-3.5 h-3.5 transition-transform group-hover:translate-y-0.5"
+              className="w-3.5 h-3.5 transition-transform hover:translate-y-0.5"
               viewBox="0 0 12 12"
               fill="none"
               stroke="currentColor"
@@ -142,9 +129,28 @@ export default function PreferencesPanel() {
                 strokeLinejoin="round"
               />
             </svg>
-          </span>
+          </button>
         </div>
-      </button>
+
+        {/* 右侧：已学计数 + 头像图片 */}
+        <div className="shrink-0 flex items-center gap-2">
+          {acceptedCount > 0 && (
+            <span className="chip-success text-xs">
+              已学 <span className="mono mx-0.5">{acceptedCount}</span>
+            </span>
+          )}
+          {currentAvatar ? (
+            <img src={currentAvatar} alt={persona?.label ?? "用户"} className="w-[150px] h-[150px] rounded-xl object-cover" />
+          ) : (
+            <div
+              className="w-[150px] h-[150px] rounded-xl flex items-center justify-center"
+              style={{ background: "#FFD100" }}
+            >
+              <PersonaIcon className="w-16 h-16 text-ink-900" strokeWidth={2} />
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -170,58 +176,39 @@ export default function PreferencesPanel() {
     : Icons.user;
 
   return (
-    <div className="card overflow-hidden animate-fade-in">
-      {/* 头部：始终在最上方；展开/折叠态高度一致（min-h-[64px] = 折叠态 icon 40+双行文字+padding）
-          整行可点击收起，视觉规格 = 折叠态主标题（text-base semibold）
-          直接占满 card 宽度（card overflow-hidden + button w-full + 顶部 rounded-t-2xl 与 card 圆角对齐） */}
-      <button
-        type="button"
-        onClick={() => setOpen(false)}
-        aria-label="收起偏好画像"
-        className={cn(
-          "group w-full px-4 py-3 min-h-[64px]",
-          "flex items-center gap-3.5",
-          "hover:bg-black/[0.02] transition-colors",
-          "text-left",
-          "border-b border-black/[0.06]",
-        )}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="text-base font-semibold text-ink-900 tracking-tight">
-            偏好画像
-          </div>
-        </div>
-        <span className="text-ink-500 group-hover:text-caramel-300 transition-colors shrink-0">
-          <svg
-            className="w-3.5 h-3.5 transition-transform group-hover:-translate-y-0.5"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              d="M3 7.5L6 4.5L9 7.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+    <div className="w-full flex items-start gap-3 animate-fade-in">
+      {/* 左侧：内容部分，透明背景 */}
+      <div className="flex-1">
+        {/* 内容区 */}
+        <div className="px-4 pt-2 pb-3">
+          {!persona ? (
+            <div className="text-ink-500 text-xs">加载中…</div>
+          ) : (
+            <ContentSections
+              persona={persona}
+              PersonaIcon={PersonaIcon}
+              top_priors={top_priors}
+              suggested={suggested}
+              acceptedTop={acceptedTop}
+              rejectedTop={rejectedTop}
+              onResetMemory={resetUserMemory}
+              onCollapse={() => setOpen(false)}
             />
-          </svg>
-        </span>
-      </button>
+          )}
+        </div>
+      </div>
 
-      {/* 内容区 */}
-      <div className="px-4 pt-3 pb-3">
-        {!persona ? (
-          <div className="text-ink-500 text-xs">加载中…</div>
+      {/* 右侧：头像图片，单独展示 */}
+      <div className="shrink-0">
+        {currentAvatar ? (
+          <img src={currentAvatar} alt={persona?.label ?? "用户"} className="w-[150px] h-[150px] rounded-xl object-cover" />
         ) : (
-          <ContentSections
-            persona={persona}
-            PersonaIcon={PersonaIcon}
-            top_priors={top_priors}
-            suggested={suggested}
-            acceptedTop={acceptedTop}
-            rejectedTop={rejectedTop}
-            onResetMemory={resetUserMemory}
-          />
+          <div
+            className="w-[150px] h-[150px] rounded-xl flex items-center justify-center"
+            style={{ background: "#FFD100" }}
+          >
+            <PersonaIcon className="w-16 h-16 text-ink-900" strokeWidth={2} />
+          </div>
         )}
       </div>
     </div>
@@ -241,6 +228,7 @@ interface ContentSectionsProps {
   acceptedTop: [string, number][];
   rejectedTop: [string, number][];
   onResetMemory: () => void;
+  onCollapse?: () => void;
 }
 
 function ContentSections({
@@ -251,34 +239,41 @@ function ContentSections({
   acceptedTop,
   rejectedTop,
   onResetMemory,
+  onCollapse,
 }: ContentSectionsProps) {
   return (
     <>
-      {/* persona 英雄区：icon + label + notes 横排紧凑 */}
-      <div className="flex items-center gap-3">
-        <div
-          className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-          style={{ background: "#FFD100" }}
-        >
-          <PersonaIcon
-            className="w-5 h-5 text-ink-900"
-            strokeWidth={2}
-          />
-        </div>
-        <div className="min-w-0 flex-1">
+      {/* persona 信息：label + notes，右对齐 */}
+      <div className="text-right">
+        <div className="flex items-center justify-end gap-2">
           <h3 className="text-base font-semibold text-ink-900 tracking-tight">
             {persona.label}
           </h3>
-          {persona.notes && (
-            <p className="text-sm text-ink-600 leading-relaxed mt-1">
-              {persona.notes}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={onCollapse}
+            aria-label="收起偏好画像"
+            className="text-ink-500 hover:text-caramel-300 transition-colors"
+          >
+            <svg
+              className="w-3.5 h-3.5 transition-transform hover:-translate-y-0.5"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                d="M3 7.5L6 4.5L9 7.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
         </div>
       </div>
 
-      {/* 偏好标签 + 默认距离：同行紧凑 */}
-      <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center gap-x-4 gap-y-2">
+      {/* 偏好标签 + 默认距离：同行紧凑，右对齐 */}
+      <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
         {top_priors.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm text-ink-500 mr-1">常去</span>
@@ -290,7 +285,7 @@ function ContentSections({
           </div>
         )}
         {suggested != null && (
-          <div className="flex items-baseline gap-1 ml-auto">
+          <div className="flex items-baseline gap-1">
             <span className="text-sm text-ink-500">距离</span>
             <span className="text-[14px] font-semibold text-ink-900 mono">
               {suggested}
@@ -300,9 +295,9 @@ function ContentSections({
         )}
       </div>
 
-      {/* 历史记录：接受 / 拒绝 横排紧凑 */}
+      {/* 历史记录：接受 / 拒绝 横排紧凑，右对齐 */}
       {(acceptedTop.length > 0 || rejectedTop.length > 0) && (
-        <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap gap-x-6 gap-y-2">
+        <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap justify-end gap-x-6 gap-y-2">
           {acceptedTop.length > 0 && (
             <div className="flex items-center gap-2">
               <span className="text-sm text-ink-500">接受</span>
