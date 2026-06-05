@@ -2,11 +2,13 @@
  * WebSocket 客户端：连接协作房间 + 自动重连 + 消息分发。
  *
  * 设计：
- * - 连接 ws://{host}/ws/{roomId}?user_id={userId}&nickname={nickname}
+ * - 连接 {API_BASE 对应 ws/wss}/ws/{roomId}?user_id={userId}&nickname={nickname}
  * - 自动重连 3 次（指数退避 1s/2s/4s）
  * - 上行：send(JSON) → constraint / vote / confirm / ping
  * - 下行：onmessage → JSON 解析 → 回调分发
  */
+
+import { buildWsUrl } from "./utils";
 
 export interface WsOptions {
   roomId: string;
@@ -38,12 +40,8 @@ export function createWsClient(options: WsOptions): WsClient {
   let pingInterval: ReturnType<typeof setInterval> | null = null;
 
   function getWsUrl(): string {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // 后端默认跑在 8000 端口
-    const host = window.location.hostname;
-    const port = "8000";
     const params = new URLSearchParams({ user_id: userId, nickname });
-    return `${protocol}//${host}:${port}/ws/${roomId}?${params.toString()}`;
+    return buildWsUrl(`/ws/${roomId}`, params);
   }
 
   function connect() {

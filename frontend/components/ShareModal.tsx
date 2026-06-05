@@ -5,9 +5,8 @@
  * 点击"邀请同行人"按钮后弹出。
  */
 
-import { useState, useEffect } from "react";
-import { useCollabStore } from "@/lib/collab-store";
-import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { buildAppPath, cn } from "@/lib/utils";
 
 interface ShareModalProps {
   open: boolean;
@@ -20,7 +19,9 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
 
   if (!open) return null;
 
-  const shareUrl = `${window.location.origin}/room/${roomId}`;
+  const shareUrl = `${window.location.origin}${buildAppPath(
+    `/room?room_id=${encodeURIComponent(roomId)}`,
+  )}`;
   // 二维码用公共 API 生成（Demo 够用；生产用 qrcode 库）
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(shareUrl)}`;
 

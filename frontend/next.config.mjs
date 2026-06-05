@@ -1,10 +1,23 @@
+const isGithubPages = process.env.GITHUB_PAGES === "true";
+const repositoryName = process.env.GITHUB_REPOSITORY?.split("/")[1] ?? "shangwuju";
+const rawBasePath =
+  process.env.NEXT_PUBLIC_BASE_PATH ?? (isGithubPages ? `/${repositoryName}` : "");
+const basePath = rawBasePath === "/" ? "" : rawBasePath.replace(/\/$/, "");
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  // standalone 模式：next build 后只 copy 必需 node_modules + .next/standalone
-  // 镜像体积从 ~500MB 缩到 ~80MB，FC 冷启动也快
-  // https://nextjs.org/docs/app/api-reference/next-config-js/output
-  output: "standalone",
+  // 本地 / Docker / FC 前端容器仍用 standalone；GitHub Pages 走静态导出。
+  output: isGithubPages ? "export" : "standalone",
+  basePath: basePath || undefined,
+  assetPrefix: basePath ? `${basePath}/` : undefined,
+  images: {
+    unoptimized: isGithubPages,
+  },
+  trailingSlash: isGithubPages,
+  env: {
+    NEXT_PUBLIC_BASE_PATH: basePath,
+  },
 };
 
 export default nextConfig;

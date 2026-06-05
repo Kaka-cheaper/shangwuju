@@ -14,6 +14,7 @@ import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
 import type { SseEvent } from "./types";
+import { API_BASE } from "./utils";
 
 // ============================================================
 // 类型
@@ -181,7 +182,6 @@ export const useCollabStore = create<CollabState>((set, get) => ({
 
   createRoom: async (userId, nickname, sessionId?, planningEvents?, chatMessages?, chatState?) => {
     try {
-      const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
       const resp = await fetch(`${API_BASE}/room/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

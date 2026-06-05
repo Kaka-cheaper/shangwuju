@@ -7,8 +7,34 @@ export function cn(...inputs: ClassValue[]): string {
 }
 
 /** 后端基址。开发期默认 http://localhost:8000。 */
-export const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+function normalizeBaseUrl(raw?: string): string {
+  const value = (raw || "http://localhost:8000").trim();
+  return value.replace(/\/+$/, "");
+}
+
+function normalizeBasePath(raw?: string): string {
+  const value = (raw || "").trim();
+  if (!value || value === "/") return "";
+  return `/${value.replace(/^\/+|\/+$/g, "")}`;
+}
+
+export const API_BASE = normalizeBaseUrl(process.env.NEXT_PUBLIC_API_BASE);
+export const APP_BASE_PATH = normalizeBasePath(process.env.NEXT_PUBLIC_BASE_PATH);
+
+export function buildAppPath(path: string): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  return `${APP_BASE_PATH}${suffix}`;
+}
+
+export function buildWsUrl(path: string, params?: URLSearchParams): string {
+  const suffix = path.startsWith("/") ? path : `/${path}`;
+  const url = new URL(`${API_BASE}${suffix}`);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  if (params) {
+    url.search = params.toString();
+  }
+  return url.toString();
+}
 
 /** 生成一个 demo 级 session_id（约定见 api_contract.md §5）。 */
 export function generateSessionId(): string {

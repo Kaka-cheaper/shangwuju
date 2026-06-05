@@ -36,14 +36,12 @@ import { MapPin } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
 import type { ActivityNode, Itinerary } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { API_BASE, cn } from "@/lib/utils";
 
 const AMAP_KEY = process.env.NEXT_PUBLIC_AMAP_KEY ?? "";
 // 后端代理路径——高德 JS API 会把 restapi.amap.com 的请求改写成 ${serviceHost}/xxx
 // 后端在 /_AMapService 注入 jscode 后转发，浏览器永远看不到 jscode
-const AMAP_SERVICE_HOST = `${
-  process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000"
-}/_AMapService`;
+const AMAP_SERVICE_HOST = `${API_BASE}/_AMapService`;
 const AMAP_VERSION = "2.0";
 
 // 加载所需高德插件（含真实驾车路线规划 Driving）

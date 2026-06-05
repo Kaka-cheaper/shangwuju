@@ -6,6 +6,11 @@
 
 美团 AI Hackathon 命题赛道 06「本地探索 · 周末闲时活动规划」参赛作品。
 
+线上演示：
+
+- 前端 GitHub Pages：<https://kaka-cheaper.github.io/shangwuju/>
+- 后端阿里云 FC：<https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run>
+
 ```text
 「今天下午想和老婆孩子出去玩几个小时,别离家太远,孩子 5 岁,老婆在减肥」
    │
@@ -166,7 +171,7 @@ USE_LANGGRAPH=1
 │  ├─ auth/                OAuth provider 抽象
 │  └─ tests/               65 测试文件 / 620+ 用例
 ├─ frontend/               Next.js 14 App Router
-│  ├─ app/                 page.tsx(首页)· room/[id](协作房间)
+│  ├─ app/                 page.tsx(首页)· room(协作房间静态入口)
 │  ├─ components/          29 个组件
 │  ├─ lib/                 store · collab-store · sse · ws · utils
 │  └─ scripts/             clean-next · verify-all · pressure-test
@@ -196,6 +201,7 @@ USE_LANGGRAPH=1
 | 变量 | 说明 |
 |------|------|
 | `NEXT_PUBLIC_API_BASE` | 后端地址,默认 `http://localhost:8000` |
+| `NEXT_PUBLIC_BASE_PATH` | 静态部署子路径;GitHub Pages 为 `/shangwuju`,本地为空 |
 | `NEXT_PUBLIC_AMAP_KEY` | 高德 JS key;不填地图降级为文字列表 |
 
 ## 测试
@@ -229,17 +235,29 @@ CI(`.github/workflows/ci.yml`):后端 pytest · 前端 typecheck / test / build 
 
 | 想了解 | 去哪看 |
 |--------|--------|
-| 产品逻辑(非技术) | [`项目说明.md`](项目说明.md) |
-| 题目原文 | [`比赛详情.md`](比赛详情.md) |
-| 技术架构 | [`技术架构.md`](技术架构.md) |
-| API 契约 | [`backend/api_contract.md`](backend/api_contract.md) |
-| 设计文档 | [`docs/05-design/设计文档.md`](docs/05-design/设计文档.md) |
-| 需求 / 验收 / 演示场景 | [`docs/01-requirements/`](docs/01-requirements/) |
-| 数据源 / 持久化 / 商业演进 | [`docs/06-business/`](docs/06-business/) |
-| 阿里云 FC 部署 | [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md) |
-| 踩过的坑 | [`docs/03-implementation/pitfalls.md`](docs/03-implementation/pitfalls.md) |
-| AI 编码约定 | [`AGENTS.md`](AGENTS.md) |
+| 项目当前进度 / 决策流水 | [`docs/00-overview/progress.md`](docs/00-overview/progress.md) |
+| 文档入口说明 | [`docs/00-overview/如何使用这套文档.md`](docs/00-overview/如何使用这套文档.md) |
+| 团队分工 | [`docs/00-overview/团队分工.md`](docs/00-overview/团队分工.md) |
+| 需求分析 / MVP / 验收标准 / 演示场景 | [`docs/01-requirements/`](docs/01-requirements/) |
+| 系统设计文档 | [`docs/05-design/设计文档.md`](docs/05-design/设计文档.md) |
+| 数据源、持久化、观测性、商业化、小团接入 | [`docs/06-business/`](docs/06-business/) |
+| 阿里云 FC 后端部署 | [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md) |
+| 路演大纲 | [`docs/07-pitch/路演大纲.md`](docs/07-pitch/路演大纲.md) |
+| 交付说明 docx | [`docs/08-delivery/系统交付说明-简约版.docx`](docs/08-delivery/系统交付说明-简约版.docx) |
+| 隐私政策 / 服务条款 | [`docs/legal/`](docs/legal/) |
+| 后端 API 契约 | [`backend/api_contract.md`](backend/api_contract.md) |
+| 前端实现说明 | [`frontend/README.md`](frontend/README.md) |
+| 后端实现说明 | [`backend/README.md`](backend/README.md) |
+| 技术陷阱与防再犯 | [`docs/03-implementation/pitfalls.md`](docs/03-implementation/pitfalls.md) |
+| AI Agent 编码约定 | [`AGENTS.md`](AGENTS.md) |
 
 ## 部署
 
-生产路径:阿里云函数计算 FC Custom Container + Redis Tair + ACR 镜像仓库。后端镜像零 apt 构建(依赖全 wheel)、监听 `0.0.0.0:$PORT`(FC 注入 9000),与本地 docker compose 同一镜像。详见 [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md)。
+当前公开 Demo 的部署形态：
+
+- 前端：GitHub Pages 静态导出，地址 <https://kaka-cheaper.github.io/shangwuju/>。
+- 后端：阿里云函数计算 FC Custom Container，镜像来自 ACR，地址 <https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run>。
+- 会话：比赛公开 Demo 暂用 `SESSION_STORE=memory` + FC Cookie 会话亲和，避免为短期展示额外购买 Redis；产品化部署仍建议切到 Redis/Tair。
+- API 基址：GitHub Pages workflow 在构建时注入 `NEXT_PUBLIC_API_BASE=https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run`；本地开发不注入时默认 `http://localhost:8000`。
+
+后端容器仍监听 `0.0.0.0:$PORT`（FC 注入 9000），部署细节见 [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md)。
