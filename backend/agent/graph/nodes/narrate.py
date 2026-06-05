@@ -21,7 +21,7 @@ from typing import Any
 
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
-from agent.intent.narrator import generate_narration
+from agent.intent.narrator import generate_title_and_narration
 
 
 def _build_critic_summary(critic_attempts: list[Any]) -> str:
@@ -170,7 +170,9 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         if d and d not in unmet_desires:
             unmet_desires.append(d)
 
-    text = generate_narration(
+    # 同次产出：title（小红书风格大标题，写回 itinerary.summary）+ narration（开场白）
+    # title 必须覆盖所有主要站点（旧 bug：只取停留最久的单站）。
+    title, text = generate_title_and_narration(
         intent=intent,
         itinerary=itinerary,
         stage="stream",
@@ -181,7 +183,13 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
-    new_itinerary = itinerary
+    update_fields: dict[str, Any] = {}
+
+    # 把同次产出的小红书风格 title 写回 summary（行程卡片大标题）。
+    # title 永远非空（LLM 解析失败也有规则兜底），覆盖所有主要站点。
+    if title and title.strip() and title.strip() != (itinerary.summary or "").strip():
+        update_fields["summary"] = title.strip()
+
     if itinerary.decision_trace is not None:
         old_trace = itinerary.decision_trace
         chain = old_trace.fallback_chain
@@ -211,7 +219,11 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
                 "critic_attempts": new_critic_attempts,
             }
         )
-        new_itinerary = itinerary.model_copy(update={"decision_trace": new_trace})
+        update_fields["decision_trace"] = new_trace
+
+    new_itinerary = (
+        itinerary.model_copy(update=update_fields) if update_fields else itinerary
+    )
 
     # spec algorithm-redesign R5：narrate 主逻辑末尾的副作用——回写 user_profile.json
     # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律）

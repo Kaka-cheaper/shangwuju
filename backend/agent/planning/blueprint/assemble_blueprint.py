@@ -220,36 +220,53 @@ def _build_summary(
     blueprint: PlanBlueprint,
     user_profile: UserProfile,
     total_minutes: int,
+    intent: Optional[IntentExtraction] = None,
 ) -> str:
-    """根据 mid nodes 集合自适应 summary 文案。
+    """小红书风格行程卡片大标题（itinerary.summary 最底层兜底）。
 
-    取 duration_min 最长的 mid node 作为主体标识；
-    根据是否含 POI / Restaurant 区分「半日方案」/「轻量方案」/「用餐方案」。
+    最底层保底：narrate 节点未覆盖时（如直接调 assemble，或 ReAct/planner_stream
+    在 narrate 写回前推 itinerary_ready）显示的标题，必须**信息全**——遍历全部
+    mid nodes（跳过 home），用动作短语 + 同行短语 + 时长拼一句口语标题，
+    而不是旧的「max 单站 + 半日方案·前缀 +（约X小时）」（旧 bug 漏掉其它站）。
     """
-    has_main = any(
-        n.target_kind == BlueprintTargetKind.POI for n in blueprint.nodes
-    )
-    has_dining = any(
-        n.target_kind == BlueprintTargetKind.RESTAURANT for n in blueprint.nodes
+    from agent.intent.title_builder import (
+        build_xiaohongshu_title,
+        companions_to_title_phrase,
+        node_to_title_phrase,
     )
 
-    primary = max(blueprint.nodes, key=lambda n: n.duration_min)
-    primary_meta = _resolve_target_meta(
-        primary.target_kind.value if isinstance(primary.target_kind, BlueprintTargetKind) else primary.target_kind,  # type: ignore[arg-type]
-        primary.target_id,
-        user_profile,
+    station_phrases: list[str] = []
+    for n in blueprint.nodes:
+        tk = (
+            n.target_kind.value
+            if isinstance(n.target_kind, BlueprintTargetKind)
+            else n.target_kind
+        )
+        meta = _resolve_target_meta(tk, n.target_id, user_profile)  # type: ignore[arg-type]
+        phrase = node_to_title_phrase(
+            title=meta.get("title") or "",
+            kind=n.kind or "",
+            target_kind=tk or "",
+        )
+        if phrase:
+            station_phrases.append(phrase)
+
+    companions_phrase = (
+        companions_to_title_phrase(
+            [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in (intent.companions or [])
+            ]
+        )
+        if intent is not None
+        else ""
     )
-    primary_label = primary_meta["title"]
-
-    total_h = round(total_minutes / 60, 1)
-
-    if has_main and has_dining:
-        return f"半日方案 · {primary_label}（约 {total_h} 小时）"
-    if has_dining and not has_main:
-        return f"用餐方案 · {primary_label}（约 {total_h} 小时）"
-    if has_main and not has_dining:
-        return f"轻量方案 · {primary_label}（约 {total_h} 小时）"
-    return f"短途方案（约 {total_h} 小时）"
+    total_hours = total_minutes / 60
+    return build_xiaohongshu_title(
+        station_phrases=station_phrases,
+        companions_phrase=companions_phrase,
+        total_hours=total_hours,
+    )
 
 
 # ============================================================
@@ -258,14 +275,14 @@ def _build_summary(
 
 
 def assemble_from_blueprint(
-    intent: IntentExtraction,  # noqa: ARG001 — 留作未来 summary / title 个性化扩展
+    intent: IntentExtraction,
     blueprint: PlanBlueprint,
     user_profile: UserProfile,
 ) -> Itinerary:
     """蓝图 → Itinerary（edge_v1）。
 
     Args:
-        intent: 用户意图（当前用于扩展余地，summary 暂不读取）。
+        intent: 用户意图（companions 用于 summary 同行短语；小红书风格大标题）。
         blueprint: LLM 输出的 mid nodes + preferred_start_time。
         user_profile: 含 home_location 与 transport_preference。
 
@@ -432,7 +449,7 @@ def assemble_from_blueprint(
     # ---------- 5. 派生 schedule + 总时长 + summary ----------
     schedule = _derive_schedule(nodes, hops)
     total_minutes = cursor_min - _parse_hhmm(blueprint.preferred_start_time)
-    summary = _build_summary(blueprint, user_profile, total_minutes)
+    summary = _build_summary(blueprint, user_profile, total_minutes, intent)
 
     # ---------- 6. 构造 Itinerary（Pydantic 二次兜底校验） ----------
     return Itinerary(

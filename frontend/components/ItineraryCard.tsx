@@ -1065,6 +1065,14 @@ function HighlightText({ text }: { text: string }) {
 // ============================================================
 
 function HighlightSummary({ text }: { text: string }) {
+  // 小红书风格一句话标题（无 ·/→ 分隔符、无括号、无「备选 POI」）→ 整句普通渲染。
+  // 这类自由口语句（可能含 emoji、+、｜等）若按旧分词逻辑会被整段套上黄色高亮背景，
+  // 显得别扭；直接整句朴素显示即可（标题样式由外层 text-2xl font-semibold 给）。
+  const hasSeparators = /[→·]|[（(]|备选\s*POI/.test(text);
+  if (!hasSeparators) {
+    return <>{text}</>;
+  }
+
   // 先拆分「备选 POI」部分（如果有的话，作为次要信息缩小显示）
   const poiSplit = text.split(/[;；]\s*备选\s*POI[：:]/);
   const mainPart = poiSplit[0] || text;

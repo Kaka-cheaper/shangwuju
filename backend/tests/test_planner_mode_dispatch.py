@@ -226,9 +226,12 @@ def test_narrate_node_rule_mode_uses_template_not_llm():
         "user_id": "demo_user",
     }
 
-    # 验证 generate_narration 被调时 use_llm=False
-    with patch("agent.graph.nodes.narrate.generate_narration") as mock_narration:
-        mock_narration.return_value = "（mock 模板文案）"
+    # 验证 generate_title_and_narration 被调时 use_llm=False
+    # （narrate 改为同次产 title + narration；rule 模式仍走纯模板不调 LLM）
+    with patch(
+        "agent.graph.nodes.narrate.generate_title_and_narration"
+    ) as mock_narration:
+        mock_narration.return_value = ("（mock 标题）", "（mock 模板文案）")
         result = narrate_node(state)
         assert mock_narration.call_count == 1
         # use_llm 是 keyword 参数，从 kwargs 取

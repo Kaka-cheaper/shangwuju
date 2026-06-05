@@ -147,6 +147,32 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 通常更建议**完全不出现 tag 标签**，直接用「带孩子的安排」「健康清淡的简餐」「正式商务套餐」等自然表达。"""
 
 
+# ============================================================
+# 小红书风格大标题（itinerary.summary）—— 与 narration 同次产出
+# ============================================================
+
+# 当 want_title=True 时附加到 user message 末尾：要求 LLM 用 JSON 同时产出
+# title（行程卡片大标题）+ narration（开场白）。title 是小红书风格一句话，
+# 必须概括**所有主要站点**（旧 bug：只取停留最久的单站，漏了烧烤等其它站）。
+TITLE_OUTPUT_INSTRUCTION = """\
+
+【额外产出：行程卡片大标题 title（重要）】
+除了上面的开场白 narration，请**同时**产出一个行程卡片大标题 title，规格如下：
+- 一句话，约 8-22 字，简短有钩子（小红书风格）。
+- **必须覆盖所有主要活动站点**（用餐 + 活动都要体现，例：既有烧烤又有 KTV 时两者都要出现，
+  绝不允许只写停留最久的那一站——这是真实踩过的 bug）。
+- 体现同行关系（室友 / 家人 / 闺蜜 / 朋友 / 独自）和/或时长氛围（如「4.5 小时」）。
+- 口语化、有场景感（小红书味），最多 1 个贴切 emoji（克制，不堆）。
+- **不要**「半日方案 ·」这种前缀、**不要**「（约 X 小时）」这种括号。
+- 参考例（室友 4 人 · 烧烤 + KTV · 4.5h）：「室友夜局｜撸串配K歌🎤」「和室友的快乐4.5h：烧烤+唱K」。
+
+【输出格式（严格 JSON，无 markdown 围栏）】
+只输出一个 JSON 对象，两个字段：
+{"title": "小红书风格大标题", "narration": "上面要求的暖语气开场白全文"}
+narration 字段就是上面【你的目标】【风格规范】要求的那段开场白，质量与单独输出时完全一致，不要因为套了 JSON 就写短写差。
+"""
+
+
 def build_narrator_user_message(
     *,
     intent_dict: dict,
@@ -155,6 +181,7 @@ def build_narrator_user_message(
     critic_summary: str = "",
     quality_warnings: list[str] | None = None,
     unmet_cuisines: list[str] | None = None,
+    want_title: bool = False,
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
 
@@ -166,6 +193,9 @@ def build_narrator_user_message(
             修复反馈），narrator 据此触发主动质疑规则。空串 = 不触发。
         quality_warnings: spec R6 新增。可选 meta-critic 输出的额外质量提醒。
             None / 空列表 = 不触发。
+        want_title: True 时要求 LLM 用 JSON 同次产出 title（小红书大标题）+ narration。
+            narrate 节点的非流式路径用 True（要写回 itinerary.summary）；
+            流式打字路径用 False（保持逐字 narration 的 UX，summary 走规则兜底）。
 
     Returns:
         给 LLM 的 user message 文本。
@@ -231,12 +261,15 @@ def build_narrator_user_message(
         )
     extras_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 
+    title_block = TITLE_OUTPUT_INSTRUCTION if want_title else ""
+    tail = "直接输出 JSON。" if want_title else "直接输出文案。"
+
     return f"""{framing}
 
 【intent】
 {json.dumps(intent_brief, ensure_ascii=False, indent=2)}
 
 【itinerary】
-{json.dumps(itinerary_brief, ensure_ascii=False, indent=2)}{extras_block}
+{json.dumps(itinerary_brief, ensure_ascii=False, indent=2)}{extras_block}{title_block}
 
-直接输出文案。"""
+{tail}"""

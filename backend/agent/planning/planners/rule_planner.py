@@ -1160,29 +1160,13 @@ def _assemble_itinerary(
 
     itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
 
-    # ---- 重写 summary（rule planner 风味）----
-    if has_main and has_dining:
-        backup_summary = (
-            f"；备选 POI：{', '.join(p.name for p in backup_pois[:2])}"
-            if backup_pois
-            else ""
-        )
-        summary = (
-            f"半日方案 · {main_poi.name} → {chosen_restaurant.name}"  # type: ignore[union-attr]
-            f"{backup_summary}"
-        )
-    elif has_main:
-        assert main_poi is not None
-        summary = (
-            f"轻量方案 · {main_poi.name}"
-            f"（{itinerary.total_minutes // 60} 小时左右）"
-        )
-    elif has_dining:
-        assert chosen_restaurant is not None
-        summary = f"用餐方案 · {chosen_restaurant.cuisine} · {chosen_restaurant.name}"
-    else:
-        summary = "短途方案"
+    # ---- 重写 summary：小红书风格大标题（信息全 = 串联所有主要站点）----
+    # 旧实现：「半日方案 · A → B；备选 POI」「轻量方案 · A（X 小时左右）」——带方案前缀、
+    # 漏站（only main_poi/chosen_restaurant）。改成遍历全部主要站点的口语一句话标题，
+    # 与 assemble_from_blueprint / narrator 三层口径一致（复用同一 title builder）。
+    from agent.intent.narrator import build_template_title
 
+    summary = build_template_title(intent, itinerary)
     return itinerary.model_copy(update={"summary": summary})
 
 

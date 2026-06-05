@@ -44,6 +44,11 @@ from agent.intent.prompts.narrator_prompt import (
     NARRATOR_SYSTEM_PROMPT,
     build_narrator_user_message,
 )
+from agent.intent.title_builder import (
+    build_xiaohongshu_title,
+    companions_to_title_phrase,
+    node_to_title_phrase,
+)
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
 
@@ -277,6 +282,38 @@ def _node_to_phrase(node: dict, idx: int, total: int) -> Optional[str]:
     return f"{start} {short_title}"
 
 
+def _template_title(intent: IntentExtraction, itinerary: Itinerary) -> str:
+    """规则版小红书风格大标题（itinerary.summary 兜底）。
+
+    LLM 未配 / stub / 解析不出 title 时走这里。**信息全**：遍历全部中间站点
+    （跳过 home），用动作短语 + 同行短语 + 时长拼一句口语标题。
+
+    例（室友 4 人 · 烧烤 + KTV · 4.5h）：「和室友撸串+唱K，4.5小时」。
+    """
+    nodes_dump = [
+        n.model_dump() if hasattr(n, "model_dump") else n for n in itinerary.nodes
+    ]
+    station_phrases: list[str] = []
+    for n in nodes_dump:
+        phrase = node_to_title_phrase(
+            title=(n.get("title") or ""),
+            kind=(n.get("kind") or ""),
+            target_kind=(n.get("target_kind") or ""),
+        )
+        if phrase:
+            station_phrases.append(phrase)
+
+    companions_phrase = companions_to_title_phrase(
+        [c.model_dump() if hasattr(c, "model_dump") else c for c in intent.companions]
+    )
+    total_hours = (itinerary.total_minutes or 0) / 60
+    return build_xiaohongshu_title(
+        station_phrases=station_phrases,
+        companions_phrase=companions_phrase,
+        total_hours=total_hours,
+    )
+
+
 def _template_narration(
     intent: IntentExtraction,
     itinerary: Itinerary,
@@ -394,6 +431,85 @@ def _template_narration(
 # ============================================================
 
 
+def _clean_narration_text(text: str) -> str:
+    """剥围栏 / 引号 + 长度兜底，得到可直接展示的 narration 纯文本。"""
+    text = (text or "").strip()
+    if not text:
+        return ""
+    if text.startswith("```"):
+        from agent.core.llm_client import strip_json_fence
+
+        stripped = strip_json_fence(text) or text
+        text = stripped.strip()
+    if (text.startswith('"') and text.endswith('"')) or (
+        text.startswith("「") and text.endswith("」")
+    ):
+        text = text[1:-1].strip()
+    # 长度兜底（防 LLM 失控写一篇散文）
+    if len(text) > 320:
+        text = text[:280] + "……"
+    return text
+
+
+def _parse_title_narration(raw: str) -> tuple[Optional[str], str]:
+    """从 LLM 原始输出解析 (title, narration)。
+
+    want_title=True 时 LLM 被要求输出 JSON {"title":..., "narration":...}。
+    解析策略（层层兜底，保证永远拿得到 narration）：
+    1. 剥 markdown 围栏后 json.loads；取 title / narration 字段。
+    2. JSON 解析失败 / 缺 narration → 整段当 narration（title=None，让上层走规则兜底标题）。
+    title 做小红书规格清理：去前缀「半日方案·」、去「（约X小时）」括号、去引号、长度裁剪。
+    """
+    import json
+
+    from agent.core.llm_client import strip_json_fence
+
+    raw = (raw or "").strip()
+    if not raw:
+        return None, ""
+
+    candidate = strip_json_fence(raw) or raw
+    title: Optional[str] = None
+    narration_raw: Optional[str] = None
+    try:
+        obj = json.loads(candidate)
+        if isinstance(obj, dict):
+            t = obj.get("title")
+            n = obj.get("narration")
+            if isinstance(t, str) and t.strip():
+                title = t.strip()
+            if isinstance(n, str) and n.strip():
+                narration_raw = n.strip()
+    except (ValueError, TypeError):
+        pass
+
+    # JSON 不可解析 / 缺 narration → 整段原文当 narration（title 让规则兜底补）
+    narration = _clean_narration_text(narration_raw if narration_raw is not None else raw)
+    return _sanitize_title(title), narration
+
+
+def _sanitize_title(title: Optional[str]) -> Optional[str]:
+    """清理 LLM 给的 title，贴合小红书规格；非法/空 → None。"""
+    if not title:
+        return None
+    import re
+
+    t = title.strip()
+    # 去引号
+    if (t.startswith('"') and t.endswith('"')) or (
+        t.startswith("「") and t.endswith("」")
+    ):
+        t = t[1:-1].strip()
+    # 去禁用前缀「半日方案 ·」「轻量方案 ·」等
+    t = re.sub(r"^(半日|轻量|用餐|短途)方案\s*[·:：]?\s*", "", t).strip()
+    # 去「（约 X 小时）」括号
+    t = re.sub(r"[（(]约\s*\d+\.?\d*\s*小时[）)]", "", t).strip()
+    # 过长裁剪（标题应短；防 LLM 把整段开场白塞进 title）
+    if len(t) > 40:
+        t = t[:38] + "…"
+    return t or None
+
+
 def _call_llm_narrator(
     *,
     intent: IntentExtraction,
@@ -402,12 +518,22 @@ def _call_llm_narrator(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
-) -> Optional[str]:
-    """调 LLM 生成开场白；任何异常返 None 让上层走 fallback。
+    want_title: bool = False,
+) -> Optional[tuple[Optional[str], str]]:
+    """调 LLM 生成开场白（want_title=True 时同次产出 title + narration）。
+
+    任何异常 / 空输出返 None 让上层走 fallback。
 
     spec R6：透传 critic_summary / quality_warnings，prompt 里有「主动质疑规则」
     段会指导 LLM 在收到这两个字段时主动加一句质疑性建议。
     unmet_cuisines：诚实告知未满足的用户指定品类。
+
+    want_title：True 时要求 LLM 用同一次调用输出 JSON {"title","narration"}——
+    title 写回 itinerary.summary（小红书风格大标题），narration 作开场白。
+    不新增独立 LLM 调用；解析失败时 title=None（上层用规则兜底标题），narration 用整段原文。
+
+    Returns:
+        (title 或 None, narration)；narration 永远非空（除非 LLM 完全没返回 → None）。
     """
     try:
         client = get_llm_client(task="narration")
@@ -422,6 +548,7 @@ def _call_llm_narrator(
         critic_summary=critic_summary,
         quality_warnings=list(quality_warnings or []),
         unmet_cuisines=list(unmet_cuisines or []),
+        want_title=want_title,
     )
 
     try:
@@ -434,33 +561,21 @@ def _call_llm_narrator(
             # （0.7 偶发跳过 critic_summary 段直接给暖文案）
             temperature=0.5,
             # 优化 2：限制输出长度（中文每字 ≈ 2 token；80 字 ≈ 160 token + 余量）
-            max_tokens=180,
+            # want_title 多产一个标题字段 + JSON 包裹 → 放宽到 260
+            max_tokens=260 if want_title else 180,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] LLM chat 失败：%s", e)
         return None
 
-    text = (resp.content or "").strip()
-    if not text:
+    raw = (resp.content or "").strip()
+    if not raw:
         return None
 
-    # 防御：剥可能的 markdown 围栏 / 引号
-    if text.startswith("```"):
-        # 取去围栏后的内容
-        from agent.core.llm_client import strip_json_fence
-
-        stripped = strip_json_fence(text) or text
-        text = stripped.strip()
-    if (text.startswith('"') and text.endswith('"')) or (
-        text.startswith("「") and text.endswith("」")
-    ):
-        text = text[1:-1].strip()
-
-    # 长度兜底（防 LLM 失控写一篇散文）
-    if len(text) > 320:
-        text = text[:280] + "……"
-
-    return text
+    if want_title:
+        return _parse_title_narration(raw)
+    # 不要 title：保持旧行为——整段当 narration
+    return None, _clean_narration_text(raw)
 
 
 # ============================================================
@@ -527,6 +642,52 @@ def stream_llm_narrator(
 # ============================================================
 
 
+def generate_title_and_narration(
+    *,
+    intent: IntentExtraction,
+    itinerary: Itinerary,
+    stage: str = "stream",
+    use_llm: bool = True,
+    critic_summary: str = "",
+    quality_warnings: Optional[list[str]] = None,
+    unmet_cuisines: Optional[list[str]] = None,
+) -> tuple[str, str]:
+    """同次产出 (title, narration)。
+
+    title：小红书风格行程卡片大标题（写回 itinerary.summary 用），覆盖**所有主要站点**。
+    narration：暖语气开场白（与单独 generate_narration 行为/质量一致）。
+
+    LLM 路径：复用同一次 LLM 调用（want_title=True，JSON 输出）拿到两者；
+    解析不出 title 时只兜 title（用规则模板），narration 仍用 LLM 原文。
+    规则 / stub 路径：title 走 _template_title，narration 走 _template_narration。
+
+    Returns:
+        (title, narration)，两者永远非空。
+    """
+    llm_title: Optional[str] = None
+    llm_narration: Optional[str] = None
+    if use_llm:
+        out = _call_llm_narrator(
+            intent=intent,
+            itinerary=itinerary,
+            stage_label=stage,
+            critic_summary=critic_summary,
+            quality_warnings=quality_warnings,
+            unmet_cuisines=unmet_cuisines,
+            want_title=True,
+        )
+        if out is not None:
+            llm_title, llm_narration = out
+
+    # narration：LLM 有就用 LLM；否则规则模板兜底
+    narration = llm_narration or _template_narration(
+        intent, itinerary, stage, quality_warnings, unmet_cuisines
+    )
+    # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
+    title = llm_title or _template_title(intent, itinerary)
+    return title, narration
+
+
 def generate_narration(
     *,
     intent: IntentExtraction,
@@ -555,18 +716,24 @@ def generate_narration(
 
     Returns:
         2-3 句中文文案（80-200 字）。永远返回非空字符串。
+
+    注：本函数只产 narration（不要 title）；需要同次产 title 的调用方用
+    generate_title_and_narration（narrate 节点写回 itinerary.summary 用）。
     """
     if use_llm:
-        text = _call_llm_narrator(
+        out = _call_llm_narrator(
             intent=intent,
             itinerary=itinerary,
             stage_label=stage,
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
             unmet_cuisines=unmet_cuisines,
+            want_title=False,
         )
-        if text:
-            return text
+        if out is not None:
+            _title, narration = out
+            if narration:
+                return narration
 
     # Fallback / 规则模式（含 spec R6 兜底质疑 + 诚实告知）
     return _template_narration(
@@ -574,4 +741,14 @@ def generate_narration(
     )
 
 
-__all__ = ["generate_narration"]
+__all__ = [
+    "generate_narration",
+    "generate_title_and_narration",
+    "build_template_title",
+]
+
+
+# 公开规则版标题构造器（供最底层 summary 兜底路径在无 intent 时复用同一套逻辑）
+def build_template_title(intent: IntentExtraction, itinerary: Itinerary) -> str:
+    """规则版小红书标题（公开别名，等价 _template_title）。"""
+    return _template_title(intent, itinerary)
