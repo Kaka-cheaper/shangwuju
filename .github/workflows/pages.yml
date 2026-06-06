@@ -43,11 +43,20 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Check Pages runtime config
+        env:
+          NEXT_PUBLIC_API_BASE: ${{ vars.NEXT_PUBLIC_API_BASE }}
+        run: |
+          if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
+            echo "Repository variable NEXT_PUBLIC_API_BASE is required for GitHub Pages deploy."
+            exit 1
+          fi
+
       - name: Build static site
         env:
           GITHUB_PAGES: "true"
           NEXT_PUBLIC_BASE_PATH: /shangwuju
-          NEXT_PUBLIC_API_BASE: https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run
+          NEXT_PUBLIC_API_BASE: ${{ vars.NEXT_PUBLIC_API_BASE }}
           NEXT_PUBLIC_AMAP_KEY: ${{ vars.NEXT_PUBLIC_AMAP_KEY }}
         run: pnpm build
 

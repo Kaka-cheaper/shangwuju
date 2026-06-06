@@ -9,7 +9,6 @@
 线上演示：
 
 - 前端 GitHub Pages：<https://kaka-cheaper.github.io/shangwuju/>
-- 后端阿里云 FC：<https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run>
 
 ```text
 「今天下午想和老婆孩子出去玩几个小时,别离家太远,孩子 5 岁,老婆在减肥」
@@ -256,8 +255,10 @@ CI(`.github/workflows/ci.yml`):后端 pytest · 前端 typecheck / test / build 
 当前公开 Demo 的部署形态：
 
 - 前端：GitHub Pages 静态导出，地址 <https://kaka-cheaper.github.io/shangwuju/>。
-- 后端：阿里云函数计算 FC Custom Container，镜像来自 ACR，地址 <https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run>。
+- 后端：阿里云函数计算 FC Custom Container，公网地址通过 GitHub Repository Variable 注入前端构建，不在文档中明文公开。
 - 会话：比赛公开 Demo 暂用 `SESSION_STORE=memory` + FC Cookie 会话亲和，避免为短期展示额外购买 Redis；产品化部署仍建议切到 Redis/Tair。
-- API 基址：GitHub Pages workflow 在构建时注入 `NEXT_PUBLIC_API_BASE=https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run`；本地开发不注入时默认 `http://localhost:8000`。
+- API 基址：GitHub Pages workflow 在构建时从仓库变量 `NEXT_PUBLIC_API_BASE` 注入；本地开发不注入时默认 `http://localhost:8000`。
+
+GitHub Pages 部署前需要在仓库 `Settings → Secrets and variables → Actions → Variables` 配置 `NEXT_PUBLIC_API_BASE`。
 
 后端容器仍监听 `0.0.0.0:$PORT`（FC 注入 9000），部署细节见 [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md)。

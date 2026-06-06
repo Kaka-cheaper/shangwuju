@@ -595,11 +595,11 @@
 - **D-FC-MEMORY-DEPLOY** [2026-06-05]：后端远程 Demo 部署改为 FC Custom Container + 内存会话，不依赖付费 Redis。
   - 决策：暂不创建 Tair/Redis 实例；FC 环境变量使用 `SESSION_STORE=memory`，不设置 `REDIS_URL`，真实 LLM 仍通过 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` 注入。
   - 理由：Tair/Redis 需要按量或包年包月计费；Hackathon 评审场景核心是远程可访问的“输入 → 规划 → Tool 可见 → 确认执行”闭环，短期演示可以接受跨冷启动/多实例不持久化的会话限制。
-  - 实现：ACR 镜像 `shangwuju:backend-20260605-1` 已部署为 FC 函数 `shangwuju-backend`，HTTP anonymous 触发器公网地址为 `https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run`；为降低无 Redis 时确认请求落到不同实例的风险，已启用 `sessionAffinity=GENERATED_COOKIE`，`sessionTTLInSeconds=3600`，`sessionIdleTimeoutInSeconds=1800`，并按 FC 约束将 `instanceConcurrency=200`。
+  - 实现：ACR 镜像 `shangwuju:backend-20260605-1` 已部署为 FC 函数 `shangwuju-backend`；HTTP anonymous 触发器公网地址不在仓库文档中明文记录，由 GitHub Repository Variable 注入前端构建。为降低无 Redis 时确认请求落到不同实例的风险，已启用 `sessionAffinity=GENERATED_COOKIE`，`sessionTTLInSeconds=3600`，`sessionIdleTimeoutInSeconds=1800`，并按 FC 约束将 `instanceConcurrency=200`。
   - 验证：`GET /ready` 返回 200，`redis.skipped=session_store=memory`，`llm.provider=openai-compatible`；`POST /chat/turn` 远程 SSE 冒烟返回 `intent_parsed`、`tool_call`、`critic_violations`、`replan_triggered`、`itinerary_ready`、`done`，`has_itinerary=true`。
 
 - **D-GITHUB-PAGES-DEMO** [2026-06-05]：前端公开 Demo 走 GitHub Pages 静态导出，生产 API 指向 FC。
-  - 决策：新增 `.github/workflows/pages.yml`，Pages 构建时注入 `GITHUB_PAGES=true`、`NEXT_PUBLIC_BASE_PATH=/shangwuju`、`NEXT_PUBLIC_API_BASE=https://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run`；本地开发不注入这些变量时继续默认 `http://localhost:8000`。
+  - 决策：新增 `.github/workflows/pages.yml`，Pages 构建时注入 `GITHUB_PAGES=true`、`NEXT_PUBLIC_BASE_PATH=/shangwuju`，并从仓库变量 `NEXT_PUBLIC_API_BASE` 读取 FC 后端地址；本地开发不注入这些变量时继续默认 `http://localhost:8000`。
   - 理由：评委可直接访问 GitHub Pages；GitHub Pages 是静态托管，必须避免动态路由和本地 API 地址泄漏到生产 bundle。
   - 实现：`next.config.mjs` 按 `GITHUB_PAGES` 在 `standalone` 与 `export` 间切换；协作分享从 `/room/{id}` 改为静态可导出的 `/room?room_id={id}`，WebSocket 从 `API_BASE` 自动派生 `ws/wss`；README 和 FC 部署文档同步公开 Demo 地址与当前无 Redis 部署形态。
   - 验证：`pnpm typecheck` 通过；`pnpm test` → 34 passed；默认 `pnpm build` 通过；Pages 环境 `pnpm exec next build` 通过并生成 `frontend/out`，bundle 中包含 FC 地址且不含 `localhost:8000`。

@@ -96,7 +96,7 @@ frontend/
 
 ### WebSocket 协作（`lib/ws.ts`）
 
-`createWsClient` 从 `API_BASE` 派生 `ws://` / `wss://` 地址，连接 `/ws/{roomId}?user_id=&nickname=`，支持 25s 心跳保活、最多 3 次指数退避重连（1s / 2s / 4s），并把下行消息按 `type` 分发给协作 store。GitHub Pages 上会连到 FC 的 `wss://shangwu-backend-ntwoemresu.cn-beijing.fcapp.run/ws/...`；本地默认连 `ws://localhost:8000/ws/...`。
+`createWsClient` 从 `API_BASE` 派生 `ws://` / `wss://` 地址，连接 `/ws/{roomId}?user_id=&nickname=`，支持 25s 心跳保活、最多 3 次指数退避重连（1s / 2s / 4s），并把下行消息按 `type` 分发给协作 store。GitHub Pages 上会连到 `NEXT_PUBLIC_API_BASE` 对应的 FC 域名；本地默认连 `ws://localhost:8000/ws/...`。
 
 ### 高德地图（`components/MapOverlay.tsx`）
 
@@ -202,6 +202,6 @@ TtsPlayer             文本转语音播放器
 
 ## 部署
 
-当前公开 Demo 走 GitHub Pages：`.github/workflows/pages.yml` 在构建时注入 `GITHUB_PAGES=true`、`NEXT_PUBLIC_BASE_PATH=/shangwuju` 和 FC 后端地址，`next.config.mjs` 自动切到 `output: "export"`，产物上传 `frontend/out`。
+当前公开 Demo 走 GitHub Pages：`.github/workflows/pages.yml` 在构建时注入 `GITHUB_PAGES=true`、`NEXT_PUBLIC_BASE_PATH=/shangwuju`，并从仓库变量 `NEXT_PUBLIC_API_BASE` 读取 FC 后端地址。`next.config.mjs` 自动切到 `output: "export"`，产物上传 `frontend/out`。
 
 `Dockerfile` 仍保留给容器化部署使用，多阶段构建产出 Next.js standalone 镜像（Node 20 + pnpm 9.15.9，最终镜像约 < 100MB）。`NEXT_PUBLIC_*` 在 build 阶段通过 `--build-arg` 注入，切换部署环境需重新构建。容器默认监听 `3000` 端口。
