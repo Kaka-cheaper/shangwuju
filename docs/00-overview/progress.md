@@ -609,3 +609,10 @@
   - 理由：GitHub Pages 项目站点运行在 `/shangwuju/` 子路径；`/avatars/*.png` 会请求到 `https://kaka-cheaper.github.io/avatars/*.png`，实际资源在 `https://kaka-cheaper.github.io/shangwuju/avatars/*.png`。
   - 实现：`PreferencesPanel` 的 persona 头像映射改用 `buildAppPath("/avatars/...")`；README/FC 部署文档补充线上地图依赖 `NEXT_PUBLIC_AMAP_KEY` + 后端 `AMAP_JS_CODE`。
   - 验证：`pnpm typecheck` 通过；Pages 环境 `pnpm exec next build` 通过；导出 bundle 中 `buildAppPath` 的 basePath 为 `/shangwuju`，头像资源通过该函数生成运行时路径。
+
+- **D-DELIVERY-DESIGN-DOC** [2026-06-06]：比赛交付设计文档重写为 2 页 LaTeX 评审版。
+  - 决策：不照搬完整企业 TDD/arc42 模板；采用“第一页主链路 + Planning 策略，第二页 Tool 链路 + 异常处理”的评审型 brief。版式借鉴 C4 的分层/运行链路表达、ADR 的关键决策取舍、arc42 的目标/运行时/风险结构。
+  - 理由：赛题要求设计文档 ≤2 页，只需说明 Planning 策略、工具调用链路、异常处理机制；评委需要一眼看懂闭环和韧性，而不是读历史路线或接口细节。
+  - 实现：新增 `docs/08-delivery/系统交付说明-简约版.tex`；用 XeLaTeX 编译生成 `docs/08-delivery/系统交付说明-简约版.pdf`；由于原 `系统交付说明-简约版.docx` 被 Word 锁定，另生成同目录 `系统交付说明-简约版-latex.docx` 作为 Word 包装版。
+  - 内容核对：文档已对齐当前代码真实状态：`/chat/turn` 是 V3 LangGraph 主规划流；`/chat/confirm` 基于 session 快照直接执行确认类 Tool；当前 Tool 注册数为 9 个，包含 `order_extra_service`；异常机制按 critic violation、Tool structured failure、confirm heartbeat/后台记忆写入描述。
+  - 验证：`xelatex -interaction=nonstopmode -halt-on-error` 编译成功，PDF 输出 2 pages；`pdftoppm` 渲染两页做视觉核查，无裁切/溢出；Word 包装文件含 2 张页面图。
