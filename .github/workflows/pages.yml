@@ -46,9 +46,14 @@ jobs:
       - name: Check Pages runtime config
         env:
           NEXT_PUBLIC_API_BASE: ${{ vars.NEXT_PUBLIC_API_BASE }}
+          NEXT_PUBLIC_AMAP_KEY: ${{ vars.NEXT_PUBLIC_AMAP_KEY }}
         run: |
           if [ -z "$NEXT_PUBLIC_API_BASE" ]; then
             echo "Repository variable NEXT_PUBLIC_API_BASE is required for GitHub Pages deploy."
+            exit 1
+          fi
+          if [ -z "$NEXT_PUBLIC_AMAP_KEY" ]; then
+            echo "Repository variable NEXT_PUBLIC_AMAP_KEY is required for GitHub Pages map rendering."
             exit 1
           fi
 

@@ -389,8 +389,14 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
   if (!itinerary) return null;
 
+  const fallbackReason = !AMAP_KEY
+    ? "未配置高德 Web Key"
+    : loadError
+      ? `高德 SDK 加载失败：${loadError}`
+      : "地图未加载";
+
   if (!AMAP_KEY || loadError) {
-    return <FallbackList itinerary={itinerary} />;
+    return <FallbackList itinerary={itinerary} reason={fallbackReason} />;
   }
 
   return (
@@ -599,7 +605,13 @@ function escapeHtml(s: string): string {
 // 降级：纯文字地点列表
 // ============================================================
 
-function FallbackList({ itinerary }: { itinerary: Itinerary }) {
+function FallbackList({
+  itinerary,
+  reason,
+}: {
+  itinerary: Itinerary;
+  reason: string;
+}) {
   // 仅展示非 home 节点；home 节点不进列表
   const items = itinerary.nodes
     .filter((n) => n.target_kind !== "home")
@@ -629,7 +641,7 @@ function FallbackList({ itinerary }: { itinerary: Itinerary }) {
           行程地点
         </span>
         <span className="text-xs text-ink-500">
-          地图未加载，仅显示列表
+          {reason}，仅显示列表
           {hopCount > 0 ? ` · 共 ${hopCount} 段通勤` : ""}
         </span>
       </div>
