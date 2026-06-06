@@ -603,3 +603,9 @@
   - 理由：评委可直接访问 GitHub Pages；GitHub Pages 是静态托管，必须避免动态路由和本地 API 地址泄漏到生产 bundle。
   - 实现：`next.config.mjs` 按 `GITHUB_PAGES` 在 `standalone` 与 `export` 间切换；协作分享从 `/room/{id}` 改为静态可导出的 `/room?room_id={id}`，WebSocket 从 `API_BASE` 自动派生 `ws/wss`；README 和 FC 部署文档同步公开 Demo 地址与当前无 Redis 部署形态。
   - 验证：`pnpm typecheck` 通过；`pnpm test` → 34 passed；默认 `pnpm build` 通过；Pages 环境 `pnpm exec next build` 通过并生成 `frontend/out`，bundle 中包含 FC 地址且不含 `localhost:8000`。
+
+- **D-PAGES-ASSET-BASEPATH** [2026-06-06]：GitHub Pages 子路径下修复用户画像头像资源路径。
+  - 决策：所有前端 public 静态资源引用必须走 `buildAppPath`，不能写死 `/xxx` 根路径。
+  - 理由：GitHub Pages 项目站点运行在 `/shangwuju/` 子路径；`/avatars/*.png` 会请求到 `https://kaka-cheaper.github.io/avatars/*.png`，实际资源在 `https://kaka-cheaper.github.io/shangwuju/avatars/*.png`。
+  - 实现：`PreferencesPanel` 的 persona 头像映射改用 `buildAppPath("/avatars/...")`；README/FC 部署文档补充线上地图依赖 `NEXT_PUBLIC_AMAP_KEY` + 后端 `AMAP_JS_CODE`。
+  - 验证：`pnpm typecheck` 通过；Pages 环境 `pnpm exec next build` 通过；导出 bundle 中 `buildAppPath` 的 basePath 为 `/shangwuju`，头像资源通过该函数生成运行时路径。

@@ -259,6 +259,6 @@ CI(`.github/workflows/ci.yml`):后端 pytest · 前端 typecheck / test / build 
 - 会话：比赛公开 Demo 暂用 `SESSION_STORE=memory` + FC Cookie 会话亲和，避免为短期展示额外购买 Redis；产品化部署仍建议切到 Redis/Tair。
 - API 基址：GitHub Pages workflow 在构建时从仓库变量 `NEXT_PUBLIC_API_BASE` 注入；本地开发不注入时默认 `http://localhost:8000`。
 
-GitHub Pages 部署前需要在仓库 `Settings → Secrets and variables → Actions → Variables` 配置 `NEXT_PUBLIC_API_BASE`。
+GitHub Pages 部署前需要在仓库 `Settings → Secrets and variables → Actions → Variables` 配置 `NEXT_PUBLIC_API_BASE`。如果线上要显示高德地图，还需要配置 `NEXT_PUBLIC_AMAP_KEY`，并确保 FC 后端环境变量里有对应的 `AMAP_JS_CODE`。
 
 后端容器仍监听 `0.0.0.0:$PORT`（FC 注入 9000），部署细节见 [`docs/06-business/02-阿里云FC部署.md`](docs/06-business/02-阿里云FC部署.md)。

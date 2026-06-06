@@ -20,7 +20,7 @@ import type { LucideIcon } from "lucide-react";
 import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import type { Persona } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { buildAppPath, cn } from "@/lib/utils";
 
 // ============================================================
 // 局部主题常量（避免散落 inline rgba；主题改时改一处即可）
@@ -73,11 +73,11 @@ export default function PreferencesPanel() {
 
   // 头像图片映射
   const avatarMap: Record<string, string> = {
-    u_dad: "/avatars/xinshoubaba.png",
-    u_biz: "/avatars/shangwubailing.png",
-    u_grandma: "/avatars/xiaoshunernv.png",
-    u_solo: "/avatars/dujuqingnian.png",
-    u_couple: "/avatars/qinglvdang.png",
+    u_dad: buildAppPath("/avatars/xinshoubaba.png"),
+    u_biz: buildAppPath("/avatars/shangwubailing.png"),
+    u_grandma: buildAppPath("/avatars/xiaoshunernv.png"),
+    u_solo: buildAppPath("/avatars/dujuqingnian.png"),
+    u_couple: buildAppPath("/avatars/qinglvdang.png"),
   };
   const currentAvatar = currentUserId ? avatarMap[currentUserId] : null;
 
