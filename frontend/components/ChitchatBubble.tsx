@@ -4,7 +4,7 @@
  * ChitchatBubble —— 暖心回话气泡（黄昏深色主题）。
  */
 
-import { Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
+import { Check, Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
 import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
@@ -67,7 +67,10 @@ const KIND_LABELS: Record<ChitchatReplyPayload["input_kind"], string> = {
 
 export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayload }) {
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const confirm = useChatStore((s) => s.confirm);
   const streaming = useChatStore((s) => s.streaming);
+  // 已预约 = 当前方案已带订单（confirm 成功后写入）；用于把确认按钮置成一次性
+  const booked = useChatStore((s) => (s.itinerary?.orders?.length ?? 0) > 0);
   const theme = TONE_THEMES[payload.tone] ?? TONE_THEMES.warm;
   const Icon = theme.Icon;
 
@@ -101,30 +104,43 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
         {/* 引导按钮 chips */}
         {payload.cta_chips.length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {payload.cta_chips.map((chip, idx) => (
-              <button
-                key={`${chip.send}-${idx}`}
-                disabled={streaming}
-                onClick={() => sendMessage(chip.send)}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-md",
-                  "px-2.5 py-1 text-xs font-medium tracking-tight",
-                  "bg-black/[0.04] border border-black/[0.08] text-ink-800",
-                  "hover:bg-black/[0.06] hover:border-black/[0.15] hover:text-ink-900",
-                  "transition-colors duration-150",
-                  "active:scale-[0.98]",
-                  "disabled:opacity-50 disabled:cursor-not-allowed",
-                )}
-                title={chip.send}
-              >
-                {chip.icon && (
-                  <span className="text-xs leading-none opacity-70">
-                    {chip.icon}
-                  </span>
-                )}
-                <span>{chip.label}</span>
-              </button>
-            ))}
+            {payload.cta_chips.map((chip, idx) => {
+              const isConfirm = chip.action === "confirm";
+              const isBooked = isConfirm && booked; // 已预约 → 一次性、置灰
+              return (
+                <button
+                  key={`${chip.send}-${idx}`}
+                  disabled={streaming || isBooked}
+                  onClick={() =>
+                    isConfirm ? confirm() : sendMessage(chip.send)
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md text-xs tracking-tight",
+                    "transition-colors duration-150 active:scale-[0.98]",
+                    "disabled:cursor-not-allowed",
+                    isBooked
+                      ? // 已预约：绿色淡底 + 不可点（去掉 hover / active 反馈）
+                        "px-3 py-1.5 font-semibold bg-emerald-500/12 border border-emerald-500/30 text-emerald-700 cursor-default active:scale-100"
+                      : isConfirm
+                        ? // 主行动按钮：实心黄 + lucide Check（精致，不双对钩 / 不塑料）
+                          "px-3 py-1.5 font-semibold bg-brand-500 border border-brand-600 text-black shadow-sm hover:bg-brand-400 disabled:opacity-50"
+                        : "px-2.5 py-1 font-medium bg-black/[0.04] border border-black/[0.08] text-ink-800 hover:bg-black/[0.06] hover:border-black/[0.15] hover:text-ink-900 disabled:opacity-50",
+                  )}
+                  title={isBooked ? "已完成预约" : chip.send}
+                >
+                  {isConfirm ? (
+                    <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.75} />
+                  ) : (
+                    chip.icon && (
+                      <span className="text-xs leading-none opacity-70">
+                        {chip.icon}
+                      </span>
+                    )
+                  )}
+                  <span>{isBooked ? "已预约" : chip.label}</span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

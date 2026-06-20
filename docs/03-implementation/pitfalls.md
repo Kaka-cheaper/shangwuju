@@ -1112,3 +1112,20 @@ spec D 起草时编排者犯了**两次**审计错误：
   2. 如果必须向脚本透传参数，使用 pnpm 明确分隔写法：`pnpm run <script> -- <args>`，并先本地用同版本 pnpm 复测。
   3. package script 已经包含 `run` / `--run` / `--watch=false` 等模式参数时，workflow 不再追加同义参数，避免双重解析。
 - **优先级**：P2（不影响产品运行，但会阻断 GitHub Actions 与部署验证，修复成本低且容易复发）
+
+
+### [P3] 2026-06-20 GSAP 演示时间线：清场目标覆盖本拍新元素 / FLIP transform 后再算锚点
+
+- **现象**：`路演PPT/hero.html` 中“交大模型”气泡出现后自动消失；fanout 三条线在 1366×768 视口下末端漂浮，未贴住“搜地点 / 搜餐厅 / 读画像”三个节点。
+- **根因**：
+  1. `s_gate(3)` 开场复用通用清场 tween，把本拍即将出现的 `#decoyB/#stampB` 也纳入 0.9s 淡出，导致它们被拉到 opacity=1 后又被同一时间线尾段拉回 0。
+  2. fanout 动态连线若在 `gsap.set(worker, {x,y,scale})` 之后读取 `getBoundingClientRect()`，读到的是 FLIP 起飞前临时坐标，不是节点最终位置。
+- **修复**：
+  1. 清场列表按拍点区分：`i===3` 时只清 `#decoyA/#stampA`，不清本拍新出现的 `#decoyB/#stampB`。
+  2. `updateFanPaths()` 在 worker FLIP transform 写入前立即执行，用节点最终静态 DOM 位置计算 SVG 终点。
+- **防再犯**：
+  1. GSAP 时间线里“上一拍退出”和“本拍进入”不要共用同一批 selector；新增 transient 元素时先查是否被通用清场覆盖。
+  2. FLIP 动画的动态锚点必须在写入临时 transform 前计算；写入后再读 DOM 会拿到动画源点。
+  3. SVG 连 DOM 的全屏演示不要用固定 `1920×1080` viewBox 做二次换算；运行时把 SVG viewBox 设为实际像素尺寸，让 path 与 DOM 共用同一坐标系。
+  4. 连线类视觉不要手写固定终点坐标，应从节点 DOM 边界或中心锚点派生；有 strokeDash 动画时，稳定态要清掉 dash，避免线段视觉上短一截。
+- **优先级**：P3（不影响产品主链路，但影响路演观感；评委会直接看到“气泡闪没”和“线没连上”）

@@ -22,7 +22,7 @@ from typing import Any
 
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
-from agent.intent.refiner import refine_intent
+from agent.intent.refiner import refine_intent, summarize_itinerary
 
 
 def refiner_node(state: AgentState) -> dict[str, Any]:
@@ -37,6 +37,8 @@ def refiner_node(state: AgentState) -> dict[str, Any]:
         original=original,
         feedback_text=feedback_text,
         client=client,
+        # session-no-new-request：把上一版行程摘要也喂进去，让 LLM 据"被拒的这份方案"判断
+        itinerary_summary=summarize_itinerary(state.get("itinerary")),
     )
 
     # 重置 plan / critic 状态：让流程从 execute 重新搜候选 → plan → critic

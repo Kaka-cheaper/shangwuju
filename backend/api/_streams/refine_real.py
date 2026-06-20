@@ -50,9 +50,13 @@ async def _refine_stream_real(
     # ---- 调真 refiner（A 实现）----
     original = IntentExtraction.model_validate(cached["intent"])
     try:
-        from agent.intent.refiner import refine_intent
+        from agent.intent.refiner import refine_intent, summarize_itinerary
 
-        refinement = refine_intent(original, req.feedback_text or "")
+        refinement = refine_intent(
+            original,
+            req.feedback_text or "",
+            itinerary_summary=summarize_itinerary(cached.get("itinerary")),
+        )
     except Exception:  # noqa: BLE001 — 防 LLM 抖动；走 stub refiner 兜底
         refinement = _stub_refine(original, req.feedback_text or "")
 

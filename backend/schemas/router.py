@@ -62,6 +62,15 @@ class CtaChip(BaseModel):
     label: str = Field(..., min_length=1, max_length=24, description="按钮文字")
     send: str = Field(..., min_length=1, max_length=200, description="点击后发送的文案（来自白名单）")
     icon: Optional[str] = Field(default=None, max_length=12, description="可选 emoji（family ZWJ 序列可达 7-11 codepoint）")
+    action: Optional[str] = Field(
+        default=None,
+        max_length=16,
+        description=(
+            '可选前端动作：默认 None=点击发送 send 文案（走对话）；'
+            '"confirm"=点击触发真预约（/chat/confirm，replay 已挂好的 pending_actions），'
+            '不发对话消息。用于「给我预约吧」识别后的一键确认 chip。'
+        ),
+    )
 
 
 class RouterDecision(BaseModel):

@@ -2,7 +2,8 @@
 
 用真 LLM stub（mock classify_input）隔离 LLM 不确定性，专测 router_node 三层逻辑：
 - R1：has_itinerary + 长反馈 → feedback
-- R4：has_itinerary + 真新需求（LLM 判 planning）→ planning（不误伤）
+- session-no-new-request：has_itinerary + 看似新需求（LLM 判 planning / 命中快路）→ feedback
+  （会话内没有"该丢上下文的新需求"，统一交 refiner 带上一版 intent 上下文）
 - R6.4：无 itinerary → 行为与原逻辑一致（不进新分支）
 """
 
@@ -88,7 +89,7 @@ def test_ambiguous_with_itinerary_routes_feedback(monkeypatch):
     assert out["route_kind"] == "feedback"
 
 
-# ---- R4：has_itinerary + 真新需求（LLM 判 planning）→ planning ----
+# ---- session-no-new-request：has_itinerary + 看似新需求 → feedback（带上下文 refine）----
 
 _NEW_REQUESTS = [
     "周末想带爸妈去吃顿好的，换个安排",
@@ -97,14 +98,16 @@ _NEW_REQUESTS = [
 
 
 @pytest.mark.parametrize("text", _NEW_REQUESTS)
-def test_new_request_routes_to_planning(monkeypatch, text):
-    """R4：已有方案 + LLM 判 planning（明确新需求）→ planning（不误伤）。"""
+def test_new_request_in_session_routes_to_feedback(monkeypatch, text):
+    """session-no-new-request：已有方案 + 看似新需求（LLM 判 planning 或命中快路）
+    → feedback。会话内没有"该丢上下文的新需求"，统一交 refiner 在上一版 intent 上
+    合并 / 换场景覆盖，绝不丢已有约束。"""
     monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
     monkeypatch.setattr(
         router_mod, "classify_input", lambda *a, **k: _make_decision("planning")
     )
     out = router_mod.router_node(_state_with_itinerary(text))
-    assert out["route_kind"] == "planning", f"{text!r} 应路由为 planning"
+    assert out["route_kind"] == "feedback", f"{text!r} 会话内应路由为 feedback"
 
 
 # ---- R6.4：无 itinerary → 行为与原逻辑一致 ----

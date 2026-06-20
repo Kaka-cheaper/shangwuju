@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<!--
+  模块导览页 · 数据模板（spec-by-example）
+  ─────────────────────────────────────────────────────────────
+  每个模块兵复制本文件 → 重命名 module-<id>.html → 只改下方 TOUR_DATA。
+  绝对不要改 <head> 引用、不要写内联 CSS/JS、不要改 HTML 结构。
+  样式与交互全部由 assets/tour.css + assets/tour-engine.js 提供，保证 7 页一致。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模块导览 · 晌午局</title>
+  <link rel="stylesheet" href="assets/tour.css" />
+</head>
+<body>
+  <script src="assets/tour-engine.js"></script>
+  <script src="assets/glossary.js"></script>
+  <script>
+  /* =================================================================
+     TOUR_DATA —— 唯一需要你填的东西。字段说明见 _SCHEMA.md。
+     ================================================================= */
+  const TOUR_DATA = {
+    meta: {
+      id: "demo",                       // 模块 id（= 文件名 module-<id>）
+      title: "模块标题（示例）",          // 顶部大标题
+      module_label: "本模块 · 导览站点",   // 左轨小标题
+      arch: true,                       // 顶栏显示「为什么这样设计」链接
+      prev: { href: "index.html", title: "总览" },          // 上一模块（无则省略）
+      next: { href: "module-x.html", title: "下一模块名" },  // 下一模块（无则省略）
+      outro_title: "你已掌握这一段主线",
+      outro: "代码地图已全部点亮，可点左侧任意站点回看；或顺主线进入下一模块。"
+    },
+
+    // 右图：代码地图的节点与连线。kind ∈ input|compute|decision|output|fallback
+    // col/row 为网格坐标（从 0 起）；可不填，引擎会竖排兜底，但建议填以画出真实数据流。
+    graph: {
+      nodes: [
+        { id: "in",   label: "入口 entry",     kind: "input",    col: 0, row: 1 },
+        { id: "calc", label: "核心计算",        kind: "compute",  col: 1, row: 1 },
+        { id: "dec",  label: "分支判断",        kind: "decision", col: 2, row: 1 },
+        { id: "out",  label: "产出 output",    kind: "output",   col: 3, row: 0 },
+        { id: "fb",   label: "兜底 fallback",  kind: "fallback", col: 3, row: 2 }
+      ],
+      edges: [
+        { from: "in", to: "calc" }, { from: "calc", to: "dec" },
+        { from: "dec", to: "out" }, { from: "dec", to: "fb" }
+      ]
+    },
+
+    // 步骤：steps[0] 必须是 kind:"skeleton"（主线骨架，三段论 reveal + teach，无 gap）。
+    // 其余每步 = gap（真问题，带?）+ reveal（一句话punch）+ teach（老师讲）+ 真实 refs。
+    // 【两层叙述 —— 这是导览不像百科全书的关键】
+    //   reveal = 一句话点破答案（≤40 字，给快速扫的人）。
+    //   teach  = 字符串数组，每条渲染成一段，按「场景痛点 → 怎么办 → 妙在哪」三段式，
+    //            用『你/我们』对话口吻、带具体例子，把『为什么聪明』讲透（像老师坐你旁边）。
+    //            凡出现代码变量名（如 planning_fast_path），先用人话点明它是什么，别裸抛。
+    // 全程 6-10 步；focus = 本步点亮的节点 id（≤3 个）。
+    steps: [
+      {
+        kind: "skeleton",
+        title: "主线骨架：先 A，然后 B，最后 C",
+        focus: ["in", "calc", "out"],
+        reveal: "三段主线：<b>先 A</b>（一句话）→ <b>然后 B</b>（一句话）→ <b>最后 C</b>（一句话）。其余都围着这条线转。",
+        teach: [
+          "先把读者摁进场景：把自己想象成这个系统的某个角色，他此刻面对什么难题？",
+          "这一模块分三段，顺序有讲究：<b>先 A</b>（为什么先做这个）→ <b>然后 B</b> → <b>最后 C</b>。",
+          "记住这条线，后面每一站都是它的一个放大特写。"
+        ]
+      },
+      {
+        kind: "step",
+        title: "这一站讲什么（短）",
+        focus: ["calc"],
+        gap: "这里写一个真问题，制造『我居然没想过』的缺口，必须带问号？",
+        reveal: "一句话点破答案（≤40 字），有因果方向。可用 <b>加粗</b> 和 <code>行内码</code>。",
+        // teach：老师口吻把上面那句掰开揉碎。三段 = 痛点场景 / 怎么办 / 妙在哪。
+        teach: [
+          "<b>痛点</b>：用一个具体例子让读者先尝到『这事没那么简单』。比如用户打了句『……』，结果……",
+          "<b>怎么办</b>：讲清机制，遇到代码名先翻译（『代码里叫 <code>some_name</code>，其实就是一道……』）。",
+          "<b>妙在哪</b>：点出这个设计聪明在哪、解决了开头那个痛点——让读者『啊我懂了』。"
+        ],
+        refs: [
+          { file: "backend/path/to/file.py", lines: [12, 40], note: "鼠标悬停显示的说明" },
+          { file: "backend/another.py", lines: [88, 88] }
+        ],
+        // 可选：按需深挖 —— 折叠的真实源码片段。lang ∈ "py" | "js"。lines[0] = 起始行号。
+        code: {
+          label: "展开源码 · 这段怎么实现",
+          file: "backend/path/to/file.py", lang: "py", lines: [12, 18],
+          snippet:
+`def example(intent):  # 真实粘贴的源码（保持缩进）
+    if not intent.constraints:
+        return fallback()   # 兜底
+    return plan(intent)`
+        }
+      },
+      {
+        kind: "step",
+        title: "放 quiz 的一站（条件分支/反直觉处）",
+        focus: ["dec", "fb"],
+        gap: "在用户凭直觉会答错的地方设问，例如：都失败了系统会报错吗？",
+        // quiz：干扰项必须是「合理但错误」的直觉答案。answer 为 0-based 下标。
+        quiz: {
+          question: "当 LLM 重试 2 次仍过不了校验，系统会怎么做？",
+          options: ["直接报错给用户", "切换到纯算法兜底，出不完美但完整的方案", "无限重试直到成功"],
+          answer: 1,
+          wrong_note: "你以为过不了就该报错，实际是 give_up 放行——因为宁可给不完美的完整方案，也不让用户对着 500 发呆。",
+          right_note: "对——give_up 不是失败，是『永远有兜底』的设计承诺。"
+        },
+        reveal: "揭晓答案叙事：双层兜底——LLM backprompt ≤2 次 → ILS 算法 → give_up 放行。",
+        refs: [{ file: "backend/path/replan.py", lines: [49, 105] }]
+      }
+    ]
+  };
+
+  TourEngine.mount(TOUR_DATA);
+  </script>
+</body>
+</html>

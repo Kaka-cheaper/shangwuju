@@ -616,3 +616,9 @@
   - 实现：新增 `docs/08-delivery/系统交付说明-简约版.tex`；用 XeLaTeX 编译生成 `docs/08-delivery/系统交付说明-简约版.pdf`；由于原 `系统交付说明-简约版.docx` 被 Word 锁定，另生成同目录 `系统交付说明-简约版-latex.docx` 作为 Word 包装版。
   - 内容核对：文档已对齐当前代码真实状态：`/chat/turn` 是 V3 LangGraph 主规划流；`/chat/confirm` 基于 session 快照直接执行确认类 Tool；当前 Tool 注册数为 9 个，包含 `order_extra_service`；异常机制按 critic violation、Tool structured failure、confirm heartbeat/后台记忆写入描述。
   - 验证：`xelatex -interaction=nonstopmode -halt-on-error` 编译成功，PDF 输出 2 pages；`pdftoppm` 渲染两页做视觉核查，无裁切/溢出；Word 包装文件含 2 张页面图。
+
+- **D-ROADSHOW-HERO-FRONTEND** [2026-06-20]：路演 hero 页采用“分步披露式一镜到底”作为演示前端范式。
+  - 决策：`路演PPT/hero.html` 后续按 Progressive Disclosure + Motion Choreography + Presenter-controlled Clickthrough 维护；新增 `路演PPT/演示前端设计原则.md` 作为简版规则。
+  - 理由：当前路演不是传统 PPT，而是讲解者逐拍推进的系统状态演示；逐步披露能降低认知负担，语义动效能让评委看懂数据流/状态流。
+  - 实现：修复“交大模型”气泡生命周期；fanout SVG 改为运行时像素 viewBox，三条线从 worker DOM 左边中心点动态锚定，并在 worker FLIP 动画完成后再次对齐。
+  - 验证：localhost 4322、1632×665 视口下，`#decoyB/#stampB` 在“交大模型”停留并在下一拍退出；三条 fanout 线均精确锚到 worker 左边中心点，`dx=0px`、`dy=0px`、`strokeDasharray=none`、`strokeDashoffset=0px`。

@@ -221,9 +221,12 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         )
         update_fields["decision_trace"] = new_trace
 
-    new_itinerary = (
-        itinerary.model_copy(update=update_fields) if update_fields else itinerary
-    )
+    # 工具前移（spec dialogue-act-routing）：规划最后一步把「确认动作清单」算好挂上，
+    # confirm 时直接 replay、不再读 intent。narrate 是 LangGraph 规划的最后必经节点。
+    from agent.graph.nodes.execute_finalize import build_confirm_actions
+
+    update_fields["pending_actions"] = build_confirm_actions(itinerary, intent)
+    new_itinerary = itinerary.model_copy(update=update_fields)
 
     # spec algorithm-redesign R5：narrate 主逻辑末尾的副作用——回写 user_profile.json
     # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律）

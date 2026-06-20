@@ -96,21 +96,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
       ? structuredClone(currentItinerary)
       : null;
 
-    // 重置中间过程，但保留 messages 历史与 chitchatReplies 气泡
-    // （聊天历史不应被新输入清空——只有用户主动 reset 才清）
+    // 惰性清空（Bug 修复）：**发送时不清空主页面**——这次输入可能只是提问 / 确认 /
+    // 预约 / 闲聊（不重跑）。只在收到「重跑信号」(intent_parsed / refinement_start) 时，
+    // 由 event-handlers 清空 toolCalls/thoughts/itinerary。这里只挂起 awaitingReplan。
+    // 仍保留 messages 历史与 chitchatReplies 气泡。
     set((s) => ({
       streaming: true,
       streamError: null,
       streamPhase: "stream",
-      intent: null,
-      toolCalls: [],
-      replans: [],
-      thoughts: [],
-      itinerary: null,
+      awaitingReplan: true,
       previousItinerary: previousSnapshot,
-      narration: null,
       cancelled: false,
-      lastRefinement: null,
       messages: [
         ...s.messages,
         {
@@ -145,31 +141,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
-          // 加一条 agent 总结消息——优先用后端 narration（暖语气），fallback 到 summary
-          const itin = get().itinerary;
-          const narr = get().narration;
-          if (narr?.text || itin) {
-            const text = narr?.text || (itin ? `已为你规划：${itin.summary}` : "");
-            if (text) {
-              set((s) => ({
-                messages: [
-                  ...s.messages,
-                  {
-                    id: `a-${Date.now()}`,
-                    role: "agent",
-                    text,
-                    createdAt: Date.now(),
-                  },
-                ],
-              }));
-              upsertSession({
-                id: get().sessionId,
-                lastMessageAt: Date.now(),
-                lastSummary: text.slice(0, 80),
-              });
+          // 只有本轮真重跑了（收到过 intent_parsed / refinement_start → awaitingReplan 被清）
+          // 才补一条 agent 总结消息。chitchat turn（提问/确认/预约/闲聊）保留着上一轮的
+          // narration，不能再 push 一遍——否则旧方案文案会重复出现（惰性清空的连带 bug）。
+          const wasReplan = !get().awaitingReplan;
+          if (wasReplan) {
+            const itin = get().itinerary;
+            const narr = get().narration;
+            if (narr?.text || itin) {
+              const text = narr?.text || (itin ? `已为你规划：${itin.summary}` : "");
+              if (text) {
+                set((s) => ({
+                  messages: [
+                    ...s.messages,
+                    {
+                      id: `a-${Date.now()}`,
+                      role: "agent",
+                      text,
+                      createdAt: Date.now(),
+                    },
+                  ],
+                }));
+                upsertSession({
+                  id: get().sessionId,
+                  lastMessageAt: Date.now(),
+                  lastSummary: text.slice(0, 80),
+                });
+              }
             }
           }
-          set({ streaming: false, streamPhase: "idle" });
+          set({ streaming: false, streamPhase: "idle", awaitingReplan: false });
         },
       },
       undefined,
@@ -210,13 +211,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   confirm: async () => {
     if (get().streaming) return;
-    if (!get().itinerary) return;
+    const itin = get().itinerary;
+    if (!itin) return;
+    // 幂等守卫：已经预约过（itinerary 带订单）就不再重复 confirm——防按钮多点导致重复下单
+    // + 重复 push 收尾文案。前端按钮也会 disabled，这里是双保险（ItineraryCard 按钮等其它入口）。
+    if ((itin.orders?.length ?? 0) > 0) return;
 
     abortController?.abort();
     abortController = new AbortController();
-    // confirm 流不重置 toolCalls / replans / thoughts / itinerary——
-    // 这是接续之前规划好的链路继续往下走，UI 上应保留前一阶段的事件展示，
-    // 仅追加 confirm 阶段的 reserve_restaurant / buy_ticket / order_extra_service / generate_share_message / memory_persisted。
+    // confirm **进行中**不重置：接续展示规划链路 + 追加 confirm 执行动画
+    // （reserve_restaurant / buy_ticket / order_extra_service / generate_share_message）。
+    // confirm **完成后**（onDone）才清掉规划过程展示——它已是终态，只留「已预约」方案卡 + 暖心收尾。
     set({ streaming: true, streamError: null, streamPhase: "confirm" });
 
     await streamSse(
@@ -230,22 +235,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
-          // confirm 后的暖心收尾文案（"都搞定了"语气，由后端 narrator confirm 阶段生成）
+          // confirm 是终态：意图解析 / 思考链路 / 执行动画都让位给「已预约」结果。
+          // 清掉规划过程展示，保留方案卡（itinerary 已带订单）+ 暖心收尾文案（"都搞定了"）。
           const narr = get().narration;
-          if (narr?.text && narr.stage === "confirm") {
-            set((s) => ({
-              messages: [
-                ...s.messages,
-                {
-                  id: `a-${Date.now()}`,
-                  role: "agent",
-                  text: narr.text,
-                  createdAt: Date.now(),
-                },
-              ],
-            }));
-          }
-          set({ streaming: false, streamPhase: "idle" });
+          set((s) => ({
+            streaming: false,
+            streamPhase: "idle",
+            intent: null,
+            thoughts: [],
+            toolCalls: [],
+            replans: [],
+            lastRefinement: null,
+            messages:
+              narr?.text && narr.stage === "confirm"
+                ? [
+                    ...s.messages,
+                    {
+                      id: `a-${Date.now()}`,
+                      role: "agent",
+                      text: narr.text,
+                      createdAt: Date.now(),
+                    },
+                  ]
+                : s.messages,
+          }));
           // Phase 0.7：confirm 后异步刷偏好（让评委看到 accepted_tags 累加）
           get().refreshPreferences().catch(() => {});
         },

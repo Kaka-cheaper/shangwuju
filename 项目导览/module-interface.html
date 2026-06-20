@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<!--
+  模块导览页 · interface（前端流式渲染 / SSE 消费层）
+  只改 TOUR_DATA。样式与交互由 assets/tour.css + assets/tour-engine.js 提供。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模块导览 · 晌午局</title>
+  <link rel="stylesheet" href="assets/tour.css" />
+</head>
+<body>
+  <script src="assets/tour-engine.js"></script>
+  <script src="assets/glossary.js"></script>
+  <script>
+  /* =================================================================
+     TOUR_DATA —— 前端 interface：字节流 → 切分缓冲 → 看门狗 → 分发 → 多面板
+     ================================================================= */
+  const TOUR_DATA = {
+    meta: {
+      id: "interface",
+      title: "前端流式渲染：把一串会断的字节流，变成不假死的画面",
+      module_label: "interface · 流式消费与渲染",
+      arch: true,
+      prev: { href: "module-execution.html", title: "确认与执行" },
+      next: { href: "module-collab.html", title: "多人协作" },
+      outro_title: "你已掌握「字节流怎么变成活的画面」这一段",
+      outro: "手写解析器扛住粘围栏与跨 chunk 半个事件，双超时看门狗在 8s/60s 红线前先喊断流，store 一处分发喂给卡片/地图/链路面板，断流也只是降级提示而非白屏。可这套稳渲染到现在只服务一个拍板人——下一站看一家人意见不合时，怎么同屏投票、谁的赞能锁住那一段。"
+    },
+
+    graph: {
+      nodes: [
+        { id: "bytes",   label: "SSE 字节流",          kind: "input",    col: 0, row: 1 },
+        { id: "split",   label: "切分 + 跨chunk缓冲",   kind: "compute",  col: 1, row: 1 },
+        { id: "watch",   label: "双超时看门狗",          kind: "decision", col: 2, row: 1 },
+        { id: "store",   label: "store 事件分发",        kind: "compute",  col: 3, row: 1 },
+        { id: "card",    label: "行程卡 + 时间轴/地图",   kind: "output",   col: 4, row: 0 },
+        { id: "trace",   label: "Tool 链路面板",         kind: "output",   col: 4, row: 2 },
+        { id: "degrade", label: "5 类降级提示",          kind: "fallback", col: 2, row: 2 }
+      ],
+      edges: [
+        { from: "bytes", to: "split" },
+        { from: "split", to: "watch" },
+        { from: "watch", to: "store" },
+        { from: "store", to: "card" },
+        { from: "store", to: "trace" },
+        { from: "watch", to: "degrade" }
+      ]
+    },
+
+    steps: [
+      {
+        kind: "skeleton",
+        title: "主线骨架：切分缓冲 → 看门狗守红线 → 一处分发喂多个面板",
+        focus: ["split", "watch", "store"],
+        reveal: "三段主线：<b>手写解析器</b>把字节流按 SSE 围栏切块、半个事件的跨 chunk 残片先缓冲 → <b>双超时看门狗</b>盯首字节 8s / 空闲 60s，超了就降级别假死 → <b>store 一处分发</b>把每类事件喂给行程卡、地图、Tool 链路面板。",
+        teach: [
+          "后端千辛万苦把规划过程变成一串流式字节往外推。可这串字节<b>又脆又乱</b>：网络一抖就断、半个事件糊在一起、后端一卡前端就转圈。前端这一关，就是把这堆烂摊子<b>变成一块不假死的画面</b>。",
+          "三段：<b>切分缓冲</b>（手写解析器把字节流按 SSE 围栏切成一个个完整事件，切不齐的半截先存着）→ <b>看门狗守红线</b>（盯着『首字节 8 秒、空闲 60 秒』，超了就体面降级而非干等）→ <b>一处分发</b>（解析好的事件统一进 store，再分给行程卡、地图、链路面板各取所需）。",
+          "一句话：<b>『字节进来，画面出去，中间绝不许假死』</b>。这一站全是和不可靠的网络死磕的细节。"
+        ]
+      },
+      {
+        kind: "step",
+        title: "字节流横竖都对不齐：半个事件 vs 粘连一堆",
+        focus: ["bytes", "split"],
+        gap: "先说明：规划请求要 POST 带 header，浏览器原生 <code>EventSource</code> 只支持 GET，所以这里手写解析。麻烦在于 TCP 不保证一个事件落在一个 chunk 里——某条 <code>data:</code> 的 JSON 可能<b>写到一半就断在 chunk 边界</b>，下一个 chunk 又可能<b>粘了好几个完整事件</b>。一个 <code>JSON.parse</code> 怎么同时扛住这两头？",
+        reveal: "<code>buf</code> 累积 + <b>while 循环切分</b>：read 到的字节先追加进 buf，找到完整围栏才切一块解析，循环切到再也切不出为止——切不出的残片留 buf 等下次 read。半个不提前喂、粘一堆不漏切。",
+        teach: [
+          "先交代个前提：规划请求得 POST 带 header，而浏览器自带的 SSE 接收器 <code>EventSource</code> <b>只支持 GET</b>，所以只能手写解析。麻烦随之而来：网络不保证『一个事件正好装进一个数据包』——某条事件的 JSON 可能<b>写到一半就断在包的边界</b>，下一个包又可能<b>粘了好几个完整事件</b>。",
+          "靠一个<b>缓冲区 <code>buf</code> ＋ 一个 while 循环</b>：每次读到新字节，先<b>追加</b>进 buf；然后在 buf 里找完整的事件围栏，找到一个就切一块出来解析，<b>循环切，直到再也切不出</b>为止。",
+          "切剩的<b>半截残片就留在 buf 里</b>，等下次读到新字节再接着拼。于是『半个事件绝不提前喂给 JSON.parse，粘成一堆也绝不漏切』——同一套缓冲逻辑，把『断成两半』和『粘成一堆』两个相反的麻烦一并治了。"
+        ],
+        refs: [
+          { file: "frontend/lib/sse.ts", lines: [78, 87], note: "fetch POST + Accept: text/event-stream（EventSource 只支持 GET，故手写）" },
+          { file: "frontend/lib/sse.ts", lines: [162, 185], note: "buf 累积 + 内层 while：半个残片留 buf、粘连多事件一次切干净" },
+          { file: "frontend/lib/sse.ts", lines: [163, 163], note: "decoder.decode(value,{stream:true}) 增量解码，跨 chunk 多字节字符不乱码" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "\\r\\n\\r\\n 和 \\n\\n 同位置打架",
+        focus: ["split"],
+        gap: "SSE 围栏有两种写法：LF 版 <code>\\n\\n</code>（2 字节）和 CRLF 版 <code>\\r\\n\\r\\n</code>（4 字节）。代理改写后两者可能<b>在同一位置出现</b>——<code>indexOf('\\n\\n')</code> 会命中 CRLF 围栏内部的那个 \\n\\n。按哪个切，切错了会怎样？",
+        quiz: {
+          question: "buf 里出现 \\r\\n\\r\\n，indexOf('\\n\\n') 指向了它内部（b+2 位置）。按哪个切才不破坏块？",
+          options: [
+            "按 \\n\\n（2 字节）切，谁先出现切谁",
+            "同位置时按 \\r\\n\\r\\n（4 字节）切，把 \\r 也吃掉",
+            "无所谓，多一个 \\r 字符不影响 JSON.parse"
+          ],
+          answer: 1,
+          wrong_note: "你以为多个 \\r 无害、谁先出现切谁，实际会把块尾留下游离的 \\r：上一块尾巴或下一块头部多个 \\r，行解析时 <code>data:</code> 前缀错位就整条丢。<b>同位置必须按 4 字节版切干净</b>。",
+          right_note: "对——findBlockSeparator 专门判 a===b+2 走 4 字节版，这是修过的真实 bug：CRLF 围栏内嵌的 \\n\\n 不是真分隔。"
+        },
+        reveal: "<code>findBlockSeparator</code> 取较早出现的围栏；<b>同位置时优先 4 字节版</b>切干净。专门判 <code>a === b+2</code>（\\n\\n 落在 CRLF 围栏内部）走 \\r\\n\\r\\n，避免块尾留游离 \\r。",
+        teach: [
+          "更阴的来了：SSE 的事件围栏<b>有两种写法</b>——LF 版 <code>\\n\\n</code>（2 个字符）和 CRLF 版 <code>\\r\\n\\r\\n</code>（4 个字符）。代理一改写，这俩可能<b>叠在同一个位置</b>：你用 <code>indexOf('\\n\\n')</code> 去找，结果它指到了 CRLF 围栏<b>内部</b>的那个 \\n\\n。按哪个切？",
+          "得有个专门的裁判 <code>findBlockSeparator</code>：它同时找两种围栏，取<b>更靠前</b>的那个；一旦发现两者<b>叠在同一处</b>（LF 围栏正好落在 CRLF 围栏里，即 <code>a === b+2</code>），就<b>认准 4 字节那版</b>切。",
+          "为什么必须切 4 字节？因为只按 2 字节切，会在块尾<b>留下一个游离的 \\r</b>；下一块开头多了它，<code>data:</code> 前缀就<b>错位</b>，整条事件被丢掉。这是个<b>真实修过的 bug</b>——多一个看不见的字符，就能让整条流默默丢数据。"
+        ],
+        refs: [
+          { file: "frontend/lib/sse.ts", lines: [224, 238], note: "findBlockSeparator：\\n\\n vs \\r\\n\\r\\n 同位置切分的治本逻辑" },
+          { file: "frontend/lib/sse.ts", lines: [241, 259], note: "parseBlock：逐行解析 event:/data:，data 多行 join，注释/keepalive 跳过" }
+        ],
+        code: {
+          label: "展开源码 · 同位置优先 4 字节版切干净",
+          file: "frontend/lib/sse.ts", lang: "js", lines: [227, 237],
+          snippet:
+`  const a = s.indexOf("\\n\\n");
+  const b = s.indexOf("\\r\\n\\r\\n");
+  if (a === -1 && b === -1) return { idx: -1, len: 0 };
+  if (a === -1) return { idx: b, len: 4 };
+  if (b === -1) return { idx: a, len: 2 };
+  if (b <= a) return { idx: b, len: 4 };
+  // \\n\\n 落在 \\r\\n\\r\\n 内部（a = b+2）：要走 4 字节版才切到真块尾
+  if (a === b + 2) return { idx: b, len: 4 };
+  return { idx: a, len: 2 };`
+        }
+      },
+      {
+        kind: "step",
+        title: "后端卡住了，前端转圈到天荒地老",
+        focus: ["watch", "bytes"],
+        gap: "fetch 已经发出，但后端 LLM 还在憋第一句话、或者代理半路挂了——字节一个都没回来。前端 <code>reader.read()</code> 会一直 await，转圈圈永远不结束。靠什么把它叫醒？",
+        reveal: "<b>双超时看门狗</b>：<code>firstEvent 8s</code> 守首字节、<code>idle 60s</code> 守空闲。用 AbortController 让 <code>read()</code> 和定时器赛跑——超时就 abort 掉读取，抛出对应 reason 走降级，绝不无限 await。",
+        teach: [
+          "<code>fetch</code> 发出去了，可后端的 LLM 还在憋第一句话、或者代理半路就挂了——<b>一个字节都没回来</b>。前端的 <code>reader.read()</code> 会<b>一直 await</b> 下去，页面转圈圈，永远等不到结束。靠什么把它<b>叫醒</b>？",
+          "用一只<b>双超时看门狗</b>：一条计时盯<b>首字节 8 秒</b>、一条盯<b>空闲 60 秒</b>。再用 <code>AbortController</code> 让『读取』和『计时器』<b>赛跑</b>——谁先到，谁说了算。",
+          "一旦计时器先到点，就<b>abort 掉那个卡死的读取</b>，抛出对应原因走降级。于是 <code>read()</code> <b>永远不会无限等下去</b>：要么等到数据，要么被闹钟叫醒去体面收场，二者必居其一。"
+        ],
+        refs: [
+          { file: "frontend/lib/sse.ts", lines: [121, 137], note: "watchdog AbortController + armTimeout：首字节 8s 起跑，超时 abort 掉 read" },
+          { file: "frontend/lib/sse.ts", lines: [144, 161], note: "Promise.race：reader.read() vs watchdog.abort() 赛跑，绝不无限 await" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "正常的 LLM 慢响应，被误判成断流",
+        focus: ["watch", "store"],
+        gap: "空闲看门狗一上来就 60s 倒计时。可一次 LLM 调用本身就可能跑十几二十秒——如果计时器从头到尾不动，<b>正常的慢响应会被当成断流误杀</b>。怎么区分「真断了」和「在干活只是慢」？",
+        quiz: {
+          question: "空闲看门狗怎么避免把「正在干活的慢响应」误判成断流？",
+          options: [
+            "把空闲超时调到很大（比如 5 分钟），宁可不报",
+            "每收到一条事件就重置空闲计时器，只有真正一段时间没任何事件才触发",
+            "收到事件后就永久关掉看门狗，反正已经在出数据了"
+          ],
+          answer: 1,
+          wrong_note: "你以为要么调大要么关掉，实际是<b>每条事件重置计时</b>：后端心跳/思考/工具事件只要在流，计时器就一次次归零；60s 是「相邻两条事件」的间隔上限，不是整轮总时长。永久关掉则会漏掉中途真断流。",
+          right_note: "对——armTimeout(idle) 在每条事件到达时重新武装，把「总时长」问题转成「相邻间隔」问题，慢但有动静就不误杀。"
+        },
+        reveal: "<b>每条事件重置空闲计时</b>：收到任意事件就把看门狗重新武装成 idle 60s。后端 <code>sse_adapter</code> 顶部还会先推一条心跳，赶在 8s 红线前喂出首字节。",
+        teach: [
+          "空闲看门狗一上来就 60 秒倒计时。可一次 LLM 调用本身就可能跑十几二十秒啊——要是这计时器<b>从头到尾不动</b>，那<b>正常但慢</b>的响应，岂不要被当成断流给<b>误杀</b>？怎么区分『真断了』和『在干活只是慢』？",
+          "关键一招：<b>每收到一条事件，就把空闲计时器重新归零</b>（重新武装成 60 秒）。后端也配合——LangGraph 还没正式开跑，<code>sse_adapter</code> 就先推一条心跳事件，赶在 8 秒红线前喂出首字节。",
+          "这等于把『<b>整轮总时长</b>』的问题，巧妙换成了『<b>相邻两条事件的间隔</b>』问题。只要流里还有心跳、思考、工具事件在冒，计时器就一次次归零；只有<b>真的一长段彻底没动静</b>，才判断断流。慢，但有动静，就不杀。"
+        ],
+        refs: [
+          { file: "frontend/lib/sse.ts", lines: [173, 184], note: "每条事件到达 → armTimeout(idle) 重置；done 则清计时器收尾" },
+          { file: "backend/agent/graph/sse_adapter.py", lines: [92, 93], note: "LangGraph 跑起来前先推心跳 agent_thought，防 8s 首字节超时" }
+        ],
+        code: {
+          label: "展开源码 · 后端顶部先推心跳防 8s 红线",
+          file: "backend/agent/graph/sse_adapter.py", lang: "py", lines: [92, 93],
+          snippet:
+`    # 心跳（防 8s 首字节超时）
+    yield ctx.emit(SseEventType.AGENT_THOUGHT, {"text": "正在理解你的需求……"})`
+        }
+      },
+      {
+        kind: "step",
+        title: "事件解析出来了，谁来摊给七八个面板",
+        focus: ["store", "card", "trace"],
+        gap: "一条流里混着 intent、tool_call、replan、itinerary、narration……十几种事件类型。如果每个组件各自订阅原始流自己挑，逻辑散一地还会重复 rerender。这堆事件该在哪里被归位？",
+        reveal: "<b>store 一处分发</b>：sse.ts 只管把事件解析出来回调，<code>handleEvent</code> 一个 switch 按 type 写进 zustand 对应字段。组件按字段细粒度订阅——卡片读 itinerary、链路面板读 toolCalls/replans，互不打架。",
+        teach: [
+          "一条流里混着十几种事件：意图解析、工具调用、重规划、行程、解说…… 要是<b>每个组件都各自去订原始流、自己挑自己要的</b>，逻辑撒得到处都是，还会重复触发渲染。这堆事件，到底该在<b>哪儿</b>统一归位？",
+          "答案是<b>归到一处</b>。<code>sse.ts</code> 只负责把事件解析出来回调；真正的分拣交给 <code>handleEvent</code> 里<b>一个大 switch</b>：按事件类型，写进 <code>zustand</code>（前端状态仓库）对应的字段。",
+          "然后各组件<b>按字段细粒度订阅</b>：行程卡只盯 itinerary、链路面板只盯 toolCalls/replans…… 各看各的，<b>互不打架、也不会被无关事件带着重渲染</b>。一个清爽的『中央调度台』，胜过满地各自为政的监听。"
+        ],
+        refs: [
+          { file: "frontend/lib/store/event-handlers.ts", lines: [28, 76], note: "handleEvent 大 switch：intent_parsed / tool_call_start / tool_call_end 各归各位" },
+          { file: "frontend/lib/store.ts", lines: [133, 177], note: "sendMessage：streamSse 的 onEvent 直接转发给 handleEvent" },
+          { file: "frontend/components/HomeView.tsx", lines: [243, 256], note: "两栏布局：行程卡 + 链路/约束/思考/决策面板各订各的 store 字段" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "行程一次性蹦出来，评委看不见编排过程",
+        focus: ["card"],
+        gap: "itinerary 事件一到，整条时间轴 + 地图标注如果<b>一帧全画完</b>，评委根本来不及看清 Agent 排了哪几段、地点在哪。可如果硬等动画，abort 或刷新时又会卡在半成品。怎么既有节奏又不卡死？",
+        reveal: "时间轴 <b>stagger 逐条长出</b>（≤2 段 200ms / 多段 400ms），地图 marker 配合 <code>visibleCount</code> 同步逐个亮；给「跳过动画」按钮，且 <code>streaming</code> 变 false 时强制兜底全显——防 abort 卡半截。",
+        teach: [
+          "行程事件一到，如果整条时间轴加地图标注<b>一帧之内全画完</b>，评委根本来不及看清 Agent 排了哪几段、地点都在哪。可要是硬等动画播完，中途 abort 或刷新时，又会<b>卡在一个半成品画面</b>上。怎么既有节奏、又不卡死？",
+          "用<b>错峰动画</b>（stagger）：时间轴一段段<b>依次长出来</b>（两段以内每段 200ms、多段 400ms），地图图钉跟着 <code>visibleCount</code> 同步一个个亮。再配一个『跳过动画』按钮给没耐心的人。",
+          "最关键的兜底：一旦 <code>streaming</code> 变成 false（比如用户 abort 了），就<b>强制把所有段一次全显</b>，绝不让画面僵在播了一半的尴尬状态。<b>有节奏，但永远不卡半截</b>——动画是为表达服务的，不是来添乱的。"
+        ],
+        refs: [
+          { file: "frontend/components/ItineraryCard.tsx", lines: [101, 149], note: "stagger 主逻辑：段数变化才重启动画，confirm 接续不重跑" },
+          { file: "frontend/components/ItineraryCard.tsx", lines: [161, 176], note: "streaming 变 false 的兜底：abort 时强制全显，不卡半成品" },
+          { file: "frontend/components/MapOverlay.tsx", lines: [296, 342], note: "地图按 visibleCount 增量加 marker，与时间轴同步亮起" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "高德的密钥，怎么没被打进前端包",
+        focus: ["card"],
+        gap: "高德 JS API 2.0 强制要 jscode 安全密钥才能加载地图。直接写 <code>NEXT_PUBLIC_AMAP_JS_CODE</code> 会被 Webpack 打进 bundle，<b>F12 一看就泄露</b>。可前端不给密钥地图又起不来，这怎么破？",
+        reveal: "走<b>后端代理</b>：前端只设 <code>serviceHost=/_AMapService</code>，高德 SDK 把对 restapi 的请求改写到这个路径，后端透传时才注入 jscode。<b>密钥只在 backend/.env，前端 0 暴露</b>。",
+        teach: [
+          "高德地图 JS API 2.0 强制要一个 <code>jscode</code> 安全密钥才肯加载。可你要是图省事直接写在 <code>NEXT_PUBLIC_AMAP_JS_CODE</code> 里，它会被<b>打进前端的 bundle</b>，用户 <b>F12 一看就泄露</b>。但前端不给密钥，地图又起不来——这死结怎么解？",
+          "走<b>后端代理</b>绕开它。前端只设一个 <code>serviceHost=/_AMapService</code>，告诉高德 SDK『你要请求的地址改成这个』；SDK 把请求发到这个本地路径，<b>后端在转发出去的那一刻，才偷偷把 jscode 拼上去</b>。",
+          "于是密钥<b>自始至终只待在 <code>backend/.env</code> 里</b>，前端的代码、网络面板里<b>一个字都看不到</b>。这其实是个通用招：凡是不能见光的密钥，都让它『只在后端最后一刻现身』。"
+        ],
+        refs: [
+          { file: "frontend/components/MapOverlay.tsx", lines: [41, 44], note: "serviceHost 指向后端 /_AMapService，前端只见公开 API_BASE" },
+          { file: "frontend/components/MapOverlay.tsx", lines: [208, 215], note: "window._AMapSecurityConfig 只设 serviceHost，不含任何密钥" },
+          { file: "backend/api/amap.py", lines: [40, 59], note: "后端代理：从 env 读 jscode 注入 query，再透传到 restapi.amap.com" }
+        ],
+        code: {
+          label: "展开源码 · 后端注入 jscode，前端永远看不到",
+          file: "backend/api/amap.py", lang: "py", lines: [49, 59],
+          snippet:
+`    jscode = _amap_jscode()
+    if not jscode:
+        raise HTTPException(
+            status_code=500,
+            detail="AMAP_JS_CODE not configured in backend/.env",
+        )
+
+    target_url = f"{_AMAP_UPSTREAM}/{path}"
+    params = dict(request.query_params)
+    params["jscode"] = jscode      # 密钥只在后端注入`
+        }
+      },
+      {
+        kind: "step",
+        title: "地图加载失败，整张行程卡跟着白屏吗",
+        focus: ["degrade", "card"],
+        gap: "现场网络抖、没配高德 Key、或 SDK 加载超时——地图这块大组件挂了。它要是把异常往上抛，会不会<b>把整张行程卡一起带崩成白屏</b>？",
+        reveal: "不会。MapOverlay 探测到缺 Key / SDK 失败时<b>降级成纯文字地点列表</b>（还标出几段通勤），行程卡其余部分照常渲染。每个降级点都是局部兜底，不冒泡。",
+        teach: [
+          "现场网络抖一抖、没配高德 Key、或者 SDK 加载超时——地图这块<b>大组件</b>挂了。它要是<b>把异常往上一抛</b>，会不会把<b>整张行程卡都带崩成白屏</b>？那可就全完了。",
+          "不会。MapOverlay 一旦探测到缺 Key 或 SDK 加载失败，就<b>就地降级成一个纯文字的地点列表</b>（还顺手标出几段通勤），行程卡的其余部分<b>照常渲染</b>。",
+          "每个降级点都是<b>局部兜底、绝不向上冒泡</b>。地图没了，你至少还看得见『去哪几个地方、各段怎么走』。<b>一个组件的失败，被牢牢摁在它自己那一小块里</b>——这正是前面反复出现的容错思路，在前端的又一次复刻。"
+        ],
+        refs: [
+          { file: "frontend/components/MapOverlay.tsx", lines: [392, 400], note: "缺 Key / loadError → 渲染 FallbackList 文字列表，不抛错" },
+          { file: "frontend/components/MapOverlay.tsx", lines: [608, 647], note: "FallbackList：纯文字地点 + 通勤段数，地图挂了也看得见去哪" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "流断了 / 用户中途取消，画面会僵在哪",
+        focus: ["degrade", "watch", "trace"],
+        gap: "看门狗判断断流、或用户嫌慢按下取消——这一刻已经画了一半的行程和半截 Tool 链路怎么办？是清空回到空白让人一脸懵，还是有更体面的收场？",
+        reveal: "<b>5 类降级各有话术</b>：网络/HTTP/无响应/断流/解析失败各映射成可读提示，不白屏。取消则<b>冻结按钮 + warn toast，但保留 decision_trace</b>——让评委还能复盘 Agent 已经想到哪一步。",
+        teach: [
+          "看门狗判定断流、或者用户嫌慢直接按了取消——<b>这一刻</b>，屏幕上已经画了一半的行程、半截的工具链路，该怎么收场？是<b>啪地清空回到空白</b>、让人一脸懵，还是有更体面的下台阶？",
+          "体面收场。<b>5 类异常各配一句人话</b>：网络错 / HTTP 错 / 没响应 / 中途断流 / 解析失败，分别映射成一条<b>看得懂的提示</b>，绝不白屏。如果是用户主动取消，就<b>冻结按钮 + 弹个提醒</b>，但<b>特意保留住 <code>decision_trace</code></b>。",
+          "为什么留着决策轨迹？因为哪怕这次没跑完，评委还能<b>顺着它复盘 Agent 已经想到了哪一步</b>——失败也失败得透明。至此前端这关讲完：从字节到画面，每一处可能崩的地方都铺了一张网。可这套方案到现在<b>还只是一个人在拍板</b>——一家人意见不合时，怎么同屏投票？那是隔壁『多人协作』的事。"
+        ],
+        refs: [
+          { file: "frontend/lib/sse.ts", lines: [31, 41], note: "SseStreamError.reason 五类来源：network/http/no_body/timeout/idle/stream/parse" },
+          { file: "frontend/lib/utils.ts", lines: [63, 72], note: "STREAM_ERROR_LABEL：每类 reason 映射成中文降级话术" },
+          { file: "frontend/lib/store.ts", lines: [348, 365], note: "cancel：abort + 冻结 streaming + warn toast，不清 toolCalls/trace" }
+        ],
+        code: {
+          label: "展开源码 · 取消只冻结不清场，保留 trace",
+          file: "frontend/lib/store.ts", lang: "js", lines: [348, 365],
+          snippet:
+`  cancel: () => {
+    abortController?.abort();
+    set((s) => ({
+      streaming: false,
+      streamPhase: "idle",
+      cancelled: true,
+      messages: [
+        ...s.messages,
+        {
+          id: \`a-\${Date.now()}\`,
+          role: "agent",
+          text: "已取消当前方案。可以重新点击场景按钮或输入一句话。",
+          createdAt: Date.now(),
+        },
+      ],
+    }));
+    get().pushToast({ kind: "warn", text: "已取消方案" });
+  },`
+        }
+      }
+    ]
+  };
+
+  TourEngine.mount(TOUR_DATA);
+  </script>
+</body>
+</html>

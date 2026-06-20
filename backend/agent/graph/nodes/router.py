@@ -169,22 +169,22 @@ def _looks_like_new_planning(user_input: str) -> bool:
 def router_node(state: AgentState) -> dict[str, Any]:
     """同步节点。LLM 分类（异常时启发式兜底）。
 
-    五层防御（spec feedback-routing-fix + prompt-injection-defense）：
+    五层防御（spec feedback-routing-fix + prompt-injection-defense + session-no-new-request）：
         Layer 0（注入检测，不调 LLM）：detect_injection 命中 high → off_topic 安全婉拒。
-        Layer 1（强信号，不调 LLM）：has_itinerary + looks_like_feedback_strong
-                  → feedback。强信号词（太远 / 太赶 / 数字单位 / 以内）几乎不可能是
-                  新需求开头，直接判 feedback。弱信号词（换 / 改）不在强信号子集，下沉到 Layer 2。
+        Layer 1（强信号，不调 LLM）：has_itinerary + looks_like_feedback_strong → feedback。
         Layer 1.5（正向规划 fast path，不调 LLM）：命中时间 / 活动 / 同行 / 预算距离时长等
-                  通用规划信号 → planning，避免典型规划句被 LLM router 误判成 chitchat。
-        Layer 2（LLM 分类，带上下文）：classify_input(has_itinerary=...)
-                  → has_itinerary 时 prompt 告知 LLM「用户已有方案」，使其能判反馈
-                  （多判 ambiguous）；明确新需求仍判 planning。
-        Layer 3（兜底，仅 ambiguous）：has_itinerary + LLM 判 ambiguous → feedback。
-                  classify_input 在 has_itinerary 时注入 FEEDBACK_CONTEXT_HINT，引导 LLM
-                  把真反馈措辞判为 ambiguous；故只接管 ambiguous。chitchat/meta/emotional/
-                  off_topic 保持各自语义走 chitchat 气泡（修复「你好」被误判反馈重规划的 bug）。
+                  通用规划信号 → 无方案时判 planning（首轮全新规划）；
+                  **有方案时判 feedback**——会话内没有"该丢上下文的新需求"，读着像新规划的话
+                  也交 refiner 在上一版 intent 上合并/换场景覆盖，绝不丢已有约束。
+        Layer 2（LLM 分类，带上下文）：classify_input(has_itinerary=...)。
+        Layer 3（会话内归并）：has_itinerary 时，LLM 判 planning（看似新需求）或 ambiguous
+                  （模糊反馈）→ **一律 feedback**，交 refiner 带上一版 intent 上下文处理
+                  （合并 / 换场景覆盖 / 换备选）。chitchat / meta / emotional / off_topic 有明确
+                  社交语义，保持各自气泡、不重规划（修复「你好」被误判反馈重规划的 bug）。
 
-    无 itinerary 的 session：全程不进任何新分支，行为与重构前一致（R6.4）。
+    设计前提（session-no-new-request）：对话始终在一个 session 内，已有方案后任何"规划/反馈"
+    类输入都是对上下文的延续，应交 refiner 带上下文判（拒绝原因 / 硬约束 / 还是单纯想换）。
+    无 itinerary 的首轮 session：行为与重构前一致（R6.4），planning 走全新抽取。
     """
     user_input = state.get("user_input") or ""
     has_itinerary = bool(state.get("itinerary"))
@@ -213,6 +213,10 @@ def router_node(state: AgentState) -> dict[str, Any]:
 
     # ---- Layer 1.5：正向规划 fast path（无场景枚举，仅看通用规划信号）----
     if _looks_like_new_planning(user_input):
+        if has_itinerary:
+            # 会话内没有"全新需求"：读着像新规划的话，也当带上下文的反馈，交 refiner
+            # 在上一版 intent 上合并 / 换场景覆盖——绝不丢已有约束。不调 LLM。
+            return {"route_kind": "feedback", "router_decision": None}
         return {
             "route_kind": "planning",
             "router_decision": fallback_decision(
@@ -232,21 +236,23 @@ def router_node(state: AgentState) -> dict[str, Any]:
     # router 的 input_kind 与 RouteKind 字段名一致
     route_kind: RouteKind = decision.input_kind  # type: ignore[assignment]
 
-    # ---- Layer 3：兜底（has_itinerary 且 LLM 判 ambiguous → feedback） ----
-    # 设计动机：已有方案的上下文里，classify_input 注入了 FEEDBACK_CONTEXT_HINT，
-    # 它明确引导 LLM 把「真反馈措辞」（太赶/想轻松点/换个活动/不太好）判为 ambiguous。
-    # 所以 Layer 3 只接管 ambiguous——这是真反馈落的桶。
-    #
-    # 【修复用户观察的 bug】旧实现是 `route_kind != "planning"` 一律转 feedback，
-    # 把 chitchat（你好）/ meta（你能做什么）/ off_topic（无关话题）也吞成 feedback
-    # 触发重规划——明显错误：这些是有明确社交语义的输入，应保持闲聊气泡。
-    # emotional（情绪表达）同理保持共情闲聊，不强转反馈。
-    # R4 防误伤：planning（明确新需求）走规划主路径；R1：长反馈靠 LLM 判 ambiguous 命中此分支。
-    if has_itinerary and route_kind == "ambiguous":
-        return {
-            "route_kind": "feedback",
-            "router_decision": None,
-        }
+    # ---- Layer 3：会话内对话行为统一判定（C2 收口 · spec dialogue-act-routing） ----
+    # 原 L3 拆桶（ambiguous）+ L3.5 闲聊 sniff（emotional/chitchat）两处重复的
+    # 「判断这句是什么对话行为 → 构造 decision」，提成一个 resolve_session_act
+    # （Fowler: Consolidate Duplicate Conditional Fragments + Extract Function）。
+    # 已有方案时一处判完：提问 → 接地回答；确认 → 肯定不重规划；提约束没说改 → 主动问气泡。
+    # 顺带补齐原先漏掉的口子：被 L2 判成 chitchat 的提问，现在也能进 QA。
+    if has_itinerary:
+        from agent.core.dialogue_acts import resolve_session_act
+
+        act = resolve_session_act(user_input, state.get("itinerary"), client=client)
+        if act is not None:
+            return act
+
+    # 兜底归并：已有方案 + planning/ambiguous（认不出的对话行为）→ feedback（红线：真反馈不漏）。
+    # chitchat/meta/emotional/off_topic 有明确社交语义，保持各自气泡、不重规划。
+    if has_itinerary and route_kind in ("planning", "ambiguous"):
+        return {"route_kind": "feedback", "router_decision": None}
 
     return {
         "router_decision": decision,

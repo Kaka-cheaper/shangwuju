@@ -57,7 +57,8 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         return
 
     cached = SESSION_STORE.get(req.session_id)
-    if not cached or not cached.get("intent") or not cached.get("itinerary"):
+    # 工具前移后 confirm 只需 itinerary（动作清单挂在它上面）；intent 缺省不再算错（拆 ReAct 断点）。
+    if not cached or not cached.get("itinerary"):
         yield emit(
             SseEventType.STREAM_ERROR,
             {
@@ -69,7 +70,8 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         return
 
     try:
-        intent = IntentExtraction.model_validate(cached["intent"])
+        intent_raw = cached.get("intent")
+        intent = IntentExtraction.model_validate(intent_raw) if intent_raw else None
         itinerary = Itinerary.model_validate(cached["itinerary"])
     except Exception as exc:  # noqa: BLE001
         yield emit(
@@ -156,7 +158,8 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         SESSION_STORE[req.session_id] = {**cached, "itinerary": final_payload}
         yield emit(SseEventType.ITINERARY_READY, final_payload)
 
-        if result.get("post_confirm_effects_deferred"):
+        # intent 缺省（ReAct 路径没落库）时跳过写偏好——没意图无从推画像；订单/文案/record 照常。
+        if result.get("post_confirm_effects_deferred") and intent is not None:
             _schedule_background_memory_persist(
                 finalize_state=finalize_state,
                 intent=intent,

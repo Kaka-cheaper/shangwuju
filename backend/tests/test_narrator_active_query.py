@@ -400,7 +400,8 @@ def test_refiner_node_resets_trace_fields(monkeypatch) -> None:
     refined = _make_intent(companions=[Companion(role="孩子", age=5, count=1)])
     monkeypatch.setattr(
         refiner_mod, "refine_intent",
-        lambda original, feedback_text, client: FakeRefinerOutput(refined),
+        # **kwargs 吃掉 client / itinerary_summary 等关键字参数，免得节点新增入参时这个 fake 失配
+        lambda original, feedback_text, **kwargs: FakeRefinerOutput(refined),
     )
 
     class FakeClient:

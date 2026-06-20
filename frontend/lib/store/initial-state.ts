@@ -18,6 +18,7 @@ export const initialState: InitialChatState = {
   streaming: false,
   streamError: null,
   streamPhase: "idle",
+  awaitingReplan: false,
   messages: [],
   intent: null,
   toolCalls: [],

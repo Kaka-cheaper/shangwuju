@@ -35,15 +35,29 @@ REFINER_SYSTEM_PROMPT = f"""你是「晌午局」的反馈合并模块。
 {ROLE_LOCK_NOTICE}
 
 【任务】
-用户对方才规划的方案不满，给出了反馈。你需要：
-1. 理解反馈核心诉求
-2. 在原 IntentExtraction 基础上，**最小幅度**修改字段
+对话始终在同一个 session 里。用户已有一版方案，又说了一句话——它可能是对方案的不满反馈，
+也可能是在已有上下文里继续提新的安排。你要**带着上一版 intent 的上下文**，产出调整后的 IntentExtraction。
+
+【先判断这次输入属于哪种（带上下文想：他为什么这么说）】
+A. 局部不满（"太远了 / 太贵 / 换个氛围 / 这段太赶"）
+   → 只**最小修改**被命中的字段，其余照搬。
+B. 换了场景（时间 / 同行 / 活动变了，如"周末改带爸妈吃饭""下午改成和朋友打球"）
+   → 这是带上下文的延续，不是从零开始：**覆盖所有冲突字段**（同行 / 社交语境 / 相关 tag /
+     时间 / 时长），但**保留仍适用的合理约束**（如"别太远""带孩子"的物理约束若还成立）。
+C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
+   → 字段基本不动，在 ambiguous_fields 记下"上次推荐的 X 不行"，让 planner 后续避开。
+判不准时，把这次输入当作**最高优先级约束**合并进去——宁可多覆盖，也不要丢掉它。
+
+你需要：
+1. 按 A/B/C 理解这次输入的核心诉求
+2. 在原 IntentExtraction 基础上做**必要修改**（A 最小改 / B 覆盖冲突字段 / C 基本不动）
 3. 输出新的 IntentExtraction（结构与原始完全一致）+ 中文变更摘要
 
 【输入格式】
 你会同时收到：
-- 原 IntentExtraction JSON（字段全部已合法）
-- feedback_text 字符串（可能为空）
+- 原 IntentExtraction JSON（上一版意图，字段全部已合法）
+- 上一版行程摘要（可能有；用户正是看着这份方案在说话——据此判断他在拒什么、想改什么）
+- feedback_text / 用户这次说的话（可能为空）
 
 【输出格式（必须严格 JSON，禁止围栏）】
 {{
@@ -60,7 +74,8 @@ REFINER_SYSTEM_PROMPT = f"""你是「晌午局」的反馈合并模块。
    dietary : {_format_set(DIETARY_TAGS)}
    experience: {_format_set(EXPERIENCE_TAGS)}
    social_context（9 选 1）: {_format_set(SOCIAL_CONTEXTS)}
-4. 仅修改反馈直接命中的字段；其他字段从原 intent 原样复制（包括 ambiguous_fields / parse_confidence）
+4. 按上面 A/B/C 决定改动范围：局部不满只改命中字段；换场景覆盖所有冲突字段；换备选基本不动。
+   未被这次输入触及的字段，一律从原 intent 原样复制（包括 ambiguous_fields / parse_confidence）
 5. changed_fields 是面向用户的中文短句列表，每条形如「字段：旧 → 新」或「加 X / 去 X」
 6. 输出**纯 JSON**，**不要**用 ```json 围栏
 
@@ -160,13 +175,71 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"changed_fields":["距离上限：5km → 4km"],'
         '"refiner_note":"已把搜索范围稍微收紧，重新打散候选试试。"}',
     ),
+    # 4. B 换场景：同行/场景/三类 tag 全覆盖，不是最小修改
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"妻子","count":1},'
+        '{"role":"孩子","age":5,"count":1}],"physical_constraints":["亲子友好","适合 5-10 岁"],'
+        '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
+        '"social_context":"家庭日常","raw_input":"今天下午带老婆孩子",'
+        '"parse_confidence":0.92,"ambiguous_fields":[],'
+        '"start_weekday":null,"capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[]} | feedback="不带孩子了，改成陪我爸妈吃个饭，要安静点"',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[3,5],"distance_max_km":5,'
+        '"companions":[{"role":"父母","age":null,"count":2,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":["适合老人","可休息"],'
+        '"dietary_constraints":["健康轻食","软烂"],"experience_tags":["安静聊天"],'
+        '"social_context":"老人伴助","capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[],'
+        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[]},'
+        '"changed_fields":["同行：妻子+孩子 → 父母","场景：家庭日常 → 老人伴助",'
+        '"物理：去亲子友好/适合5-10岁，加适合老人/可休息","忌口加软烂；体验加安静聊天"],'
+        '"refiner_note":"明白，这次是陪爸妈吃饭——去掉了亲子相关，换成适合老人的安静安排。"}',
+    ),
+    # 5. C 换备选：不满意某个具体推荐，字段基本不动，记进 ambiguous_fields
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"妻子","count":1},'
+        '{"role":"孩子","age":5,"count":1}],"physical_constraints":["亲子友好","适合 5-10 岁"],'
+        '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
+        '"social_context":"家庭日常","raw_input":"今天下午带老婆孩子",'
+        '"parse_confidence":0.92,"ambiguous_fields":[],'
+        '"start_weekday":null,"capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[]} | feedback="不要刚才那家椰林餐厅，换一家"',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[3,5],"distance_max_km":5,'
+        '"companions":[{"role":"妻子","age":null,"count":1,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":false},'
+        '{"role":"孩子","age":5,"count":1,"gender_mix":null,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":["亲子友好","适合 5-10 岁"],'
+        '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
+        '"social_context":"家庭日常","capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":[],'
+        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,'
+        '"ambiguous_fields":["上次推荐的『椰林餐厅』不行，换一家"]},'
+        '"changed_fields":["避开上次的椰林餐厅"],'
+        '"refiner_note":"知道了，这次避开椰林餐厅，给你换一家，其余保持不变。"}',
+    ),
 ]
 
 
-def build_user_message(original_intent_json: str, feedback_text: str) -> str:
-    """组装单轮 user 消息（intent + feedback 拼一起）。"""
+def build_user_message(
+    original_intent_json: str,
+    feedback_text: str,
+    itinerary_summary: str | None = None,
+) -> str:
+    """组装单轮 user 消息（intent + 上一版行程摘要 + 这次的话 拼一起）。"""
+    itin_block = (
+        f"上一版行程（用户正是对它说话）：\n{itinerary_summary}\n\n"
+        if itinerary_summary
+        else ""
+    )
     return (
         f"原 IntentExtraction JSON：\n{original_intent_json}\n\n"
-        f"用户反馈：「{feedback_text or '（用户未填反馈）'}」\n\n"
+        f"{itin_block}"
+        f"用户这次说：「{feedback_text or '（用户未填反馈）'}」\n\n"
         f"请按 schema 输出 refined_intent / changed_fields / refiner_note。"
     )

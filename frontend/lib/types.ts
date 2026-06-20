@@ -146,6 +146,8 @@ export interface CtaChip {
   label: string;
   send: string;
   icon?: string | null;
+  /** 可选前端动作：默认发送 send 文案（走对话）；"confirm"=点击触发真预约 /chat/confirm。 */
+  action?: string | null;
 }
 
 export interface RouterDecision {

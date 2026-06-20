@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<!--
+  模块导览页 · 规划编排骨架（planning-graph）
+  只改 TOUR_DATA；不改 <head>/结构/样式。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模块导览 · 晌午局</title>
+  <link rel="stylesheet" href="assets/tour.css" />
+</head>
+<body>
+  <script src="assets/tour-engine.js"></script>
+  <script src="assets/glossary.js"></script>
+  <script>
+  /* =================================================================
+     TOUR_DATA —— 规划编排骨架：图的形状 + critic→replan 双层兜底链 + SSE 适配
+     ================================================================= */
+  const TOUR_DATA = {
+    meta: {
+      id: "planning-graph",
+      title: "规划编排骨架 · 图怎么连、错了怎么兜",
+      module_label: "M3 · 编排骨架站点",
+      arch: true,
+      prev: { href: "module-discovery.html", title: "候选发现" },
+      next: { href: "module-planning-algo.html", title: "规划算法内核" },
+      outro_title: "你已掌握编排骨架这一段主线",
+      outro: "图的形状画完了，critic 当裁判、replan 三层兜底也接上了。但 LLM 重试 2 次还过不了时，给的是『纯算法兜底方案』——那个 ILS 内核怎么排出对味行程，下一站讲。"
+    },
+
+    // 右图：LangGraph 拓扑（把"环"画出来）。kind ∈ input|compute|decision|output|fallback
+    graph: {
+      nodes: [
+        { id: "exec",    label: "execute_collect 候选汇聚", kind: "input",    col: 0, row: 1 },
+        { id: "planner", label: "planner 出蓝图+权重",       kind: "compute",  col: 1, row: 1 },
+        { id: "assemble",label: "assemble 蓝图→行程",        kind: "compute",  col: 2, row: 1 },
+        { id: "critic",  label: "critic 客观验证(裁判)",      kind: "decision", col: 3, row: 1 },
+        { id: "replan",  label: "replan_router 选策略",       kind: "decision", col: 3, row: 0 },
+        { id: "ils",     label: "ils_replan 算法兜底",        kind: "fallback", col: 2, row: 0 },
+        { id: "narrate", label: "narrate 出文案→END",         kind: "output",   col: 4, row: 1 }
+      ],
+      edges: [
+        { from: "exec",    to: "planner" },
+        { from: "planner", to: "assemble" },
+        { from: "assemble",to: "critic" },
+        { from: "critic",  to: "narrate" },     // 过
+        { from: "critic",  to: "replan" },      // critical
+        { from: "replan",  to: "planner" },     // llm_backprompt 回环
+        { from: "replan",  to: "ils" },         // ils_fallback
+        { from: "replan",  to: "narrate" },     // give_up 放行
+        { from: "ils",     to: "narrate" }      // ILS 后直奔 narrate，不再回 critic
+      ]
+    },
+
+    steps: [
+      {
+        kind: "skeleton",
+        title: "主线骨架：planner 出方案 → critic 验 → 错了 replan 回炉",
+        focus: ["planner", "critic", "replan"],
+        reveal: "三段主线：<b>planner→assemble 出行程</b>（LLM 拿主观主意）→ <b>critic 当独立裁判验客观约束</b>（不让 LLM 自己判自己）→ <b>硬违规走 replan</b>（回 planner 重来 / 切算法 / 认栽放行）。整张图就是这条线 + 一个回环。",
+        teach: [
+          "候选池有了，真正烧脑的来了：怎么把一堆零散的地点、餐厅，排成一份『几点去哪、待多久』的靠谱行程？这一关最怕 LLM <b>一本正经地胡说</b>——把饭点排到下午三点都敢。",
+          "于是整张图就一条主线加一个回环：<b>planner 出方案</b>（LLM 拿主观主意，去哪、做什么）→ <b>critic 当裁判</b>（用算法硬规则验客观约束，绝不让 LLM 自己判自己）→ <b>错了就 replan 回炉</b>（让 LLM 看着错处重排 / 切纯算法 / 实在不行认栽放行）。",
+          "记住这个『出 → 验 → 回炉』的圈：它就是整个规划<b>敢信 LLM、又不全信 LLM</b> 的底气所在。"
+        ]
+      },
+      {
+        kind: "step",
+        title: "谁来拦『5 岁娃排 196 分钟爬山』",
+        focus: ["critic"],
+        gap: "LLM 把饭点排到下午 3 点、给 5 岁娃排了 196 分钟爬山——让 LLM 自己检查自己，它能发现吗？",
+        reveal: "不让 LLM 自评。<b>critic 是独立算法节点</b>，跑 11 类 <code>ViolationCode</code> 客观约束（年龄时长 cap、时间线、通勤可达、餐厅满座…）——<code>AGE_DURATION_MISMATCH</code> 正是拦『超龄时长』那条。",
+        teach: [
+          "LLM 排出来的行程，看着挺顺，可它真会犯低级错误：把午饭排到下午三点、给 5 岁娃安排 196 分钟连续爬山。问题是——<b>让 LLM 自己检查自己，它查得出来吗</b>？往往查不出，因为出错的和检查的是同一个脑子。",
+          "所以专门请了个<b>独立的裁判 critic</b>，而且它<b>压根不是 LLM，是纯算法</b>。它拿着一张写死的清单（11 类 <code>ViolationCode</code>：年龄时长上限、时间线对不对、通勤到不到得了、餐厅满没满座……）逐条卡。",
+          "那条 <code>AGE_DURATION_MISMATCH</code> 就是专门拦『超龄时长』的——5 岁娃配 196 分钟，一票否决。<b>主观的活交给 LLM，客观的红线交给算法</b>，谁也别越界——这就是整个项目的脾气。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/nodes/critic.py", lines: [49, 61], note: "validate_itinerary + has_critical 判定" },
+          { file: "backend/agent/planning/critic/critics_v2.py", lines: [42, 59], note: "11 类 ViolationCode 速查表" },
+          { file: "backend/agent/planning/critic/_rules/checks.py", lines: [356, 406], note: "_check_age_aware_duration：年龄感知时长 cap" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "图怎么连：三个条件边把骨架拼成环",
+        focus: ["planner", "critic", "replan"],
+        gap: "节点都是直线连的，那『验不过就回炉重排』这个回环，LangGraph 里到底靠什么把线绕回去？",
+        reveal: "靠 <b>3 个 conditional_edge</b>：router 分意图、critic 分『过/replan』、replan_router 分『回 planner / 切 ILS / 放行』。<code>replan→planner</code> 这条边就是那个把线绕回起点的<b>回环</b>。",
+        teach: [
+          "节点之间默认是<b>一条道走到黑</b>的直线。可我们要的是『验不过就拐回去重排』——这个<b>回环</b>，在图里到底靠什么把线绕回起点？",
+          "靠<b>条件边</b>（<code>conditional_edge</code>）：它不写死下一站，而是看运行结果<b>临时决定</b>往哪拐。整张图有三个这样的岔路口：router 分意图、critic 分『过还是回炉』、replan_router 分『回 planner / 切算法 / 放行』。",
+          "其中 <code>replan→planner</code> 那条，就是把线<b>绕回起点</b>的回环。普通边搭骨架、条件边拐弯——一条回头路，让整张图从『流水线』变成了能自我纠错的『循环』。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/build.py", lines: [216, 234], note: "critic 后 + replan_router 后两个 conditional_edge" },
+          { file: "backend/agent/graph/build.py", lines: [210, 213], note: "execute_collect→planner→assemble→critic 主干" }
+        ],
+        code: {
+          label: "展开源码 · 两个分支边怎么织出回环",
+          file: "backend/agent/graph/build.py", lang: "py", lines: [216, 234],
+          snippet:
+`    # critic 后分支
+    g.add_conditional_edges(
+        "critic",
+        route_after_critic,
+        {
+            "narrate": "narrate",
+            "replan_router": "replan_router",
+        },
+    )
+
+    # replan_router 后分支
+    g.add_conditional_edges(
+        "replan_router",
+        route_after_replan,
+        {
+            "planner": "planner",         # llm_backprompt 回 planner（回环）
+            "ils_replan": "ils_replan",   # ils_fallback
+            "narrate": "narrate",          # give_up
+        },
+    )`
+        }
+      },
+      {
+        kind: "step",
+        title: "行程根本没生成出来，critic 会怎样",
+        focus: ["critic", "replan"],
+        gap: "候选太少、蓝图没拼成，itinerary 直接是 None——critic 拿不到东西验，是该报个错让流程停下吗？",
+        reveal: "不报错。<b>itinerary=None 被判 critical</b>，主动触发 replan 让 ILS/规则兜底——『有空行程也比 500 强』，保证流程永远有下一跳而不是崩在用户脸上。",
+        teach: [
+          "万一候选太少、蓝图压根没拼成，行程直接是个空（<code>None</code>）。critic 拿到一个空手，无东西可验——它是不是该老实报个错，让流程停下？",
+          "偏不。critic <b>把『空行程』本身当成一种严重违规</b>，主动触发 replan，转手交给 ILS 算法或规则去兜个底。",
+          "背后是一条铁律：<b>『有份空行程，也比甩用户一个 500 强』</b>。系统宁可端出个朴素方案，也绝不让流程<b>断在用户脸上</b>——永远留着下一跳。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/nodes/critic.py", lines: [36, 47], note: "itinerary=None → has_critical=True，进 replan" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "规则模式跑出来的行程，还要回 LLM 重排吗",
+        focus: ["critic"],
+        gap: "用户选了『规则模式 = 不调大模型』。可规则行程也可能踩 critic 违规——这时候 backprompt 回 planner，不就偷偷调 LLM 了吗？",
+        reveal: "不会。<code>mode=='rule'</code> 时<b>强制 has_critical=False</b>：violations 照记给 trace 看，但绝不触发 LLM backprompt——规则路径产物即终态，兑现『规则模式不调大模型』承诺。",
+        teach: [
+          "用户特意选了『规则模式』，意思是<b>全程别调大模型</b>。可规则排出来的行程，也可能踩 critic 的违规线啊——这时候按常规该 backprompt 回 planner 重排，可那一重排，不就<b>偷偷把 LLM 又叫起来了</b>吗？岂不食言？",
+          "所以加了一道特判：只要 <code>mode=='rule'</code>，就<b>强行把『严重违规』标记按成 False</b>。违规照样记下来给你在轨迹里看，但<b>绝不</b>触发那个会调 LLM 的 backprompt。",
+          "规则模式跑出来的东西<b>就是最终答案</b>，不再回炉。这是对用户承诺的较真：你说不调大模型，那就一次都不调，哪怕方案略糙。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/nodes/critic.py", lines: [67, 72], note: "rule 模式强制 has_critical=False" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "LLM 重试 2 次还过不了——认栽报错吗",
+        focus: ["replan", "ils", "narrate"],
+        gap: "critic 让 LLM 改了又改，retry 到第 3 次还在违规。系统这时是抛错给用户、还是死循环重试到天荒地老？",
+        quiz: {
+          question: "LLM backprompt 重试用尽、ILS 也排不出方案时，replan 最终会怎么做？",
+          options: [
+            "抛异常返回 500，让用户重发",
+            "无限回 planner 重试，直到某次蒙对",
+            "strategy=give_up，带着当前不完美方案直奔 narrate 放行"
+          ],
+          answer: 2,
+          wrong_note: "你以为过不了就该报错或一直重试，实际是 give_up 放行——因为宁可给『不完美但完整』的方案，也不让用户对着 500 或转圈发呆。",
+          right_note: "对——give_up 不是失败信号，是『永远有兜底』的设计承诺：不完美方案照样走完 narrate。"
+        },
+        reveal: "三层兜底 + 硬刹停：<b>retry≤2 走 LLM backprompt → >2 切 ILS 算法 → >4 give_up 放行</b>。即便图边切断了循环，<code>retry_count</code> 硬上限再加一道闸防死循环。",
+        teach: [
+          "critic 让 LLM 改了又改，改到第三次还在违规。系统这时候该咋办？抛个错甩给用户？还是一根筋地无限重试，耗到天荒地老？",
+          "都不是，它有<b>三段台阶 + 一道硬闸</b>。前两次（retry≤2）：让 LLM <b>看着错处重排</b>（backprompt）；还不行（>2）：换<b>纯算法 ILS</b> 来兜；再不行（>4）：<code>give_up</code> 带着当前这份不完美方案<b>直接放行</b>。",
+          "关键那道<b>硬闸</b>是 <code>retry_count</code> 上限：就算图的边出了 bug 没切断循环，这个计数器到顶也会强制刹停。<b>give_up 不是认输，是『永远给得出一份完整方案』的承诺</b>——绝不让用户对着转圈或 500 发呆。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/nodes/replan.py", lines: [49, 95], note: "双层策略选择 + retry_count 硬上限" },
+          { file: "backend/agent/graph/nodes/replan.py", lines: [98, 105], note: "route_after_replan：give_up→narrate 放行" },
+          { file: "backend/agent/graph/build.py", lines: [64, 78], note: "_route_after_ils：ILS 后直奔 narrate 不回 critic，防死循环" }
+        ],
+        code: {
+          label: "展开源码 · 双层 replan + 硬刹停",
+          file: "backend/agent/graph/nodes/replan.py", lang: "py", lines: [57, 65],
+          snippet:
+`    retry_count = (state.get("retry_count") or 0) + 1
+    strategy: ReplanStrategy
+
+    if retry_count > _MAX_TOTAL_RETRIES:   # >4：认栽放行
+        strategy = "give_up"
+    elif retry_count <= _MAX_LLM_RETRIES:  # ≤2：让 LLM 看反馈重出
+        strategy = "llm_backprompt"
+    else:                                  # 3~4：切 ILS 算法兜底
+        strategy = "ils_fallback"`
+        }
+      },
+      {
+        kind: "step",
+        title: "图在自己跑，前端怎么实时看见每一步",
+        focus: ["narrate"],
+        gap: "LangGraph 一节点接一节点在后台跑，前端拿到的却得是流式事件——这两套东西怎么对上，还不让用户首字节就超时？",
+        reveal: "<b>sse_adapter 订阅 <code>astream(updates)</code></b>：每个节点完成吐一份 state diff，按节点名映射成 SSE 事件流。开跑先推一条心跳文案，挡住『首字节 8 秒』红线。",
+        teach: [
+          "LangGraph 在后台一个节点接一个节点地闷头跑，可前端要的是<b>实时的流式播报</b>——『在搜了』『在排了』『排好了』。这两套东西怎么对接上，还不能让用户等首字节等到超时？",
+          "靠一个适配器 <code>sse_adapter</code>：它<b>订阅</b> LangGraph 的 <code>astream</code>，每当一个节点跑完、吐出一份『状态变化』，就按节点名<b>翻译成一条 SSE 事件</b>推给前端。",
+          "更鸡贼的是：整张图刚<b>开跑就先推一条心跳文案</b>占住通道，赶在『首字节 8 秒』红线之前喂出第一口——哪怕真正的规划还在憋大招，用户屏幕上也已经动起来了。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/sse_adapter.py", lines: [95, 130], note: "astream(updates) → 按节点名 dispatch 成 SSE" },
+          { file: "backend/agent/graph/sse_adapter.py", lines: [92, 93], note: "顶部先推心跳防首字节超时" }
+        ]
+      }
+    ]
+  };
+
+  TourEngine.mount(TOUR_DATA);
+  </script>
+</body>
+</html>

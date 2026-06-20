@@ -9,21 +9,40 @@
   "transport_preference": "taxi",
   "dietary_preference": "喜欢健康轻食、避免油腻、对辣度敏感；偶尔尝试日式料理；不爱重口味川菜。家有 5 岁孩，餐厅最好有儿童餐和不那么吵的环境。",
   "social_context_history": [
+    "朋友热闹",
     "家庭日常",
     "情侣亲密",
     "独处放空"
   ],
   "recent_trips": [
     {
-      "timestamp": "2026-05-18T14:30:00Z",
-      "social_context": "家庭日常",
-      "summary": "学龄前儿童亲子博物馆下午茶半日方案：先逛博物馆约 1 小时，再到附近健康轻食餐厅用晚餐，整体节奏轻松不赶。",
+      "timestamp": "2026-06-20T05:32:59Z",
+      "social_context": "朋友热闹",
+      "summary": "与成年朋友们进行了一场热闹的聚会，先轻松享用了愉快的聚餐，随后参与了有趣的娱乐活动，整体节奏轻松欢快，氛围温馨活跃。",
       "success": true
     },
     {
-      "timestamp": "2026-05-11T15:00:00Z",
-      "social_context": "情侣亲密",
-      "summary": "西湖边咖啡馆 + 桂花酒店下午茶组合，氛围安静适合纪念日聊天，餐后散步看夕阳。",
+      "timestamp": "2026-06-20T05:02:06Z",
+      "social_context": "家庭日常",
+      "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
+      "success": true
+    },
+    {
+      "timestamp": "2026-06-20T04:39:41Z",
+      "social_context": "家庭日常",
+      "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
+      "success": true
+    },
+    {
+      "timestamp": "2026-06-19T16:23:24Z",
+      "social_context": "家庭日常",
+      "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
+      "success": true
+    },
+    {
+      "timestamp": "2026-05-18T14:30:00Z",
+      "social_context": "家庭日常",
+      "summary": "学龄前儿童亲子博物馆下午茶半日方案：先逛博物馆约 1 小时，再到附近健康轻食餐厅用晚餐，整体节奏轻松不赶。",
       "success": true
     }
   ]

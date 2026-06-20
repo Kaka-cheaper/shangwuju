@@ -25,9 +25,31 @@ import type {
 import { currentArrival, nextArrival } from "./arrival-counter";
 import type { Getter, Setter, ToolCallRecord } from "./types";
 
+/**
+ * 惰性清空（Bug 修复）：只有收到「重跑信号」(intent_parsed / refinement_start) 时，
+ * 才把主页面清空腾位给新一轮。提问 / 确认 / 预约 / 闲聊只发 chitchat_reply，
+ * 收不到这两个信号 → awaitingReplan 一直为 true、主页面纹丝不动。
+ * 用 awaitingReplan 保证一轮只清一次（feedback 路径的第一个信号是 refinement_start，
+ * 之后的 intent_parsed 不再清，避免抹掉刚 set 的 refined intent）。
+ */
+function clearForReplanIfPending(set: Setter, get: Getter): void {
+  if (!get().awaitingReplan) return;
+  set({
+    awaitingReplan: false,
+    toolCalls: [],
+    replans: [],
+    thoughts: [],
+    intent: null,
+    itinerary: null,
+    narration: null,
+    lastRefinement: null,
+  });
+}
+
 export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
   switch (ev.type) {
     case "intent_parsed":
+      clearForReplanIfPending(set, get); // 重跑信号：首次到达时清空主页面腾位
       set({ intent: ev.payload as unknown as IntentExtraction });
       break;
 
@@ -181,6 +203,7 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     }
 
     case "refinement_start": {
+      clearForReplanIfPending(set, get); // feedback 重跑的第一个信号：清空主页面腾位
       const p = ev.payload as unknown as RefinementStartPayload;
       // 只用做轻量提示；refinement_done 才是真正的 changed_fields 来源
       set((s) => ({
@@ -248,6 +271,12 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
 
     case "chitchat_reply": {
       const p = ev.payload as unknown as ChitchatReplyPayload;
+      // 预约确认气泡（含 action=confirm 的 chip）= 进入终态前奏：收起规划过程展示
+      // （意图解析卡 + 思考链路面板），让主页面聚焦「方案 + 确认预约」。
+      // 普通闲聊 / 提问 / 确认气泡不清——只有「预约吧」这种带确认按钮的才清。
+      const isBookingPrompt = (p.cta_chips ?? []).some(
+        (c) => c.action === "confirm",
+      );
       set((s) => ({
         chitchatReplies: [
           ...s.chitchatReplies,
@@ -257,6 +286,9 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
             receivedAtMs: ev.timestamp_ms ?? Date.now(),
           },
         ],
+        ...(isBookingPrompt
+          ? { intent: null, thoughts: [], toolCalls: [], replans: [] }
+          : {}),
       }));
       break;
     }

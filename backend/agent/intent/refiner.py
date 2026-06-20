@@ -43,6 +43,7 @@ from schemas.persona import PaceProfile
 from schemas.refine import RefinementOutput
 
 from ..core.llm_client import LLMClient, LLMMessage, strip_json_fence
+from ..core.feedback_detector import looks_like_feedback
 from .prompts.refiner_prompt import (
     REFINER_FEW_SHOTS,
     REFINER_SYSTEM_PROMPT,
@@ -69,6 +70,107 @@ class RefinementError(Exception):
 
 
 # ============================================================
+# 上一版行程 → 给 refiner 判反馈用的结构化摘要
+# ============================================================
+
+_HOP_LABEL = {
+    "walking": "步行",
+    "taxi": "打车",
+    "bus": "公交",
+    "haversine_estimated": "约",
+    "virtual": "",
+}
+
+
+def summarize_itinerary(itinerary: object) -> str | None:
+    """把上一版行程压成给 refiner 判反馈用的结构化摘要。
+
+    取舍（对 refiner 判反馈是信号还是噪声）：
+      留：每站名字 + 停留时长、站间通勤(方式/分钟)、一句方案 summary——"太远 / 太久 / 太赶 /
+          不要那家"等反馈正是要对照这些维度。
+      删：node_id / hop_id / 经纬度 / address / 订单 / schema_version——对判反馈是噪声。
+    形式：半结构化分行（带量纲），不是有损的 "A → B → C" 串，让 LLM 能精确对照反馈。
+    防御式：dict / model / None / 任意异常都安全（None 或尽力而为），绝不搞挂 refine 主流程。
+    """
+    if not itinerary:
+        return None
+    try:
+        data = (
+            itinerary.model_dump()
+            if hasattr(itinerary, "model_dump")
+            else dict(itinerary)
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+    max_lines = 12  # token 预算：约 6 站 + 站间通勤
+    lines: list[str] = []
+
+    schedule = data.get("schedule")
+    if isinstance(schedule, list) and schedule:
+        # 优先用派生视图 schedule：已展平、带时长 minutes / 通勤 mode / hidden 标记
+        for e in schedule:
+            if not isinstance(e, dict) or e.get("hidden"):
+                continue
+            mins = e.get("minutes") or 0
+            if e.get("entry_kind") == "hop":
+                if mins:  # 跳过 0 分钟同地占位
+                    mode = _HOP_LABEL.get(str(e.get("mode") or ""), "通勤") or "通勤"
+                    lines.append(f"  ↳ {mode} {mins}min")
+            else:
+                title = str(e.get("title") or "").strip()
+                if not title:
+                    continue
+                start = str(e.get("start") or "").strip()
+                dur = f" {mins}min" if mins else ""
+                lines.append(f"- {start} {title}{dur}".strip())
+            if len(lines) >= max_lines:
+                break
+    else:
+        # 退回源真值 nodes（schedule 未填充时）：列非 home 站 + 停留时长
+        # 注意：home 判断是 target_kind=="home"，不是 kind（kind 是「主活动/用餐」中文标签）
+        for n in data.get("nodes") or []:
+            if not isinstance(n, dict) or n.get("target_kind") == "home":
+                continue
+            title = str(n.get("title") or "").strip()
+            if not title:
+                continue
+            start = str(n.get("start_time") or "").strip()
+            dur = n.get("duration_min") or 0
+            tail = f" {dur}min" if dur else ""
+            lines.append(f"- {start} {title}{tail}".strip())
+            if len(lines) >= max_lines:
+                break
+
+    if not lines:
+        # 连站点都取不到 → 退到方案自带的一句摘要 / 转发文案
+        for k in ("summary", "share_message"):
+            v = data.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()[:200]
+        return None
+
+    summ = data.get("summary")
+    header = f"上一版:{summ.strip()}\n" if isinstance(summ, str) and summ.strip() else ""
+    return (header + "\n".join(lines)).strip()
+
+
+def _compose_raw_input(original_raw: str, feedback: str) -> str:
+    """决定 refined.raw_input 的拼法（下游 preference_scorer / 重规划 message 都读它）。
+
+    - 局部反馈（太远 / 便宜 / 换个氛围）：原句是请求主体，反馈追加在后。
+    - 换场景的延续（周末改带爸妈吃饭）：新句才是主体，原句退为括注上下文——
+      免得下游同时读到旧场景词（老婆孩子）和新场景词（爸妈）而自相矛盾。
+    """
+    fb = (feedback or "").strip()
+    if not fb:
+        return original_raw
+    if looks_like_feedback(fb):
+        return f"{original_raw}（反馈：{fb}）"
+    return f"{fb}（上一版：{original_raw}）"
+
+
+# ============================================================
 # 主入口
 # ============================================================
 
@@ -78,6 +180,7 @@ def refine_intent(
     *,
     client: LLMClient | None = None,
     max_retries: int = 1,
+    itinerary_summary: str | None = None,
 ) -> RefinementOutput:
     """合并反馈进原 intent。
 
@@ -110,6 +213,7 @@ def refine_intent(
                 feedback_text=feedback_text,
                 client=client,
                 error_feedback=error_feedback,
+                itinerary_summary=itinerary_summary,
             )
         except (RefinementError, ValidationError, json.JSONDecodeError) as e:
             error_feedback = str(e)
@@ -125,6 +229,7 @@ def _llm_refine(
     feedback_text: str,
     client: LLMClient,
     error_feedback: str | None,
+    itinerary_summary: str | None = None,
 ) -> RefinementOutput:
     messages: list[LLMMessage] = [
         LLMMessage(role="system", content=REFINER_SYSTEM_PROMPT),
@@ -133,7 +238,7 @@ def _llm_refine(
         messages.append(LLMMessage(role="user", content=fs_user))
         messages.append(LLMMessage(role="assistant", content=fs_assistant))
 
-    user_msg = build_user_message(original_json, feedback_text)
+    user_msg = build_user_message(original_json, feedback_text, itinerary_summary)
     if error_feedback:
         user_msg = (
             f"上次输出存在错误：\n{error_feedback}\n\n"
@@ -160,12 +265,9 @@ def _llm_refine(
     # （pitfalls P1-2026-05-17 引申：反馈作为最高优先级约束，必须落到下游可读的字段）
     refined_intent_data = payload.get("refined_intent", {})
     if isinstance(refined_intent_data, dict):
-        if feedback_text and feedback_text.strip():
-            refined_intent_data["raw_input"] = (
-                f"{original.raw_input}（反馈：{feedback_text.strip()}）"
-            )
-        else:
-            refined_intent_data["raw_input"] = original.raw_input
+        refined_intent_data["raw_input"] = _compose_raw_input(
+            original.raw_input, feedback_text
+        )
 
     refined_intent = IntentExtraction.model_validate(refined_intent_data)
 
@@ -342,6 +444,8 @@ def _rule_fallback(
     """
     feedback = (feedback_text or "").strip()
     feedback_lower = feedback.lower()
+    # 这次输入像"对方案的反馈"还是"换了个新场景"(LLM 不可用时，规则抽不出新场景，避免乱改)
+    is_scenario = bool(feedback) and not looks_like_feedback(feedback)
 
     updates: dict = {}
     changed: list[str] = []
@@ -411,24 +515,27 @@ def _rule_fallback(
                 f"单段时长上限：{old_sess}min → {new_sess}min（命中『太久』反馈，仅缩节奏不动总时长/距离）"
             )
 
-    # 反馈为空 / 未命中关键词 → 距离 -1km 兜底（让候选打散）
-    if not updates:
+    # 反馈为空 / 模糊反馈且没命中关键词 → 轻量缩距离打散候选。
+    # 但"换场景"不走这条：LLM 不可用、规则抽不出新同行/活动，做距离裁剪只会误导，
+    # 宁可保留原约束，靠 raw_input(新句在前)让重规划看到新意图。
+    if not updates and not is_scenario:
         old = original.distance_max_km
         if old > 2:
             new = max(2.0, round(old - 1, 1))
             updates["distance_max_km"] = new
             changed.append(f"距离上限：{old}km → {new}km（轻量调整）")
 
-    # raw_input 兜底：保留原句 + 拼接本次反馈
-    if feedback and feedback.strip():
-        updates["raw_input"] = f"{original.raw_input}（反馈：{feedback.strip()}）"
+    # raw_input：局部反馈→原句在前；换场景→新句在前(见 _compose_raw_input)
+    if feedback:
+        updates["raw_input"] = _compose_raw_input(original.raw_input, feedback)
 
     refined = original.model_copy(update=updates)
-    note = (
-        "已基于反馈关键词做轻量调整（LLM 不可用，走规则化兜底）。"
-        if changed
-        else "未识别可执行调整，已重新打散候选排序。"
-    )
+    if changed:
+        note = "已基于反馈关键词做轻量调整（LLM 不可用，走规则化兜底）。"
+    elif is_scenario:
+        note = "（LLM 暂不可用）这像是换了新场景，已保留原约束并把新需求记进原话，建议重试一次。"
+    else:
+        note = "未识别可执行调整，已重新打散候选排序。"
     return RefinementOutput(
         refined_intent=refined,
         changed_fields=changed,

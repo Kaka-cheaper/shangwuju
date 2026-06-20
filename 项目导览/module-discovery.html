@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<!--
+  模块导览页 · discovery（候选发现 / execute 阶段）
+  只改 TOUR_DATA。样式与交互由 assets/tour.css + assets/tour-engine.js 提供。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模块导览 · 晌午局</title>
+  <link rel="stylesheet" href="assets/tour.css" />
+</head>
+<body>
+  <script src="assets/tour-engine.js"></script>
+  <script src="assets/glossary.js"></script>
+  <script>
+  /* =================================================================
+     TOUR_DATA —— 候选发现（execute）：3 路并行搜 → 汇聚 → 重排+放宽
+     ================================================================= */
+  const TOUR_DATA = {
+    meta: {
+      id: "discovery",
+      title: "候选发现：三路并行搜，再汇聚成一池候选",
+      module_label: "execute · 候选发现",
+      arch: true,
+      prev: { href: "module-input.html", title: "输入与意图理解" },
+      next: { href: "module-planning-graph.html", title: "规划编排骨架" },
+      outro_title: "你已掌握「怎么把候选搜齐、搜对」这一段",
+      outro: "三路并行各写独立 key 不打架，汇聚后词法重排让对味的候选浮上来，搜空了再降级放宽兜底。候选池已就绪——下一站看这堆候选怎么被排成一条几段式行程。"
+    },
+
+    graph: {
+      nodes: [
+        { id: "intent",  label: "intent 意图",        kind: "input",    col: 0, row: 1 },
+        { id: "wpoi",    label: "搜 POI worker",       kind: "compute",  col: 1, row: 0 },
+        { id: "wrest",   label: "搜餐厅 worker",        kind: "compute",  col: 1, row: 1 },
+        { id: "wprof",   label: "读画像 worker",        kind: "compute",  col: 1, row: 2 },
+        { id: "collect", label: "execute_collect 汇聚", kind: "compute",  col: 2, row: 1 },
+        { id: "rerank",  label: "词法重排 + 标签放宽",   kind: "decision", col: 3, row: 1 },
+        { id: "pool",    label: "候选池 candidates",    kind: "output",   col: 4, row: 1 }
+      ],
+      edges: [
+        { from: "intent", to: "wpoi" }, { from: "intent", to: "wrest" }, { from: "intent", to: "wprof" },
+        { from: "wpoi", to: "collect" }, { from: "wrest", to: "collect" }, { from: "wprof", to: "collect" },
+        { from: "collect", to: "rerank" }, { from: "rerank", to: "pool" }
+      ]
+    },
+
+    steps: [
+      {
+        kind: "skeleton",
+        title: "主线骨架：三路并行搜 → 汇聚 → 重排放宽出池",
+        focus: ["wpoi", "collect", "pool"],
+        reveal: "三段主线：<b>意图分叉成 3 个 worker 并行</b>（搜 POI / 搜餐厅 / 读画像）→ <b>execute_collect 汇聚</b>成一池候选 → <b>词法重排 + 标签放宽</b>把对味的提前、搜空的降级兜底，产出候选池。",
+        teach: [
+          "意图模块已经把用户的话翻译成了硬约束，可巧妇难为无米之炊——得先把『有哪些地方能去、哪些餐厅能吃、这人平时爱啥』都捞回来，才谈得上规划。",
+          "这一站也是三段：<b>三路并行搜</b>（搜 POI、搜餐厅、读画像，三件事同时干，不让用户等三倍）→ <b>汇聚成一池</b>（三路结果合并到一处）→ <b>重排放宽</b>（把对味的候选提到前面，真搜空了还能降级兜底）。",
+          "核心矛盾就一句话：既要<b>快</b>（并行），又要<b>不乱</b>（三路别互相覆盖）、<b>不空</b>（搜不到也得有招）。这三站就是逐个拆解它。"
+        ]
+      },
+      {
+        kind: "step",
+        title: "把串行搜改成真并行",
+        focus: ["intent", "wpoi", "wrest", "wprof"],
+        gap: "搜 POI、搜餐厅、读画像三件事串着跑，用户要干等三倍时间。LangGraph 怎么让它们<b>真并行</b>，而不是写个 for 循环假装快？",
+        reveal: "intent 节点向 3 个 worker 各连一条边——<b>同一节点出多条边即 fan-out</b>，LangGraph 把它们当成可并发分支同时调度，等三个都回来才进汇聚。",
+        teach: [
+          "搜地点、搜餐厅、读用户画像，这三件事互不相干。要是排队一个个来，用户就得干等三倍的时间——明明可以一起干的。",
+          "LangGraph 的玩法很巧：让 intent 这个节点<b>同时朝三个 worker 各画一条边</b>。框架一看『一个节点伸出三条线』，就明白这仨能并发，于是把它们<b>同时</b>调起来，这叫 <code>fan-out</code>（扇出）。",
+          "而且它会<b>等三个都跑完</b>才进下一步汇聚——不是写个 for 循环假装快，是真三路齐头并进。该等的地方等，该并的地方并。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/build.py", lines: [200, 208], note: "intent/refiner 向 3 worker 各连一条边（fan-out），3 worker 再各连一条边汇入 execute_collect" },
+          { file: "backend/agent/graph/nodes/execute.py", lines: [35, 56], note: "三个 worker 函数：各自只读 state、各自调一类工具" }
+        ],
+        code: {
+          label: "展开源码 · fan-out 与汇入怎么连边",
+          file: "backend/agent/graph/build.py", lang: "py", lines: [200, 208],
+          snippet:
+`    # intent / refiner 都进 execute（并行 worker）
+    for src in ("intent", "refiner"):
+        g.add_edge(src, "search_pois_worker")
+        g.add_edge(src, "search_restaurants_worker")
+        g.add_edge(src, "get_user_profile_worker")
+
+    # 3 个 worker 都完成后汇聚 execute_collect
+    g.add_edge("search_pois_worker", "execute_collect")
+    g.add_edge("search_restaurants_worker", "execute_collect")
+    g.add_edge("get_user_profile_worker", "execute_collect")`
+        }
+      },
+      {
+        kind: "step",
+        title: "三路结果为什么不会互相覆盖",
+        focus: ["wpoi", "wrest", "collect"],
+        gap: "三个 worker 同时往一个共享 State 里写。POI 那路写完餐厅那路也写，<b>后写的会不会把先写的盖掉</b>？尤其它俩都想写「放宽了哪些标签」。",
+        quiz: {
+          question: "三个 worker 并行写 State，怎么保证「放宽标签」这种信号不被对方覆盖？",
+          options: [
+            "给写操作加锁，谁先抢到谁先写",
+            "POI 和餐厅各写一个独立 key（pois_relaxed_tags / restaurants_relaxed_tags）",
+            "让三个 worker 排队串行写，回到了串行"
+          ],
+          answer: 1,
+          wrong_note: "你以为要加锁串行化，实际是<b>拆 key</b>——LangGraph 默认 reducer 是「同 key 覆盖」，两路写同一个 key 才会打架；各写各的独立 key，框架 merge 时互不相干，并行与正确兼得。",
+          right_note: "对——split-per-worker key。覆盖只发生在同名字段上，那就让它们不同名。"
+        },
+        reveal: "LangGraph 默认 reducer 是<b>同 key 覆盖</b>。所以放宽路径拆成 <code>pois_relaxed_tags</code> / <code>restaurants_relaxed_tags</code> 两个 key——各写各的，merge 时谁也盖不掉谁。",
+        teach: [
+          "三个 worker 同时往同一个共享数据袋（State）里写东西。POI 那路写完，餐厅那路也来写——尤其它俩都想记一笔『我放宽了哪些标签』。后写的会不会<b>把先写的盖掉</b>？",
+          "会，<b>如果它们写的是同一个抽屉</b>。LangGraph 默认的合并规则就是『同名字段，后写覆盖先写』。破解办法朴素得很：<b>各用各的抽屉</b>——POI 写 <code>pois_relaxed_tags</code>，餐厅写 <code>restaurants_relaxed_tags</code>，名字不同，框架合并时自然谁也碰不到谁。",
+          "注意它<b>没加锁、没排队</b>（那等于退回串行，白丢了并行的快），只是把字段名拆开，就同时拿到了『并行』和『不丢数据』——一个特别典型的『改数据结构，胜过加控制』的例子。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/state.py", lines: [106, 112], note: "候选字段 + 两个 relaxed_tags key 的注释：split per worker 避免 reduce 冲突" },
+          { file: "backend/agent/graph/nodes/execute.py", lines: [38, 50], note: "两个 worker 各自 return 自己那个 relaxed key" }
+        ],
+        code: {
+          label: "展开源码 · State 里两个独立的放宽 key",
+          file: "backend/agent/graph/state.py", lang: "py", lines: [106, 112],
+          snippet:
+`    # ---- 候选数据（execute 阶段并行写入）----
+    pois: list[Any]            # list[Poi] —— 用 Any 避开 TypedDict 泛型限制
+    restaurants: list[Any]      # list[Restaurant]
+    user_profile: Optional[Any]  # GetUserProfileOutput
+    # Step 6：tag relaxation 路径（split per worker 避免 reduce 冲突）
+    pois_relaxed_tags: list[str]
+    restaurants_relaxed_tags: list[str]`
+        }
+      },
+      {
+        kind: "step",
+        title: "汇聚节点为什么几乎什么都不做",
+        focus: ["collect", "pool"],
+        gap: "三路都写完了，按理该有个节点把结果拼起来。可 <code>execute_collect</code> 读完候选数量后 <b>return {} 什么都没改</b>——这节点是不是多余的？",
+        reveal: "不多余。三路结果已由 LangGraph 自动 merge 进 State，汇聚要的不是「拼数据」而是一个<b>稳定的 join 点</b>：让下游 planner 有唯一入口，且确保三路全到齐才往下走。",
+        teach: [
+          "三路都写完了，你大概觉得该有个节点出来把结果『拼装』一下。可翻开 <code>execute_collect</code> 一看，它读了读候选数量，然后 <code>return {}</code>——啥也没改。这节点是不是纯属多余？",
+          "不多余。三路的数据<b>早已被框架自动合并</b>进 State 了，根本不用它动手拼。它真正的价值是当一个<b>稳定的汇合点</b>：逼着图『等三路全到齐』才继续，并给下游的 planner 留一个<b>唯一入口</b>。",
+          "它什么都不做，恰恰正是它的作用——像马拉松的集合点，不负责跑，只负责『人齐了再发枪』。少了它，下游就不知道该等谁、从哪进。"
+        ],
+        refs: [
+          { file: "backend/agent/graph/nodes/execute.py", lines: [59, 65], note: "execute_collect 只做 join，不改 State（merge 由框架完成）" },
+          { file: "backend/agent/graph/build.py", lines: [211, 211], note: "execute_collect → planner 单一下游入口" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "用户说「看展」，方案里却没有展",
+        focus: ["rerank"],
+        gap: "搜 POI 扩池抓回十几个候选，按评分倒序后<b>高分猫咖、甜品排在前面，真正的展览被挤出 top-k</b>。用户明明说了「看展」，凭什么不让对味的候选先露脸？",
+        reveal: "扩池后在编排层做<b>词法重排</b>：用户明示诉求词与候选 type/name/tags 做<b>双向 substring</b> 命中就稳定前置——「看展」命中 tags 含「看展」的 POI，再截断回 limit，命中候选不丢。",
+        teach: [
+          "为了多给候选，搜 POI 时会<b>扩大池子</b>多抓十几个回来，再按评分从高到低排。麻烦来了：高分的猫咖、网红甜品排在最前，用户<b>明明说了『看展』</b>，真正的展览却被挤出前几名，根本到不了用户眼前。",
+          "所以在排序之后补一刀<b>词法重排</b>：拿用户的明示诉求词（『看展』）去和每个候选的<b>类型 / 名字 / 标签</b>对一对，命中的就<b>稳稳提到前面</b>，再截回原来的数量。",
+          "匹配用的是<b>双向包含</b>——『看展』和标签『看展览』互相包含就算命中，不用维护一张笨重的同义词字典。简单、宽松、够用：用户点了名的，绝不让它沉底。"
+        ],
+        refs: [
+          { file: "backend/agent/runtime/tools/search_adapter.py", lines: [139, 146], note: "扩池 → rerank 前置 → 截回 limit 的治本核心" },
+          { file: "backend/agent/runtime/tools/search_adapter.py", lines: [154, 173], note: "poi_desire_match：双向 substring 宽松匹配，不维护映射字典" }
+        ],
+        code: {
+          label: "展开源码 · 双向 substring 词法命中",
+          file: "backend/agent/runtime/tools/search_adapter.py", lang: "py", lines: [166, 173],
+          snippet:
+`    d = (desire or "").strip()
+    if not d:
+        return False
+    fields = [poi_type or "", poi_name or "", *(poi_tags or [])]
+    for f in fields:
+        if f and ((d in f) or (f in d)):
+            return True
+    return False`
+        }
+      },
+      {
+        kind: "step",
+        title: "约束叠太多，一个候选都没搜到",
+        focus: ["rerank", "pool"],
+        gap: "祖孙三代出门，要「亲子友好 + 适合老人 + 无台阶」三标签全命中。可 mock 里没一个地方同时挂这三个标签，硬过滤直接打到<b>空集</b>。系统是回头报「没找到」，还是有别的招？",
+        quiz: {
+          question: "三标签全命中搜出 0 候选时，relax_tag_search 先放宽哪个？",
+          options: [
+            "随便先丢一个，能搜到就行",
+            "先丢「无台阶」这类物理硬约束，因为它最难满足",
+            "先丢非硬约束的标签，「适合老人」「无台阶」这类人群物理约束最后才丢"
+          ],
+          answer: 2,
+          wrong_note: "你以为哪个难满足先丢哪个，实际相反——<b>人群物理约束（适合老人/无台阶）排在最后丢</b>：5 岁孩不能进成人场、老人迈不动台阶是不可让步的硬线，宁可先放宽体验类软标签。",
+          right_note: "对——放宽有优先级。软标签先让步，物理/饮食硬约束最后才丢，丢了哪些还透出 relaxed_tags 让人看见。"
+        },
+        reveal: "只有<b>命中 0 候选才降级</b>：按软优先级逐级删标签重搜，物理/饮食硬约束最后才丢；丢掉的写进 <code>relaxed_tags</code> 透出，让前端和 LLM 看到真实放宽路径。",
+        teach: [
+          "祖孙三代出门，要『亲子友好＋适合老人＋无台阶』三个标签<b>全</b>命中。可数据里偏偏没有一个地方同时挂齐这三条，硬筛直接筛成<b>空集</b>。系统是两手一摊报『没找到』，还是有别的招？",
+          "有招，而且<b>只有真搜到 0 个</b>才会启动：按优先级<b>一级一级地丢标签</b>重搜。但丢的顺序大有讲究——体验类的软标签先让步，<b>『适合老人』『无台阶』这种人群物理硬线放到最后</b>才丢。",
+          "为什么？因为 5 岁孩进不了成人场、老人迈不动台阶，是<b>不可让步</b>的；『风格小清新』没满足顶多遗憾。而且每丢一个都记进 <code>relaxed_tags</code> 透传出去，让前端和 LLM 都<b>看得见</b>『我为你松了哪些口子』，而不是偷偷改了你的需求。"
+        ],
+        refs: [
+          { file: "backend/tools/_helpers.py", lines: [124, 155], note: "Level 0 全命中→逐级丢标签重搜→保底 additional_filter" },
+          { file: "backend/tools/_helpers.py", lines: [54, 82], note: "软优先级：人群物理约束 / 饮食硬约束最后丢" },
+          { file: "backend/tools/search_pois.py", lines: [78, 97], note: "search_pois 调 relax_tag_search，空集才返 empty_candidates" }
+        ],
+        code: {
+          label: "展开源码 · 先全命中，命中才返回；否则逐级放宽",
+          file: "backend/tools/_helpers.py", lang: "py", lines: [124, 147],
+          snippet:
+`    # Level 0：全命中
+    candidates = [
+        c for c in source
+        if additional_filter(c) and has_all_tags(extract_tags(c), required_unique)
+    ]
+    if candidates:
+        return candidates, []
+
+    # Level 1..N：每级丢 1 个 tag
+    relaxed: list[str] = []
+    remaining = list(required_unique)
+    for level in range(1, max_relax_levels + 1):
+        if not drop_order or not remaining:
+            break
+        dropped = drop_order.pop(0)
+        if dropped in remaining:
+            remaining.remove(dropped)
+        relaxed.append(dropped)
+        candidates = [
+            c for c in source
+            if additional_filter(c) and has_all_tags(extract_tags(c), remaining)
+        ]
+        if candidates:
+            return candidates, relaxed`
+        }
+      },
+      {
+        kind: "step",
+        title: "工具调失败了，整条流水线会崩吗",
+        focus: ["wpoi", "wrest", "collect", "pool"],
+        gap: "三个 worker 里有一路工具调挂了，或者搜出来就是空集。这一路把异常往上抛，会不会<b>把另外两路和整条规划都拖崩</b>？",
+        reveal: "不会。worker 用统一适配器，<b>失败/空集都返空 list 不抛异常</b>——任何一路挂掉不阻塞其他路，空候选交给下游 replan 兜底，保证流水线永远能往下走。",
+        teach: [
+          "三个 worker 里万一有一路的工具调用挂了，或者就是搜了个空。如果这一路<b>把异常往上抛</b>，会不会把另外两路、乃至整条规划流水线一起拖崩？",
+          "不会。三路都套了同一个<b>统一适配器</b>，无论是失败还是空集，它都<b>老老实实返回一个空列表，绝不抛异常</b>。一路歇菜，另外两路照跑不误。",
+          "空候选也不是终点——它会被<b>原样交给下游</b>，由后面的 replan / 兜底环节接手。整条流水线被设计成<b>永远有下一跳</b>，而不是某一路打个喷嚏就当众崩给评委看。"
+        ],
+        refs: [
+          { file: "backend/agent/runtime/tools/search_adapter.py", lines: [122, 125], note: "工具 success=false 时仍取 relaxed_tags 并返空候选，不抛异常" },
+          { file: "backend/agent/graph/nodes/execute.py", lines: [35, 41], note: "intent 为空直接返空候选；worker 不让单路失败阻塞全局" },
+          { file: "backend/tools/registry.py", lines: [149, 158], note: "invoke_tool 捕获任意异常→UPSTREAM_FAILURE，不向上抛" }
+        ]
+      }
+    ]
+  };
+
+  TourEngine.mount(TOUR_DATA);
+  </script>
+</body>
+</html>

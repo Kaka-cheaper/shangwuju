@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<!--
+  模块导览页 · collab —— WebSocket 房间：一家人一起拍板行程
+  复制自 _TEMPLATE.html，只改 TOUR_DATA。不改 <head> 引用 / 不写内联 CSS/JS / 不改结构。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>模块导览 · 晌午局</title>
+  <link rel="stylesheet" href="assets/tour.css" />
+</head>
+<body>
+  <script src="assets/tour-engine.js"></script>
+  <script src="assets/glossary.js"></script>
+  <script>
+  /* =================================================================
+     TOUR_DATA —— 协作房间：多人约束怎么不打架、不重复算
+     ================================================================= */
+  const TOUR_DATA = {
+    meta: {
+      id: "collab",
+      title: "多人协作房间 · 一家人怎么一起拍板行程",
+      module_label: "本模块 · 房间锁 + 中断重排 + 投票锁段",
+      arch: true,
+      prev: { href: "module-interface.html", title: "前端体验与多模态" },
+      next: { href: "architecture.html", title: "为什么这样设计" },
+      outro_title: "你已看懂：多人意见怎么收敛成一份共识方案",
+      outro: "房间锁让约束串行、中断扔掉算了一半的旧任务、约束池合并后只复跑一次——A 要近的、B 要包间的，两条约束不打架也不算两遍。至此整个产品闭环讲完。可点左侧任意站点回看；或顺主线进入「为什么这样设计」，看这套『LLM 决主观、算法决客观』的架构是怎么一步步演进来的。"
+    },
+
+    // 右图：协作数据流（左→右）。kind ∈ input|compute|decision|output|fallback
+    graph: {
+      nodes: [
+        { id: "a",      label: "成员A『要近的』",        kind: "input",    col: 0, row: 0 },
+        { id: "b",      label: "成员B『要包间』",        kind: "input",    col: 0, row: 2 },
+        { id: "room",   label: "WS 房间 + 房间锁",       kind: "compute",  col: 1, row: 1 },
+        { id: "merge",  label: "中断旧任务 / 约束池合并", kind: "decision", col: 2, row: 1 },
+        { id: "replan", label: "重新规划 replan",        kind: "compute",  col: 3, row: 1 },
+        { id: "vote",   label: "投票锁段 like/dislike",  kind: "decision", col: 4, row: 0 },
+        { id: "out",    label: "共识方案 consensus",      kind: "output",   col: 4, row: 2 }
+      ],
+      edges: [
+        { from: "a", to: "room" }, { from: "b", to: "room" },
+        { from: "room", to: "merge" },
+        { from: "merge", to: "replan" },
+        { from: "replan", to: "vote" }, { from: "replan", to: "out" },
+        { from: "vote", to: "merge" }, { from: "vote", to: "out" }
+      ]
+    },
+
+    steps: [
+      {
+        kind: "skeleton",
+        title: "主线骨架：先排队、再合并、最后投票收敛",
+        focus: ["room", "merge", "out"],
+        reveal: "三段主线：<b>先排队</b>（多人约束进同一个 WS 房间，房间锁逼它们串行处理，不并发打架）→ <b>再合并</b>（新约束来了先中断算到一半的旧任务，把约束池合并成一段反馈，只复跑一次）→ <b>后收敛</b>（每段行程赞=锁住、踩=翻译成换段约束，投票把全家人的意见拧成一份共识方案）。其余都围着这条线转。",
+        teach: [
+          "前面整套规划，都是<b>一个人</b>在跟系统对话。可现实是一家人出门：奶奶要近的、爸爸要有包间、孩子要好玩。多个人<b>同时</b>往一个规划里塞需求，事情立刻乱套。这一模块就管<b>怎么把一群人的吵吵嚷嚷，拧成一份大家都认的方案</b>。",
+          "三段：<b>先排队</b>（多人的约束都进同一个 WS 房间，一把房间锁逼它们一个个来，不并发打架）→ <b>再合并</b>（新约束来了，先掐掉算到一半的旧规划，把大家的约束并成一段反馈，只重算一次）→ <b>后收敛</b>（对着方案逐段投票：赞＝锁住这段、踩＝翻译成『换掉这段』，把全家意见拧成共识）。",
+          "一句话：<b>『串行不打架、合并不重算、投票出共识』</b>。多人协作的全部难点，都在『怎么不乱』。"
+        ]
+      },
+      {
+        kind: "step",
+        title: "入场 · A 要近的、B 同时要包间的，规划还跑到一半",
+        focus: ["a", "b", "room"],
+        gap: "A 刚发『要近的』，B 几乎同时发『要带包间的』，而上一轮规划正算到一半——系统凭什么不让这两条约束并发打架、又不把同一份行程重复算两遍？",
+        reveal: "<b>每个房间一把 asyncio.Lock</b>：所有约束/投票处理都 <code>async with room.lock</code> 进同一条串行队列——B 必须等 A 处理完才进来，天然杜绝并发竞争，两条约束按序落进同一个约束池。",
+        teach: [
+          "A 刚发『要近的』，B 几乎同一秒发『要带包间的』，偏偏上一轮规划还<b>算到一半</b>。三件事撞在一起——系统凭什么不让这两条约束<b>并发打架</b>、又不把同一份行程<b>重复算两遍</b>？",
+          "每个房间配<b>一把锁</b>（<code>asyncio.Lock</code>）。所有约束、投票的处理，第一步都得 <code>async with room.lock</code>——也就是<b>排成一条单行道</b>：B 必须老老实实等 A 处理完、退出锁，才轮到它进来。",
+          "于是两条几乎同时到的约束，被锁<b>逼成了先来后到</b>，按顺序乖乖落进同一个约束池，谁也别想插队或对撞。<b>并发的混乱，用一把锁化成了串行的秩序</b>——多人系统最朴素也最可靠的定海神针。"
+        ],
+        refs: [
+          { file: "backend/collab/room.py", lines: [200, 208], note: "add_constraint 第一行就 async with room.lock，串行入池" },
+          { file: "backend/collab/room.py", lines: [74, 78], note: "Room 每实例一把 asyncio.Lock + planning_task 句柄" },
+          { file: "backend/api/collab.py", lines: [189, 198], note: "WS 收到 constraint/vote 都转交 manager，同一房间共享一把锁" }
+        ],
+        code: {
+          label: "展开源码 · 房间锁把并发约束逼成串行",
+          file: "backend/collab/room.py", lang: "py", lines: [200, 208],
+          snippet:
+`    async def add_constraint(
+        self, room: Room, user_id: str, text: str, source: str = "text"
+    ) -> None:
+        """添加约束 → 广播 → 中断当前规划 → 合并约束 → 重新规划。"""
+        async with room.lock:                # ← B 必须等 A 退出锁
+            constraint = Constraint(
+                user_id=user_id, text=text, source=source
+            )
+            room.constraints.append(constraint)`
+        }
+      },
+      {
+        kind: "step",
+        title: "中断 · 旧任务已经算了一半，新约束来了怎么办",
+        focus: ["room", "merge", "replan"],
+        gap: "进了锁、约束也入池了——可上一轮规划任务还在后台跑着旧约束。如果直接开新任务，岂不是两份规划同时往同一块屏幕推事件？而且旧那份算完也白算。",
+        reveal: "<b>先 cancel 再复跑</b>：拿 <code>planning_task.cancel()</code> 掐掉算到一半的旧任务、await 它真正退出、广播 <code>planning_aborted</code>，然后把约束池合并成一段 feedback 只复跑一次——不让两条约束打架，也不重复算。",
+        teach: [
+          "进了锁、新约束也入池了。可<b>麻烦还在</b>：上一轮的规划任务还在后台吭哧吭哧跑着<b>旧</b>约束呢。要是这会儿直接开个新任务，岂不是<b>两份规划同时往同一块屏幕推事件</b>，把用户看花眼？而且那旧的算完也是白算。",
+          "所以顺序是<b>先掐死、再重跑</b>：<code>planning_task.cancel()</code> 掐掉算到一半的旧任务，<b>await 等它真正退出</b>（而不是发个信号就不管），广播一条 <code>planning_aborted</code> 告诉大家『刚那版作废了』，然后才把整个约束池合并成一段反馈，<b>只重新跑一次</b>。",
+          "关键是那个 <code>await</code>：它确保旧任务<b>彻底咽气</b>了，新任务才出生，绝不让新旧两版在屏幕上抢话。<b>一进一出干干净净</b>，无论多少人多快地连环加约束，屏幕上<b>永远只有一份正在生长的方案</b>。"
+        ],
+        refs: [
+          { file: "backend/collab/room.py", lines: [229, 243], note: "中断进行中的 planning_task：cancel + await 退出 + 广播 aborted + 触发复跑" },
+          { file: "backend/collab/room.py", lines: [665, 675], note: "_merge_constraints_text：约束池取最近 5 条合并成一段 feedback" },
+          { file: "backend/collab/room.py", lines: [404, 423], note: "_trigger_replan：清旧事件历史 + 广播 planning_started + create_task 起新任务" }
+        ],
+        code: {
+          label: "展开源码 · cancel 旧任务后才合并复跑",
+          file: "backend/collab/room.py", lang: "py", lines: [229, 243],
+          snippet:
+`            # 中断当前规划
+            if room.planning_task and not room.planning_task.done():
+                room.planning_task.cancel()
+                try:
+                    await room.planning_task        # 等它真正退出
+                except (asyncio.CancelledError, Exception):
+                    pass
+                await self.broadcast(room, {
+                    "type": "planning_aborted",
+                    "reason": "new_constraint",
+                    "by_user": user_id,
+                })
+            # 触发重规划（合并整个约束池，只跑一次）
+            await self._trigger_replan(room, trigger_user=user_id, trigger_reason="constraint_added")`
+        }
+      },
+      {
+        kind: "step",
+        title: "投票 · 赞和踩，对系统是同一回事吗",
+        focus: ["vote", "merge"],
+        gap: "全家人对着行程逐段点赞踩：奶奶给第 2 段点了赞、爸爸给第 4 段点了踩。这两个动作，在系统眼里只是 +1/-1 的计数器吗？",
+        // quiz：放在反直觉的「赞踩语义不对称」处
+        quiz: {
+          question: "重新规划时，被点过『赞』的那一段会怎样？",
+          options: [
+            "和其他段一样重新生成——投票只是统计数字",
+            "进 locked_stages 被锁住，复跑时尽量保留这段不动",
+            "立刻被删掉，给踩的段腾位置"
+          ],
+          answer: 1,
+          wrong_note: "你以为赞只是个计数，实际它会把段号塞进 locked_stages——因为既然全家都满意第 2 段，重排时就该护住它，别让换第 4 段连累把第 2 段也算飞了。",
+          right_note: "对——赞=锁段（进 locked_stages 重排时保留），踩=把『不满意第 N 段』翻译成一条约束触发重排。两个动作语义完全不对称。"
+        },
+        reveal: "<b>赞锁段、踩转约束</b>：like 把段号加进 <code>locked_stages</code>（重排保留），dislike 把它从锁集移除、并合成『不满意第 N 段「标题」，请换一个』入约束池、再走一次中断+复跑——踩本质就是一条结构化反馈。",
+        teach: [
+          "全家人对着行程逐段点赞踩：奶奶给第 2 段点赞、爸爸给第 4 段点踩。问题来了——这两个动作，在系统眼里<b>真的只是 +1 和 -1 两个对称的计数器</b>吗？",
+          "不，它俩<b>语义完全不对称</b>。<b>点赞 = 锁段</b>：把这段编号塞进 <code>locked_stages</code>，以后重排时<b>尽量护住它不动</b>（全家都满意了，凭什么再动它）。<b>点踩 = 提需求</b>：系统把它<b>翻译成一句约束</b>——『不满意第 4 段「XX」，请换一个』，扔进约束池，再走一遍『中断 + 复跑』。",
+          "所以踩<b>本质上就是一条结构化反馈</b>，跟用户手打『换一个』殊途同归。一个『赞』把好的钉死、一个『踩』把坏的换掉——投票不是民意调查，而是<b>直接驱动重排的两个不对称操作</b>。"
+        ],
+        refs: [
+          { file: "backend/collab/room.py", lines: [254, 267], note: "like→locked_stages.add；dislike→discard，并广播 locked_stages" },
+          { file: "backend/collab/room.py", lines: [270, 294], note: "dislike 翻译成『不满意第 N 段…请换一个』约束并入池广播" },
+          { file: "backend/collab/room.py", lines: [714, 745], note: "_get_stage_title：从行程取第 N 段标题，兼容 stages/nodes 两套数据" }
+        ],
+        code: {
+          label: "展开源码 · 踩怎么变成一条换段约束",
+          file: "backend/collab/room.py", lang: "py", lines: [270, 277],
+          snippet:
+`            # 踩 → 触发重规划
+            if action == "dislike":
+                # 翻译投票为约束文本
+                stage_title = self._get_stage_title(room, stage_index)
+                constraint_text = f"不满意第 {stage_index + 1} 段「{stage_title}」，请换一个"
+                constraint = Constraint(
+                    user_id=user_id, text=constraint_text, source="vote_dislike"
+                )
+                room.constraints.append(constraint)`
+        }
+      },
+      {
+        kind: "step",
+        title: "同步 · 新人中途加入，凭什么和大家看到同一块屏",
+        focus: ["room", "replan"],
+        gap: "前两步约束、半截规划事件、几轮投票都已经发生了——这时第三个人扫码进来，他的屏幕是空白起步，还是能瞬间和大家对齐到同一帧？",
+        reveal: "<b>加入即推全量快照</b>：join 时先 <code>get_state_snapshot()</code> 把成员/约束/投票/锁段/规划事件历史/对话整包推给新人，前端 <code>collab-store</code> 收到 room_state 就回放，让晚到的人补齐到当前帧，再进广播队列。",
+        teach: [
+          "前面的约束、半截规划事件、好几轮投票<b>都已经发生过了</b>。这时第三个人扫码进来——他的屏幕是从<b>一片空白</b>开始，还是能<b>瞬间和大家对齐到同一帧</b>？",
+          "加入即<b>推全量快照</b>。新人一 join，服务端先调 <code>get_state_snapshot()</code>，把当前房间的<b>成员、约束、投票、锁段、规划事件历史、对话</b>整整一大包<b>一次性塞给他</b>；前端 <code>collab-store</code> 收到就地<b>回放</b>，补齐到当前这一帧，<b>然后</b>才把他接进实时广播队列。",
+          "这个『<b>先补历史、再接直播</b>』的顺序很要紧：少了它，晚到的人要么看不到之前发生了啥、要么会漏掉刚进来这一瞬的新事件。先灌满档案、再开实时——晚来的人也能<b>无缝</b>融进同一个房间。"
+        ],
+        refs: [
+          { file: "backend/collab/room.py", lines: [164, 183], note: "join：先给新人推全量 state_snapshot，再向其他人广播 member_joined" },
+          { file: "backend/collab/room.py", lines: [104, 121], note: "get_state_snapshot：成员/约束/投票/锁段/事件历史/对话一次性打包" },
+          { file: "frontend/lib/collab-store.ts", lines: [217, 266], note: "前端收 room_state：同步房间态 + 回放 planning_events + 灌 chat_messages" }
+        ]
+      },
+      {
+        kind: "step",
+        title: "兜底 · 全员退场后房间清不清，决定 demo 能不能复活（收尾）",
+        focus: ["out", "room"],
+        gap: "评委试完，所有人都关了页面、WS 全断——按常规该把房间回收省内存。可万一评委又刷新一下想再看一眼，房间没了不就当场翻车？",
+        // quiz：放在反直觉的容错决策处
+        quiz: {
+          question: "当房间里所有成员都断线离场，系统会怎么处理这个房间？",
+          options: [
+            "立刻删除房间释放内存——没人在了留着没用",
+            "故意什么都不做，原样保留房间，让评委刷新还能进",
+            "无限期保留所有历史房间，永不回收"
+          ],
+          answer: 1,
+          wrong_note: "你以为全员离线就该回收，实际 leave 里检测到 all_offline 后特地 pass 掉清理——因为 demo 现场宁可多占点内存，也不能让评委刷新一下房间就没了。",
+          right_note: "对——这是为 demo 韧性做的取舍：全员离线只检测不清理，房间原样留着，评委刷新页面照样回到同一帧。整个产品闭环到此讲完。"
+        },
+        reveal: "<b>全员离线只检测、不清理</b>：leave 里算出 <code>all_offline</code> 后特意 pass——不做延迟回收，房间原样留着让评委刷新即复活。这套『房间锁串行 + 中断旧任务 + 约束池合并』就是多人共识的底座。但这种『LLM 决主观、算法决客观』的整体架构，到底是怎么一步步演进来的？（→ 为什么这样设计）",
+        teach: [
+          "评委试完，所有人都关了页面、WS 全断了。按常规——人都走光了，这房间该回收掉省内存吧？可万一评委<b>又手痒刷新了一下</b>想再看一眼，房间要是没了，岂不<b>当场翻车</b>？",
+          "所以这里做了个反常规的取舍：<code>leave</code> 里算出『全员离线』之后，<b>特意什么都不做（pass）</b>——不回收、不延迟清理，房间<b>原样留在那儿</b>。",
+          "为什么宁可多占点内存？因为<b>『demo 现场绝不能因为一次刷新就空』</b>比省那点内存重要得多。至此，『房间锁串行 + 中断旧任务 + 约束池合并』这套多人共识的底座讲完了，整个产品闭环也跑通了。可话说回来——这套『LLM 决主观、算法决客观』的整体架构，到底是<b>怎么一步步演进成今天这样的</b>？那就去看『为什么这样设计』。"
+        ],
+        refs: [
+          { file: "backend/collab/room.py", lines: [185, 198], note: "leave：member.ws 置空，all_offline 时刻意 pass 不清理，保 demo 可刷新" },
+          { file: "backend/collab/room.py", lines: [311, 328], note: "broadcast：发送失败的连接被剔除 ws，下次不再推，房间本体仍在" },
+          { file: "frontend/lib/ws.ts", lines: [72, 95], note: "前端断线指数退避重连 3 次，回来后房间还在即可续上" }
+        ],
+        code: {
+          label: "展开源码 · 全员离线为何刻意不清理",
+          file: "backend/collab/room.py", lang: "py", lines: [194, 198],
+          snippet:
+`        # 如果所有人都离线，5 分钟后清理（简化：直接标记，不做定时器）
+        all_offline = all(m.ws is None for m in room.members.values())
+        if all_offline:
+            # Demo 场景不做延迟清理，直接保留房间（评委可能刷新页面）
+            pass`
+        }
+      }
+    ]
+  };
+
+  TourEngine.mount(TOUR_DATA);
+  </script>
+</body>
+</html>

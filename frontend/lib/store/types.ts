@@ -103,6 +103,13 @@ export interface ChatState {
    * - "refine"   : 用户点「说说哪不对」触发的 /chat/refine
    */
   streamPhase: "idle" | "stream" | "confirm" | "refine";
+  /**
+   * 惰性清空闸（Bug 修复：非重规划输入不该清空主页面）。
+   * sendMessage 时设 true 但**不清空**；只有收到「重跑信号」(intent_parsed /
+   * refinement_start) 时，若仍为 true 才清空 toolCalls/thoughts/itinerary 并置 false。
+   * 提问 / 确认 / 预约 / 闲聊（只发 chitchat_reply）永远收不到重跑信号 → 主页面纹丝不动。
+   */
+  awaitingReplan: boolean;
 
   // 聊天与中间过程
   messages: ChatMessage[];

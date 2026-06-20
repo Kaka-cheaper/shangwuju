@@ -531,6 +531,23 @@ async def run_react_turn(
             itinerary = output.itinerary
             narration = output.narration
 
+            # 工具前移（spec dialogue-act-routing）：ReAct 路径也把「确认动作清单」挂上，
+            # 让 confirm 直接 replay、不依赖 intent 快照——拆掉「ReAct 不发 intent_parsed →
+            # confirm 读到空 intent」这条断点。intent_snapshot 缺省时 build 内部降级。
+            try:
+                from agent.graph.nodes.execute_finalize import build_confirm_actions
+
+                _intent_obj = None
+                if state.intent_snapshot:
+                    from schemas.intent import IntentExtraction
+
+                    _intent_obj = IntentExtraction.model_validate(state.intent_snapshot)
+                itinerary = itinerary.model_copy(
+                    update={"pending_actions": build_confirm_actions(itinerary, _intent_obj)}
+                )
+            except Exception:  # noqa: BLE001
+                log.warning("react_turn.build_confirm_actions_failed")
+
             # 同步 itinerary_snapshot；intent_snapshot 由旧 confirm 路径单独维护
             state.itinerary_snapshot = itinerary.model_dump()
 
