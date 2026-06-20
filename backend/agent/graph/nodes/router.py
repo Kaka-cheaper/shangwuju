@@ -224,6 +224,16 @@ def router_node(state: AgentState) -> dict[str, Any]:
             ),
         }
 
+    # ---- Layer 1.7：用户画像问答（规则识别，不调 LLM）----
+    # 「我是谁 / 我的画像 / 你了解我」用系统 persona + 累积偏好作答。必须放在 L2 与
+    # Layer 3 的 itinerary QA 之前——否则含疑问词的画像问会被「关于方案的提问」抢去弃答
+    # （本 bug 根因）。有无方案都答（兑现「懂你」主题）。
+    from agent.core.persona_qa import build_persona_decision
+
+    persona_decision = build_persona_decision(user_input, state.get("user_id"))
+    if persona_decision is not None:
+        return {"route_kind": "chitchat", "router_decision": persona_decision}
+
     # ---- Layer 2：LLM 分类（带 has_itinerary 上下文） ----
     client = get_llm_client()
     try:
