@@ -12,15 +12,17 @@
        REQUEST-info(question) / CONFIRM / ...，互斥且完备（Stolcke 2000; Montenegro 2019）。
     2) 收口手法（Fowler）：两处分支里相同的「判断对话行为→构造 decision」片段，用
        **Consolidate Duplicate Conditional Fragments + Extract Function** 提成本模块的
-       resolve_session_act，router 只调一处。行为保持（重构纪律）：原 L3/L3.5 已验证的
+       classify_dialogue_act，router 只调一处。行为保持（重构纪律）：原 L3/L3.5 已验证的
        去向不变，只是合并入口、并顺带补齐「被判 chitchat 的提问」这个原先漏掉的口子。
 
-  resolve_session_act 的判定顺序（对话行为优先级）：
-    ① 提问（question / request-info）→ 查数据接地回答（chitchat 出口）
-    ② 预约指令（booking / commit）「给我预约吧 / 下单」→ 一键确认 chip（chitchat 出口，**不重规划**）
-    ③ 确认（confirm / accept）「好的 / 就这个」→ 肯定 + 引导下一步（chitchat 出口，**不重规划**）
-    ④ 提约束·没说改（inform-constraint）→ 主动问要不要照此调整（emotional 气泡）
+  classify_dialogue_act 的判定顺序（对话行为优先级）：
+    ① 提问（QUESTION / request-info）→ 查数据接地回答
+    ② 预约指令（BOOKING / commit）「给我预约吧 / 下单」→ 一键确认 chip（**不重规划**）
+    ③ 确认（CONFIRM / accept）「好的 / 就这个」→ 肯定 + 引导下一步（**不重规划**）
+    ④ 提约束·没说改（SOFT_CONSTRAINT / inform-constraint）→ 主动问要不要照此调整
     ⑤ 以上都不是 → None，交回 router 兜底（planning/ambiguous → feedback 重规划）
+
+  act → RouteKind 映射由 routing 层（route_turn.py）持有，core 层不感知 RouteKind。
 
   边界：
     - 「确认」必须是**纯肯定**——含反馈 / 疑问 / 明确改 / 追加词的，都不算确认（"好的但太远"
@@ -33,7 +35,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any, Optional
 
 from schemas.router import CtaChip, InputKind, RouterDecision
 
@@ -44,6 +48,25 @@ from .soft_constraint_sniffer import (
     build_soft_constraint_decision,
     looks_like_explicit_revise,
 )
+
+
+# ============================================================
+# 对话行为枚举（闭集，core 层自有，不依赖 routing）
+# ============================================================
+
+class DialogueAct(Enum):
+    """会话内已有方案时的对话行为闭集（Stolcke 2000 子集）。
+
+    QUESTION        提问 / request-info（"这家餐厅贵不贵"）
+    BOOKING         预约指令 / commit-to-execute（"给我预约吧"）
+    CONFIRM         纯确认 / accept（"好的，就这个"）
+    SOFT_CONSTRAINT 提约束·没说改 / inform-constraint（"我妈膝盖不好走不远"）
+    """
+
+    QUESTION = "QUESTION"
+    BOOKING = "BOOKING"
+    CONFIRM = "CONFIRM"
+    SOFT_CONSTRAINT = "SOFT_CONSTRAINT"
 
 
 # ============================================================
@@ -145,50 +168,76 @@ def build_booking_decision(text: str) -> RouterDecision | None:
 
 
 # ============================================================
-# 收口入口（Fowler: Extract Function）
+# 对话行为结果类型（T2 精修：act 枚举解耦 RouteKind）
 # ============================================================
 
-def resolve_session_act(
+@dataclass(frozen=True)
+class DialogueActResult:
+    """classify_dialogue_act 的类型化返回值。
+
+    Attributes:
+        act:      命中的对话行为枚举值（DialogueAct）。
+        decision: RouterDecision payload，供 chitchat_node / emotional_node 渲染回复。
+
+    act → RouteKind 映射由 routing 层（route_turn._act_outcome_to_route_outcome）持有，
+    core 层不感知任何 RouteKind 值。
+    """
+
+    act: DialogueAct
+    decision: Optional[RouterDecision]
+
+
+# ============================================================
+# 收口入口（classify_dialogue_act）
+# ============================================================
+
+def classify_dialogue_act(
     user_input: str,
     itinerary: Any,
     *,
     client: LLMClient | None = None,
-) -> dict[str, Any] | None:
-    """已有方案时，统一判这句是哪种对话行为并给出路由。
+) -> DialogueActResult | None:
+    """已有方案时，统一判这句是哪种对话行为，返回自己的类型化结果。
 
-    命中 → 返回 {"route_kind": ..., "router_decision": ...}（直接作为 router_node 的返回）。
-    都不是 → None，交回 router 兜底（planning/ambiguous → feedback）。
-    顺序见模块 docstring：提问 → 确认 → 提约束没说改。
+    命中 → DialogueActResult(act, decision)。
+    都不是 → None，交回 route_turn 兜底（planning/ambiguous → feedback）。
+    顺序（对话行为优先级）：提问 → 预约指令 → 确认 → 提约束没说改。
+
+    act → RouteKind 映射由 routing 层持有（route_turn._act_outcome_to_route_outcome）：
+        QUESTION / BOOKING / CONFIRM → chitchat
+        SOFT_CONSTRAINT              → emotional
     """
     # ① 提问 → 接地回答
     qa = build_question_decision(user_input, itinerary, client=client)
     if qa is not None:
-        return {"route_kind": "chitchat", "router_decision": qa}
+        return DialogueActResult(act=DialogueAct.QUESTION, decision=qa)
 
     # ② 预约指令（给我预约吧 / 下单）→ 一键确认 chip（绝不重规划）
     booking = build_booking_decision(user_input)
     if booking is not None:
-        return {"route_kind": "chitchat", "router_decision": booking}
+        return DialogueActResult(act=DialogueAct.BOOKING, decision=booking)
 
     # ③ 确认 → 肯定 + 引导（不重规划）
     confirm = build_confirm_decision(user_input)
     if confirm is not None:
-        return {"route_kind": "chitchat", "router_decision": confirm}
+        return DialogueActResult(act=DialogueAct.CONFIRM, decision=confirm)
 
-    # ③ 提约束·没说改 → 主动问气泡
+    # ④ 提约束·没说改 → 主动问气泡
     bubble = build_soft_constraint_decision(
         user_input, has_itinerary=True, client=client
     )
     if bubble is not None:
-        return {"route_kind": "emotional", "router_decision": bubble}
+        return DialogueActResult(act=DialogueAct.SOFT_CONSTRAINT, decision=bubble)
 
     return None
 
 
 __all__ = [
+    "DialogueAct",
+    "DialogueActResult",
+    "classify_dialogue_act",
     "looks_like_confirm",
     "build_confirm_decision",
     "looks_like_booking",
     "build_booking_decision",
-    "resolve_session_act",
 ]

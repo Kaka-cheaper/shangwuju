@@ -33,6 +33,11 @@ from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
 from schemas.router import RouterDecision
 
+# RouteKind 已迁移至 agent/routing/kinds.py（见 ADR-0005）。
+# 此处 re-export 保持向后兼容——所有 `from agent.graph.state import RouteKind`
+# 的现有 importer 零改动照常工作。
+from agent.routing.kinds import RouteKind  # noqa: F401
+
 # 蓝图（plan）层
 from agent.planning.blueprint.blueprint import PlanBlueprint
 from agent.planning.weights_llm import PlanningWeights
@@ -42,21 +47,6 @@ try:
     from agent.planning.critic.critics_v2 import Violation as CriticViolation
 except ImportError:
     CriticViolation = Any  # type: ignore[misc, assignment]
-
-
-# ============================================================
-# 路由结果（router_node 输出）
-# ============================================================
-
-RouteKind = Literal[
-    "planning",   # 进 intent → planner → execute 主路径
-    "chitchat",   # 闲聊回话直接出
-    "meta",       # 元能力问答（你能做什么）
-    "emotional",  # 情绪共情
-    "off_topic",  # 范围外礼貌拒答
-    "ambiguous",  # 输入歧义需要反问
-    "feedback",   # 对已有方案的反馈（走 refiner）
-]
 
 
 # ============================================================

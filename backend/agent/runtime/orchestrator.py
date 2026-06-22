@@ -31,6 +31,8 @@ from agent.runtime.conversation import (
     ConversationStore,
     get_default_store,
 )
+from agent.routing.route_turn import route_turn
+from agent.core.llm_client import get_llm_client
 from schemas import IntentExtraction, Itinerary, RouterDecision
 
 logger = logging.getLogger(__name__)
@@ -49,17 +51,30 @@ def decide_turn_kind(
 ) -> str:
     """决定这次 turn 走哪条路径。
 
+    T4 适配器（ADR-0004）：路由决策改由共享 route_turn 驱动，对齐 V3 canonical 级联。
+    原有二分支启发式（looks_like_feedback + itinerary_snapshot 存在）已删除，
+    所有信号判定由 route_turn 内部级联统一持有。
+
+    路由语义映射（adapter 翻译，chat.py 调用方契约不变）：
+        RouteOutcome.kind == "feedback"  →  "feedback"（走 refine 路径）
+        其他所有 kind                   →  "fresh"    （走 router → planner / chitchat）
+
+    itinerary 传递：按 ADR-0004 约定，传 state.itinerary_snapshot（dict or None），
+    有快照时 route_turn 的 has_itinerary=True，Level 1 / L3 有感知；
+    无快照时与 V1 传 None 行为一致（无状态子集）。
+
     Returns:
-        "feedback"  → 当前 itinerary 已存在 + message 看着像反馈 → 走 refine 路径
-        "fresh"     → 视为新规划请求 → 走 router → planner / chitchat
+        "feedback"  → route_turn 判为反馈 → 走 refine 路径
+        "fresh"     → route_turn 判为其他（planning / chitchat / meta / etc.）→ 走主路径
     """
-    if state.itinerary_snapshot is None:
-        return "fresh"
-    if looks_like_feedback(message):
-        return "feedback"
-    # 已有 itinerary 但消息不像反馈 —— 例如用户主动说"我想换一个场景"
-    # 默认按 fresh 走（重新路由），让 router 决定（也可能 router 判 chitchat）
-    return "fresh"
+    client = get_llm_client(task="router")
+    outcome = route_turn(
+        message,
+        state.itinerary_snapshot,
+        state.user_id,  # 传 state.user_id，供 persona_qa 查画像
+        client=client,
+    )
+    return "feedback" if outcome.kind == "feedback" else "fresh"
 
 
 # ============================================================
