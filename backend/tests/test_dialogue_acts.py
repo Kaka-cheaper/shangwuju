@@ -1,17 +1,20 @@
-"""test_dialogue_acts —— 会话内对话行为收口（确认识别 + resolve_session_act 统一判定）。
+"""test_dialogue_acts —— 会话内对话行为收口（确认识别 + classify_dialogue_act 统一判定）。
 
-确定性测试。验证：确认识别及其排除（反馈/疑问/追加不算确认）、resolve 的优先级顺序
+确定性测试。验证：确认识别及其排除（反馈/疑问/追加不算确认）、分类的优先级顺序
 （提问 > 确认 > 提约束）、router 集成（确认不重规划、追加走 feedback）。
+
+行为契约不变：同输入得同对话行为（DialogueAct），同路由目标（由 route_turn 映射）。
 """
 
 from __future__ import annotations
 
 from agent.core.dialogue_acts import (
+    DialogueAct,
     build_booking_decision,
     build_confirm_decision,
+    classify_dialogue_act,
     looks_like_booking,
     looks_like_confirm,
-    resolve_session_act,
 )
 
 
@@ -46,18 +49,20 @@ def test_build_confirm_decision():
     assert build_confirm_decision("太远了") is None
 
 
-# ---- resolve_session_act 优先级：提问 > 确认 > 提约束 ----
+# ---- classify_dialogue_act 优先级：提问 > 确认 > 提约束 ----
 
-def test_resolve_question_first():
-    act = resolve_session_act("这家餐厅贵不贵", _itin(), client=None)
-    assert act and act["route_kind"] == "chitchat"
-    assert "人均" in act["router_decision"].reply_text
+def test_classify_question_first():
+    result = classify_dialogue_act("这家餐厅贵不贵", _itin(), client=None)
+    assert result is not None
+    assert result.act == DialogueAct.QUESTION
+    assert "人均" in result.decision.reply_text
 
 
-def test_resolve_confirm():
-    act = resolve_session_act("好的就这个", _itin(), client=None)
-    assert act and act["route_kind"] == "chitchat"
-    assert act["router_decision"].rationale == "dialogue_act_confirm"
+def test_classify_confirm():
+    result = classify_dialogue_act("好的就这个", _itin(), client=None)
+    assert result is not None
+    assert result.act == DialogueAct.CONFIRM
+    assert result.decision.rationale == "dialogue_act_confirm"
 
 
 # ---- 预约指令（BOOKING）：给我预约吧 → 确认 chip，不重规划 ----
@@ -78,12 +83,13 @@ def test_build_booking_decision_has_confirm_chip():
     assert len(d.cta_chips) == 1 and d.cta_chips[0].action == "confirm"
 
 
-def test_resolve_booking_before_confirm():
-    # 预约指令走 booking 分支（chitchat + confirm chip），不落 feedback
-    act = resolve_session_act("给我预约吧", _itin(), client=None)
-    assert act and act["route_kind"] == "chitchat"
-    assert act["router_decision"].rationale == "dialogue_act_booking"
-    assert any(c.action == "confirm" for c in act["router_decision"].cta_chips)
+def test_classify_booking_before_confirm():
+    # 预约指令走 BOOKING（chitchat + confirm chip），不落 feedback
+    result = classify_dialogue_act("给我预约吧", _itin(), client=None)
+    assert result is not None
+    assert result.act == DialogueAct.BOOKING
+    assert result.decision.rationale == "dialogue_act_booking"
+    assert any(c.action == "confirm" for c in result.decision.cta_chips)
 
 
 def test_router_booking_not_feedback(monkeypatch):
@@ -97,19 +103,20 @@ def test_router_booking_not_feedback(monkeypatch):
     assert any(c.action == "confirm" for c in out["router_decision"].cta_chips)
 
 
-def test_resolve_soft_constraint():
-    act = resolve_session_act("我妈膝盖不好走不远", _itin(), client=None)
-    assert act and act["route_kind"] == "emotional"
-    assert any("适合老人" in c.label for c in act["router_decision"].cta_chips)
+def test_classify_soft_constraint():
+    result = classify_dialogue_act("我妈膝盖不好走不远", _itin(), client=None)
+    assert result is not None
+    assert result.act == DialogueAct.SOFT_CONSTRAINT
+    assert any("适合老人" in c.label for c in result.decision.cta_chips)
 
 
-def test_resolve_none_for_real_feedback():
-    assert resolve_session_act("这版太赶了", _itin(), client=None) is None
+def test_classify_none_for_real_feedback():
+    assert classify_dialogue_act("这版太赶了", _itin(), client=None) is None
 
 
-def test_resolve_none_for_add():
+def test_classify_none_for_add():
     # 追加不在这里拦，交回兜底（→ feedback → refiner 增量合并）
-    assert resolve_session_act("还想加个喝咖啡的地方", _itin(), client=None) is None
+    assert classify_dialogue_act("还想加个喝咖啡的地方", _itin(), client=None) is None
 
 
 # ---- router 集成：确认→chitchat 不重规划；追加→feedback ----

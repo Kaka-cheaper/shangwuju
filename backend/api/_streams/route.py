@@ -1,15 +1,19 @@
 """Phase 0.8 输入域路由（Pre-Router）：关键词 fast path + LLM 分类。
 
 来自 main.py 拆分（spec code-modularization-refactor H1-final）：
-- _stub_route：关键词命中返 RouterDecision，否则 None
+- _stub_route：关键词命中返 RouterDecision，否则 None（stub 模式专用）
 - _make_chitchat_event：RouterDecision → CHITCHAT_REPLY 事件
 - _routed_stream_stub / _routed_stream_real：stub / 真 LLM 模式分发
+
+T3 适配器（ADR-0004 去重）：
+- _routed_stream_real 路由决策改由共享 route_turn 驱动（canonical 信号表在 routing 层）
+- 本文件删除原有重复的 _PLANNING_*_SIGNALS 副本和 _looks_like_planning
+- stub 模式（_routed_stream_stub）保留 _stub_route 快路径（无 LLM 可用，不调 route_turn）
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, AsyncIterator, Optional
 
 from schemas import (
@@ -126,79 +130,6 @@ def _stub_route(message: str) -> Optional[RouterDecision]:
     return None  # 不是非 planning 输入 → 走原 stub_stream
 
 
-# ============================================================
-# 优化 3 实验：正向 PLANNING 信号（让 llm 模式也能在毫秒级跳过 LLM router）
-# ============================================================
-#
-# 设计动机：
-#   _stub_route 仅识别 5 类**非** PLANNING 输入；典型 demo 输入「今天下午陪老婆孩子」
-#   会返 None 让 llm 模式仍走 LLM router 调用 5-10s。
-#
-#   优化 3 思路：在 _stub_route 失败的输入上**正向匹配 PLANNING 信号**，命中即直接当
-#   PLANNING 类继续走 _planner_stream，跳过 LLM router 节省 5-10s。
-#
-# 信号词典（覆盖 80%+ 主路径输入）：
-#   - 时间：今天 / 明天 / 周末 / 周日 / 周六 / 下午 / 晚上
-#   - 行为：出去玩 / 出去走走 / 散步 / 吃饭 / 看展 / K 歌 / 撸串 / 喝茶 / 拍照
-#   - 同行：和老婆 / 和孩子 / 带 X / 陪 X / 朋友 / 闺蜜 / 客户 / 女朋友
-#   - 约束：别离家太远 / 几公里以内 / 几小时
-
-_PLANNING_TIME_SIGNALS = (
-    "今天下午", "明天下午", "周末", "周日", "周六", "周五晚",
-    "今晚", "今天晚上", "明天晚上", "下午", "晚上",
-)
-
-_PLANNING_ACTION_SIGNALS = (
-    "出去玩", "出去走", "散步", "出门", "去玩", "找个地方",
-    "看展", "k 歌", "k歌", "撸串", "夜宵", "下午茶",
-    "聚会", "约会", "见面", "接待", "陪",
-)
-
-_PLANNING_COMPANION_SIGNALS = (
-    "老婆", "孩子", "宝贝", "娃", "外公", "外婆", "爷爷", "奶奶",
-    "父母", "妈", "爸", "客户", "闺蜜", "女朋友", "男朋友",
-    "朋友", "兄弟", "同事", "同学", "室友",
-)
-
-
-def _looks_like_planning(message: str) -> bool:
-    """正向 PLANNING 信号检测：命中说明大概率是规划输入，可跳过 LLM router。
-
-    覆盖策略（任一命中即可）：
-    1. 时间信号 + (行为或同行)：典型「今天下午陪老婆孩子」
-    2. 距离/时长约束：「3 公里以内」「玩几小时」
-    3. 多个同行信号：「老婆和孩子」
-    """
-    if not message:
-        return False
-    text = message.lower().strip()
-    if len(text) < 6:
-        # 太短不能确定是 PLANNING（防误判）
-        return False
-
-    has_time = any(s in text for s in _PLANNING_TIME_SIGNALS)
-    has_action = any(s in text for s in _PLANNING_ACTION_SIGNALS)
-    has_companion = any(s in text for s in _PLANNING_COMPANION_SIGNALS)
-    has_distance = any(s in text for s in ("公里以内", "公里内", "km以内", "km内", "公里", "千米"))
-    has_duration = any(s in text for s in ("几个小时", "几小时", "下午", "整晚", "半天", "一下午"))
-
-    # 规则：时间 + (行为 OR 同行) → PLANNING
-    if has_time and (has_action or has_companion):
-        return True
-    # 距离约束 + 任意主语 → PLANNING
-    if has_distance and (has_action or has_companion):
-        return True
-    # 时长约束 + 行为 → PLANNING
-    if has_duration and has_action:
-        return True
-    # 同行人 ≥ 2 个 → 通常是规划
-    companion_hits = sum(1 for s in _PLANNING_COMPANION_SIGNALS if s in text)
-    if companion_hits >= 2:
-        return True
-
-    return False
-
-
 def _make_chitchat_event(decision: RouterDecision, seq: int) -> SseEvent:
     return SseEvent(
         type=SseEventType.CHITCHAT_REPLY,
@@ -266,135 +197,98 @@ async def _routed_stream_real(
     mode: str,
     user_id: str,
 ) -> AsyncIterator[SseEvent]:
-    """真链路带 router：先分类，planning → 主 planner，否则推 chitchat_reply。
+    """真链路带 router：调共享 route_turn 拿 RouteOutcome，驱动原有 SSE 流。
+
+    T3 适配器（ADR-0004）：路由决策来源从本地信号表换成 route_turn（V3 canonical 级联）。
+    SSE 事件结构与流式行为不变，只换"去哪"的判定来源。
 
     模式分发：
-    - mode == "rule" ：用 _stub_route 关键词 fast path 做分类（毫秒级）
-                       未命中视为 PLANNING 走主路径；保证 rule 模式整链零 LLM 调用
-    - mode == "llm"  ：调 LLM router classify_input（5-10s，覆盖范围更广）
-                       LLM 失败 → _stub_route 兜底 → 仍失败按 PLANNING 兜底
+    - mode == "rule"：route_turn Layer 0（注入）/ Layer 1.5（planning fast path）覆盖主路径，
+                      Layer 2 以 stub client 兜底（classify_input 异常 → fallback planning）。
+    - mode == "llm" ：route_turn 走完整级联（含 Layer 2 LLM 分类）；在后台线程跑防 event loop 阻塞，
+                      期间推 agent_thought 心跳防首字节 8s 超时。
 
-    关键防御（仅 llm 模式需要）：
-    - 在调 LLM 前推一条 agent_thought 心跳 → 防 8s 首字节超时
-    - LLM 抛错 → 关键词 fast path → 仍失败 → 按 PLANNING 兜底
+    route_turn 内部级联（已含注入检测、强信号、fast path、LLM 分类、兜底）：
+        Layer 0  注入检测 → off_topic
+        Layer 1  强信号反馈（has_itinerary；V1 传 None，故不触发）
+        Layer 1.5 正向规划 fast path → planning
+        Layer 1.7 用户画像问答 → chitchat
+        Layer 2  LLM 分类；失败 → fallback planning
+        Layer 3  会话内对话行为（has_itinerary；V1 传 None，故不触发）
+        兜底归并 planning/ambiguous + has_itinerary → feedback（V1 不触发）
     """
-    # ---- Layer 0：注入检测（spec prompt-injection-defense，rule/llm 模式都先过）----
-    refusal = _injection_block_or_none(req.message)
-    if refusal is not None:
-        yield _make_chitchat_event(refusal, 0)
-        await _delay(120)
-        yield SseEvent(type=SseEventType.DONE, seq=1)
-        return
-
-    # ---- rule 模式：纯算法路由（毫秒级，无心跳必要）----
-    if mode == "rule":
-        decision = _stub_route(req.message)
-        if decision is not None and decision.input_kind != InputKind.PLANNING:
-            yield _make_chitchat_event(decision, 0)
-            try:
-                from agent.runtime.orchestrator import record_chitchat_result
-
-                await record_chitchat_result(
-                    session_id=req.session_id,
-                    user_id=user_id,
-                    user_message=req.message,
-                    decision=decision,
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            await _delay(120)
-            yield SseEvent(type=SseEventType.DONE, seq=1)
-            return
-        # PLANNING 路径（_stub_route 返 None 也视作 PLANNING）→ 直接进 _planner_stream
-        async for ev in _planner_stream(
-            req, mode=mode, user_id=user_id, starting_seq=0
-        ):
-            yield ev
-        return
-
-    # ---- llm 模式：真 LLM 分类（5-10s，需心跳防超时）----
     import asyncio
     import threading
 
-    from agent.intent.router import RouterError, classify_input, fallback_decision
     from agent.core.llm_client import get_llm_client
+    from agent.routing.route_turn import route_turn
 
-    # ---- 优化 3：正向 PLANNING 信号 fast path（跳过 LLM router 节省 5-10s）----
-    # 由 env ROUTE_FAST_PATH 控制（默认开），评委可关闭对比效果
-    fast_path_enabled = (os.getenv("ROUTE_FAST_PATH") or "1").strip() not in ("0", "false", "no", "off")
-    if fast_path_enabled:
-        # 1. 先看非 PLANNING 关键词（meta / chitchat / emotional / off_topic / ambiguous）
-        stub_decision = _stub_route(req.message)
-        if stub_decision is not None and stub_decision.input_kind != InputKind.PLANNING:
-            yield _make_chitchat_event(stub_decision, 0)
-            try:
-                from agent.runtime.orchestrator import record_chitchat_result
+    client = get_llm_client(task="router")
 
-                await record_chitchat_result(
-                    session_id=req.session_id,
-                    user_id=user_id,
-                    user_message=req.message,
-                    decision=stub_decision,
-                )
-            except Exception:  # noqa: BLE001
-                pass
-            await _delay(120)
-            yield SseEvent(type=SseEventType.DONE, seq=1)
-            return
-        # 2. 再看正向 PLANNING 信号（典型「今天下午陪老婆孩子」类）
-        if _looks_like_planning(req.message):
-            # 直接进 _planner_stream，跳过 LLM router 5-10s
-            async for ev in _planner_stream(
-                req, mode=mode, user_id=user_id, starting_seq=0
-            ):
-                yield ev
-            return
+    # ---- llm 模式：先推心跳防首字节超时（route_turn 可能走 LLM，5-10s）----
+    seq = 0
+    if mode == "llm":
+        yield SseEvent(
+            type=SseEventType.AGENT_THOUGHT,
+            seq=seq,
+            payload={"text": "正在理解你的需求……"},
+            timestamp_ms=_now_ms(),
+        )
+        seq = 1
 
-    # ---- 0. 心跳，防首字节超时 ----
-    yield SseEvent(
-        type=SseEventType.AGENT_THOUGHT,
-        seq=0,
-        payload={"text": "正在理解你的需求……"},
-        timestamp_ms=_now_ms(),
-    )
-
-    # ---- 1. 后台跑 router LLM；超时 / 失败 → 关键词 fast path → 主路径兜底 ----
-    decision_holder: dict[str, Any] = {}
+    # ---- 在后台线程跑 route_turn（同步；可能阻塞 LLM IO）----
+    outcome_holder: dict[str, Any] = {}
     done_event = threading.Event()
 
-    def _classify() -> None:
+    def _do_route() -> None:
         try:
-            client = get_llm_client(task="router")
-            decision_holder["decision"] = classify_input(req.message, client=client)
-        except RouterError as e:
-            decision_holder["error"] = e
+            outcome_holder["outcome"] = route_turn(
+                req.message, None, user_id, client=client
+            )
         except Exception as e:  # noqa: BLE001
-            decision_holder["error"] = e
+            outcome_holder["error"] = e
         finally:
             done_event.set()
 
-    threading.Thread(target=_classify, daemon=True).start()
+    threading.Thread(target=_do_route, daemon=True).start()
 
-    # 在后台线程跑期间，每 1.5s 推一次 agent_thought 心跳维持 SSE 活跃
-    loop = asyncio.get_running_loop()
     waited = 0.0
     while not done_event.is_set() and waited < 15.0:
         await asyncio.sleep(0.5)
         waited += 0.5
 
-    decision: Optional[RouterDecision]
-    if "decision" in decision_holder:
-        decision = decision_holder["decision"]
+    # ---- 解包 outcome（后台异常极少见；当 planning 兜底）----
+    if "outcome" in outcome_holder:
+        outcome = outcome_holder["outcome"]
     else:
-        # LLM 失败 → 关键词 fast path
-        decision = _stub_route(req.message) or fallback_decision(
-            req.message, reason="llm_router_failed"
+        # route_turn 本身抛异常（不应发生）→ 按 planning 兜底
+        from agent.routing.outcome import RouteOutcome
+        from agent.intent.router import fallback_decision
+        outcome = RouteOutcome(
+            kind="planning",
+            decision=fallback_decision(req.message, reason="route_turn_failed"),
         )
 
-    # ---- 2. 分流 ----
-    if decision is not None and decision.input_kind != InputKind.PLANNING:
-        # 非主路径：推 chitchat_reply + done
-        yield _make_chitchat_event(decision, 1)
+    # ---- 分流：planning / feedback → planner；其余 → chitchat_reply ----
+    if outcome.kind in ("planning", "feedback"):
+        # planning：把 reply_text 作 thought 透出（让评委看到「Agent 已收到，开始规划」）
+        if outcome.decision is not None and outcome.decision.reply_text:
+            yield SseEvent(
+                type=SseEventType.AGENT_THOUGHT,
+                seq=seq,
+                payload={"text": outcome.decision.reply_text},
+                timestamp_ms=_now_ms(),
+            )
+            seq += 1
+        async for ev in _planner_stream(
+            req, mode=mode, user_id=user_id, starting_seq=seq
+        ):
+            yield ev
+        return
+
+    # 非主路径（chitchat / meta / emotional / off_topic / ambiguous）：推 chitchat_reply + done
+    if outcome.decision is not None:
+        yield _make_chitchat_event(outcome.decision, seq)
         # v2 ConversationStore 同步：chitchat / meta 等也要写入 messages
         try:
             from agent.runtime.orchestrator import record_chitchat_result
@@ -403,25 +297,10 @@ async def _routed_stream_real(
                 session_id=req.session_id,
                 user_id=user_id,
                 user_message=req.message,
-                decision=decision,
+                decision=outcome.decision,
             )
         except Exception:  # noqa: BLE001
             pass
-        await _delay(120)
-        yield SseEvent(type=SseEventType.DONE, seq=2)
-        return
-
-    # PLANNING：把 reply_text 作 thought 透出（让评委看到「Agent 已收到，开始规划」）
-    if decision is not None and decision.reply_text:
-        yield SseEvent(
-            type=SseEventType.AGENT_THOUGHT,
-            seq=1,
-            payload={"text": decision.reply_text},
-            timestamp_ms=_now_ms(),
-        )
-
-    # 走原 _planner_stream（starting_seq=2，确保 seq 单调递增）
-    async for ev in _planner_stream(
-        req, mode=mode, user_id=user_id, starting_seq=2
-    ):
-        yield ev
+        seq += 1
+    await _delay(120)
+    yield SseEvent(type=SseEventType.DONE, seq=seq)

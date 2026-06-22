@@ -52,9 +52,25 @@ def _load_fake_tools_module():
     return mod
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_mock_dir(tmp_path_factory):
+    """把仓库 mock_data 复制到 session 临时目录；所有测试的 mock 读写都走副本。
+
+    根因：memory_writer（narrate 副作用）会把 recent_trips 写回 user_profile.json，
+    旧 conftest 把 SHANGWUJU_MOCK_DIR 指向活体仓库 mock_data/，导致跑测试会污染
+    版本控制的 mock 数据（recent_trips 被测试场景刷掉）。指向副本后真目录永不被写。
+    读照旧（副本同内容）；个别测试仍可用 monkeypatch.setenv 覆盖到自己的 tmp。
+    """
+    import shutil
+
+    dst = tmp_path_factory.mktemp("mock_data_copy")
+    shutil.copytree(_REPO_ROOT / "mock_data", dst, dirs_exist_ok=True)
+    return dst
+
+
 @pytest.fixture(autouse=True)
-def _isolate_tools_and_loader_cache(request):
-    os.environ["SHANGWUJU_MOCK_DIR"] = str(_REPO_ROOT / "mock_data")
+def _isolate_tools_and_loader_cache(request, _isolated_mock_dir):
+    os.environ["SHANGWUJU_MOCK_DIR"] = str(_isolated_mock_dir)
     # 测试默认走 stub LLM 客户端，避免误调真 endpoint 或因缺 API key 失败
     os.environ.setdefault("LLM_PROVIDER", "stub")
     from data.loader import reset_cache
