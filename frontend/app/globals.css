@@ -345,6 +345,14 @@
     pointer-events: none;
   }
 
+  .chat-input-breath {
+    animation: chatInputBorderBreath 3600ms ease-in-out infinite;
+  }
+  .chat-input-breath:hover,
+  .chat-input-breath:focus-within {
+    animation: none;
+  }
+
   /* ============================================================
      Streaming 顶部进度光带 —— 黄色系
      ============================================================ */
@@ -495,6 +503,35 @@
   }
   100% {
     background-position: 200% 0;
+  }
+}
+
+@keyframes chatInputBorderBreath {
+  0%,
+  100% {
+    border-color: rgb(255 209 0 / 0.22);
+    box-shadow:
+      0 1px 3px rgb(0 0 0 / 0.04),
+      0 4px 16px -4px rgb(0 0 0 / 0.04),
+      0 0 0 0 rgb(255 209 0 / 0);
+  }
+  35% {
+    border-color: rgb(255 209 0 / 0.65);
+    box-shadow:
+      0 0 0 1px rgb(255 209 0 / 0.18),
+      0 0 18px 3px rgb(255 209 0 / 0.2),
+      0 0 36px 10px rgb(255 209 0 / 0.14),
+      0 0 64px 18px rgb(245 158 11 / 0.08),
+      0 10px 28px -18px rgb(245 158 11 / 0.34);
+  }
+  70% {
+    border-color: rgb(245 158 11 / 0.5);
+    box-shadow:
+      0 0 0 1px rgb(245 158 11 / 0.14),
+      0 0 14px 3px rgb(245 158 11 / 0.16),
+      0 0 32px 9px rgb(255 209 0 / 0.12),
+      0 0 56px 16px rgb(255 209 0 / 0.07),
+      0 8px 24px -18px rgb(255 209 0 / 0.28);
   }
 }
 

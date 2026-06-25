@@ -29,6 +29,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
@@ -43,11 +44,16 @@ type DockMode = "collapsed" | "peek";
 // 高度档位（贴底紧凑，无空白 padding）
 const HEIGHT_COLLAPSED_BASE = 76; // 仅输入框（无 agent 预览）
 const HEIGHT_COLLAPSED_WITH_PREVIEW = 140; // 含箭头 + agent 单行预览 + 输入框
-const HEIGHT_PEEK = 360; // 自动展开默认高度
-const HEIGHT_FULL_RATIO = 0.7; // viewport * 0.7
+const HEIGHT_PEEK = 760; // 展开态最高高度：历史内容在面板内滚动
+const HEIGHT_EXPANDED_MAX = 760;
 // snap 与 timeline 阈值同点 → 消除中间空白态：< 阈值吸到 collapsed，>= 阈值展开 timeline
 const SNAP_AND_TIMELINE_THRESHOLD = 160;
 const SHOW_INTENT_THRESHOLD = 240;
+
+function getExpandedDockHeight() {
+  if (typeof window === "undefined") return HEIGHT_PEEK;
+  return Math.max(260, Math.min(HEIGHT_EXPANDED_MAX, window.innerHeight - 120));
+}
 
 export default function ChatDock({ activated = true }: { activated?: boolean }) {
   const messages = useChatStore((s) => s.messages);
@@ -78,10 +84,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     try {
       const saved = window.localStorage.getItem("shangwuju.chatdock.expanded");
       if (saved === "true") {
-        const fullH = Math.max(
-          260,
-          Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
-        );
+        const fullH = getExpandedDockHeight();
         setManualHeight(fullH);
         setMode("peek");
       }
@@ -96,10 +99,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        const fullH = Math.max(
-          260,
-          Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
-        );
+        const fullH = getExpandedDockHeight();
         setManualHeight(fullH);
         setMode("peek");
         try {
@@ -157,10 +157,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
       const start = dragRef.current;
       if (!start) return;
       const delta = start.startY - e.clientY; // 向上拖 → 增高
-      const maxH = Math.max(
-        260,
-        Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
-      );
+      const maxH = getExpandedDockHeight();
       const next = Math.min(maxH, Math.max(96, start.startH + delta));
       setManualHeight(next);
     };
@@ -202,6 +199,9 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
   const showTimeline =
     mode === "peek" ||
     (manualHeight != null && manualHeight >= SNAP_AND_TIMELINE_THRESHOLD);
+  const cappedRenderHeight = showTimeline
+    ? Math.min(renderHeight, getExpandedDockHeight())
+    : renderHeight;
 
   // 是否显示 intent 摘要（仅在大尺寸 + 流式或拖大时）
   const showIntent =
@@ -335,11 +335,8 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
         // 静默
       }
     } else {
-      // 拉到 70vh
-      const fullH = Math.max(
-        260,
-        Math.floor(window.innerHeight * HEIGHT_FULL_RATIO),
-      );
+      // 拉到固定最高高度，超出的对话历史在面板内滚动
+      const fullH = getExpandedDockHeight();
       setManualHeight(fullH);
       setMode("peek");
       try {
@@ -365,7 +362,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
           ? "transition-none"
           : "transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
       )}
-      style={activated ? { height: `${renderHeight}px` } : undefined}
+      style={activated ? { height: `${cappedRenderHeight}px` } : undefined}
     >
       <div className={cn(
         "mx-auto max-w-7xl px-4 sm:px-6 flex flex-col",
@@ -382,7 +379,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
             {activated && showTimeline && (
               <div
                 ref={timelineScrollRef}
-                className="relative flex-1 min-h-0 overflow-y-auto pt-3 pb-2 px-4 animate-fade-in rounded-2xl bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated mb-2"
+                className="relative flex-1 min-h-0 max-h-[620px] overflow-y-scroll overscroll-contain pt-3 pb-2 px-4 animate-fade-in rounded-[28px] bg-[#FFD100]/28 backdrop-blur-xl border border-[#FFD100]/60 shadow-elevated mb-2"
               >
                 {/* streaming 时顶部流动黄光带 */}
                 {streaming && (
@@ -500,7 +497,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                 className="w-full pb-2 text-left animate-fade-in group"
                 title="点击展开完整对话历史"
               >
-                <div className="flex items-center gap-2 text-sm rounded-full bg-black/[0.03] backdrop-blur-sm border border-black/[0.06] shadow-elevated px-2.5 py-1.5">
+                <div className="flex items-center gap-2 text-sm rounded-full bg-[#FFD100]/28 backdrop-blur-xl border border-[#FFD100]/60 shadow-elevated px-3 py-2">
                   <span className="shrink-0 inline-flex items-center gap-1 bg-[#FFD100] text-ink-900 text-[11px] font-semibold px-2.5 py-1 rounded-full">
                     <Icons.spark className="w-3.5 h-3.5" strokeWidth={2} />
                     {totalCount > 0 && (
@@ -518,8 +515,10 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
             {/* 输入框：独立悬浮卡片 */}
             <div className={cn(
-              "flex items-end gap-2 rounded-full border border-black/[0.08] bg-black/[0.03]",
-              "backdrop-blur-sm shadow-elevated",
+              "chat-input-breath group/chat-input flex items-end gap-2 rounded-full border border-black/[0.08] bg-black/[0.03]",
+              "backdrop-blur-sm shadow-elevated transition-all duration-300 ease-out",
+              "hover:border-[#FFD100]/65 hover:bg-white hover:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] hover:backdrop-blur-xl",
+              "focus-within:border-[#FFD100]/65 focus-within:bg-white focus-within:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] focus-within:backdrop-blur-xl",
               "px-4 py-1.5",
             )}>
             <textarea
@@ -534,16 +533,16 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               }}
               placeholder={
                 streaming
-                  ? "Agent 正在规划，稍候..."
+                  ? "Agent 正在规划，稍候~"
                   : userMsgCount === 0
-                    ? "说一句你下午想做什么... (Enter 发送 · Shift+Enter 换行)"
-                    : "继续对话或反馈... (Enter 发送)"
+                    ? "想去哪儿、和谁去、有什么小偏好，都可以随口告诉我~"
+                    : "哪里安排得不太合适，告诉我，我来帮你改顺~"
               }
               disabled={streaming}
               rows={1}
               className={cn(
-                "flex-1 resize-none bg-transparent border-0",
-                "py-2 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
+                "h-9 flex-1 resize-none bg-transparent border-0",
+                "py-1.5 text-base leading-6 text-ink-900 placeholder:text-ink-500 tracking-tight",
                 "focus:outline-none",
                 "disabled:text-ink-500",
               )}
@@ -551,22 +550,25 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
             <button
               className={cn(
-                "btn-primary h-[36px] min-w-[72px] shrink-0 rounded-full text-sm",
+                "mr-[-0.35rem] grid h-9 w-9 min-w-0 shrink-0 place-items-center self-center rounded-full border border-black/[0.06] bg-white/75 p-0 text-[#d97706]",
+                "shadow-[0_6px_18px_-12px_rgba(17,24,39,0.35)] transition-all duration-300 ease-out",
+                "group-hover/chat-input:border-[#e6bc00]/50 group-hover/chat-input:bg-[#FFD100] group-hover/chat-input:text-ink-900 group-hover/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "group-focus-within/chat-input:border-[#e6bc00]/50 group-focus-within/chat-input:bg-[#FFD100] group-focus-within/chat-input:text-ink-900 group-focus-within/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
                 streaming && "shimmer-border",
               )}
               onClick={submit}
               disabled={streaming || !draft.trim()}
+              aria-label={streaming ? "正在规划" : "发送"}
+              title={streaming ? "正在规划" : "发送"}
             >
               {streaming ? (
-                <>
-                  <Icons.thinking
-                    className="w-3.5 h-3.5 animate-spin"
-                    strokeWidth={2}
-                  />
-                  <span className="hidden sm:inline">规划中</span>
-                </>
+                <Icons.thinking
+                  className="h-4 w-4 animate-spin"
+                  strokeWidth={2}
+                />
               ) : (
-                <span>发送</span>
+                <ArrowRight className="h-5 w-5" strokeWidth={2.75} />
               )}
             </button>
           </div>
