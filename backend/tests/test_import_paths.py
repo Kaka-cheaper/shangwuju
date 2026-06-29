@@ -63,15 +63,9 @@ def test_planning_imports() -> None:
 
 
 def test_runtime_imports() -> None:
-    """agent/runtime/ 含 Pydantic AI 框架模块。"""
-    from agent.runtime import react_agent  # noqa: F401
-    from agent.runtime import output_types  # noqa: F401
+    """agent/runtime/ 含运行时框架模块（V2 ReAct 运行时已退役删除）。"""
     from agent.runtime import orchestrator  # noqa: F401
     from agent.runtime import conversation  # noqa: F401
-    from agent.runtime import tool_provider  # noqa: F401
-    from agent.runtime import deps  # noqa: F401
-    from agent.runtime import model_factory  # noqa: F401
-    from agent.runtime import observability  # noqa: F401
     from agent.runtime.tools import search_adapter  # noqa: F401
 
 
@@ -147,6 +141,13 @@ def test_planning_planners_imports() -> None:
         "agent.legacy.ils_score_critic",
         "agent.legacy.executor",
         "agent.legacy.prompts.llm_planner_prompt",
+        # V2 ReAct 运行时退役删除（USE_LANGGRAPH=1 后为死代码）
+        "agent.runtime.react_agent",
+        "agent.runtime.deps",
+        "agent.runtime.output_types",
+        "agent.runtime.tool_provider",
+        "agent.runtime.model_factory",
+        "agent.runtime.observability",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

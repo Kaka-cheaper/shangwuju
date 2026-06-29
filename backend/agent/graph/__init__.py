@@ -28,7 +28,6 @@
 不负责（仍由旧模块管）：
 - 9 工具实现       (在 backend/tools/)
 - LLM 客户端       (在 agent/llm_client.py)
-- ToolProvider     (在 agent/v2/tool_provider.py，graph 复用)
 - ConversationStore (在 agent/v2/conversation.py，graph 复用)
 - SSE 转换         (在 graph/sse_adapter.py，main.py 接入点)
 

@@ -238,59 +238,7 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
                 },
             )
 
-    use_react = (os.getenv("USE_REACT_AGENT") or "1").strip() != "0"
-
-    if use_react:
-        try:
-            # 探活:先验证 unified_agent 能 import(捕 import / 配置错防 sys 异常)
-            from agent.runtime.orchestrator import run_react_turn
-            from agent.runtime.react_agent import unified_agent  # noqa: F401  探活
-        except Exception as e:  # noqa: BLE001
-            # ReAct 路径不可用 → fallback 旧路径
-            import logging as _logging
-            _logging.getLogger("main").warning(
-                "react_unavailable_fallback_to_legacy: %s: %s",
-                type(e).__name__,
-                e,
-            )
-        else:
-            # 构造 ReAct 流式生成器
-            # 包装:拦截事件同步到 SESSION_STORE(协作房间创建时需要行程+规划事件历史)
-            async def _react_stream_with_session_sync():
-                intent_data = None
-                events_history: list[dict[str, Any]] = []
-                async for ev in run_react_turn(
-                    session_id=req.session_id,
-                    user_id=user_id,
-                    message=req.message,
-                    mode=mode,
-                ):
-                    events_history.append(ev.model_dump())
-                    if ev.type == SseEventType.INTENT_PARSED:
-                        intent_data = ev.payload
-                    elif ev.type == SseEventType.ITINERARY_READY:
-                        SESSION_STORE[req.session_id] = {
-                            "intent": intent_data,
-                            "itinerary": ev.payload,
-                            "user_id": user_id,
-                            "planning_events": events_history,
-                        }
-                    yield ev
-                if req.session_id in SESSION_STORE:
-                    SESSION_STORE[req.session_id]["planning_events"] = events_history
-
-            inner = _react_stream_with_session_sync()
-            return EventSourceResponse(
-                safe_stream(inner),
-                media_type="text/event-stream",
-                headers={
-                    "X-Planner-Mode": mode,
-                    "X-User-Id": user_id,
-                    "X-Turn-Kind": "react",
-                },
-            )
-
-    # ---- 旧路径(USE_REACT_AGENT=0 或 ReAct 不可用时走这里)----
+    # ---- 旧路径(USE_LANGGRAPH=0 或 LangGraph 不可用时走这里)----
     from agent.runtime.conversation import get_default_store
     from agent.runtime.orchestrator import decide_turn_kind
 
