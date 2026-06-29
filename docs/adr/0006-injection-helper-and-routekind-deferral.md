@@ -10,3 +10,7 @@
 ## 6b · RouteKind 枚举收窄 —— 缓做（不并进本次重构）
 审计候选 5：7 个 RouteKind 值里 meta/emotional/off_topic/ambiguous 在 `route_after_router` 都折进 chitchat 节点，接口比"实际去向"宽一倍。**决定缓做，单独立项。**
 - **载重理由（记此以免未来评审重复提议）**：这 7 个值**不只管路由、还携带回复语义**（chitchat ≠ emotional ≠ off_topic 出不同气泡 / decision），收窄会丢语义；且枚举**散用在全代码库 + 遥测**，blast radius 大、相对收益小。与"路由收口"是正交的两件事。
+
+---
+**落地状态**：✅ 已落地（核验 2026-06-23 · commit 586b846 · 6a `_safe_refusal_decision` 内联于 `route_turn` Layer 0、未单独成 module；6b RouteKind 收窄按本 ADR **缓做**、仍未做=符合决策）
+> backlog（按 ADR 设计缓做）：6b RouteKind 枚举收窄，单独立项。

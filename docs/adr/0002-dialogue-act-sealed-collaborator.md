@@ -15,3 +15,7 @@
 
 ## 备选与拒因
 - **(a) 摊成 route_turn 的内部私有分支**——**拒**：会抹掉一个**真 seam**。判据（codebase-design "一个 adapter=假想 seam，两个=真"）：`resolve_session_act` 已有两个消费者——`router_node`（生产）+ `test_dialogue_acts.py`（测试），是真 seam；且它有独立的输出空间（对话行为 ≠ RouteKind）与独立的运行阶段（仅有方案时）。摊平等于把 pitch 着重讲的"7 类对话行为分类器"重新埋回过程代码。
+
+---
+**落地状态**：✅ 已落地（核验 2026-06-23 · commit 586b846 / ac8e58f · `core/dialogue_acts.py::classify_dialogue_act` 返回 `DialogueAct` 枚举，route_turn 持 `_ACT_TO_ROUTE_KIND` 映射、不返回 router dict · 测试 `test_dialogue_acts.py`）
+> backlog（不影响落地，= 审计候选 3）：内部「靠反向调排除做互斥」收成优先级/分类表。

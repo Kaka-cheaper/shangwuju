@@ -23,3 +23,6 @@
 
 ## 影响
 - 模块数对路演 pitch（`路演PPT/hero.html`）**不可见**——pitch 画的是逻辑级联，不随 A/B 变。pitch 与本结构的"保真 pass"为**可选**下游事项（如是否给画像问答补一关）。
+
+---
+**落地状态**：✅ 已落地（核验 2026-06-23 · commit 586b846 · `routing/route_turn.py` deep module + 三 adapter 委托 `graph/nodes/router.py` / `api/_streams/route.py` / `runtime/orchestrator.py` · 测试 `test_router*.py`）
