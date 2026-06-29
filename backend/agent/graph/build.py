@@ -38,6 +38,7 @@ from typing import Any
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
+from agent.graph._resilience import drain_on_error
 from agent.graph.nodes.assemble import assemble_node
 from agent.graph.nodes.chitchat import chitchat_node
 from agent.graph.nodes.critic import critic_node, route_after_critic
@@ -159,23 +160,35 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     g.add_node("intent", intent_node)
     g.add_node("refiner", refiner_node)
 
-    # execute 阶段：并行 worker
-    g.add_node("search_pois_worker", search_pois_worker)
-    g.add_node("search_restaurants_worker", search_restaurants_worker)
-    g.add_node("get_user_profile_worker", get_user_profile_worker)
+    # ---- D2 失败降级阶梯（output degradation ladder）----
+    # 在「注册时」给规划主链节点挂 drain_on_error 安全网，把策略集中在此处一目了然：
+    #   planner / assemble / critic / replan_*  → rule_floor（非预期异常 → 规则地板方案）
+    #   narrate                                 → emit_plan（推已通过的方案、跳文案）
+    #   3 个搜索 worker                          → empty（空候选继续）
+    # 这些节点的【非预期】异常不再冒泡成裸 STREAM_ERROR；控制流异常（interrupt/command）
+    # 仍被 drain_on_error 原样 re-raise。intent 节点走自身内部兜底（见 intent_node），不在此挂。
+
+    # execute 阶段：并行 worker（异常 → 空候选继续）
+    g.add_node("search_pois_worker", drain_on_error(search_pois_worker, "empty"))
+    g.add_node(
+        "search_restaurants_worker", drain_on_error(search_restaurants_worker, "empty")
+    )
+    g.add_node(
+        "get_user_profile_worker", drain_on_error(get_user_profile_worker, "empty")
+    )
     g.add_node("execute_collect", execute_collect_node)
 
-    # plan 阶段
-    g.add_node("planner", planner_node)
-    g.add_node("assemble", assemble_node)
+    # plan 阶段（异常 → 规则地板）
+    g.add_node("planner", drain_on_error(planner_node, "rule_floor"))
+    g.add_node("assemble", drain_on_error(assemble_node, "rule_floor"))
 
-    # critic + replan
-    g.add_node("critic", critic_node)
-    g.add_node("replan_router", replan_router_node)
-    g.add_node("ils_replan", ils_replan_node)
+    # critic + replan（异常 → 规则地板）
+    g.add_node("critic", drain_on_error(critic_node, "rule_floor"))
+    g.add_node("replan_router", drain_on_error(replan_router_node, "rule_floor"))
+    g.add_node("ils_replan", drain_on_error(ils_replan_node, "rule_floor"))
 
-    # narrate + finalize
-    g.add_node("narrate", narrate_node)
+    # narrate（异常 → 推已通过的方案、跳文案）+ finalize（不挂：execute_finalize 逻辑不动）
+    g.add_node("narrate", drain_on_error(narrate_node, "emit_plan"))
     g.add_node("execute_finalize", execute_finalize_node)
 
     # ---- 边 ----
