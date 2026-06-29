@@ -1,4 +1,4 @@
-﻿"""test_agent_flow —— 端到端：意图解析 → planner → executor。
+﻿"""test_agent_flow —— 端到端：意图解析 → planner → execute_finalize（confirm 下单）。
 
 依赖 conftest 注册的 fake_tools；不调真实 LLM（全程 stub）。
 
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from agent.planning.execution.executor import execute_plan
+from agent.graph.nodes.execute_finalize import execute_finalize_node
 from agent.intent.parser import parse_intent
 from agent.core.llm_client_stub import StubLLMClient
 from agent.planning.planners.rule_planner import plan_itinerary
@@ -43,16 +43,9 @@ def test_end_to_end_family_main_scene():
     assert "主活动" in mid_kinds, f"缺少主活动 mid node：实际 {mid_kinds}"
     assert "用餐" in mid_kinds, f"缺少用餐 mid node：实际 {mid_kinds}"
 
-    # 3. 执行（用户确认后）
-    party_size = sum(c.count for c in intent.companions) or 1
-    exec_result = execute_plan(
-        itinerary,
-        party_size=party_size,
-        social_context=intent.social_context,
-        audience="妻子",
-    )
-    assert exec_result.success
-    final = exec_result.itinerary
+    # 3. 执行（用户确认后）：execute_finalize_node 现算 confirm 动作清单并 replay
+    out = execute_finalize_node({"itinerary": itinerary, "intent": intent})
+    final = out["itinerary"]
     assert final.share_message
     # 至少有餐厅预约的订单
     assert any(o.kind == "餐厅预约" for o in final.orders)

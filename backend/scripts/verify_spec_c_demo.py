@@ -6,9 +6,8 @@
 3. TOOL_RESPONSE_INCONSISTENCY hallucination 防护（task 3）
 4. preference_scorer LLM 语义打分（task 5）+ _utility 加项（task 5）
 5. memory_writer 副作用 + recent_trips 召回（task 6）
-6. comparison_axes 三轴评分（task 8）
-7. UserProfile 三层 schema 向后兼容（task 6）
-8. CRITIC_FEEDBACK_MODE 三档切换 + reward 模式（task 2）
+6. UserProfile 三层 schema 向后兼容（task 6）
+7. CRITIC_FEEDBACK_MODE 三档切换 + reward 模式（task 2）
 
 执行：python -m scripts.verify_spec_c_demo
 """
@@ -30,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent.core.llm_client import LLMChatResponse
 from agent.core.trace import Tracer
-from agent.planning.comparison_axes import compute_axes
 from agent.planning.critic.critics_v2 import (
     CODE_WEIGHTS,
     SEVERITY_WEIGHTS,
@@ -406,51 +404,6 @@ def demo_memory_writer():
 
 
 # ============================================================
-# Demo 6：comparison_axes 三轴评分（task 8）
-# ============================================================
-
-
-def demo_comparison_axes():
-    print("\n" + "=" * 70)
-    print("Demo 6：comparison_axes 三轴评分（task 8）")
-    print("=" * 70)
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
-    from test_critics_v2 import _make_intent, _make_legal_itinerary
-
-    # 反例：5 岁娃 + 196min POI（超 cap 75）
-    intent_kid = _make_intent_kid()
-    bad_itinerary = _make_legal_itinerary(poi_duration=196)
-    axes_bad = compute_axes(bad_itinerary, intent_kid)
-    print(f"反例（5 岁娃 + 196min POI）：")
-    print(f"  duration_compliance = {axes_bad['duration_compliance']}（应 = 0，1/1 节点违规）")
-    print(f"  distance_rationality = {axes_bad['distance_rationality']}")
-    print(f"  preference_match = {axes_bad['preference_match']}（无 semantic_scores 应 = 70）")
-    assert axes_bad["duration_compliance"] == 0
-    assert axes_bad["preference_match"] == 70
-    print("[PASS] 反例 duration_compliance = 0")
-
-    # 正例：合规候选
-    intent_solo = _make_intent()  # 无 companions → cap 9999
-    good_itinerary = _make_legal_itinerary()
-    axes_good = compute_axes(
-        good_itinerary, intent_solo, semantic_scores={"P040": 0.85}
-    )
-    print(f"\n正例（合规 + LLM 语义分 0.85）：")
-    print(f"  duration_compliance = {axes_good['duration_compliance']}（应 = 100）")
-    print(f"  distance_rationality = {axes_good['distance_rationality']}")
-    print(f"  preference_match = {axes_good['preference_match']}（应 = 85）")
-    assert axes_good["duration_compliance"] == 100
-    assert axes_good["preference_match"] == 85
-    print("[PASS] 正例 duration_compliance = 100；preference_match 来自 LLM 分")
-
-    # 所有字段都是 0-100 整数
-    for key, val in axes_good.items():
-        assert isinstance(val, int) and 0 <= val <= 100
-    print("[PASS] 三个字段都是 0-100 整数")
-
-
-# ============================================================
 # Demo 7：意图解析阶段注入 user_profile 召回（task 6）
 # ============================================================
 
@@ -566,7 +519,6 @@ def main():
         demo_tool_response_inconsistency,
         demo_preference_scorer,
         demo_memory_writer,
-        demo_comparison_axes,
         demo_intent_parser_recall,
         demo_validate_itinerary_integration,
     ]

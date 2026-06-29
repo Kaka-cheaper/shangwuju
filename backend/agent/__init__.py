@@ -6,7 +6,6 @@ P2 落地内容（A 同学 owner）：
 - planner.py        规则化 ReAct 主循环 + plan_itinerary_with_mode 双范式入口
 - llm_planner.py    LLM Function Calling 自主规划（Phase 0.6 新增）
 - refiner.py        用户反馈合并（Phase 0.6 新增）
-- executor.py       执行类 Tool 派发
 - prompts/          system prompt + few-shot
 
 不负责：
@@ -26,7 +25,6 @@ from .planning.planners.llm_planner import plan_itinerary_llm
 from .intent.refiner import refine_intent, RefinementError
 from .intent.router import classify_input, fallback_decision, RouterError
 from .intent.parser import parse_intent, IntentParseError
-from .planning.execution.executor import execute_plan, ExecutionResult
 from .core.trace import Tracer, TraceRecord
 
 
@@ -48,9 +46,6 @@ __all__ = [
     # intent
     "parse_intent",
     "IntentParseError",
-    # executor
-    "execute_plan",
-    "ExecutionResult",
     # trace
     "Tracer",
     "TraceRecord",

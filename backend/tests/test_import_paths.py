@@ -95,10 +95,6 @@ def test_planning_planners_imports() -> None:
         CriticReport,
         run_critics,
     )
-    from agent.planning.execution.executor import (  # noqa: F401
-        ExecutionResult,
-        execute_plan,
-    )
 
 
 # ============================================================
