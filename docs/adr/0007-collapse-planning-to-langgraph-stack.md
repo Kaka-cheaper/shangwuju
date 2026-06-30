@@ -45,4 +45,6 @@
 - 修 `.env.example` 的 `USE_LANGGRAPH` 矛盾：标注 `=1` 为 canonical。
 
 ---
-**落地状态**：⏳ 待实现（决策 2026-06-23 · 见上「待办（实现期）」；按簇串行 + test-first 实现，减法 → 加网(D2) → 深化 → 复评）
+**落地状态**：✅ 已落地（核验 2026-06-23 · D2=4cbc09e · 拆ReAct=11a1687 · 拆V1-API=dba1d12 · 拆V1-planner=e81caf2 · 收尾=50a9709 · 全套 910 passed / 0 failed）
+
+> 「待办（实现期）」全部完成：D2 failure-drain ✓ · 删 V1+ReAct ✓ · 端点收口 /chat/turn + /chat/confirm ✓ · .env USE_LANGGRAPH=1 canonical + 删死配置（PLANNER_LLM_STRATEGY / USE_REACT_AGENT / PLANNER_LLM_FIRST_RETRIES）✓。残留仅**文档级 follow-up**（README / api `__init__` 仍列旧 4 端点；4 个打已删端点的 verify 脚本 verify_sse/router/refine/speed_constraints 待 repoint 到 /chat/turn 或删），不属本 ADR 的架构决策。
