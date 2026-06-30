@@ -63,8 +63,7 @@ def test_planning_imports() -> None:
 
 
 def test_runtime_imports() -> None:
-    """agent/runtime/ 含运行时框架模块（V2 ReAct 运行时已退役删除）。"""
-    from agent.runtime import orchestrator  # noqa: F401
+    """agent/runtime/ 含运行时框架模块（V2 ReAct + V1 orchestrator 均已退役删除）。"""
     from agent.runtime import conversation  # noqa: F401
     from agent.runtime.tools import search_adapter  # noqa: F401
 
@@ -148,6 +147,8 @@ def test_planning_planners_imports() -> None:
         "agent.runtime.tool_provider",
         "agent.runtime.model_factory",
         "agent.runtime.observability",
+        # V1 单一编排器退役删除（/chat/stream + /chat/refine 收口后死代码）
+        "agent.runtime.orchestrator",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

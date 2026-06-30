@@ -256,7 +256,7 @@ async def _record_confirm_later(
     agent_message: str,
 ) -> None:
     try:
-        from agent.runtime.orchestrator import record_confirm_result
+        from agent.runtime.conversation import record_confirm_result
 
         await record_confirm_result(
             session_id=session_id,

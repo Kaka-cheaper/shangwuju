@@ -139,7 +139,7 @@ async def _stub_confirm(
 
     # v2 ConversationStore 同步 hook（confirm 后状态升级 itinerary 含 orders）
     try:
-        from agent.runtime.orchestrator import record_confirm_result
+        from agent.runtime.conversation import record_confirm_result
 
         await record_confirm_result(
             session_id=req.session_id,

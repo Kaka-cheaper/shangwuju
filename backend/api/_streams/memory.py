@@ -1,9 +1,9 @@
 """Memory 累积 helper（confirm/refine 路径调用）。
 
-3 个函数从 main.py 抽出（spec code-modularization-refactor H1-final）：
+从 main.py 抽出（spec code-modularization-refactor H1-final）；
+V1 refine 路径退役后 _accumulate_memory_after_refine 已删除，只保留 confirm 侧：
 - _collect_itinerary_tags：从已确认 itinerary 抽 tag 集
 - _accumulate_memory_after_confirm：confirm 后写 accepted + visited + preferred_route
-- _accumulate_memory_after_refine：refine 后把 rejected_tags 写 user memory
 """
 
 from __future__ import annotations
@@ -132,19 +132,3 @@ def _accumulate_memory_after_confirm(
             record_preferred_route(user_id, segments=segments)
         except Exception:  # noqa: BLE001
             pass
-
-
-def _accumulate_memory_after_refine(
-    cached: dict[str, Any],
-    rejected_tags: list[str],
-) -> None:
-    """refine 中如果反馈含「去掉 X」类的 tag，写进 user memory rejected。"""
-    user_id = cached.get("user_id")
-    if not user_id or not rejected_tags:
-        return
-    from data.memory_store import record_rejected
-
-    try:
-        record_rejected(user_id, tags=rejected_tags)
-    except Exception:  # noqa: BLE001
-        pass
