@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.planning.execution.executor import execute_plan
+from agent.graph.nodes.execute_finalize import execute_finalize_node
 from agent.planning.planners.rule_planner import plan_itinerary
 from schemas.intent import Companion, IntentExtraction
 from schemas.itinerary import Itinerary
@@ -281,37 +281,23 @@ def test_e1_restaurant_full_recovery_in_family_scene():
 
 
 def test_executor_reservation_filled_after_plan():
-    """S1 主流程：planner → execute_plan，应生成餐厅预约订单 + 转发文案。"""
+    """S1 主流程：planner → execute_finalize_node，应生成餐厅预约订单 + 转发文案。"""
     intent = INTENTS["S1"]
     plan_result = plan_itinerary(intent)
     assert plan_result.success
-    party_size = sum(c.count for c in intent.companions) or 1
-    exec_result = execute_plan(
-        plan_result.itinerary,
-        party_size=party_size,
-        social_context=intent.social_context,
-        audience="妻子",
-    )
-    assert exec_result.success
-    final = exec_result.itinerary
+    out = execute_finalize_node({"itinerary": plan_result.itinerary, "intent": intent})
+    final = out["itinerary"]
     assert any(o.kind == "餐厅预约" for o in final.orders)
     assert final.share_message
 
 
 def test_executor_extra_service_filled_for_birthday_scene():
-    """S8 生日场景：executor 可按 intent.extra_services 加购蛋糕。"""
+    """S8 生日场景：execute_finalize_node 按 intent.extra_services 加购蛋糕。"""
     intent = INTENTS["S8"]
     plan_result = plan_itinerary(intent)
     assert plan_result.success
-    party_size = max(intent.capacity_requirement or 1, sum(c.count for c in intent.companions) or 1)
-    exec_result = execute_plan(
-        plan_result.itinerary,
-        party_size=party_size,
-        social_context=intent.social_context,
-        audience="家人",
-        extra_services=intent.extra_services,
-    )
-    final = exec_result.itinerary
+    out = execute_finalize_node({"itinerary": plan_result.itinerary, "intent": intent})
+    final = out["itinerary"]
     assert any(o.kind == "蛋糕加购" for o in final.orders)
 
 

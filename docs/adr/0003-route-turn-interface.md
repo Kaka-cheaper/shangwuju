@@ -22,3 +22,7 @@ RouteOutcome(kind: RouteKind, decision: RouterDecision | None)
 
 ## 实现期补充（T2，2026-06-22）
 落地签名多了一个 `classify_fn: Any = None` 参数（依赖注入口）：adapter（V3 `router_node`）传入其自身命名空间的 `classify_input`，使现有 `monkeypatch.setattr(router_mod, "classify_input", ...)` 测试零修改仍生效。**接受为务实 DI 缝**（与 `client` 同性质）。**backlog**：把测试 monkeypatch 目标迁到 `route_turn` 模块后即可去掉此参数、回归 ADR 纯签名。
+
+---
+**落地状态**：✅ 已落地（核验 2026-06-23 · commit 586b846 · 签名 `route_turn(utterance, itinerary, user_id, *, client) -> RouteOutcome` + `routing/outcome.py::RouteOutcome(kind, decision)`）
+> backlog（不影响落地）：移除 T2 的 `classify_fn` 参数、回归纯签名（待测试 monkeypatch 目标迁入 route_turn 模块）。

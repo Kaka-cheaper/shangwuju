@@ -15,11 +15,16 @@ TravelAgent (NeurIPS'24) / TriFlow 的关键发现：把每次行程结果写回
 - **跨平台兼容**：用 `threading.Lock`（不依赖 Unix 专属的 fcntl）
 - **5 条上限**：写入时丢弃 5 条之外的旧记录（保 LIFO 顺序）
 
-【与 narrate_node 的关系（design.md §Component 4 路径 B）】
+【触发点：confirm 路径，绑定下单动作而非方案就绪】
 
-`graph/nodes/narrate.py:narrate_node` 在主逻辑末尾调 `_persist_memory(state)`
-作为副作用——不动 graph/build.py 拓扑（spec B 锁的编排冻结纪律）。
-失败时 try/except 包裹不阻断 narrate 主输出。
+触发者是 `graph/nodes/execute_finalize.py:_persist_memory_side_effect`（用户确认后的
+下单/购票/加购执行节点），在执行成功后作为副作用调 `persist_memory(state)`。
+失败时 try/except 包裹不阻断 execute_finalize 主输出。
+
+语义关键：记忆绑定的是用户「确认下单」这一动作，**不是 plan-ready（方案就绪）**——
+方案没确认就持久化偏好是错误的产品语义。早期版本曾挂在 narrate_node（方案就绪即写），
+后迁到 confirm 路径；narrate 节点现仅算 pending_actions、不再触发记忆回写
+（交叉引用 `graph/nodes/narrate.py:226`）。
 
 不负责：
 - 跨 session 持久化数据库（mock_data 是 demo 用，未来 Postgres 替换）

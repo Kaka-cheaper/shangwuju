@@ -26,7 +26,7 @@ spec planning-quality-deep-review R8（Task 7）扩展：
 - 顶层禁止字段（scene_type 等）由 §5.7 model_config extra="forbid" 拦截
 
 不负责：
-- 重新规划（在 planner.plan_itinerary_with_mode）
+- 重新规划（rule 范式在 rule_planner.plan_itinerary；LLM 主路径在 agent/graph/）
 - HTTP 端点（在 main.py，B 块）
 """
 

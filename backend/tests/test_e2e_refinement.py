@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent import plan_itinerary_with_mode, refine_intent
+from agent import plan_itinerary, refine_intent
 from agent.core.llm_client_stub import StubLLMClient
+from agent.core.trace import Tracer
+from agent.planning.planners.ils_planner import plan_hybrid
 from schemas.intent import Companion, IntentExtraction
 
 
@@ -48,6 +50,17 @@ def _intent(payload: dict) -> IntentExtraction:
         raw_input=payload["raw_input"],
         parse_confidence=0.85,
     )
+
+
+def _rule_assembler(intent, candidate, tracer):
+    """plan_hybrid 的 rule_assembler 回调：复用 rule planner 完成时间轴拼装。
+
+    镜像 graph/nodes/replan.py:ils_replan_node——plan_hybrid 选定 candidate 后
+    把拼装委托给 survivor 入口 rule_planner.plan_itinerary。
+    """
+    t = tracer if isinstance(tracer, Tracer) else Tracer()
+    result = plan_itinerary(intent, tracer=t)
+    return result.itinerary if (result.success and result.itinerary) else None
 
 
 SCENARIOS: dict[str, dict] = {
@@ -141,7 +154,10 @@ SCENARIOS: dict[str, dict] = {
 @pytest.mark.parametrize("mode", ["rule", "llm"])
 def test_scenario_x_mode_main_path(scenario_id: str, mode: str):
     intent = _intent(SCENARIOS[scenario_id])
-    result = plan_itinerary_with_mode(intent, mode, llm_client=StubLLMClient())
+    # 双 mode 端到端：原 V1 dispatcher 在 stub 客户端下对 llm/rule 都短路到 plan_itinerary
+    # （stub 无真 LLM 决策能力，dispatcher 的 stub 分支直接 return plan_itinerary）。
+    # dispatcher 已删；survivor 等价入口即 rule planner.plan_itinerary——两个 mode 不变量一致。
+    result = plan_itinerary(intent)
     assert result.success, (
         f"{scenario_id}/{mode} 失败：{result.failure_detail}"
     )
@@ -166,12 +182,26 @@ def test_scenario_x_mode_main_path(scenario_id: str, mode: str):
 # ============================================================
 
 def test_llm_mode_fallback_thought_emitted():
+    """stub LLM 无主观决策能力 → hybrid 走启发式权重（非真 LLM），trace 标记降级。
+
+    原 V1 双范式 dispatcher 在 stub 下推「已切回规则规划」thought；
+    dispatcher 已删。survivor 等价物：直调 plan_hybrid，stub 经 get_planning_weights 走
+    启发式权重（source=stub），并在 trace 推「权重（stub）」降级信号——即 LLM 不可用时的
+    优雅降级（成功出方案 + trace 可见）。
+    """
     intent = _intent(SCENARIOS["S1"])
-    result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())
+    tracer = Tracer()
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_rule_assembler,
+    )
     assert result.success
-    thoughts = [r for r in result.tracer.records if r.type == "agent_thought"]
-    fallback_msgs = [t for t in thoughts if "规则" in t.payload.get("text", "")]
-    assert fallback_msgs, "LLM mode 应当推 fallback agent_thought"
+    # stub → 权重来自启发式（非 LLM），证明 LLM 不可用时优雅降级
+    assert result.weights is not None and result.weights.source == "stub"
+    # trace 含降级信号（权重决策 thought 标 stub 来源）
+    thoughts = [r for r in tracer.records if r.type == "agent_thought"]
+    assert any("stub" in t.payload.get("text", "") for t in thoughts), (
+        "stub 模式应在 trace 标记启发式权重降级信号"
+    )
 
 
 # ============================================================
@@ -204,8 +234,8 @@ def test_refine_then_replan_end_to_end(scenario_id: str, mode: str):
     """主路径 → 反馈 → 重新 plan 的完整链路。"""
     intent = _intent(SCENARIOS[scenario_id])
 
-    # 第一次 plan
-    plan1 = plan_itinerary_with_mode(intent, mode, llm_client=StubLLMClient())
+    # 第一次 plan（survivor 等价入口：stub 下 llm/rule 都走 plan_itinerary）
+    plan1 = plan_itinerary(intent)
     assert plan1.success
 
     # 反馈合并
@@ -214,7 +244,7 @@ def test_refine_then_replan_end_to_end(scenario_id: str, mode: str):
     refined = out.refined_intent
 
     # 重新 plan（用 refined intent）
-    plan2 = plan_itinerary_with_mode(refined, mode, llm_client=StubLLMClient())
+    plan2 = plan_itinerary(refined)
     assert plan2.success, (
         f"{scenario_id}/{mode} refine 后重新 plan 失败：{plan2.failure_detail}"
     )

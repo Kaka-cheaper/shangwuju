@@ -104,6 +104,17 @@ def intent_node(state: AgentState) -> dict[str, Any]:
         )
         intent = _build_fallback_intent(user_input)
         fallback_used = True
+    except Exception:  # noqa: BLE001
+        # D2：parse_intent 抛【非】IntentParseError（如 LLM 客户端 / 依赖的非预期错）→
+        # 也用兜底意图继续这一轮，绝不让裸异常冒泡成 STREAM_ERROR。loudly 落完整 traceback
+        # （degrade, don't go silent），再复用与 IntentParseError 同款的兜底意图 + quality_issue。
+        import logging as _logging
+
+        _logging.getLogger("agent.graph.intent").exception(
+            "intent_parse_unexpected_fallback（raw_input=%r）", user_input[:60]
+        )
+        intent = _build_fallback_intent(user_input)
+        fallback_used = True
 
     # spec execution-quality-review R1：词典外社交意图降级文案
     out: dict[str, Any] = {"intent": intent}

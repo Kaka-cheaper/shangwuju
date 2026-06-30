@@ -19,7 +19,7 @@ router = APIRouter(tags=["健康探活"])
 
 
 def _use_real_planner() -> bool:
-    """是否启用真 planner 链路（意图解析 + plan_itinerary_with_mode）。
+    """是否启用真 planner 链路（意图解析 + 规划出方案）。
 
     解析顺序（优先级递减）：
     1. PLANNER_USE_REAL 显式开关（1/true/yes/on → 真，0/false/no/off → 假）

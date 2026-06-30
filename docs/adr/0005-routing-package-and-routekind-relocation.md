@@ -16,3 +16,6 @@
 
 ## 待实现时确认
 精确的循环 import 卡在哪条边，留到实现时逐行钉死；但"route_turn 移出 graph + RouteKind 移到中立位"足以断这一类环。
+
+---
+**落地状态**：✅ 已落地（核验 2026-06-23 · commit 586b846 · `agent/routing/` 包存在；`RouteKind` 居 `routing/kinds.py`，`graph/state.py:39` 反向 import；route_turn 全 module 级 import、无函数内延迟 import）

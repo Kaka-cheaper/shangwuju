@@ -10,8 +10,7 @@
 3. 默认值 `rule`（缺省）
 
 不负责：
-- 具体规划逻辑（rule 在 planner.py / llm 在 llm_planner.py，均 A 块）
-- 入口分发（在 planner.py 的 plan_itinerary_with_mode，A 块）
+- 具体规划逻辑（rule 在 rule_planner.plan_itinerary；LLM 主路径在 agent/graph/）
 - HTTP 解析（在 main.py，B 块）
 """
 

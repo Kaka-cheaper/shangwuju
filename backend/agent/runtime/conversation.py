@@ -25,9 +25,12 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
 
 from pydantic_ai.messages import ModelMessage
+
+if TYPE_CHECKING:
+    from schemas import Itinerary
 
 
 # ============================================================
@@ -393,6 +396,42 @@ def get_default_store() -> ConversationRepository:
     return get_default_repo()
 
 
+# ============================================================
+# Confirm 状态写入 hook（从 orchestrator.py 迁入；V1 编排器退役后唯一存活的 record_*）
+# ============================================================
+
+
+async def record_confirm_result(
+    *,
+    session_id: str,
+    user_id: str,
+    final_itinerary: "Itinerary",
+    agent_message: str,
+    store: Optional[ConversationStore] = None,
+) -> ConversationState:
+    """confirm_stream 跑完后调（用户已下单）。
+
+    更新 itinerary_snapshot（含 orders + share_message），
+    并追加一条 agent confirmation 消息。
+    """
+    s = store or get_default_store()
+    state = await s.get_or_create(session_id, user_id=user_id)
+    state.itinerary_snapshot = final_itinerary.model_dump()
+
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+
+    state.messages.append(
+        ModelRequest(parts=[UserPromptPart(content="（确认下单）")])
+    )
+    state.messages.append(
+        ModelResponse(parts=[TextPart(content=agent_message)])
+    )
+
+    # confirm 续期：已成单的会话保留更久（redis 后端用 7d；memory 忽略 ttl）。
+    await s.save(state, ttl=getattr(s, "_CONFIRM_TTL_SECONDS", None))
+    return state
+
+
 __all__ = [
     # 抽象
     "ConversationState",
@@ -406,4 +445,6 @@ __all__ = [
     # 向后兼容（旧名）
     "ConversationStore",
     "get_default_store",
+    # confirm 状态写入 hook（从 orchestrator.py 迁入）
+    "record_confirm_result",
 ]

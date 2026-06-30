@@ -63,15 +63,8 @@ def test_planning_imports() -> None:
 
 
 def test_runtime_imports() -> None:
-    """agent/runtime/ 含 Pydantic AI 框架模块。"""
-    from agent.runtime import react_agent  # noqa: F401
-    from agent.runtime import output_types  # noqa: F401
-    from agent.runtime import orchestrator  # noqa: F401
+    """agent/runtime/ 含运行时框架模块（V2 ReAct + V1 orchestrator 均已退役删除）。"""
     from agent.runtime import conversation  # noqa: F401
-    from agent.runtime import tool_provider  # noqa: F401
-    from agent.runtime import deps  # noqa: F401
-    from agent.runtime import model_factory  # noqa: F401
-    from agent.runtime import observability  # noqa: F401
     from agent.runtime.tools import search_adapter  # noqa: F401
 
 
@@ -79,25 +72,15 @@ def test_planning_planners_imports() -> None:
     """spec D v3：原 legacy/ 下的 7 个非死代码 + 1 prompt 全部解冻迁回 planning/。"""
     from agent.planning.planners.rule_planner import (  # noqa: F401
         plan_itinerary,
-        plan_itinerary_with_mode,
     )
     from agent.planning.planners.ils_planner import plan_hybrid  # noqa: F401
-    from agent.planning.planners.llm_first_planner import plan_llm_first  # noqa: F401
-    from agent.planning.planners.llm_planner import plan_itinerary_llm  # noqa: F401
     from agent.planning.planners.segment_decider import (  # noqa: F401
         FULL_SEGMENTS,
         decide_segments,
     )
-    from agent.planning.planners.prompts.llm_planner_prompt import (  # noqa: F401
-        LLM_PLANNER_SYSTEM_PROMPT,
-    )
     from agent.planning.critic.ils_score_critic import (  # noqa: F401
         CriticReport,
         run_critics,
-    )
-    from agent.planning.execution.executor import (  # noqa: F401
-        ExecutionResult,
-        execute_plan,
     )
 
 
@@ -142,6 +125,7 @@ def test_planning_planners_imports() -> None:
         "agent.prompts.narrator_prompt",
         "agent.prompts.blueprint_prompt",
         "agent.prompts.llm_planner_prompt",
+        "agent.planning.planners.prompts.llm_planner_prompt",  # V1 死 prompt 已删
         # spec D v3 删除的 legacy/ 路径
         "agent.legacy.planner_rule",
         "agent.legacy.ils_planner",
@@ -151,6 +135,18 @@ def test_planning_planners_imports() -> None:
         "agent.legacy.ils_score_critic",
         "agent.legacy.executor",
         "agent.legacy.prompts.llm_planner_prompt",
+        # V2 ReAct 运行时退役删除（USE_LANGGRAPH=1 后为死代码）
+        "agent.runtime.react_agent",
+        "agent.runtime.deps",
+        "agent.runtime.output_types",
+        "agent.runtime.tool_provider",
+        "agent.runtime.model_factory",
+        "agent.runtime.observability",
+        # V1 单一编排器退役删除（/chat/stream + /chat/refine 收口后死代码）
+        "agent.runtime.orchestrator",
+        # V1 规划层退役删除（plan_itinerary_with_mode 分发器 + 两套 LLM planner 收口）
+        "agent.planning.planners.llm_planner",
+        "agent.planning.planners.llm_first_planner",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:
