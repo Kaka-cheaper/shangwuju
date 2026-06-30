@@ -72,11 +72,8 @@ def test_planning_planners_imports() -> None:
     """spec D v3：原 legacy/ 下的 7 个非死代码 + 1 prompt 全部解冻迁回 planning/。"""
     from agent.planning.planners.rule_planner import (  # noqa: F401
         plan_itinerary,
-        plan_itinerary_with_mode,
     )
     from agent.planning.planners.ils_planner import plan_hybrid  # noqa: F401
-    from agent.planning.planners.llm_first_planner import plan_llm_first  # noqa: F401
-    from agent.planning.planners.llm_planner import plan_itinerary_llm  # noqa: F401
     from agent.planning.planners.segment_decider import (  # noqa: F401
         FULL_SEGMENTS,
         decide_segments,
@@ -149,6 +146,9 @@ def test_planning_planners_imports() -> None:
         "agent.runtime.observability",
         # V1 单一编排器退役删除（/chat/stream + /chat/refine 收口后死代码）
         "agent.runtime.orchestrator",
+        # V1 规划层退役删除（plan_itinerary_with_mode 分发器 + 两套 LLM planner 收口）
+        "agent.planning.planners.llm_planner",
+        "agent.planning.planners.llm_first_planner",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

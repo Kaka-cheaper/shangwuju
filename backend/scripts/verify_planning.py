@@ -1,27 +1,24 @@
-﻿"""verify_planning —— A+C 混合范式 vs 规则范式效果对比（评分项 2 加分演示）。
+"""verify_planning —— 规则规划范式 8 场景烟测（评分项 2 链路自检）。
 
 跑法：
     cd backend && uv run python -m scripts.verify_planning
 
 输出：
-- 8 场景下 rule 与 hybrid 的方案对比
-- 每个方案的 utility 分解（comfort / time / cost / smoothness）
-- Critic 验证报告
-- hybrid 的搜索过程统计（迭代次数、改进次数）
+- 代表性场景下 rule 规划（plan_itinerary）的方案 + Critic 验证报告
+- 不需要真 LLM API key（纯规则路径，毫秒级出方案，断网可跑）
 
-不需要真 LLM API key——hybrid 在 stub client 时会走 rule 兼容路径，所以本脚本
-通过自带的 _MockLLMClient 驱动 hybrid 路径，让评委本地也能复现。
+注：原「rule vs A+C 混合对比」的 hybrid 段随 V1 双范式分发入口退役删除（规划层收口）。
+hybrid / ILS 路径的回归由 tests/test_planner_hybrid.py 覆盖；本脚本现仅自检 rule planner
+（plan_itinerary）链路。
 """
 
 from __future__ import annotations
 
 import sys
 import time
-from dataclasses import dataclass
 
 from agent.planning.critic.ils_score_critic import run_critics
-from agent.planning.planners.rule_planner import plan_itinerary, plan_itinerary_with_mode
-from agent.planning.weights_llm import PlanningWeights, get_planning_weights
+from agent.planning.planners.rule_planner import plan_itinerary
 from schemas.intent import Companion, IntentExtraction
 
 
@@ -95,63 +92,10 @@ INTENTS: dict[str, IntentExtraction] = {
 
 
 # ============================================================
-# Mock LLM client（演示用；本地无需真 API key）
-# ============================================================
-
-@dataclass
-class _MockLLMResponse:
-    content: str
-    tool_calls: list = None  # type: ignore[assignment]
-    finish_reason: str = "stop"
-    raw: dict = None  # type: ignore[assignment]
-
-
-class _DemoLLMClient:
-    """根据 social_context 给出"高质量"权重，模拟真 LLM 决策。"""
-
-    provider = "demo-llm"
-    model = "demo-1"
-
-    def chat(self, messages, *, temperature=0.3, response_format=None):
-        # 从最后一条 user message 抽 social_context（简化：直接返启发式权重的 JSON）
-        text = ""
-        for m in messages:
-            if m.role == "user":
-                text = m.content or ""
-        ctx = "家庭日常"
-        for known in (
-            "家庭日常", "老人伴助", "情侣亲密", "闺蜜聊天", "朋友热闹",
-            "商务接待", "同学重聚", "独处放空", "纪念日仪式感",
-        ):
-            if known in text:
-                ctx = known
-                break
-        # 演示用映射（与 weights_llm 启发式一致）
-        weights = {
-            "家庭日常":     (0.45, 0.20, 0.15, 0.20, "孩子在场，舒适与连贯优先"),
-            "老人伴助":     (0.50, 0.10, 0.10, 0.30, "腿脚不便，路线连贯第一位"),
-            "商务接待":     (0.30, 0.40, 0.05, 0.25, "公司报销，时间与体面重要"),
-            "纪念日仪式感": (0.50, 0.10, 0.05, 0.35, "仪式感为先，预算不敏感"),
-            "情侣亲密":     (0.40, 0.15, 0.20, 0.25, "氛围与连贯并重"),
-            "闺蜜聊天":     (0.40, 0.15, 0.20, 0.25, "拍照舒适与连贯"),
-            "朋友热闹":     (0.30, 0.20, 0.30, 0.20, "AA 制偏向预算"),
-            "独处放空":     (0.55, 0.15, 0.15, 0.15, "自己舒服为先"),
-            "同学重聚":     (0.30, 0.20, 0.30, 0.20, "学生预算敏感"),
-        }
-        c, t, co, s, rationale = weights.get(ctx, (0.4, 0.2, 0.2, 0.2, ""))
-        return _MockLLMResponse(
-            content=(
-                f'{{"comfort": {c}, "time": {t}, "cost": {co}, "smoothness": {s}, '
-                f'"rationale": "{rationale}"}}'
-            )
-        )
-
-
-# ============================================================
 # 辅助：方案打印
 # ============================================================
 
-def _summarize(label: str, result, w: PlanningWeights | None = None) -> None:
+def _summarize(label: str, result) -> None:
     print(f"  [{label}] success={result.success}", end="")
     if not result.success:
         print(f"，failure={result.failure_detail}")
@@ -170,9 +114,6 @@ def _summarize(label: str, result, w: PlanningWeights | None = None) -> None:
     dining_id = dining.target_id if dining else "?"
     dining_start = dining.start_time if dining else "?"
     print(f"，主活动={main_id} 用餐={dining_id}@{dining_start}")
-    if w is not None:
-        print(f"           权重：{w.summary()} | 来源={w.source}")
-        print(f"           理由：{w.rationale or '(无)'}")
 
 
 def _critic_brief(itinerary, intent) -> str:
@@ -191,21 +132,12 @@ def _critic_brief(itinerary, intent) -> str:
 # ============================================================
 
 def main() -> int:
-    print("=== Phase 0.9 A+C 混合规划 vs 规则规划对比 ===\n")
-    print("学术依据：")
-    print("  A 段 ILS 启发式 → Vansteenwegen et al. 2009 (TOPTW)")
-    print("                    Gunawan et al. 2019 (Multi-objective TOPTW)")
-    print("  C 段 Critic     → Kambhampati et al. 2024 (LLM-Modulo, NeurIPS)")
-    print("  整体范式        → ItiNera EMNLP 2024 (LLM 决主观 + 算法决客观)")
-    print()
+    print("=== 规则规划范式 8 场景烟测（plan_itinerary）===\n")
 
-    client = _DemoLLMClient()
-
-    overall_results: list[tuple[str, bool, bool, str, str]] = []
+    results: list[tuple[str, bool]] = []
     for sid, intent in INTENTS.items():
         print(f"--- {sid} | {intent.social_context} | {intent.raw_input[:30]}... ---")
 
-        # rule
         t0 = time.perf_counter()
         rule_result = plan_itinerary(intent)
         rule_ms = (time.perf_counter() - t0) * 1000
@@ -213,72 +145,17 @@ def main() -> int:
         if rule_result.success:
             print(f"           {_critic_brief(rule_result.itinerary, intent)}")
 
-        # hybrid（带演示 LLM）
-        weights = get_planning_weights(intent, client=client)
-        t0 = time.perf_counter()
-        hybrid_result = plan_itinerary_with_mode(intent, "llm", llm_client=client)
-        hybrid_ms = (time.perf_counter() - t0) * 1000
-        _summarize(f"hybrid  ({hybrid_ms:.0f}ms)", hybrid_result, w=weights)
-        if hybrid_result.success:
-            print(f"           {_critic_brief(hybrid_result.itinerary, intent)}")
-
-        # 抓 hybrid trace 里的搜索改进次数
-        if hybrid_result.success and hybrid_result.tracer is not None:
-            improve_msgs = [
-                r for r in hybrid_result.tracer.records
-                if r.type == "agent_thought"
-                and "ILS 迭代" in r.payload.get("text", "")
-                and "更优解" in r.payload.get("text", "")
-            ]
-            print(f"           ILS 改进次数：{len(improve_msgs)}")
-
-        # 对比
-        rule_main = _main_id(rule_result)
-        hyb_main = _main_id(hybrid_result)
-        rule_rest = _rest_id(rule_result)
-        hyb_rest = _rest_id(hybrid_result)
-        overall_results.append((sid, rule_result.success, hybrid_result.success, hyb_main, hyb_rest))
-        same_poi = rule_main == hyb_main
-        same_rest = rule_rest == hyb_rest
-        print(
-            f"           对比：POI {'一致' if same_poi else f'不同（rule={rule_main} vs hybrid={hyb_main}）'}；"
-            f"餐厅 {'一致' if same_rest else f'不同（rule={rule_rest} vs hybrid={hyb_rest}）'}"
-        )
+        results.append((sid, rule_result.success))
         print()
 
     # 总结
     print("=" * 60)
-    failed = [r for r in overall_results if not (r[1] and r[2])]
+    failed = [r for r in results if not r[1]]
     if failed:
         print(f"→ 失败 {len(failed)} 项：{[r[0] for r in failed]}")
         return 1
-    print(f"✓ 全部 {len(overall_results)} 个场景在 rule + hybrid 双路径都跑通")
-    print()
-    print("评分项收益：")
-    print("  - 评分项 2（规划链路）：hybrid 把 LLM 决策与 ILS 搜索可视化到 trace")
-    print("  - 评分项 4（Tool 编排）：rule 路径调用密集；hybrid 仅候选阶段调 Tool")
-    print("  - 评分项 5（异常韧性）：Critic 失败 → backprompt 重排，仍失败 → fallback rule")
+    print(f"✓ 全部 {len(results)} 个场景 rule 路径跑通")
     return 0
-
-
-def _main_id(result) -> str:
-    if not result.success or not result.itinerary:
-        return "-"
-    n = next(
-        (x for x in result.itinerary.nodes if x.target_kind == "poi"),
-        None,
-    )
-    return n.target_id if n else "?"
-
-
-def _rest_id(result) -> str:
-    if not result.success or not result.itinerary:
-        return "-"
-    n = next(
-        (x for x in result.itinerary.nodes if x.target_kind == "restaurant"),
-        None,
-    )
-    return n.target_id if n else "?"
 
 
 if __name__ == "__main__":

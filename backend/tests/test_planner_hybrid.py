@@ -7,7 +7,7 @@ W2 owner = A 同学的 planner.py 主体；本测试是 owner=A 的 P2 加分项
 1. weights_llm 启发式兜底正确性（按 social_context 给出合理权重）
 2. critics 4 个 Critic 的硬/软违规分流（基于 nodes/hops 模型）
 3. utility 函数对距离 / 评分 / cost 的敏感性
-4. 端到端：构造 mock LLM client → plan_itinerary_with_mode("llm") → hybrid 路径
+4. 端到端：构造 mock LLM client → ils_planner.plan_hybrid → hybrid 路径
 
 【edge_v1 迁移（Wave 7 Task 14）】
 
@@ -29,7 +29,9 @@ from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKin
 from agent.planning.critic.ils_score_critic import (
     run_critics,
 )
-from agent.planning.planners.rule_planner import plan_itinerary_with_mode
+from agent.core.trace import Tracer
+from agent.planning.planners.ils_planner import plan_hybrid
+from agent.planning.planners.rule_planner import plan_itinerary
 from agent.planning.weights_llm import (
     PlanningWeights,
     _heuristic_weights,
@@ -395,6 +397,17 @@ class _MockLLMClient:
         return _MockLLMResponse(content=self._weights_json)
 
 
+def _rule_assembler(intent, candidate, tracer):
+    """plan_hybrid 的 rule_assembler 回调：复用 rule planner 完成时间轴拼装。
+
+    镜像 graph/nodes/replan.py:ils_replan_node 的 _RULE_ASSEMBLER_ADAPTER——
+    plan_hybrid 选定 candidate 后，把拼装委托给 survivor 入口 rule_planner.plan_itinerary。
+    """
+    t = tracer if isinstance(tracer, Tracer) else Tracer()
+    result = plan_itinerary(intent, tracer=t)
+    return result.itinerary if (result.success and result.itinerary) else None
+
+
 def test_hybrid_end_to_end_with_mock_client():
     """hybrid 路径整链路：mock LLM → 权重 → ILS → Critic → 出方案（edge_v1 节点）。"""
     intent = _intent()
@@ -404,11 +417,16 @@ def test_hybrid_end_to_end_with_mock_client():
             '"rationale": "家庭场景重舒适"}'
         ),
     )
-    result = plan_itinerary_with_mode(intent, "llm", llm_client=client)
+    tracer = Tracer()
+    result = plan_hybrid(
+        intent, client=client, tracer=tracer, rule_assembler=_rule_assembler,
+    )
     assert result.success, (
         f"hybrid 应成功；失败原因：{result.failure_detail}"
     )
     assert result.itinerary is not None
+    # mock LLM（provider != stub）出权重 → 走真 LLM 权重分支
+    assert result.weights is not None and result.weights.source == "llm"
 
     # 必备 mid node kinds 都在（家庭场景应含主活动 + 用餐）
     mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
@@ -417,7 +435,7 @@ def test_hybrid_end_to_end_with_mock_client():
     assert "用餐" in mid_kinds, f"缺用餐 mid node：{mid_kinds}"
 
     # Trace 含 hybrid 标志：weights agent_thought + Critic agent_thought
-    thoughts = [r for r in result.tracer.records if r.type == "agent_thought"]
+    thoughts = [r for r in tracer.records if r.type == "agent_thought"]
     assert any(
         "权重" in t.payload.get("text", "") for t in thoughts
     ), "应含权重相关 agent_thought"
@@ -427,12 +445,16 @@ def test_hybrid_falls_back_to_rule_when_llm_returns_garbage():
     """LLM 返回非法 JSON → weights_llm 兜底启发式 → hybrid 仍能跑通。"""
     intent = _intent()
     client = _MockLLMClient(weights_json="<<<这不是 JSON>>>")
-    result = plan_itinerary_with_mode(intent, "llm", llm_client=client)
+    tracer = Tracer()
+    result = plan_hybrid(
+        intent, client=client, tracer=tracer, rule_assembler=_rule_assembler,
+    )
     assert result.success
-    # 启发式兜底标记 source=fallback
+    # 非法 JSON → 权重降级到启发式（source=fallback），hybrid 仍出方案
+    assert result.weights is not None and result.weights.source == "fallback"
     weights_thought = next(
         (
-            r for r in result.tracer.records
+            r for r in tracer.records
             if r.type == "agent_thought" and "权重" in r.payload.get("text", "")
         ),
         None,
@@ -441,14 +463,20 @@ def test_hybrid_falls_back_to_rule_when_llm_returns_garbage():
 
 
 def test_hybrid_uses_stub_client_falls_back_to_rule():
-    """stub client 走 rule 兼容路径（避免引入回归）。"""
+    """stub client 无 LLM 决策能力 → 权重走启发式（source=stub）→ 仍由 rule_assembler 出方案。
+
+    原 V1 双范式 dispatcher 在 stub 下短路推「已切回规则规划」thought；
+    dispatcher 已删。直调 survivor 入口 plan_hybrid 时，stub 经 get_planning_weights
+    走启发式权重（source=stub，无主观 LLM 决策），ILS + rule_assembler 仍产出有效方案。
+    """
     from agent.core.llm_client_stub import StubLLMClient
 
     intent = _intent()
-    result = plan_itinerary_with_mode(intent, "llm", llm_client=StubLLMClient())
+    tracer = Tracer()
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_rule_assembler,
+    )
     assert result.success
-    fallback_msgs = [
-        r for r in result.tracer.records
-        if r.type == "agent_thought" and "规则" in r.payload.get("text", "")
-    ]
-    assert fallback_msgs, "stub client 应走 rule 兼容路径"
+    assert result.itinerary is not None
+    # stub 无主观决策能力 → 权重来自启发式（非 LLM），等价旧 rule 兼容路径
+    assert result.weights is not None and result.weights.source == "stub"

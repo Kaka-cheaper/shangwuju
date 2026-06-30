@@ -1,10 +1,9 @@
-﻿"""agent.planning.planners.ils_planner —— PLANNER_LLM_STRATEGY=hybrid 子策略 + graph replan 第 3 次 ILS 兜底。
+﻿"""agent.planning.planners.ils_planner —— A+C 混合 ILS 加分路径 + graph replan 第 3 次 ILS 兜底。
 
 【真实定位】
 
 本模块是 ILS 算法兜底 planner，被以下入口消费：
 
-- `rule_planner._plan_with_hybrid`（PLANNER_LLM_STRATEGY=hybrid 时）
 - `graph/nodes/replan.py:ils_replan`（LLM 重生成失败 N 次后第 3 次兜底）
 - `tests/test_planner_hybrid.py` / `test_planner_hybrid_overload.py`
 
@@ -56,8 +55,8 @@ ILS 兜底路径加 3 项业务对齐改动：
 接口：
     def plan_itinerary_hybrid(intent, *, client=None, tracer=None) -> PlannerResult
 
-输入与 plan_itinerary 完全相同，输出也是 PlannerResult；
-被 plan_itinerary_with_mode 在 mode="llm" + PLANNER_LLM_STRATEGY=hybrid 时调用。
+输入与 plan_itinerary 完全相同；被 graph/nodes/replan.py:ils_replan_node 调（第 3 次 ILS 兜底），
+以及 tests/test_planner_hybrid.py 直接驱动（rule_assembler 注入）。
 
 不负责：
 - 权重决策（在 weights_llm.py）
