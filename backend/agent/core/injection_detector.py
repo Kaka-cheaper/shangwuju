@@ -1,7 +1,7 @@
 """agent.core.injection_detector —— 提示词注入检测（纯函数，零 LLM）。
 
-spec prompt-injection-defense L1：作为 V1（api/_streams/route.py）与
-V3（agent/graph/nodes/router.py）双路由的共享底层（类比 feedback_detector），
+spec prompt-injection-defense L1：作为路由级联（agent/routing/route_turn.py
+Layer 0）的共享底层（类比 feedback_detector），
 在任何 LLM 调用之前对用户输入做轻量注入检测。命中 high → 直接判 off_topic 婉拒。
 
 设计原则：

@@ -78,9 +78,6 @@ def test_planning_planners_imports() -> None:
         FULL_SEGMENTS,
         decide_segments,
     )
-    from agent.planning.planners.prompts.llm_planner_prompt import (  # noqa: F401
-        LLM_PLANNER_SYSTEM_PROMPT,
-    )
     from agent.planning.critic.ils_score_critic import (  # noqa: F401
         CriticReport,
         run_critics,
@@ -128,6 +125,7 @@ def test_planning_planners_imports() -> None:
         "agent.prompts.narrator_prompt",
         "agent.prompts.blueprint_prompt",
         "agent.prompts.llm_planner_prompt",
+        "agent.planning.planners.prompts.llm_planner_prompt",  # V1 死 prompt 已删
         # spec D v3 删除的 legacy/ 路径
         "agent.legacy.planner_rule",
         "agent.legacy.ils_planner",
