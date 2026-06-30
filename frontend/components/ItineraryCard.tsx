@@ -297,7 +297,7 @@ export default function ItineraryCard() {
         {/* 时间轴竖线 */}
         <div
           aria-hidden
-          className="absolute left-[51px] top-6 bottom-6 w-px"
+          className="absolute left-[42px] top-[36px] bottom-[28px] w-[4px] -translate-x-1/2"
           style={{
             background:
               "linear-gradient(180deg, rgba(16,185,129,0.5) 0%, rgba(255,209,0,0.5) 30%, rgba(245,158,11,0.3) 70%, rgba(239,68,68,0.5) 100%)",
@@ -369,7 +369,9 @@ export default function ItineraryCard() {
               {/* 右侧内容：用 pt 让标题行对准黄点 */}
               <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="chip">{nodeKindLabel(itinerary, entry.ref_id)}</span>
+                  <span className="chip px-2 py-0.5 text-sm">
+                    {nodeKindLabel(itinerary, entry.ref_id)}
+                  </span>
                   <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
                     {entry.title}
                   </span>

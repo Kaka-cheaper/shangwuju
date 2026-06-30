@@ -101,7 +101,7 @@ export default function PreferencesPanel() {
         <div className="flex-1 flex items-center justify-end gap-2 px-4 py-3">
           {/* 主体：两行文字（label + notes 摘要），右对齐 */}
           <div className="text-right">
-            <div className="text-base font-semibold text-ink-900 truncate tracking-tight">
+            <div className="text-2xl font-semibold text-ink-900 truncate tracking-tight">
               {persona?.label ?? "偏好画像"}
             </div>
             <div className="mt-0.5 text-sm text-ink-500 truncate leading-relaxed">
@@ -246,7 +246,7 @@ function ContentSections({
       {/* persona 信息：label + notes，右对齐 */}
       <div className="text-right">
         <div className="flex items-center justify-end gap-2">
-          <h3 className="text-base font-semibold text-ink-900 tracking-tight">
+          <h3 className="text-2xl font-semibold text-ink-900 tracking-tight">
             {persona.label}
           </h3>
           <button

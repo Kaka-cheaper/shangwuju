@@ -22,8 +22,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   CornerDownRight,
+  GitFork,
   Loader2,
-  Play,
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
@@ -306,8 +306,8 @@ function EpicBlock({
     }
     return Array.from(counts.entries()).filter(([, n]) => n >= 2);
   }, [items]);
-  const fanoutBadgeText = parallelGroups.length
-    ? `🔀 并发 ${parallelGroups.map(([, n]) => n).join("+")}`
+  const fanoutCountText = parallelGroups.length
+    ? parallelGroups.map(([, n]) => n).join("+")
     : null;
 
   // 头部状态色
@@ -342,12 +342,18 @@ function EpicBlock({
             <span className={cn("text-sm font-semibold tracking-tight", headerAccent)}>
               {epic.label}
             </span>
-            {fanoutBadgeText && (
+            {fanoutCountText && (
               <span
-                className="text-xs text-brand-800 mono shrink-0 px-1.5 py-0.5 rounded bg-brand-500/12 border border-brand-500/30"
+                className="inline-flex items-center gap-1.5 shrink-0 rounded-md border border-amber-300/70 bg-white/80 px-1.5 py-0.5 text-xs font-medium tracking-tight text-amber-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]"
                 title="同 group_id 的 worker 在 LangGraph fan-out 阶段并行执行"
               >
-                {fanoutBadgeText}
+                <GitFork
+                  className="h-3.5 w-3.5 text-amber-600"
+                  strokeWidth={2.25}
+                  aria-hidden="true"
+                />
+                <span>并发</span>
+                <span className="tabular-nums">{fanoutCountText}</span>
               </span>
             )}
             <span className="flex items-center gap-1.5 shrink-0 ml-auto">
