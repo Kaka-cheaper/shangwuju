@@ -1,4 +1,4 @@
-﻿"""critics_v2 —— Itinerary 客观约束兜底验证层（edge_v1）。
+"""critics_v2 —— Itinerary 客观约束兜底验证层（edge_v1）。
 
 【为什么叫 critics_v2 而非 critics】
 
@@ -21,15 +21,13 @@ critic 双重计算触发死循环（pitfalls P1-2026-05-22-commute-critic）。
 
 【文件结构（spec code-modularization-refactor H6）】
 
-本文件仅含**公开 API**（约 200 行）：
+本文件仅含**公开 API**：
 - ViolationCode / Severity / Violation（枚举与数据结构）
-- CODE_WEIGHTS / SEVERITY_WEIGHTS（reward 权重）
-- compute_reward（dense scalar）
 - validate_itinerary / format_violations_for_llm（主入口）
 
-具体规则实现 11 个 _check_xxx 函数 → `_rules/checks.py`
+具体规则实现 13 个 check_xxx 函数 → `_rules/checks.py`
 共享 helper（数据加载 / 时间解析 / 节点工具）→ `_rules/helpers.py`
-公共类型 / 权重常量 → `_rules/types.py`
+公共类型常量 → `_rules/types.py`
 
 【Critic 纪律（硬性）】
 
@@ -39,36 +37,14 @@ critic 双重计算触发死循环（pitfalls P1-2026-05-22-commute-critic）。
 - field_path 字段仅供 trace / 调试使用，**format_violations_for_llm 不暴露 dot-path**
   给 LLM——LLM 只看人话「第 N 段」「目标点」（design.md 强约束）
 
-【11 类 ViolationCode】
+【ADR-0008 B-1：删除 reward/feedback-mode 机制】
 
-```
-| Code                       | Severity (默认) | 触发条件                                       |
-|----------------------------|----------------|-----------------------------------------------|
-| INVARIANT_BROKEN           | CRITICAL       | hops 长度 / 首尾 home / home duration=0 任一违反 |
-| NODES_INCOMPLETE           | CRITICAL       | mid nodes 数 < 1（行程退化为只有 home）         |
-| DURATION_OUT_OF_RANGE      | CRITICAL       | total_minutes 不在 intent.duration_hours±30min |
-| TIMELINE_INCONSISTENT      | CRITICAL       | hop.start 与 from_node.end / to_node.start 错位（容差 2min） |
-| HOP_INFEASIBLE             | CRITICAL       | hop.minutes < lookup_hop(actual) - 2          |
-| DISTANCE_EXCEEDED          | WARNING        | 单个 mid node 距家 > intent.distance_max_km   |
-| RESTAURANT_FULL_UNRESOLVED | CRITICAL       | demo-aware：用餐 node start_time 满座         |
-| DIETARY_VIOLATION          | WARNING        | 餐厅 node tags 不覆盖 intent.dietary_constraints |
-| SOCIAL_CONTEXT_MISMATCH    | CRITICAL/WARN  | social_compat 矩阵 BLOCKING/POOR              |
-| AGE_DURATION_MISMATCH      | CRITICAL       | 单段 POI 时长超出年龄 cap                       |
-| TOOL_RESPONSE_INCONSISTENCY| CRITICAL       | target_id 不在候选池（hallucination）          |
-| CAPACITY_REQUIREMENT_VIOLATED | CRITICAL    | ≥5 人但餐厅无大桌型                            |
-```
-
-【不负责】
-
-- ModelRetry / replan 触发逻辑（由 LangGraph critic_node / react_agent 决定）
-- 主观文案生成（critic 输出 message 只是 LLM 修复种子，不是最终回话）
-- 工具调用历史的事后分析（critic 看不到调用链，只看最终 itinerary）
-- 节点级营业时间校验（在 agent.blueprint._opening_hours_critic 阶段处理）
+- `compute_reward` 已删（随 SEVERITY_WEIGHTS / CODE_WEIGHTS 一起死）
+- `_get_feedback_mode` / first-only / reward 模式已删
+- `format_violations_for_llm` 永远 collect-all HARD violations（简洁可预测）
 """
 
 from __future__ import annotations
-
-import os
 
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
@@ -84,19 +60,21 @@ from ._rules.checks import (
     check_invariants,
     check_meal_time,
     check_nodes_incomplete,
+    check_opening_hours,
     check_social_context,
+    check_temporal_alignment,
     check_temporal_feasibility,
+    check_time_parseable,
     check_tool_consistency,
 )
-from ._rules.helpers import safe_load_user_profile
+from ._rules.helpers import safe_load_user_profile  # noqa: F401  兼容旧 import 路径
 from ._rules.types import (
-    CODE_WEIGHTS,
-    SEVERITY_WEIGHTS,
-    VALID_FEEDBACK_MODES,
     Severity,
     Violation,
     ViolationCode,
 )
+from .context import CriticContext
+from .validate import validate
 
 
 # ============================================================
@@ -107,10 +85,13 @@ from ._rules.types import (
 _check_invariants = check_invariants
 _check_nodes_incomplete = check_nodes_incomplete
 _check_duration = check_duration
-_check_temporal_feasibility = check_temporal_feasibility
+_check_temporal_feasibility = check_temporal_feasibility  # B-2a: 已拆为 _check_time_parseable + _check_temporal_alignment
+_check_time_parseable = check_time_parseable      # B-2a 新增：Stage 0 时间可解析性门
+_check_temporal_alignment = check_temporal_alignment  # B-2a 新增：Stage 1 hop/buffer 对齐
 _check_hop_feasibility = check_hop_feasibility
 _check_distance = check_distance
 _check_demo_restaurant_full = check_demo_restaurant_full
+_check_opening_hours = check_opening_hours  # B-2b 新增：营业时间检查
 _check_dietary = check_dietary
 _check_social_context = check_social_context
 _check_age_aware_duration = check_age_aware_duration
@@ -125,7 +106,7 @@ from agent.planning.commute.lookup_hop import lookup_hop  # noqa: E402, F401
 
 
 # ============================================================
-# 公开 API：类型 / 枚举 / 权重 re-export
+# 公开 API：类型 / 枚举 re-export
 # ============================================================
 # 历史 import 路径 `from agent.planning.critic.critics_v2 import ViolationCode, Severity, ...`
 # 通过本模块重新导出仍然成立。
@@ -136,77 +117,7 @@ __all__ = [
     "Violation",
     "validate_itinerary",
     "format_violations_for_llm",
-    # spec algorithm-redesign R1：reward 计算 + 三档反馈模式
-    "SEVERITY_WEIGHTS",
-    "CODE_WEIGHTS",
-    "compute_reward",
 ]
-
-
-# ============================================================
-# spec algorithm-redesign R1：reward 计算 + 反馈模式
-# ============================================================
-#
-# LLM-Modulo 范式（参考 .kiro/specs/algorithm-redesign/research/agent-3-llm-modulo）
-# 把 critic 视为「dense scalar reward 提供者」，为未来 RL 路径预留挂钩；
-# 当前主路径仍走 pinpoint-all（默认）的人话 backprompt。
-
-
-def compute_reward(violations: list[Violation]) -> float:
-    """把 violations 列表压成单个标量 reward（≤ 0，越接近 0 越好）。
-
-    公式：``-Σ SEVERITY_WEIGHTS[v.severity] * CODE_WEIGHTS.get(v.code, 1.0)``
-
-    用途：
-    - 当前主路径不消费此值（backprompt 走 format_violations_for_llm）
-    - CRITIC_FEEDBACK_MODE=reward 时由调用方读取（占位，本 spec 不接 RL）
-    - 未来 spec D 若做 RL 路径实验直接 hook 此函数
-
-    Args:
-        violations: validate_itinerary 输出（可能为空）
-
-    Returns:
-        非正数标量；空列表返 0.0；多违规累加
-
-    示例：
-        - 空列表 → 0.0
-        - 单条 CRITICAL + INVARIANT_BROKEN(1.5) → -1.5
-        - 单条 WARNING + DISTANCE_EXCEEDED(0.8) → -0.16
-        - 1 critical + 2 warning → 三者之和的负值
-    """
-    if not violations:
-        return 0.0
-
-    total = 0.0
-    for v in violations:
-        sev_w = SEVERITY_WEIGHTS.get(v.severity, 1.0)
-        code_w = CODE_WEIGHTS.get(v.code, 1.0)
-        total += sev_w * code_w
-    return -total
-
-
-def _get_feedback_mode() -> str:
-    """从 env CRITIC_FEEDBACK_MODE 读三档模式，越界回退 pinpoint-all。
-
-    三档：
-    - pinpoint-all（默认）：返完整违规列表给 LLM（与 spec C 之前行为一致）
-    - first-only：仅第一条 critical（节省 token 30-50%，sub-agent 实验路径）
-    - reward：返空字符串（dense scalar 模式，由调用方独立调 compute_reward）
-
-    任何其它值（typo / 大小写错乱 / 空字符串）→ fallback pinpoint-all + stderr warn。
-    """
-    raw = os.getenv("CRITIC_FEEDBACK_MODE", "pinpoint-all").strip().lower()
-    if raw in VALID_FEEDBACK_MODES:
-        return raw
-    # 越界值 → fallback + stderr warning（避免静默错配置）
-    import sys
-
-    print(
-        f"[critics_v2] CRITIC_FEEDBACK_MODE={raw!r} 不在 "
-        f"{sorted(VALID_FEEDBACK_MODES)} 范围，回退到 pinpoint-all。",
-        file=sys.stderr,
-    )
-    return "pinpoint-all"
 
 
 # ============================================================
@@ -221,21 +132,27 @@ def validate_itinerary(
     user_id: str = "demo_user",
     tool_results: dict | None = None,
 ) -> list[Violation]:
-    """跑全套 critic 检查。返回 violations 列表（可能为空）。
+    """跑全套 critic 检查（分阶段）。返回 violations 列表（可能为空）。
 
-    顺序约定（先「结构性 / 强制性」后「语义性 / 偏好性」）：
-    1. INVARIANT_BROKEN（防御性兜底）
-    2. NODES_INCOMPLETE（mid 节点至少 1 个）
-    3. DURATION_OUT_OF_RANGE（总时长容差）
-    4. TIMELINE_INCONSISTENT（_check_temporal_feasibility）
-    5. HOP_INFEASIBLE（_check_hop_feasibility）
-    6. DISTANCE_EXCEEDED（warning）
-    7. RESTAURANT_FULL_UNRESOLVED（demo-aware）
-    8. DIETARY_VIOLATION（warning）
-    9. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
-    10. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
-    11. TOOL_RESPONSE_INCONSISTENCY（spec algorithm-redesign R2，仅 tool_results 提供时）
-    12. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
+    顺序约定（ADR-0008 B-2b 分阶段）：
+    Stage 0（结构门，命中短路）：
+      1. INVARIANT_BROKEN（防御性兜底）
+      2. NODES_INCOMPLETE（按 decide_nodes→target_kind 判，B-2a B1 修订）
+      3. TIMELINE_INCONSISTENT / check_time_parseable（时间可解析性，G2 拆位）
+      4. TOOL_RESPONSE_INCONSISTENCY（hallucination 防护）
+    Stage 1（hard 语义，gate 修复）：
+      5. DURATION_OUT_OF_RANGE（总时长容差）
+      6. HOP_INFEASIBLE（_check_hop_feasibility）
+      7. TIMELINE_INCONSISTENT / check_temporal_alignment（hop/buffer 对齐，G2 拆位）
+      8. RESTAURANT_FULL_UNRESOLVED（demo-aware）
+      9. OPENING_HOURS_VIOLATION（B-2b 新增：营业时间，移植自死代码 blueprint 层）
+      10. SOCIAL_CONTEXT_MISMATCH（hard / soft 分级）
+      11. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
+      12. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
+      13. DIETARY_VIOLATION（B-2a 升 HARD，gate 修复）
+      14. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
+    Stage 2（soft 建议，narration only）：
+      15. DISTANCE_EXCEEDED（soft）
 
     Args:
         itinerary:    要校验的方案（已通过 Pydantic 构造）。
@@ -246,41 +163,19 @@ def validate_itinerary(
 
     Returns:
         Violation 列表；调用方据 severity 决定是否 backprompt / replan。
+        Stage 0 有违规时只含结构/幻觉违规（短路），否则含 Stage 1+2 所有违规。
     """
-    profile = safe_load_user_profile(user_id)
-
-    violations: list[Violation] = []
-    violations.extend(check_invariants(itinerary))
-    violations.extend(check_nodes_incomplete(itinerary))
-    violations.extend(check_duration(itinerary, intent))
-    violations.extend(check_temporal_feasibility(itinerary))
-    violations.extend(check_hop_feasibility(itinerary, user_profile=profile))
-    violations.extend(check_distance(itinerary, intent))
-    violations.extend(check_demo_restaurant_full(itinerary))
-    violations.extend(check_dietary(itinerary, intent))
-    violations.extend(check_social_context(itinerary, intent))
-    # spec planning-quality-deep-review R4：ILS 路径年龄感知 critic（镜像）
-    violations.extend(check_age_aware_duration(itinerary, intent))
-    # spec algorithm-redesign R2：tool 响应一致性（hallucination 防护）
-    violations.extend(check_tool_consistency(itinerary, tool_results))
-    # spec innovation-review M3：capacity_requirement critic（≥5 人桌型校验）
-    violations.extend(check_capacity(itinerary, intent))
-    # spec planning-pipeline-consolidation R1：用餐时段合理性（正餐不落非饭点）
-    violations.extend(check_meal_time(itinerary))
-    return violations
+    ctx = CriticContext.build(intent, user_id=user_id, tool_results=tool_results)
+    return validate(itinerary, ctx)
 
 
 def format_violations_for_llm(violations: list[Violation]) -> str:
-    """把 critical violations 格式化成给 LLM 的 backprompt 消息。
+    """把 hard violations 格式化成给 LLM 的 backprompt 消息。
 
-    【三档反馈模式（spec algorithm-redesign R1）】
+    【ADR-0008 B-1：永远 collect-all HARD violations】
 
-    通过 env `CRITIC_FEEDBACK_MODE` 切换：
-
-    - **pinpoint-all（默认）**：完整违规列表（与 spec C 之前行为一致）
-    - **first-only**：仅第一条 critical（节省 token 30-50%，第二意见探索）
-    - **reward**：返空字符串（dense scalar 模式，配合 compute_reward 用，
-      调用方需独立调用 compute_reward 取 reward 值）
+    删除 first-only / reward 反馈模式分支（+ `_get_feedback_mode` + CRITIC_FEEDBACK_MODE env）。
+    简化为：collect-all HARD → 拼成一条 backprompt。
 
     【人话约束（design.md 强约束）】
 
@@ -291,25 +186,16 @@ def format_violations_for_llm(violations: list[Violation]) -> str:
     - 若 violation 含 `expected_range=(lo, hi)`，message 末尾追加「（建议范围 lo-hi min）」
     - **不**暴露字段名 `expected_range` / `nodes[i]` 等 dot-path
 
-    - 0 critical → 返回空字符串（调用方据此决定不 backprompt）
-    - ≥1 critical → 返回中文修复 prompt（编号 + message）
-    - warning 级别**不**进入此消息（避免噪声把 LLM 注意力分散）
+    - 0 hard → 返回空字符串（调用方据此决定不 backprompt）
+    - ≥1 hard → 返回中文修复 prompt（编号 + message）
+    - soft 级别**不**进入此消息（避免噪声把 LLM 注意力分散）
     """
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
-    if not critical:
+    hard = [v for v in violations if v.severity == Severity.HARD]
+    if not hard:
         return ""
 
-    mode = _get_feedback_mode()
-    if mode == "reward":
-        # reward 模式：调用方独立调 compute_reward；此函数返空让主路径不 backprompt
-        return ""
-
-    if mode == "first-only":
-        # 仅第一条 critical
-        critical = critical[:1]
-
-    lines = [f"你产出的行程方案有 {len(critical)} 处违规需要修复："]
-    for i, v in enumerate(critical, 1):
+    lines = [f"你产出的行程方案有 {len(hard)} 处违规需要修复："]
+    for i, v in enumerate(hard, 1):
         # 注意：刻意不拼接 v.field_path（design.md：不暴露 dot-path）
         msg = v.message
         if v.expected_range is not None:

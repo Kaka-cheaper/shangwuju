@@ -53,14 +53,16 @@ def _intent(payload: dict) -> IntentExtraction:
 
 
 def _rule_assembler(intent, candidate, tracer):
-    """plan_hybrid 的 rule_assembler 回调：复用 rule planner 完成时间轴拼装。
+    """委托给生产 _RULE_ASSEMBLER_ADAPTER（ADR-0009 C-1/C-4）。
 
-    镜像 graph/nodes/replan.py:ils_replan_node——plan_hybrid 选定 candidate 后
-    把拼装委托给 survivor 入口 rule_planner.plan_itinerary。
+    历史上这里独立镜像 assembler，正是「丢弃 candidate、重跑 plan_itinerary」bug 的
+    第三处副本。C-4 的 retry-gate 落地后，丢弃 candidate 的 stand-in 会让修复闭环
+    无法改变方案（永远是同一份 rule 地板）→ 脏方案被 gate 挡下 → 放弃。改为委托
+    生产 adapter，与真实 ILS 组装路径一致，杜绝镜像漂移。
     """
-    t = tracer if isinstance(tracer, Tracer) else Tracer()
-    result = plan_itinerary(intent, tracer=t)
-    return result.itinerary if (result.success and result.itinerary) else None
+    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
+
+    return _RULE_ASSEMBLER_ADAPTER(intent, candidate, tracer)
 
 
 SCENARIOS: dict[str, dict] = {

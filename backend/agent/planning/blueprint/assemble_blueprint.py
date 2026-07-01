@@ -48,8 +48,9 @@ nodes.append(home_end_node(start=cursor+commute_back, duration=0))
 【不负责】
 
 - LLM 调用与 prompt（在 `agent/blueprint_llm.py` / `agent/prompts/blueprint_prompt.py`）
-- 蓝图级 critic（在 `agent/blueprint.py` 的 `run_blueprint_critics`）
-- Itinerary 级 critic（在 `agent/v2/critics_v2.py`）
+- 蓝图级 critic（ADR-0009 决策 8 已删——曾在 `blueprint.py` 的 `run_blueprint_critics`，
+  确认无生产调用者后随 Phase C-5 移除）
+- Itinerary 级 critic（在 `agent/planning/critic/critics_v2.py`）
 - decision_trace 填写（由 LangGraph `agent/graph/nodes/assemble.py` 节点注入）
 - share_message / orders 生成（由 narrate / execute 节点填充）
 """
@@ -357,6 +358,15 @@ def assemble_from_blueprint(
         )
 
         node_start_min = cursor_min + buffer
+
+        # 乙（ADR-0009 决策 2）：节点可声明「最早开始时刻」not_before_start（如餐厅
+        # 预约 chosen_time）。自然到达早于它时，把节点开始推迟到该时刻——差额是餐前
+        # 空闲/休息，让排定时刻与 note/reservation 自洽（cap 砍短 POI 后餐厅仍准点）。
+        # buffer 保持真实过渡值不变；check_temporal_alignment 因 to_start ≥
+        # hop_end + buffer 仍通过（推迟只会让 to_start 更大，不会更小）。
+        nb_raw = getattr(bp_node, "not_before_start", None)
+        if nb_raw and _TIME_RE.match(nb_raw):
+            node_start_min = max(node_start_min, _parse_hhmm(nb_raw))
 
         # bp_node.target_kind 是 BlueprintTargetKind 枚举（poi/restaurant），
         # 与 ActivityNode.target_kind 的 Literal["poi","restaurant","home"] 兼容

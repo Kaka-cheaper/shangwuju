@@ -34,6 +34,7 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
 from agent.planning.memory_writer import (  # noqa: E402
     _is_duplicate,
     _now_iso,
+    _resolve_profile_path,
     persist_memory,
 )
 from schemas.domain import RecentTrip, UserProfile  # noqa: E402
@@ -332,3 +333,62 @@ def test_persist_memory_never_raises(stub_client, tmp_path):
     state = _make_state()
     ok = persist_memory(state, profile_path=bad_path, client=stub_client)
     assert ok is False  # 不抛异常，仅返 False
+
+
+# ============================================================
+# 测试：护栏——env 未设时不写 tracked 种子（落 gitignore 运行副本）
+# ============================================================
+
+
+def test_default_write_target_avoids_tracked_seed(monkeypatch):
+    """SHANGWUJU_MOCK_DIR 未设 + 无 profile_path override 时，写入目标必须避开
+    版本控制的 mock_data/user_profile.json 种子，改落 gitignore 的 mock_data_runtime/。
+
+    根因：memory_writer 是运行时唯一改 user_profile 的写入点；env 未设的裸跑
+    （脚本 / dev app）此前会直接改 tracked 种子 → git 噪音 + 误提运行时状态。
+    """
+    monkeypatch.delenv("SHANGWUJU_MOCK_DIR", raising=False)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    tracked_seed = repo_root / "mock_data" / "user_profile.json"
+    runtime_dir = repo_root / "mock_data_runtime"
+
+    try:
+        resolved = _resolve_profile_path(None)
+        assert resolved != tracked_seed, "默认写入目标不得是 tracked 种子"
+        assert "mock_data_runtime" in resolved.parts, (
+            f"默认写入应落 mock_data_runtime 运行副本，实际 {resolved}"
+        )
+    finally:
+        import shutil
+
+        if runtime_dir.exists():
+            shutil.rmtree(runtime_dir, ignore_errors=True)
+
+
+def test_persist_does_not_mutate_tracked_seed(monkeypatch, stub_client):
+    """env 未设 + 无 override 时 persist_memory 写运行副本，绝不改动 tracked 种子。"""
+    monkeypatch.delenv("SHANGWUJU_MOCK_DIR", raising=False)
+
+    repo_root = Path(__file__).resolve().parents[2]
+    tracked_seed = repo_root / "mock_data" / "user_profile.json"
+    runtime_dir = repo_root / "mock_data_runtime"
+
+    before = tracked_seed.read_bytes() if tracked_seed.exists() else None
+    try:
+        # 独处放空：种子里即使有也是旧时间戳，不会撞 5min 幂等键
+        state = _make_state(social_context="独处放空")
+        ok = persist_memory(state, client=stub_client)
+
+        after = tracked_seed.read_bytes() if tracked_seed.exists() else None
+        assert after == before, "persist_memory 不得改动版本控制的 mock_data 种子"
+        assert ok is True, "写应成功落到运行副本"
+        assert (runtime_dir / "user_profile.json").exists(), "运行副本应被创建"
+    finally:
+        # 防御：即便实现有 bug 改了种子，也逐字节还原，绝不留污染
+        if before is not None:
+            tracked_seed.write_bytes(before)
+        import shutil
+
+        if runtime_dir.exists():
+            shutil.rmtree(runtime_dir, ignore_errors=True)

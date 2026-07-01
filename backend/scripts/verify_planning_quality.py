@@ -2,12 +2,17 @@
 
 验证 5 岁娃 / 老人 / 独处 / 商务 4 种场景下"业务合理性"3 道防线全部到位：
 1. **信息源端**：mock POI 在该客群下投影出的推荐时长落在合规区间
-2. **critic 端**：blueprint critic + critics_v2 镜像对超 cap 节点能命中
+2. **critic 端**：critics_v2（Itinerary 级 check_age_aware_duration）对超 cap 节点能命中
 3. **数据端**：persona pace_profile 与场景预期一致
 
 注意：本脚本不调真实 LLM（hackathon 时间盒下不可控 + 需要 API key），
 而是确定性检查"防御链路上每一层"的合规性。LLM 行为由 spec R3 prompt 主防 +
 R4 critic 兜底保证；本脚本验证的是底层防御网"该拦的能拦"。
+
+ADR-0009 决策 8（Phase C-5）说明：原「critic 端」曾双路径镜像（蓝图级
+`_age_aware_duration_critic` + Itinerary 级 `check_age_aware_duration`），
+蓝图级 critic 已确认无生产调用者并删除；本脚本改为只验唯一存活的
+Itinerary 级路径（`age_caps.strictest_cap_for_companions` + `check_age_aware_duration`）。
 
 通过标准（spec R9）：
 - 4 种场景全部通过"信息源端"投影合规率 ≥ 95%
@@ -43,16 +48,12 @@ if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
 
-from agent.planning.blueprint.blueprint import (  # noqa: E402
-    BlueprintNode,
-    BlueprintTargetKind,
-    PlanBlueprint,
-    _age_aware_duration_critic,
-    _resolve_age_caps,
-)
+from agent.planning.critic._rules.checks import check_age_aware_duration  # noqa: E402
+from agent.planning.critic.age_caps import strictest_cap_for_companions  # noqa: E402
 from data.loader import load_pois  # noqa: E402
 from data.memory_store import get_persona  # noqa: E402
 from schemas.intent import Companion, IntentExtraction  # noqa: E402
+from schemas.itinerary import ActivityNode, Hop, Itinerary  # noqa: E402
 from utils.duration_helpers import get_duration_for_companions  # noqa: E402
 
 
@@ -144,34 +145,47 @@ def _check_persona_pace(scenario: dict) -> tuple[bool, str]:
 
 
 def _check_age_cap(scenario: dict) -> tuple[bool, str]:
-    """验 _resolve_age_caps 返回的 cap 与场景预期一致。"""
+    """验 strictest_cap_for_companions 返回的 cap 与场景预期一致。
+
+    age_caps.strictest_cap_for_companions 无 cap 时返回 None（语义同旧
+    blueprint._resolve_age_caps 的哨兵 9999）；场景表沿用 9999 表示"无 cap"。
+    """
     intent = _make_intent(scenario)
-    cap, _ = _resolve_age_caps(intent)
+    cap = strictest_cap_for_companions(intent.companions)
+    cap = 9999 if cap is None else cap
     if cap != scenario["expected_cap"]:
         return False, f"cap 期望 {scenario['expected_cap']}，实际 {cap}"
     return True, f"OK（cap={cap}）"
 
 
+def _itin_with_poi_duration(duration: int) -> Itinerary:
+    """构造单 POI 节点的最小合法 Itinerary，供 check_age_aware_duration 校验用。"""
+    nodes = [
+        ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home",
+                     start_time="13:50", duration_min=0, title="家"),
+        ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id="P003",
+                     start_time="14:00", duration_min=duration, title="测试 POI"),
+        ActivityNode(node_id="n2", kind="终点", target_kind="home", target_id="home",
+                     start_time="20:00", duration_min=0, title="家"),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1", start_time="13:50",
+            minutes=10, mode="walking", path_type="real_route"),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2", start_time="19:50",
+            minutes=10, mode="walking", path_type="real_route"),
+    ]
+    return Itinerary(nodes=nodes, hops=hops, summary="测试", total_minutes=600)
+
+
 def _check_critic_hits(scenario: dict) -> tuple[bool, str]:
-    """对反例（violation_test=True）：构造超 cap 蓝图 → critic 应命中。"""
+    """对反例（violation_test=True）：构造超 cap 行程 → critic 应命中。"""
     if not scenario.get("violation_test"):
         return True, "（非反例场景跳过）"
 
     intent = _make_intent(scenario)
     over_duration = scenario["expected_cap"] + 30  # 超 cap 30min
-    bp = PlanBlueprint(
-        nodes=[
-            BlueprintNode(
-                kind="主活动",
-                target_kind=BlueprintTargetKind.POI,
-                target_id="P003",
-                duration_min=over_duration,
-            )
-        ],
-        preferred_start_time="14:00",
-        rationale="测试反例",
-    )
-    violations = _age_aware_duration_critic(bp, intent)
+    itin = _itin_with_poi_duration(over_duration)
+    violations = check_age_aware_duration(itin, intent)
     if not violations:
         return False, f"反例 {over_duration}min 应命中 critic 但未命中"
     v = violations[0]

@@ -236,7 +236,7 @@ def test_critic_blocking_social_triggers_critical():
 
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)
-    critical = [v for v in social_v if v.severity == Severity.CRITICAL]
+    critical = [v for v in social_v if v.severity == Severity.HARD]
 
     assert critical, (
         f"家庭日常 + 商务接待餐厅应触发 CRITICAL，实际 social violations："
@@ -259,11 +259,22 @@ def test_critic_match_no_violation():
     )
 
 
-def test_critic_solo_with_multi_seat_order_still_critical():
-    """独处放空 + orders 含 2 人位 → 仍 CRITICAL（保留旧 detail 检查）。
+def test_solo_multi_seat_order_no_longer_flagged_after_o10():
+    """O10（ADR-0008 B-2b，intentional 行为改变）：独处放空 + orders 含 2 人位文本，
+    但主活动节点本身与场景兼容 → 不再触发 SOCIAL_CONTEXT_MISMATCH。
 
-    edge_v1：通过 assemble 构造一个合法行程（独处场景下含 P040 主活动），
-    再注入一个 2 人位 order 触发 critic。
+    重构前 check_social_context 末尾保留一段裸扫 `order.detail` 子串（"2 人"/"三人"/...）
+    的遗留检查，与 evaluate_poi/evaluate_restaurant 矩阵是两套独立判据。O10 删除该子串
+    扫描——社交只走矩阵。
+
+    用 P009（suitable_for=["独处放空"] 单一，矩阵判 MATCH）作主活动，排除矩阵本身
+    产生 BLOCKING 的干扰（旧版 test_critic_solo_with_multi_seat_order_still_critical
+    误用了 P040——P040 suitable_for 含"家庭日常"，其自身已被矩阵判 BLOCKING，掩盖了
+    这段子串扫描到底有没有生效；本测试换成矩阵判 MATCH 的 P009，才真正隔离出子串
+    扫描这一支的行为）。
+
+    orders 是独立于 nodes 的预留清单，其 2 人位文本不再触发任何社交检查——
+    社交相容性判断只发生在 itinerary.nodes 对应的实际候选上。
     """
     intent = _intent("独处放空")
     bp = PlanBlueprint(
@@ -271,7 +282,7 @@ def test_critic_solo_with_multi_seat_order_still_critical():
             BlueprintNode(
                 kind="主活动",
                 target_kind=BlueprintTargetKind.POI,
-                target_id="P040",
+                target_id="P009",
                 duration_min=180,
             ),
         ],
@@ -279,7 +290,7 @@ def test_critic_solo_with_multi_seat_order_still_critical():
         rationale="独处测试",
     )
     base = assemble_from_blueprint(intent, bp, load_user_profile())
-    # 注入 2 人位 order（OrderRecord 加 target_kind 字段）
+    # 注入 2 人位 order（与 nodes 无关的预留清单条目）
     itinerary = base.model_copy(
         update={
             "orders": [
@@ -296,5 +307,7 @@ def test_critic_solo_with_multi_seat_order_still_critical():
     )
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)
-    critical = [v for v in social_v if v.severity == Severity.CRITICAL]
-    assert critical, "独处 + 2 人位 order 应仍触发 CRITICAL（旧逻辑保留）"
+    assert not social_v, (
+        f"O10 删除子串扫描后，orders 的 2 人位文本不应再触发社交违规，"
+        f"实际：{[(v.severity, v.message) for v in social_v]}"
+    )

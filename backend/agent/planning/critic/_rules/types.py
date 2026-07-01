@@ -1,11 +1,11 @@
-"""critics_v2 公开类型 / 枚举 / 权重常量（独立 module 避免循环 import）。
+"""critic 公开类型 / 枚举 / 常量（独立 module 避免循环 import）。
 
 critics_v2.py 与 _rules/checks.py 都从这里 import：
 - critics_v2.py: 提供入口 validate_itinerary / format_violations_for_llm
-- _rules/checks.py: 提供 11 个 _check_xxx 实现
+- _rules/checks.py: 提供 13 个 check_xxx 实现
 
 把类型从 critics_v2.py 抽出避免循环 import：
-critics_v2 → checks（要调 _check_xxx）→ critics_v2（要拿 ViolationCode / Severity）
+critics_v2 → checks（要调 check_xxx）→ critics_v2（要拿 ViolationCode / Severity）
 """
 
 from __future__ import annotations
@@ -46,25 +46,27 @@ class ViolationCode(str, Enum):
     TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2
     CAPACITY_REQUIREMENT_VIOLATED = "capacity_requirement_violated"  # spec innovation-review M3
     MEAL_TIME_UNREASONABLE = "meal_time_unreasonable"  # spec planning-pipeline-consolidation R1
+    OPENING_HOURS_VIOLATION = "opening_hours_violation"  # ADR-0008 B-2b：营业时间检查（新增）
 
 
 class Severity(str, Enum):
-    """违规等级。
+    """违规等级（ADR-0008 B-1：CRITICAL→HARD / WARNING→SOFT）。
 
-    - CRITICAL：必须 backprompt / replan；调用方应把 violation 转成 prompt 让 LLM 重做
-    - WARNING ：方案可继续上呈，但日志/调试时需关注（如 mock 数据本身的轻微偏差）
+    - HARD：进修复闭环（驱动 backprompt / replan）；接受与否由 hard 层决定
+    - SOFT：只建议（narration），不 gate——方案仍可上呈
     """
 
-    CRITICAL = "critical"
-    WARNING = "warning"
+    HARD = "hard"
+    SOFT = "soft"
 
 
 class Violation(BaseModel):
-    """一条违规记录。
+    """一条违规记录（ADR-0008 B-1）。
 
     `message` 是给 LLM / 用户看的中文修复建议（必须自包含完整定位信息）；
     `field_path` 是 dot-path 风格的内部定位（如 "hops[2]" / "nodes[1].duration_min"），
     **仅用于 trace / 调试**——不暴露给 LLM（design.md 强约束）。
+    `node_ref` / `hint` 为 B-2 引入的可执行违规字段（B-1 留空，B-2 填充）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -87,6 +89,14 @@ class Violation(BaseModel):
             "**不**暴露字段名 expected_range / nodes[i] / dot-path 给 LLM。"
         ),
     )
+    node_ref: Optional[str] = Field(
+        default=None,
+        description="节点定位（B-2 填充，B-1 留空）：对应 node_id，供 replan 定向修复",
+    )
+    hint: Optional[str] = Field(
+        default=None,
+        description="修复 hint（B-2 填充，B-1 留空）：VAL 风格的可执行修复建议",
+    )
 
 
 # ============================================================
@@ -105,39 +115,7 @@ DURATION_TOLERANCE_MIN: int = 30
 # distance critic 容差（km）
 DISTANCE_TOLERANCE_KM: float = 0.5
 
-# demo-aware 17:00 满座埋点
-DEMO_FULL_TIME: str = "17:00"
 
-
-# ============================================================
-# spec algorithm-redesign R1：reward 权重
-# ============================================================
-#
-# LLM-Modulo 范式（参考 .kiro/specs/algorithm-redesign/research/agent-3-llm-modulo）
-# 把 critic 视为「dense scalar reward 提供者」，为未来 RL 路径预留挂钩。
-#
-# 权重设计（来自 .kiro/specs/algorithm-redesign/design.md §Components 决策点 1）：
-# - SEVERITY_WEIGHTS：CRITICAL 是 WARNING 的 5 倍——反映 critical 必须 replan，
-#   warning 仅日志的实际影响差距
-# - CODE_WEIGHTS：macro 级（结构性、节点完整性、时序、tool 幻觉）取 1.5，
-#   细粒度（饮食、距离）取 0.8，其余 1.0——避免「100 个 warning 加起来反而比
-#   1 个 critical 还重」的逆优先级失败模式
-
-SEVERITY_WEIGHTS: dict[Severity, float] = {
-    Severity.CRITICAL: 1.0,
-    Severity.WARNING: 0.2,
-}
-
-# 注意：CODE_WEIGHTS 用 dict.get(code, 1.0) 兜底——新加 ViolationCode 时不必同步更新
-CODE_WEIGHTS: dict[ViolationCode, float] = {
-    ViolationCode.INVARIANT_BROKEN: 1.5,
-    ViolationCode.NODES_INCOMPLETE: 1.5,
-    ViolationCode.TIMELINE_INCONSISTENT: 1.5,
-    ViolationCode.TOOL_RESPONSE_INCONSISTENCY: 1.5,  # spec algorithm-redesign R2：hallucination 等同 macro 级
-    ViolationCode.CAPACITY_REQUIREMENT_VIOLATED: 1.5,  # spec innovation-review M3：≥5 人桌型不够等同 macro 级
-    ViolationCode.DIETARY_VIOLATION: 0.8,
-    ViolationCode.DISTANCE_EXCEEDED: 0.8,
-}
-
-# 反馈模式有效值（_get_feedback_mode 校验用）
-VALID_FEEDBACK_MODES = frozenset({"pinpoint-all", "first-only", "reward"})
+# (ADR-0008 B-1: SEVERITY_WEIGHTS / CODE_WEIGHTS / VALID_FEEDBACK_MODES 随 reward/feedback-mode 机制一起删除)
+# (ADR-0008 B-2b O11: DEMO_FULL_TIME 孤儿常量已删——check_demo_restaurant_full 早改查
+#  mock reservation_slots 真值，不再依赖写死的 17:00)

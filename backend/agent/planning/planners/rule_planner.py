@@ -225,7 +225,6 @@ def plan_itinerary(
 
     # ---- 2. 查询 POI 候选（按需）----
     main_poi: Poi | None = None
-    backup_pois: list[Poi] = []
     if needs_main:
         pois = _query_pois(intent, _call, tracer)
         if isinstance(pois, FailureReason):
@@ -233,7 +232,6 @@ def plan_itinerary(
         if not pois:
             return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "POI 候选为空")
         main_poi = pois[0]
-        backup_pois = pois[1:4]
 
     # ---- 3. 查询餐厅候选（按需）----
     chosen_restaurant: Restaurant | None = None
@@ -296,7 +294,6 @@ def plan_itinerary(
                     pois = _query_pois(intent, _call, tracer)
                     if not isinstance(pois, FailureReason) and pois:
                         main_poi = pois[0]
-                        backup_pois = pois[1:4]
                 # 重新算 time_window
                 depart_time, dining_slots, main_minutes, dining_minutes = (
                     _resolve_time_window(intent, segments=segments)
@@ -326,11 +323,16 @@ def plan_itinerary(
         poi_to_rest=poi_to_rest,
         rest_to_home=rest_to_home,
         party_size=party_size,
-        backup_pois=backup_pois,
         depart_time=depart_time,
         main_activity_minutes=main_minutes,
         dining_minutes=dining_minutes,
         segments=segments,
+        # ADR-0009 决策 2（方案 α）：_assemble_itinerary 要按 intent.companions 做
+        # 年龄 cap，必须把真实 intent/user_profile 传下去——旧代码不传，_assemble_itinerary
+        # 内部会静默造一个 companions=[] 的占位 intent（见其 docstring），导致这条
+        # plan_itinerary 路径的年龄约束形同虚设（同时也曾让 summary 的同行短语失真）。
+        intent=intent,
+        user_profile=user_profile,
     )
     tracer.emit("itinerary_ready", payload=itinerary.model_dump())
     return PlannerResult(success=True, itinerary=itinerary, tracer=tracer)
@@ -994,7 +996,6 @@ def _assemble_itinerary(
     poi_to_rest: int,
     rest_to_home: int,
     party_size: int,
-    backup_pois: list[Poi],
     depart_time: str = DEFAULT_DEPART_TIME,
     main_activity_minutes: int = DEFAULT_MAIN_ACTIVITY_MINUTES,
     dining_minutes: int = DEFAULT_DINING_MINUTES,
@@ -1031,8 +1032,10 @@ def _assemble_itinerary(
         - 老调用方 + 缺其一 → 抛 ValueError（早暴露 bug 而非默默退化）
 
     新增参数：
-        intent: 透传给 assemble_from_blueprint（当前未读，留作扩展余地）；
-                调用方未传时构造一个最小占位 IntentExtraction，避免改 hybrid_assembler 签名
+        intent: 透传给 assemble_from_blueprint（用于 summary 同行短语）；ADR-0009 决策 2
+                起还用于读 intent.companions 做年龄 cap（见下方「年龄约束进组装器」）。
+                调用方未传时构造一个最小占位 IntentExtraction（companions=[]，即不年龄 cap），
+                避免改 hybrid_assembler 签名
         user_profile: home_location 来源；未传时调 load_user_profile() 读 mock_data
     """
     from data.loader import load_user_profile
@@ -1040,6 +1043,7 @@ def _assemble_itinerary(
 
     from ..blueprint.assemble_blueprint import assemble_from_blueprint
     from ..blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+    from ..critic.age_caps import strictest_cap_for_companions
 
     # 决定 segments：缺省时按可用 POI/餐厅推导
     if segments is None:
@@ -1088,6 +1092,20 @@ def _assemble_itinerary(
 
     if has_main:
         assert main_poi is not None  # narrowing for type checker
+
+        # ---- 年龄约束进组装器（ADR-0009 决策 2·方案 α）----
+        # POI 停留时长夹到 min(算出的时长, 同行人里最严的 cap_for_age)。cap 是硬
+        # 天花板：即便上面的 chosen_time 补偿把 poi_duration 往长拉，这里仍会把它
+        # 砍回 cap 以内——补偿不得突破年龄合规（ADR-0009 决策 2：与总时长/对齐
+        # chosen_time 冲突时优先年龄合规）。
+        # 后果诚实声明：cap 砍短后，餐厅节点的实际到达时刻可能早于 chosen_time
+        # （note 里「已为你预留 {chosen_time}」的承诺与排定时刻之间会留出等待
+        # gap），这是 α 范围内接受的取舍——不重做时长模型 / 不加填充节点去补那个
+        # gap（ADR-0009「边界」）。
+        age_cap = strictest_cap_for_companions(getattr(intent, "companions", None))
+        if age_cap is not None:
+            poi_duration = min(poi_duration, age_cap)
+
         mid_nodes.append(
             BlueprintNode(
                 kind="主活动",
@@ -1112,6 +1130,11 @@ def _assemble_itinerary(
                 target_id=chosen_restaurant.id,
                 duration_min=dining_minutes,
                 note=dining_note,
+                # 乙（ADR-0009 决策 2）：餐厅排定时刻钉在 chosen_time——cap 砍短 POI 后
+                # 靠 assemble_from_blueprint 的 not_before_start 补餐前空闲，让排定
+                # 时刻与 note「已为你预留 {chosen_time}」及 reservation 自洽。
+                # chosen_time=None（无预约协商）时字段 None → no-op。
+                not_before_start=chosen_time,
             )
         )
 

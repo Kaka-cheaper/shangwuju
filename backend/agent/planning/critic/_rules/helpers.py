@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from schemas.itinerary import ActivityNode
@@ -48,6 +49,41 @@ def fmt_hhmm(total: int) -> str:
     """工具函数：分钟数 → HH:MM。"""
     total = max(0, min(total, 24 * 60 - 1))
     return f"{total // 60:02d}:{total % 60:02d}"
+
+
+# ============================================================
+# 营业时间解析（移植自 blueprint.py，ADR-0008 B-2b G3：逐字节照搬语义）
+# ============================================================
+#
+# 死代码 blueprint._opening_hours_critic 只用 preferred_start_time + 累加 duration
+# 粗略推算节点时段（不含 hop 通勤耗时）。本模块把其营业时间解析部分（正则 + 判定函数）
+# 原样搬进 critic 层，供 check_opening_hours 用**真实**已 assemble 的 node.start_time
+# 判定——因此是精确版，而非重复实现。
+
+_BUSINESS_HOURS_RE = re.compile(
+    r"^([01]\d|2[0-3]):([0-5]\d)\s*[-–]\s*([01]\d|2[0-3]):([0-5]\d)$"
+)
+
+
+def _is_in_business_hours(start_min: int, end_min: int, opening_hours: str) -> bool:
+    """判断 [start_min, end_min]（分钟）是否完全落在 opening_hours 内。
+
+    支持 "10:30-21:30" / "00:00-23:59" / "08:00 - 22:00" 等单区间格式。
+    - 空 opening_hours → True（无营业时间约束默认通过）
+    - 不识别格式 → True（不误伤，让其它 check 兜底）
+    - 跨日营业（close_t <= open_t，如 "22:00-04:00"）→ True（hackathon 范围简化通过）
+    """
+    if not opening_hours:
+        return True
+    m = _BUSINESS_HOURS_RE.match(opening_hours.strip())
+    if not m:
+        return True
+    open_h, open_m, close_h, close_m = map(int, m.groups())
+    open_t = open_h * 60 + open_m
+    close_t = close_h * 60 + close_m
+    if close_t <= open_t:
+        return True
+    return open_t <= start_min and end_min <= close_t
 
 
 # ============================================================

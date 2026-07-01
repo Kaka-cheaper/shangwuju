@@ -1,12 +1,13 @@
 """用餐时段合理性 critic 测试（spec planning-pipeline-consolidation Task 1 / R1）。
 
 check_meal_time：正餐节点 start_time 必须落午餐/晚餐/夜宵窗口；茶点类不约束。
+B-2a: check_meal_time 升 HARD（原 warning → 现驱动修复闭环）。
 """
 
 from __future__ import annotations
 
 from agent.planning.critic._rules.checks import check_meal_time
-from agent.planning.critic._rules.types import ViolationCode
+from agent.planning.critic._rules.types import Severity, ViolationCode
 from schemas.itinerary import ActivityNode, Hop, Itinerary
 
 
@@ -39,20 +40,28 @@ def _codes(viols):
     return [v.code for v in viols]
 
 
-# ---- 正餐排非饭点 → 触发 ----
+# ---- 正餐排非饭点 → 触发（B-2a: severity 为 HARD） ----
 
 def test_dinner_at_1405_triggers():
-    """正餐（烧烤 R046）排 14:05 非饭点 → MEAL_TIME_UNREASONABLE（S4 实测 bug）。"""
+    """正餐（烧烤 R046）排 14:05 非饭点 → MEAL_TIME_UNREASONABLE HARD（S4 实测 bug）。"""
     itin = _itin_with_restaurant("R046", "14:05")
     viols = check_meal_time(itin)
     assert ViolationCode.MEAL_TIME_UNREASONABLE in _codes(viols)
+    hard_viols = [v for v in viols if v.code == ViolationCode.MEAL_TIME_UNREASONABLE]
+    assert all(v.severity == Severity.HARD for v in hard_viols), (
+        f"B-2a: MEAL_TIME_UNREASONABLE 应为 HARD；实际 {[v.severity for v in hard_viols]}"
+    )
 
 
 def test_hotpot_at_1500_triggers():
-    """火锅（R034）排 15:00 非饭点 → 触发。"""
+    """火锅（R034）排 15:00 非饭点 → 触发 HARD（B-2a 升级）。"""
     itin = _itin_with_restaurant("R034", "15:00")
     viols = check_meal_time(itin)
     assert ViolationCode.MEAL_TIME_UNREASONABLE in _codes(viols)
+    hard_viols = [v for v in viols if v.code == ViolationCode.MEAL_TIME_UNREASONABLE]
+    assert all(v.severity == Severity.HARD for v in hard_viols), (
+        f"B-2a: MEAL_TIME_UNREASONABLE 应为 HARD；实际 {[v.severity for v in hard_viols]}"
+    )
 
 
 # ---- 正餐排饭点 → 不触发 ----

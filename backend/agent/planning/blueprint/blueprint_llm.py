@@ -16,9 +16,10 @@
   让 BlueprintGenError 携带的 detail 比 Pydantic ValidationError 更友好
 
 不负责：
-- Critic 验证（在 agent/blueprint.py 的 run_blueprint_critics）
+- Critic 验证（蓝图级 critic 已随 ADR-0009 决策 8 删除——无生产调用者；
+  Itinerary 级校验见 agent/planning/critic/critics_v2.py）
 - 真实调用 search_pois / search_restaurants（在 planner_llm_first.py）
-- 最终拼装 Itinerary（在 agent/assemble_blueprint.py）
+- 最终拼装 Itinerary（在 agent/planning/blueprint/assemble_blueprint.py）
 """
 
 from __future__ import annotations

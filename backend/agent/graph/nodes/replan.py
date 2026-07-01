@@ -191,17 +191,78 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
 def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optional[Any]:
     """planner_hybrid.plan_hybrid 期待的 rule_assembler 签名（intent, CandidatePlan, tracer）。
 
-    适配 CandidatePlan 的可选字段（main_poi / restaurant 可能为 None）。
-    """
-    try:
-        from agent.planning.planners.rule_planner import plan_itinerary
-        from agent.core.trace import Tracer
+    真按 ILS 选中的 candidate 组装（ADR-0009 决策 1 / 子步 C-1）。
 
-        # 直接用 rule planner 跑完整流程（它内部会根据 segment_decider 决定段集合）
-        t = tracer if isinstance(tracer, Tracer) else Tracer()
-        result = plan_itinerary(intent, tracer=t)
-        if result.success and result.itinerary:
-            return result.itinerary
-        return None
+    镜像 tests/test_planner_hybrid.py:_rule_assembler——两处必须行为一致。
+
+    历史 bug（ADR-0009「背景·地基 A」）：旧实现收 candidate 却不用，直接
+    `plan_itinerary(intent)` 重跑规则地板，让 ILS 的 utility 选点 / 黑名单 / 重搜
+    对最终产物零影响。现改为镜像 rule_planner.plan_itinerary 对
+    `_assemble_itinerary` 的参数推导（segments / depart_time / 时长分配 /
+    party_size），但主活动 POI / 餐厅 / 用餐时段直接取 candidate 的选择，
+    不再重新搜索。
+    """
+    from data.loader import load_user_profile
+
+    from agent.planning.blueprint.node_decider import decide_segments
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from agent.planning.planners.rule_planner import _assemble_itinerary, _resolve_time_window
+
+    try:
+        main_poi = getattr(candidate, "main_poi", None)
+        chosen_restaurant = getattr(candidate, "restaurant", None)
+        chosen_time = getattr(candidate, "dining_time", "") or None
+
+        # segments 只由 intent 推导（与 ils_planner.plan_hybrid 步骤 0 的
+        # decide_nodes(intent) 同源），candidate 里 main_poi/restaurant 的
+        # None 与否本应与之一致（ILS 按同一 decide_nodes 决定要不要搜那一维）。
+        segments = decide_segments(intent)
+        depart_time, _dining_slots, main_minutes, dining_minutes = _resolve_time_window(
+            intent, segments=segments
+        )
+        party_size = sum(c.count for c in intent.companions) or 1
+
+        user_profile = load_user_profile()
+        transport_pref = (
+            user_profile.transport_preference
+            if user_profile.transport_preference in {"walking", "taxi", "bus"}
+            else "taxi"
+        )
+
+        def _hop_minutes(from_id: str, to_id: str) -> int:
+            # home_to_poi/poi_to_rest/rest_to_home 只喂给 _assemble_itinerary 内部
+            # chosen_time 的补偿算术；真实 hop 由 assemble_from_blueprint 内部同一个
+            # lookup_hop 重算一遍，两处用同一个函数保证数值一致。
+            minutes, _mode, _path = lookup_hop(from_id, to_id, transport_pref, user_profile)
+            return minutes
+
+        home_to_poi = _hop_minutes("home", main_poi.id) if main_poi is not None else 0
+        poi_to_rest = (
+            _hop_minutes(main_poi.id, chosen_restaurant.id)
+            if (main_poi is not None and chosen_restaurant is not None)
+            else 0
+        )
+        if chosen_restaurant is not None:
+            rest_to_home = _hop_minutes(chosen_restaurant.id, "home")
+        elif main_poi is not None:
+            rest_to_home = _hop_minutes(main_poi.id, "home")
+        else:
+            rest_to_home = 0
+
+        return _assemble_itinerary(
+            main_poi=main_poi,
+            chosen_restaurant=chosen_restaurant,
+            chosen_time=chosen_time,
+            home_to_poi=home_to_poi,
+            poi_to_rest=poi_to_rest,
+            rest_to_home=rest_to_home,
+            party_size=party_size,
+            depart_time=depart_time,
+            main_activity_minutes=main_minutes,
+            dining_minutes=dining_minutes,
+            segments=segments,
+            intent=intent,
+            user_profile=user_profile,
+        )
     except Exception:  # noqa: BLE001
         return None

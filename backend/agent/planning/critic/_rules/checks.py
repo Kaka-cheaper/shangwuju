@@ -24,12 +24,14 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
 
+from ..age_caps import cap_for_age
 from .helpers import (
+    _is_in_business_hours,
     fmt_hhmm,
     humanize_node,
     parse_hhmm,
@@ -37,8 +39,25 @@ from .helpers import (
     safe_load_pois,
     safe_load_restaurants,
 )
+
+if TYPE_CHECKING:  # 仅类型标注用，运行时不 import，避免 checks ↔ context 任何环依赖
+    from agent.planning.critic.context import CriticContext
+
+
+# ============================================================
+# CriticContext 接缝（ADR-0008 Phase A）
+# ============================================================
+#
+# 每个 check 新增 keyword-only 形参 `ctx: CriticContext | None`：
+# - validate() 走注册表统一以 `fn(plan, ctx=ctx)` 调用 → 数据从 ctx 读（一次性加载）。
+# - 历史直调（测试 / 脚本如 `check_meal_time(itin)` / `_check_tool_consistency(itin, None)`）
+#   不传 ctx → 各 check 回退到旧的 `safe_load_*()` 自加载，**行为逐字节不变**。
+# 因为 ctx 与回退路径都走同一组 `safe_load_*`，两条路径产出的数据完全一致。
+#
+# `_UNSET`：区分「显式传入 tool_results=None（跳过反幻觉）」与「未传、应从 ctx 取」。
+
+_UNSET = object()
 from .types import (
-    DEMO_FULL_TIME,  # noqa: F401  保留兼容：旧引用方可能 import
     DISTANCE_TOLERANCE_KM,
     DURATION_TOLERANCE_MIN,
     HOP_FEASIBILITY_TOLERANCE_MIN,
@@ -71,12 +90,16 @@ def _get_lookup_hop():
 # ============================================================
 
 
-def check_invariants(itinerary: Itinerary) -> list[Violation]:
+def check_invariants(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """edge_v1 三条结构不变量（防御性兜底）。
+
+    `ctx` 在本 check 不消费（纯结构断言，不查任何外部数据）；保留形参仅为注册表统一调用。
 
     通常 Pydantic `Itinerary._check_invariants` 已在 model_validator 阶段拦下；
     本 critic 仅在「有人手工 bypass Pydantic 构造」或「下游 mutate 后破坏不变量」
-    时触发。所有违反一律 CRITICAL。
+    时触发。所有违反一律 HARD，且属 Stage 0 结构门（命中即短路）。
 
     校验三条：
     1. len(hops) == len(nodes) - 1
@@ -90,7 +113,7 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
         out.append(
             Violation(
                 code=ViolationCode.INVARIANT_BROKEN,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"行程结构不变量违反：hops 数量 {len(itinerary.hops)} "
                     f"应等于 nodes 数量减 1（{expected_hops}）。"
@@ -106,7 +129,7 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：首节点必须是 home（实际 target_kind={first.target_kind!r}）。"
                         "请把出发起点设为家，由系统自动注入即可。"
@@ -118,7 +141,7 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：首节点（home）停留时长应为 0 "
                         f"（实际 {first.duration_min} 分钟）。home 是抽象起终点，不表达「在家停留」。"
@@ -132,7 +155,7 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：尾节点必须是 home（实际 target_kind={last.target_kind!r}）。"
                         "请把回家终点设为家，由系统自动注入即可。"
@@ -144,7 +167,7 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：尾节点（home）停留时长应为 0 "
                         f"（实际 {last.duration_min} 分钟）。"
@@ -156,20 +179,69 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
     return out
 
 
-def check_nodes_incomplete(itinerary: Itinerary) -> list[Violation]:
-    """验中间节点（非首尾 home）至少 1 个。
+def check_nodes_incomplete(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """验行程必要节点完整性（B-2a: 按 target_kind，非自由文本 kind）。
 
-    退化情形：nodes=[home, home] / hops=[in_place 0min] —— 用户原地不动，
-    没有任何活动节点，行程毫无意义；触发 CRITICAL 让 planner replan。
+    ADR-0008 红队 B1 修订：节点完整性必须对照 `decide_nodes(intent)` 返回的
+    required kinds，并按 **target_kind** 判断，绝不比对自由文本 `node.kind`
+    （LLM 可能标 "夜宵" / "早茶" / "自由" 等任意标签）。
 
-    边界：design.md 显式声明「单段方案（如只想吃饭）→ nodes=[home, R024, home]」
-    是合法的；所以最小允许 mid_nodes_count == 1。
+    规则：
+    - `ctx.intent` 可用时：
+        * `KIND_MAIN` (主活动) required ⇒ 需要 ≥1 个 `target_kind=="poi"` 节点
+        * `KIND_DINING` (用餐) required ⇒ 需要 ≥1 个 `target_kind=="restaurant"` 节点
+        * 缺任何一种 → 一条 HARD NODES_INCOMPLETE，消息列出所有缺失 kind
+    - `ctx` 为 None 或 intent 缺失（向后兼容直调）→ 回退到旧「len<3」结构检查
+
+    Emit HARD，Stage 0（结构门：命中即短路）。
     """
+    intent = ctx.intent if ctx is not None else None
+
+    if intent is not None:
+        try:
+            from agent.planning.blueprint.node_decider import (  # 运行时 import 避免循环依赖
+                KIND_DINING,
+                KIND_MAIN,
+                decide_nodes,
+            )
+            required_kinds = decide_nodes(intent)
+        except ImportError:
+            required_kinds = []
+
+        if required_kinds:
+            mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
+            missing: list[str] = []
+            if KIND_MAIN in required_kinds and not any(
+                n.target_kind == "poi" for n in mid_nodes
+            ):
+                missing.append("主活动节点（POI）")
+            if KIND_DINING in required_kinds and not any(
+                n.target_kind == "restaurant" for n in mid_nodes
+            ):
+                missing.append("用餐节点（餐厅）")
+
+            if missing:
+                return [
+                    Violation(
+                        code=ViolationCode.NODES_INCOMPLETE,
+                        severity=Severity.HARD,
+                        message=(
+                            f"行程缺少必要节点：{'  /  '.join(missing)}。"
+                            "请在候选池中补充对应类型节点后重新规划。"
+                        ),
+                        field_path="nodes",
+                    )
+                ]
+            return []
+
+    # 向后兼容回退：ctx/intent 缺失 或 decide_nodes 返回空列表
     if len(itinerary.nodes) < 3:
         return [
             Violation(
                 code=ViolationCode.NODES_INCOMPLETE,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     "行程中间没有任何活动节点（nodes 仅含首尾 home）。"
                     "请至少安排一个 POI 或餐厅作为活动主体。"
@@ -180,8 +252,17 @@ def check_nodes_incomplete(itinerary: Itinerary) -> list[Violation]:
     return []
 
 
-def check_duration(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_duration(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """验 total_minutes 是否落在 intent.duration_hours±30min 容差。"""
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None:
+        return []  # 无 intent 无从校验（旧路径恒有 intent，此处仅防御）
     duration = intent.duration_hours
     if not duration or len(duration) != 2:
         return []  # schema 校验已保证此处必有值，但防御一下
@@ -200,7 +281,7 @@ def check_duration(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
         return [
             Violation(
                 code=ViolationCode.DURATION_OUT_OF_RANGE,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"行程总时长 {actual} 分钟（约 {actual / 60:.1f}h）"
                     f"不在用户期望的 {lo}-{hi}h（含 ±30min 容差）内。{advice}"
@@ -211,8 +292,12 @@ def check_duration(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return []
 
 
-def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
+def check_temporal_feasibility(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """验时序自洽：hop.start ≈ from_node.end 且 to_node.start ≥ hop.end + buffer。
+
+    `ctx` 在本 check 不消费（只读 itinerary 自身的时间戳）；保留形参仅为注册表统一调用。
 
     设计依据（design.md _check_temporal_feasibility 伪代码）：
     - 容差 2min（assemble 内部按整数分钟取整，可能轻微浮动）
@@ -236,7 +321,7 @@ def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 或下一段时间格式不合法（应为 HH:MM）。"
                         "请重新生成行程使所有时间戳为合法 HH:MM。"
@@ -254,7 +339,7 @@ def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 结束于 {fmt_hhmm(from_end)}，"
                         f"但下一段通勤却从 {hop.start_time} 开始（错位 "
@@ -271,7 +356,124 @@ def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(i + 1, to_node)} 开始于 {to_node.start_time}，"
+                        f"早于通勤完成（{fmt_hhmm(hop_end)}）+ buffer({hop.buffer_min}min) "
+                        f"应有的 {fmt_hhmm(required_to_start)}，缺 {shortage} 分钟。"
+                        "请把下一段开始时间推迟到通勤完成 + buffer 之后。"
+                    ),
+                    field_path=f"nodes[{i + 1}].start_time",
+                )
+            )
+
+    return out
+
+
+def check_time_parseable(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """Stage 0 结构门：验所有节点 / hop 的 start_time 可解析为 HH:MM。
+
+    ADR-0008 红队 G2 拆位：时间**可解析**属结构不变量 → Stage 0（命中短路）。
+    hop/buffer **对齐**（TIMELINE_INCONSISTENT）→ Stage 1（check_temporal_alignment）。
+
+    检查所有 node.start_time 和 hop.start_time；任意一处无法解析 → HARD 违规。
+    `ctx` 不消费（只读 itinerary 自身时间戳）；保留形参供注册表统一调用。
+    """
+    out: list[Violation] = []
+
+    for idx, node in enumerate(itinerary.nodes):
+        if parse_hhmm(node.start_time) is None:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(idx, node)} 的开始时间 {node.start_time!r} "
+                        "格式不合法（应为 HH:MM）。"
+                        "请重新生成行程使所有时间戳为合法 HH:MM 格式。"
+                    ),
+                    field_path=f"nodes[{idx}].start_time",
+                )
+            )
+
+    for i, hop in enumerate(itinerary.hops):
+        if parse_hhmm(hop.start_time) is None:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"第 {i + 1} 段通勤的开始时间 {hop.start_time!r} "
+                        "格式不合法（应为 HH:MM）。"
+                        "请重新生成行程使所有时间戳为合法 HH:MM 格式。"
+                    ),
+                    field_path=f"hops[{i}].start_time",
+                )
+            )
+
+    return out
+
+
+def check_temporal_alignment(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """Stage 1 hard：验 hop.start ≈ from_node.end 且 to_node.start ≥ hop.end + buffer。
+
+    ADR-0008 红队 G2 拆位：hop/buffer 对齐属语义校验 → Stage 1（check_temporal_alignment）；
+    时间可解析性 → Stage 0（check_time_parseable）。
+
+    设计依据（design.md _check_temporal_feasibility 伪代码）：
+    - 容差 2min（assemble 内部按整数分钟取整，可能轻微浮动）
+    - Stage 0 已确保所有时间戳可解析；本 check 若遇到解析失败则静默跳过该 hop
+      （防御性兜底，正常路径 Stage 0 已短路不会走到此处）
+    `ctx` 不消费（只读 itinerary 自身时间戳）；保留形参供注册表统一调用。
+    """
+    out: list[Violation] = []
+    nodes = itinerary.nodes
+    hops = itinerary.hops
+
+    bound = min(len(hops), len(nodes) - 1)
+    for i in range(bound):
+        hop = hops[i]
+        from_node = nodes[i]
+        to_node = nodes[i + 1]
+
+        from_start = parse_hhmm(from_node.start_time)
+        hop_start = parse_hhmm(hop.start_time)
+        to_start = parse_hhmm(to_node.start_time)
+
+        # Stage 0 应已拦截解析失败；此处静默跳过（避免 TypeError，防御性兜底）
+        if from_start is None or hop_start is None or to_start is None:
+            continue
+
+        from_end = from_start + from_node.duration_min
+        hop_end = hop_start + hop.minutes
+
+        # 1. hop.start 与 from_node.end 必须紧接（容差 2min）
+        if abs(hop_start - from_end) > TEMPORAL_TOLERANCE_MIN:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(i, from_node)} 结束于 {fmt_hhmm(from_end)}，"
+                        f"但下一段通勤却从 {hop.start_time} 开始（错位 "
+                        f"{abs(hop_start - from_end)} 分钟）。请让通勤紧接节点结束时刻。"
+                    ),
+                    field_path=f"hops[{i}].start_time",
+                )
+            )
+
+        # 2. to_node.start 必须 ≥ hop.end + buffer（容差 2min）
+        required_to_start = hop_end + hop.buffer_min
+        if to_start < required_to_start - TEMPORAL_TOLERANCE_MIN:
+            shortage = required_to_start - to_start
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i + 1, to_node)} 开始于 {to_node.start_time}，"
                         f"早于通勤完成（{fmt_hhmm(hop_end)}）+ buffer({hop.buffer_min}min) "
@@ -288,17 +490,21 @@ def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
 def check_hop_feasibility(
     itinerary: Itinerary,
     user_profile=None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """验 hop.minutes ≥ lookup_hop 实际值 - 容差。
 
     设计依据（design.md _check_hop_feasibility 伪代码 + Property 5）：
     - 与 assemble 共享同一 `lookup_hop` 函数 → 同输入同输出 → 不会漂移
     - in_place hop（minutes=0 / from_id == to_id）跳过：恒可达
-    - hop.minutes < actual - 2 → CRITICAL（hackathon 防御性兜底）
+    - hop.minutes < actual - 2 → HARD（Stage 1，gate 修复；hackathon 防御性兜底）
     - 数据缺失（lookup_hop 4 级兜底返 15min）也按 actual=15 比较，仍可触发
     """
     out: list[Violation] = []
 
+    if user_profile is None and ctx is not None:
+        user_profile = ctx.profile
     if user_profile is None:
         return out
 
@@ -328,7 +534,7 @@ def check_hop_feasibility(
             out.append(
                 Violation(
                     code=ViolationCode.HOP_INFEASIBLE,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 去往 "
                         f"{humanize_node(i + 1, to_node)} 的通勤实际需要约 "
@@ -345,23 +551,30 @@ def check_hop_feasibility(
 
 
 def check_age_aware_duration(
-    itinerary: Itinerary, intent: IntentExtraction
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """spec planning-quality-deep-review R4：ILS 路径年龄感知单段时长 critic（镜像）。
 
-    与 `agent/blueprint.py:_age_aware_duration_critic` 业务等价，但作用对象是
-    Itinerary（已 assemble）而非 PlanBlueprint——LangGraph LLM 主路径走 blueprint
-    critic，ILS / fallback 路径走本 critic。**两者镜像防绕过**。
+    作用对象是已 assemble 的 Itinerary（非 PlanBlueprint）。所有规划路径（LLM 主路径 /
+    ILS / rule）的产物都过这一条统一 critic，是年龄合规的**兜底**——组装器已按 age_caps
+    在装配时夹好 POI 时长（ADR-0009 C-2·方案 α），此 check 正常极少触发。
+    （旧的 blueprint 级 `_age_aware_duration_critic` 已随 ADR-0009 C-5 删除。）
 
-    业务规则（与 blueprint.py 同源 _resolve_age_caps）：
-    - companions 含 ≤3 岁 → cap 45min
-    - companions 含 4-6 岁 → cap 75min
-    - companions 含 7-12 岁 → cap 120min
-    - companions 含 ≥75 岁 → cap 60min
+    业务规则（cap 读单一真相源 `agent.planning.critic.age_caps`，与组装器 / grounding /
+    ILS penalty 四方共读同一张表）：
+    - companions 含 ≤3 岁 → cap 45min（婴幼儿）
+    - companions 含 4-6 岁 → cap 75min（学龄前）
+    - companions 含 7-12 岁 → cap 120min（学童）
+    - companions 含 ≥75 岁 → cap 60min（高龄）
     - 多代际取最严
 
     仅对 target_kind=poi 的 mid node 校验（餐厅按 typical_dining_min 是另一规则）。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     if intent is None or not getattr(intent, "companions", None):
         return []
 
@@ -371,14 +584,11 @@ def check_age_aware_duration(
         role = getattr(c, "role", "同行")
         if not isinstance(age, int) or age < 0:
             continue
-        if age <= 3:
-            cap_candidates.append((45, f"含 {age} 岁{role}（婴幼儿 ≤45min）"))
-        elif age <= 6:
-            cap_candidates.append((75, f"含 {age} 岁{role}（学龄前 ≤75min）"))
-        elif age <= 12:
-            cap_candidates.append((120, f"含 {age} 岁{role}（学童 ≤120min）"))
-        elif age >= 75:
-            cap_candidates.append((60, f"含 {age} 岁{role}（高龄 ≤60min）"))
+        tier = cap_for_age(age)
+        if tier is None:
+            continue
+        cap, tier_label = tier
+        cap_candidates.append((cap, f"含 {age} 岁{role}（{tier_label} ≤{cap}min）"))
 
     if not cap_candidates:
         return []
@@ -404,7 +614,7 @@ def check_age_aware_duration(
             out.append(
                 Violation(
                     code=ViolationCode.AGE_DURATION_MISMATCH,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(idx, node)} 停留 {duration} 分钟"
                         f"超出年龄约束（{reason_text}）"
@@ -417,18 +627,31 @@ def check_age_aware_duration(
     return out
 
 
-def check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
-    """单个 mid node 距家距离 > intent.distance_max_km → warning。
+def check_distance(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
+    """单个 mid node 距家距离 > intent.distance_max_km → SOFT（Stage 2，只建议不 gate）。
 
     edge_v1：直接遍历 nodes（home 节点 distance 无意义跳过）。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     out: list[Violation] = []
+    if intent is None:
+        return out
     max_km = intent.distance_max_km
     if max_km is None or max_km <= 0:
         return out
 
-    pois_by_id = {p.id: p for p in safe_load_pois()}
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind == "home":
@@ -452,7 +675,7 @@ def check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
             out.append(
                 Violation(
                     code=ViolationCode.DISTANCE_EXCEEDED,
-                    severity=Severity.WARNING,
+                    severity=Severity.SOFT,
                     message=(
                         f"{humanize_node(idx, node)} 距家 {target_distance:.1f}km，"
                         f"超过用户期望 {max_km:.1f}km。如条件允许请换距离更近的候选。"
@@ -464,7 +687,9 @@ def check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return out
 
 
-def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
+def check_demo_restaurant_full(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """demo-aware 满座埋点：mock 餐厅在「reservation_slots[time].available=False」是 RESTAURANT_FULL 异常埋点。
 
     spec planning-quality-deep-review R4：从「写死 17:00」改为查 mock 真值——
@@ -477,7 +702,11 @@ def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     if enabled in ("0", "false", "no", "off"):
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     out: list[Violation] = []
     for idx, node in enumerate(itinerary.nodes):
@@ -499,7 +728,7 @@ def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
         out.append(
             Violation(
                 code=ViolationCode.RESTAURANT_FULL_UNRESOLVED,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)} 在 {node_time} 已满座"
                     f"（mock 餐厅 reservation_slots 标记 available=False）。"
@@ -512,26 +741,109 @@ def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     return out
 
 
-def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
-    """spec innovation-review M3：capacity_requirement critic（≥6 人但餐厅无 8 人桌型）。
+def check_opening_hours(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """POI/餐厅节点排定时段是否完整落在目标 opening_hours 内（ADR-0008 B-2b G3）。
+
+    背景（ADR-0008「营业时间校验生产无任何实现」诊断）：blueprint 层曾有
+    `_opening_hours_critic`，但那层是生产死代码（`generate_blueprint` 不调），
+    且它只能用 preferred_start_time + 累加 duration**粗略推算**节点时段（不含 hop
+    通勤耗时）。本 check 把其营业时间判定逻辑（`_is_in_business_hours`，见
+    helpers.py，逐字节移植）搬到 critic 层，作用对象换成**已 assemble 的
+    Itinerary**——用真实 node.start_time（已含 hop 通勤耗时），因此是精确版。
+
+    规则：
+    - 只看 target_kind in ("poi", "restaurant")；home 节点跳过（无营业时间概念）。
+    - 目标 id 不在全量 mock 池里 → 跳过。幻觉 id 的诊断是 Stage 0
+      check_tool_consistency 的职责，这里再报是重复诊断。
+    - start_time 解析失败（parse_hhmm 返回 None）→ 跳过（None-guard，防重蹈 O4 的
+      TypeError）。时间不可解析的诊断是 Stage 0 check_time_parseable 的职责。
+    - end_min = start_min + node.duration_min；[start_min, end_min] 未完整落在
+      opening_hours 内 → 一条 HARD OPENING_HOURS_VIOLATION。
+
+    Stage 1（hard 语义，gate 修复）。
+    """
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
+
+    out: list[Violation] = []
+    for idx, node in enumerate(itinerary.nodes):
+        if node.target_kind not in ("poi", "restaurant"):
+            continue
+
+        if node.target_kind == "poi":
+            target = pois_by_id.get(node.target_id)
+        else:
+            target = restaurants_by_id.get(node.target_id)
+        if target is None:
+            continue  # 幻觉 id 由 Stage 0 check_tool_consistency 负责，这里不重复报
+
+        start_min = parse_hhmm(node.start_time)
+        if start_min is None:
+            continue  # 时间不可解析由 Stage 0 check_time_parseable 负责，这里不重复报
+
+        end_min = start_min + node.duration_min
+        opening_hours = getattr(target, "opening_hours", "") or ""
+        if _is_in_business_hours(start_min, end_min, opening_hours):
+            continue
+
+        out.append(
+            Violation(
+                code=ViolationCode.OPENING_HOURS_VIOLATION,
+                severity=Severity.HARD,
+                message=(
+                    f"{humanize_node(idx, node)}（{target.name}）营业时间 "
+                    f"{opening_hours}，不覆盖排定的 {fmt_hhmm(start_min)}-"
+                    f"{fmt_hhmm(end_min)} 时段。请调整该节点开始时间到营业时间内，"
+                    "或更换目标。"
+                ),
+                field_path=f"nodes[{idx}].start_time",
+            )
+        )
+    return out
+
+
+def check_capacity(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
+    """spec innovation-review M3：capacity_requirement critic（≥5 人但餐厅无大桌型）。
 
     业务背景：
     - intent.capacity_requirement 由意图层设置，同行 ≥4 时必填（schemas/intent.py:144）
     - mock Restaurant.capacity 字段含 two/four/six/eight + private_room 五种桌型存在性
-    - 当 capacity_requirement ≥ 6 但餐厅 six=False 且 eight=False 且 private_room=False
-      → 桌型不够，必须 backprompt LLM 换餐厅
+    - 当 capacity_requirement > 4（即 ≥5 人）但餐厅 six=False 且 eight=False 且
+      private_room=False → 4 人桌坐不下，桌型不够，必须 backprompt LLM 换餐厅
 
     设计纪律：
     - 仅对 target_kind=restaurant 节点校验
     - 无 capacity_requirement 或 ≤ 4 → 跳过（4 人桌业界默认有）
     - 餐厅 load 失败 → 跳过（无数据不误伤）
-    - severity=CRITICAL（≥6 人没桌等于不能就餐，比 dietary warning 严重）
+    - severity=HARD（Stage 1，gate 修复：桌型不够等于不能就餐）
+
+    O3（ADR-0008 B-2b）：原「cap_req>=6」与「5 人」两支判定字节完全相同
+    （都是 `has_seat = cap.six or cap.eight or cap.private_room`），已合并为单支——
+    cap_req>4 一律要求 six/eight/private_room 至少一种，行为不变（见
+    test_critics_v2.py 的 O3 characterization 测试钉死 5 人 / ≥6 人两种输入）。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     cap_req = getattr(intent, "capacity_requirement", None)
     if cap_req is None or cap_req <= 4:
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
@@ -545,20 +857,15 @@ def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
         rest = restaurants_by_id[rid]
         cap = rest.capacity
 
-        # 判定够不够：≥6 人 → 需要 six/eight/private_room 至少一种
-        if cap_req >= 6:
-            has_seat = cap.six or cap.eight or cap.private_room
-            if has_seat:
-                continue
-        else:  # 5 人——four 桌坐不下，需要 six/eight/private_room
-            has_seat = cap.six or cap.eight or cap.private_room
-            if has_seat:
-                continue
+        # cap_req > 4（即 ≥5 人）：4 人桌坐不下，需要 six/eight/private_room 至少一种
+        has_seat = cap.six or cap.eight or cap.private_room
+        if has_seat:
+            continue
 
         out.append(
             Violation(
                 code=ViolationCode.CAPACITY_REQUIREMENT_VIOLATED,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)}({rest.name})桌型不够 {cap_req} 人就餐"
                     f"（仅 2/4 人桌，无 6 人桌 / 8 人桌 / 包间）。"
@@ -570,17 +877,28 @@ def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return out
 
 
-def check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_dietary(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """用餐 node 餐厅 tags 是否覆盖 intent.dietary_constraints。
 
     - intent 没饮食约束 → 跳过
     - node 不是 restaurant → 跳过
     - load 失败 → 跳过
     """
-    if not intent.dietary_constraints:
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None or not intent.dietary_constraints:
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
@@ -600,10 +918,10 @@ def check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violat
         out.append(
             Violation(
                 code=ViolationCode.DIETARY_VIOLATION,
-                severity=Severity.WARNING,
+                severity=Severity.HARD,  # B-2a: 升级为 HARD（gate 修复）
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}）的标签不含用户饮食约束 "
-                    f"{sorted(constraints_set)} 中任何一项。建议换符合饮食偏好的餐厅。"
+                    f"{sorted(constraints_set)} 中任何一项。请换符合饮食偏好的餐厅。"
                 ),
                 field_path=f"nodes[{idx}].target_id",
             )
@@ -612,19 +930,31 @@ def check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violat
 
 
 def check_social_context(
-    itinerary: Itinerary, intent: IntentExtraction
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """social_context 与候选 suitable_for 的兼容性 critic。
 
     设计依据：agent/v2/social_compat.py 矩阵（Step 5 升级）。
-    - BLOCKING → CRITICAL（必须 backprompt LLM 重做）
-    - POOR     → WARNING（不打断，仅日志）
+    - BLOCKING → HARD（Stage 1，gate 修复，驱动 backprompt LLM 重做）
+    - POOR     → SOFT（Stage 2，只建议，不 gate）
     - MATCH/ACCEPTABLE → 不报
 
+    单 check 同时产两种 severity，注册在 Stage 1（取其 gating 能力）。
+
     edge_v1：遍历 nodes 而非 stages；POI/Restaurant 节点分别走 evaluate_poi/_restaurant。
+
+    O10（ADR-0008 B-2b，intentional 行为改变）：已删除旧的「order.detail 多人位 vs
+    独处」裸子串扫描（原判「独处」在 social_context 里就扫 orders 里的"2 人"/"三人"等
+    文本）。社交相容性现在**只**走 evaluate_poi/evaluate_restaurant 矩阵，不再对
+    orders 做独立的子串判定——避免两套判据不一致。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     out: list[Violation] = []
-    sc = intent.social_context or ""
+    sc = (intent.social_context or "") if intent is not None else ""
     if not sc:
         return out
 
@@ -637,8 +967,12 @@ def check_social_context(
     except ImportError:
         return out
 
-    pois_by_id = {p.id: p for p in safe_load_pois()}
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind == "poi" and node.target_id in pois_by_id:
@@ -648,7 +982,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.CRITICAL,
+                        severity=Severity.HARD,
                         message=(
                             f"{humanize_node(idx, node)}（{poi.name}）与场景调性严重不匹配："
                             f"{reason}。请在候选预览中换其它 social_context 适配的 POI。"
@@ -660,7 +994,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.WARNING,
+                        severity=Severity.SOFT,
                         message=(
                             f"{humanize_node(idx, node)}（{poi.name}）调性偏差："
                             f"{reason}（仍可接受，但更优候选可考虑换）。"
@@ -675,7 +1009,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.CRITICAL,
+                        severity=Severity.HARD,
                         message=(
                             f"{humanize_node(idx, node)}（{rest.name}）与场景调性严重不匹配："
                             f"{reason}。请在候选预览中换其它 social_context 适配的餐厅。"
@@ -687,7 +1021,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.WARNING,
+                        severity=Severity.SOFT,
                         message=(
                             f"{humanize_node(idx, node)}（{rest.name}）调性偏差："
                             f"{reason}（仍可接受，但更优候选可考虑换）。"
@@ -696,32 +1030,14 @@ def check_social_context(
                     )
                 )
 
-    # 保留旧的「order detail 多人位 vs 独处」检查（OrderRecord.detail 含人数文本）
-    if "独处" in sc:
-        for order in itinerary.orders:
-            kind = order.kind or ""
-            if "餐厅" in kind or order.target_kind == "restaurant":
-                detail = order.detail or ""
-                multi_signals = ["2 人", "三人", "四人", "六人", "≥2"]
-                if any(sig in detail for sig in multi_signals):
-                    out.append(
-                        Violation(
-                            code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                            severity=Severity.CRITICAL,
-                            message=(
-                                f"独处放空场景，但 {order.target_name} 预约 {detail}。"
-                                "请改为单人位，或换符合「独处放空」的餐厅。"
-                            ),
-                            field_path="orders",
-                        )
-                    )
-
     return out
 
 
 def check_tool_consistency(
     itinerary: Itinerary,
-    tool_results: dict | None,
+    tool_results: "dict | None | object" = _UNSET,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """验 itinerary 中 POI/Restaurant target_id 是否在工具实际返回的候选池里。
 
@@ -736,13 +1052,19 @@ def check_tool_consistency(
             为 None 时跳过（向后兼容旧调用）；候选池为空时跳过（避免 stub mode 误报）
 
     Returns:
-        Violation 列表；每个不在候选池的 target_id 单独发一条 CRITICAL
+        Violation 列表；每个不在候选池的 target_id 单独发一条 HARD（Stage 0 结构门，
+        命中即短路——反幻觉先于语义校验）
 
     设计纪律：
     - 错误 message **不**暴露字段名（不写 "target_id"），用「方案中『XX』不在候选池中」
     - target_kind=home 不检查（home 不来自工具）
     - tool_results=None 或两个候选池都为空 → 跳过（stub mode / 无候选场景）
+
+    `tool_results` 用 `_UNSET` 哨兵：显式传 None（含历史直调 `(itin, None)`）= 跳过反幻觉；
+    完全不传 = 从 ctx.tool_results 取（注册表路径）。两者都解析为「None → 跳过」是等价的。
     """
+    if tool_results is _UNSET:
+        tool_results = ctx.tool_results if ctx is not None else None
     if tool_results is None:
         return []
 
@@ -778,7 +1100,7 @@ def check_tool_consistency(
         out.append(
             Violation(
                 code=ViolationCode.TOOL_RESPONSE_INCONSISTENCY,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)}：方案中的{kind_label}「{title}」"
                     "不在候选池中，可能是 AI 编造的，请重新规划，"
@@ -805,19 +1127,24 @@ _DINNER_END_MIN = 20 * 60         # 20:00
 _SUPPER_START_MIN = 21 * 60       # 21:00（夜宵；含烧烤/火锅等夜宵正餐）
 
 
-def check_meal_time(itinerary: Itinerary) -> list[Violation]:
+def check_meal_time(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """正餐节点 start_time 是否落在合理饭点窗口（R1）。
 
     规则：
     - 茶点类餐厅（下午茶 / 咖啡 / 甜品）→ 跳过（可落午后任意时段）
     - 正餐类餐厅 → start_time 应落在午餐(11:00-13:30) / 晚餐(17:00-20:00) /
-      夜宵(21:00 之后) 之一；否则触发 WARNING
-    - WARNING 级不阻断 demo，但让 narration 体现「时段已调整」+ 可选 backprompt
+      夜宵(21:00 之后) 之一；否则触发 HARD（B-2a 升级：现驱动修复闭环）
 
     设计动机（S4 实测 bug）：下午 14:05 安排正餐火锅不符合常识。本 check 让
-    critic 能检出"非饭点正餐"，触发 LLM 自纠或 narration 提示。
+    critic 能检出"非饭点正餐"，触发 LLM 自纠 backprompt。
     """
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
@@ -838,6 +1165,11 @@ def check_meal_time(itinerary: Itinerary) -> list[Violation]:
         except (ValueError, AttributeError):
             continue  # 时间解析失败跳过（其它 check 会报）
 
+        # None-guard (O4)：parse_hhmm 返回 None（不抛异常），
+        # 直接用 None 做比较会抛 TypeError；跳过，让 check_time_parseable 报告。
+        if start_min is None:
+            continue
+
         in_lunch = _LUNCH_START_MIN <= start_min <= _LUNCH_END_MIN
         in_dinner = _DINNER_START_MIN <= start_min <= _DINNER_END_MIN
         in_supper = start_min >= _SUPPER_START_MIN
@@ -847,11 +1179,11 @@ def check_meal_time(itinerary: Itinerary) -> list[Violation]:
         out.append(
             Violation(
                 code=ViolationCode.MEAL_TIME_UNREASONABLE,
-                severity=Severity.WARNING,
+                severity=Severity.HARD,  # B-2a: 升级为 HARD（gate 修复）
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}· {cuisine}）"
                     f"安排在 {node.start_time}，不在常规饭点（午餐 11:00-13:30 / "
-                    f"晚餐 17:00-20:00 / 夜宵 21:00 后）。建议把正餐调整到饭点时段，"
+                    f"晚餐 17:00-20:00 / 夜宵 21:00 后）。请把正餐调整到饭点时段，"
                     f"或在该时段安排下午茶 / 轻食类。"
                 ),
                 field_path=f"nodes[{idx}].start_time",

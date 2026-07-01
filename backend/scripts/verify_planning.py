@@ -17,7 +17,7 @@ from __future__ import annotations
 import sys
 import time
 
-from agent.planning.critic.ils_score_critic import run_critics
+from agent.planning.critic.critics_v2 import Severity, validate_itinerary
 from agent.planning.planners.rule_planner import plan_itinerary
 from schemas.intent import Companion, IntentExtraction
 
@@ -117,14 +117,12 @@ def _summarize(label: str, result) -> None:
 
 
 def _critic_brief(itinerary, intent) -> str:
-    rep = run_critics(itinerary, intent)
-    if not rep.violations:
+    violations = validate_itinerary(itinerary, intent)
+    if not violations:
         return "Critic：全过"
-    return (
-        f"Critic：硬{len([v for v in rep.violations if v.severity == 'hard'])} "
-        f"软{len([v for v in rep.violations if v.severity == 'soft'])} "
-        f"soft_score={rep.soft_score:.2f}"
-    )
+    hard = [v for v in violations if v.severity == Severity.HARD]
+    soft = [v for v in violations if v.severity == Severity.SOFT]
+    return f"Critic：硬{len(hard)} 软{len(soft)}"
 
 
 # ============================================================

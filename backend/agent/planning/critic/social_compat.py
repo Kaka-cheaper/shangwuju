@@ -12,7 +12,7 @@
 3. 与 narrator 暖语气逻辑没共享（narrator 同样需要"知道这场景该说什么调性"）
 
 修复：抽到独立矩阵 + 兼容性等级（match / acceptable / poor / blocking），
-critics_v2 看 blocking 升 CRITICAL，narrator 看 match 选问候语调性。
+critics_v2 看 blocking 升 HARD，narrator 看 match 选问候语调性。
 
 【兼容性等级】
 

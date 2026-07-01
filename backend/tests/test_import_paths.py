@@ -78,10 +78,6 @@ def test_planning_planners_imports() -> None:
         FULL_SEGMENTS,
         decide_segments,
     )
-    from agent.planning.critic.ils_score_critic import (  # noqa: F401
-        CriticReport,
-        run_critics,
-    )
 
 
 # ============================================================
@@ -147,6 +143,8 @@ def test_planning_planners_imports() -> None:
         # V1 规划层退役删除（plan_itinerary_with_mode 分发器 + 两套 LLM planner 收口）
         "agent.planning.planners.llm_planner",
         "agent.planning.planners.llm_first_planner",
+        # ADR-0009 C-3：ils_score_critic（4 维打分 critic）删除，plan_hybrid 改吃统一 critic
+        "agent.planning.critic.ils_score_critic",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

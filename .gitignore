@@ -38,6 +38,9 @@ recordings/
 /output/
 backend/exp_log*
 
+# 运行时用户画像副本（memory_writer 写这里，绝不改版本控制的 mock_data 种子）
+/mock_data_runtime/
+
 # 架构审查报告（本地产物，勿入库）
 /架构审查报告/
 

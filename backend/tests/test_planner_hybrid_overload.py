@@ -1,15 +1,29 @@
-﻿"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty。
+﻿"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty
++ ADR-0009 C-3 ViolationCode → ILS 重搜动作 映射表。
 
-测试矩阵（4 项）：
+测试矩阵：
 1. 5 岁娃 + P033 类候选（default=180 / kid_3_6=90 / cap=75）→ utility 罚分 0.3
 2. 同 POI 配成人客群（cap 9999）→ 无罚分（_overload_penalty 返 0.0）
 3. DINING_SLOTS 跟随 _resolve_time_window 推（14:00 出发 + 3-5h 时长 → 不再硬码 17:00）
-4. 黑名单 4 类全覆盖（time_window / hard_constraint / dietary / social_context）
+4. ADR-0009 映射表：`_classify_violation`（按 ViolationCode 路由到动作桶）+
+   `_compute_blacklists`（动作桶 → 具体黑名单条目，含按 field_path 定向 blame）
+
+【ADR-0009 C-3】
+
+旧「黑名单 4 类全覆盖（time_window / hard_constraint / dietary / social_context）」
+测试矩阵用的是已删除的 `ils_score_critic.CriticViolation`（按 critic 名 + message
+关键词路由）。ils_score_critic 随 ADR-0009 决策 1/3 删除，`_classify_violation` /
+`_compute_blacklists` 改吃统一 critic 的 `Violation`（`.code` + `.severity` +
+`.field_path`）。测试矩阵 4 整体换血为按 ViolationCode 逐码验证映射表。
 
 测试设计：
-- 直接调 `_overload_penalty` / `_utility` / `_resolve_dynamic_dining_slots` / `_compute_blacklists`
-  四个 module 级 helper，不跑 plan_hybrid 全流程，避免 stub LLM client 等环境依赖。
+- 直接调 `_overload_penalty` / `_utility` / `_resolve_dynamic_dining_slots` /
+  `_classify_violation` / `_compute_blacklists` 等 module 级 helper，不跑 plan_hybrid
+  全流程，避免 stub LLM client 等环境依赖。
 - 用最小 SuggestedDuration / Poi / Restaurant fixture，不依赖 mock_data 加载。
+- 定向 blame 测试用最小合法 Itinerary（不经 assemble_from_blueprint，手工拼
+  ActivityNode/Hop，同 test_critics_v2.py 的 fixture 风格），只为定位 field_path
+  的 "nodes[idx]" 下标，不跑真 critic 校验。
 """
 
 from __future__ import annotations
@@ -35,7 +49,11 @@ def _install_agent_stub() -> None:
 
 _install_agent_stub()
 
-from agent.planning.critic.ils_score_critic import CriticReport, CriticViolation  # noqa: E402
+from agent.planning.critic.critics_v2 import (  # noqa: E402
+    Severity,
+    Violation,
+    ViolationCode,
+)
 from agent.planning.planners.ils_planner import (  # noqa: E402
     DINING_SLOTS,
     CandidatePlan,
@@ -50,6 +68,7 @@ from agent.core.trace import Tracer  # noqa: E402
 from agent.planning.weights_llm import PlanningWeights  # noqa: E402
 from schemas.domain import Location, Poi, PoiCapacity, Restaurant, SuggestedDuration  # noqa: E402
 from schemas.intent import Companion, IntentExtraction  # noqa: E402
+from schemas.itinerary import ActivityNode, Hop, Itinerary  # noqa: E402
 
 
 # ============================================================
@@ -234,7 +253,7 @@ def test_dynamic_dining_slots_dinner_only_segment() -> None:
 
 
 # ============================================================
-# 测试 4：黑名单 4 类全覆盖
+# 测试 4：ADR-0009 决策 6 —— ViolationCode → ILS 重搜动作 映射表
 # ============================================================
 
 
@@ -264,6 +283,41 @@ def _make_failed_candidate(
     )
 
 
+def _make_itinerary_for_blame(
+    *, poi_id: str = "P_FAIL", rest_id: str = "R_FAIL"
+) -> Itinerary:
+    """最小合法 Itinerary（home/poi/restaurant/home），只为 `_blamed_target` 解析
+    field_path 的 "nodes[idx]" 下标用——不跑真 critic 校验，字段值只求形状合法。
+    """
+    nodes = [
+        ActivityNode(
+            node_id="n0", kind="起点", target_kind="home", target_id="home",
+            start_time="14:00", duration_min=0, title="出发",
+        ),
+        ActivityNode(
+            node_id="n1", kind="主活动", target_kind="poi", target_id=poi_id,
+            start_time="14:10", duration_min=90, title=poi_id,
+        ),
+        ActivityNode(
+            node_id="n2", kind="用餐", target_kind="restaurant", target_id=rest_id,
+            start_time="17:30", duration_min=60, title=rest_id,
+        ),
+        ActivityNode(
+            node_id="n3", kind="终点", target_kind="home", target_id="home",
+            start_time="19:00", duration_min=0, title="回家",
+        ),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1", start_time="14:00",
+            minutes=10, mode="taxi", path_type="real_route"),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2", start_time="15:40",
+            minutes=10, mode="taxi", path_type="real_route"),
+        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3", start_time="18:30",
+            minutes=10, mode="taxi", path_type="real_route"),
+    ]
+    return Itinerary(summary="测试用最小行程", nodes=nodes, hops=hops, total_minutes=300)
+
+
 def _intent_distance5() -> IntentExtraction:
     return _make_intent(
         companions=[Companion(role="妻子")],
@@ -271,153 +325,248 @@ def _intent_distance5() -> IntentExtraction:
     )
 
 
-def test_blacklist_covers_time_window_violation() -> None:
-    """time_window 违规 → (餐厅 id, 时段) 入 rest_time 黑名单。"""
+# ---- 4a. _classify_violation：按 ViolationCode + severity 路由到动作桶 ----
+
+
+def test_classify_violation_restaurant_full_and_meal_time_route_to_restaurant_time() -> None:
+    """RESTAURANT_FULL_UNRESOLVED / MEAL_TIME_UNREASONABLE → "restaurant_time" 桶
+    （拉黑 (餐厅,时段)，移时段 / 自然连带换店）。"""
+    for code in (ViolationCode.RESTAURANT_FULL_UNRESOLVED, ViolationCode.MEAL_TIME_UNREASONABLE):
+        v = Violation(code=code, severity=Severity.HARD, message="测试")
+        assert _classify_violation(v) == {"restaurant_time"}, code
+
+
+def test_classify_violation_dietary_and_capacity_route_to_restaurant_swap() -> None:
+    """DIETARY_VIOLATION / CAPACITY_REQUIREMENT_VIOLATED → "restaurant_swap" 桶（整店拉黑）。"""
+    for code in (ViolationCode.DIETARY_VIOLATION, ViolationCode.CAPACITY_REQUIREMENT_VIOLATED):
+        v = Violation(code=code, severity=Severity.HARD, message="测试")
+        assert _classify_violation(v) == {"restaurant_swap"}, code
+
+
+def test_classify_violation_social_hard_routes_to_directed_swap() -> None:
+    v = Violation(code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD, message="测试")
+    assert _classify_violation(v) == {"directed_swap"}
+
+
+def test_classify_violation_social_soft_poor_is_ignored() -> None:
+    """SOCIAL_CONTEXT_MISMATCH 的 POOR（soft）档不进重搜（ADR-0009 决策 3）。"""
+    v = Violation(code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.SOFT, message="测试")
+    assert _classify_violation(v) == set()
+
+
+def test_classify_violation_opening_hours_routes_to_opening_hours_bucket() -> None:
+    v = Violation(code=ViolationCode.OPENING_HOURS_VIOLATION, severity=Severity.HARD, message="测试")
+    assert _classify_violation(v) == {"opening_hours"}
+
+
+def test_classify_violation_duration_out_of_range_routes_to_distance_lever() -> None:
+    v = Violation(code=ViolationCode.DURATION_OUT_OF_RANGE, severity=Severity.HARD, message="测试")
+    assert _classify_violation(v) == {"distance_lever"}
+
+
+def test_classify_violation_floor_only_codes_produce_no_bucket() -> None:
+    """结构码 + AGE_DURATION_MISMATCH：ILS 搜索变量不参与，不产生任何重搜桶（落 rule 地板）。"""
+    floor_codes = (
+        ViolationCode.INVARIANT_BROKEN,
+        ViolationCode.NODES_INCOMPLETE,
+        ViolationCode.TIMELINE_INCONSISTENT,
+        ViolationCode.TOOL_RESPONSE_INCONSISTENCY,
+        ViolationCode.HOP_INFEASIBLE,
+        ViolationCode.AGE_DURATION_MISMATCH,
+    )
+    for code in floor_codes:
+        v = Violation(code=code, severity=Severity.HARD, message="测试")
+        assert _classify_violation(v) == set(), f"{code} 不应产生任何重搜桶"
+
+
+def test_classify_violation_distance_exceeded_soft_is_ignored() -> None:
+    v = Violation(code=ViolationCode.DISTANCE_EXCEEDED, severity=Severity.SOFT, message="测试")
+    assert _classify_violation(v) == set()
+
+
+# ---- 4b. _compute_blacklists：动作桶 → 具体黑名单条目（含定向 blame） ----
+
+
+def test_blacklist_restaurant_full_shifts_time_not_whole_restaurant() -> None:
+    """RESTAURANT_FULL_UNRESOLVED → 拉黑 (餐厅,时段)，不牵连整店——「不行则换店」
+    由同一机制自然涌现（其它 (rest,slot) 组合仍在搜索空间里，不需要额外分支）。"""
     failed = _make_failed_candidate(rest_id="R1", dining_time="17:30")
-    report = CriticReport(
-        passed=False,
-        violations=[
-            CriticViolation(
-                critic="time_window",
-                severity="hard",
-                message="餐厅 R1 17:30 已满（建议改 18:00）",
-            )
-        ],
+    itinerary = _make_itinerary_for_blame(rest_id="R1")
+    v = Violation(
+        code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.HARD,
+        message="R1 17:30 已满", field_path="nodes[2].start_time",
     )
     bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, _intent_distance5(), report
+        failed, itinerary, _intent_distance5(), [v]
     )
     assert ("R1", "17:30") in bl_rest_time
-    assert "R1" not in bl_rest  # time_window 不应连餐厅本身一起拉黑
+    assert "R1" not in bl_rest
 
 
-def test_blacklist_covers_hard_constraint_violation() -> None:
-    """hard_constraint「总耗时」违规 → 距离接近上限的 POI/餐厅入黑名单。"""
-    failed = _make_failed_candidate()
-    report = CriticReport(
-        passed=False,
-        violations=[
-            CriticViolation(
-                critic="hard_constraint",
-                severity="hard",
-                message="总耗时 360 分钟，超过用户上限 300 分钟",
-            )
-        ],
-    )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, _intent_distance5(), report)
-    # 4.5km > 5.0 - 1 = 4.0 → 应入黑名单
-    assert "P_FAIL" in bl_poi
-    assert "R_FAIL" in bl_rest
-
-
-def test_blacklist_covers_dietary_violation_via_message_keyword() -> None:
-    """dietary 违规（message 含「不辣」「过敏」「kids-meal」等关键词）→ 餐厅入黑名单。
-
-    critics.py 当前没暴露 dietary critic name；用 message 关键词路由作 future-proof。
-    """
-    failed = _make_failed_candidate(rest_id="R_HOT")
-    report = CriticReport(
-        passed=False,
-        violations=[
-            CriticViolation(
-                critic="hard_constraint",  # critic name 任意，靠 message 关键词路由
-                severity="hard",
-                message="餐厅 R_HOT 有辣味菜不符合用户「不辣」饮食约束",
-            )
-        ],
-    )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, _intent_distance5(), report)
-    assert "R_HOT" in bl_rest
-
-
-def test_blacklist_covers_social_context_violation() -> None:
-    """social_context 违规（critic="style" 或关键词）→ POI/餐厅都入黑名单。"""
-    failed = _make_failed_candidate(poi_id="P_BIZ", rest_id="R_LOUD")
-    report = CriticReport(
-        passed=False,
-        violations=[
-            CriticViolation(
-                critic="style",
-                severity="hard",  # 测试用强制 hard 让 _compute_blacklists 处理
-                message="主活动 POI 「P_BIZ」未适配场景调性 家庭日常",
-            )
-        ],
-    )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, _intent_distance5(), report)
-    assert "P_BIZ" in bl_poi
-    assert "R_LOUD" in bl_rest
-
-
-def test_blacklist_classification_helper_recognizes_all_4_classes() -> None:
-    """spec R5：_classify_violation 能把 4 类违规都正确归类。"""
-    cases = [
-        (
-            CriticViolation(
-                critic="time_window", severity="hard", message="时段满"
-            ),
-            "time_window",
-        ),
-        (
-            CriticViolation(
-                critic="hard_constraint",
-                severity="hard",
-                message="总耗时超上限",
-            ),
-            "hard_constraint",
-        ),
-        (
-            CriticViolation(
-                critic="hard_constraint",
-                severity="hard",
-                message="餐厅含「辣」菜不符饮食",
-            ),
-            "dietary",
-        ),
-        (
-            CriticViolation(
-                critic="style",
-                severity="hard",
-                message="未适配场景调性 商务接待",
-            ),
-            "social_context",
-        ),
-    ]
-    for v, expected_class in cases:
-        classes = _classify_violation(v)
-        assert expected_class in classes, (
-            f"违规 {v.message!r} 应归类含 {expected_class}，实际 {classes}"
+def test_blacklist_dietary_and_capacity_blacklist_whole_restaurant() -> None:
+    for code in (ViolationCode.DIETARY_VIOLATION, ViolationCode.CAPACITY_REQUIREMENT_VIOLATED):
+        failed = _make_failed_candidate(rest_id="R_SWAP")
+        itinerary = _make_itinerary_for_blame(rest_id="R_SWAP")
+        v = Violation(
+            code=code, severity=Severity.HARD, message="测试",
+            field_path="nodes[2].target_id",
         )
+        _, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+        assert "R_SWAP" in bl_rest, code
+
+
+def test_blacklist_social_context_directed_to_poi_node_only() -> None:
+    """SOCIAL_CONTEXT_MISMATCH 按 field_path 定向拉黑：命中 POI 节点时只拉黑 POI，
+    不像旧版「POI+餐厅一起拉黑」那样连坐。"""
+    failed = _make_failed_candidate(poi_id="P_BIZ", rest_id="R_OK")
+    itinerary = _make_itinerary_for_blame(poi_id="P_BIZ", rest_id="R_OK")
+    v = Violation(
+        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
+        message="测试", field_path="nodes[1].target_id",  # nodes[1] = POI
+    )
+    bl_poi, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+    assert "P_BIZ" in bl_poi
+    assert "R_OK" not in bl_rest
+
+
+def test_blacklist_social_context_directed_to_restaurant_node_only() -> None:
+    failed = _make_failed_candidate(poi_id="P_OK", rest_id="R_LOUD")
+    itinerary = _make_itinerary_for_blame(poi_id="P_OK", rest_id="R_LOUD")
+    v = Violation(
+        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
+        message="测试", field_path="nodes[2].target_id",  # nodes[2] = restaurant
+    )
+    bl_poi, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+    assert "R_LOUD" in bl_rest
+    assert "P_OK" not in bl_poi
+
+
+def test_blacklist_social_context_falls_back_to_both_when_field_path_unresolvable() -> None:
+    """field_path 解析失败（这里用 itinerary=None 模拟）→ 保守兜底：两个都拉黑，不静默漏修。"""
+    failed = _make_failed_candidate(poi_id="P_X", rest_id="R_Y")
+    v = Violation(
+        code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
+        message="测试", field_path="nodes[1].target_id",
+    )
+    bl_poi, bl_rest, _ = _compute_blacklists(failed, None, _intent_distance5(), [v])
+    assert "P_X" in bl_poi
+    assert "R_Y" in bl_rest
+
+
+def test_blacklist_opening_hours_restaurant_node_shifts_time() -> None:
+    failed = _make_failed_candidate(rest_id="R_CLOSED", dining_time="21:30")
+    itinerary = _make_itinerary_for_blame(rest_id="R_CLOSED")
+    v = Violation(
+        code=ViolationCode.OPENING_HOURS_VIOLATION, severity=Severity.HARD,
+        message="测试", field_path="nodes[2].start_time",
+    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
+        failed, itinerary, _intent_distance5(), [v]
+    )
+    assert ("R_CLOSED", "21:30") in bl_rest_time
+    assert "R_CLOSED" not in bl_rest
+
+
+def test_blacklist_opening_hours_poi_node_blacklists_whole_poi() -> None:
+    """POI 侧 opening_hours 违规：start_time 非 ILS 变量，只能拉黑整个 POI 换。"""
+    failed = _make_failed_candidate(poi_id="P_EARLY_CLOSE")
+    itinerary = _make_itinerary_for_blame(poi_id="P_EARLY_CLOSE")
+    v = Violation(
+        code=ViolationCode.OPENING_HOURS_VIOLATION, severity=Severity.HARD,
+        message="测试", field_path="nodes[1].start_time",
+    )
+    bl_poi, _bl_rest, bl_rest_time = _compute_blacklists(
+        failed, itinerary, _intent_distance5(), [v]
+    )
+    assert "P_EARLY_CLOSE" in bl_poi
+    assert bl_rest_time == set()
+
+
+def test_blacklist_meal_time_unreasonable_shifts_time() -> None:
+    failed = _make_failed_candidate(rest_id="R_OFFHOUR", dining_time="14:30")
+    v = Violation(
+        code=ViolationCode.MEAL_TIME_UNREASONABLE, severity=Severity.HARD,
+        message="测试", field_path="nodes[2].start_time",
+    )
+    _bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
+        failed, None, _intent_distance5(), [v]
+    )
+    assert ("R_OFFHOUR", "14:30") in bl_rest_time
+    assert "R_OFFHOUR" not in bl_rest
+
+
+def test_blacklist_duration_out_of_range_blacklists_far_entities_when_near_limit() -> None:
+    """弱杠杆：距离确实接近上限时才拉黑最远实体（4.5km 逼近 5.0km 上限）。"""
+    intent = _intent_distance5()  # distance_max_km=5.0
+    failed = _make_failed_candidate(poi_id="P_FAR", rest_id="R_FAR")  # 4.5km
+    v = Violation(code=ViolationCode.DURATION_OUT_OF_RANGE, severity=Severity.HARD, message="测试")
+    bl_poi, bl_rest, _ = _compute_blacklists(failed, None, intent, [v])
+    assert "P_FAR" in bl_poi
+    assert "R_FAR" in bl_rest
+
+
+def test_blacklist_duration_out_of_range_no_action_when_not_far() -> None:
+    """距离远小于上限（不是通勤过远导致超时）→ 弱杠杆不触发，空黑名单交给地板。"""
+    intent = _make_intent(companions=[Companion(role="妻子")], distance_max_km=20.0)
+    failed = _make_failed_candidate(poi_id="P_NEAR", rest_id="R_NEAR")  # 4.5km ≪ 20km
+    v = Violation(code=ViolationCode.DURATION_OUT_OF_RANGE, severity=Severity.HARD, message="测试")
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(failed, None, intent, [v])
+    assert bl_poi == set() and bl_rest == set() and bl_rest_time == set()
+
+
+def test_blacklist_floor_only_codes_produce_empty_blacklist() -> None:
+    """结构码 / AGE_DURATION_MISMATCH：无黑名单动作——留给 rule 地板，非 ILS 搜索变量可修。"""
+    failed = _make_failed_candidate()
+    for code in (
+        ViolationCode.INVARIANT_BROKEN,
+        ViolationCode.NODES_INCOMPLETE,
+        ViolationCode.AGE_DURATION_MISMATCH,
+    ):
+        v = Violation(code=code, severity=Severity.HARD, message="测试")
+        bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
+            failed, None, _intent_distance5(), [v]
+        )
+        assert bl_poi == set() and bl_rest == set() and bl_rest_time == set(), code
+
+
+def test_blacklist_ignores_soft_violations_regardless_of_code() -> None:
+    """severity=SOFT 一律不产生黑名单动作（防御性：即便调用方传入未过滤的 soft
+    违规，也不会误触发重搜——ADR-0009 决策 3 的键是 (code, severity)，不是只看 code）。"""
+    failed = _make_failed_candidate(rest_id="R1", dining_time="17:30")
+    v = Violation(
+        code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.SOFT, message="测试",
+    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
+        failed, None, _intent_distance5(), [v]
+    )
+    assert bl_poi == set() and bl_rest == set() and bl_rest_time == set()
 
 
 def test_blacklist_aggregates_multiple_violations() -> None:
-    """多类违规并存 → 黑名单合集覆盖全部 4 类。"""
+    """多类违规并存 → 黑名单合集覆盖各自动作（满座移时段 + 饮食换店 + 定向社交 + 地板码不产出）。"""
     failed = _make_failed_candidate(poi_id="P_X", rest_id="R_Y", dining_time="17:00")
-    report = CriticReport(
-        passed=False,
-        violations=[
-            CriticViolation(
-                critic="time_window", severity="hard", message="R_Y 17:00 已满"
-            ),
-            CriticViolation(
-                critic="hard_constraint",
-                severity="hard",
-                message="总耗时 400 分钟，超过用户上限 300 分钟",
-            ),
-            CriticViolation(
-                critic="hard_constraint",
-                severity="hard",
-                message="餐厅 R_Y 含辣味菜",
-            ),
-            CriticViolation(
-                critic="style",
-                severity="hard",
-                message="POI 调性不符 social_context",
-            ),
-        ],
-    )
+    itinerary = _make_itinerary_for_blame(poi_id="P_X", rest_id="R_Y")
+    violations = [
+        Violation(
+            code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.HARD,
+            message="R_Y 17:00 已满", field_path="nodes[2].start_time",
+        ),
+        Violation(
+            code=ViolationCode.DIETARY_VIOLATION, severity=Severity.HARD,
+            message="R_Y 含辣味菜", field_path="nodes[2].target_id",
+        ),
+        Violation(
+            code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
+            message="POI 调性不符", field_path="nodes[1].target_id",
+        ),
+        Violation(
+            code=ViolationCode.AGE_DURATION_MISMATCH, severity=Severity.HARD,
+            message="地板码，不应产生黑名单动作",
+        ),
+    ]
     bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, _intent_distance5(), report
+        failed, itinerary, _intent_distance5(), violations
     )
-    assert ("R_Y", "17:00") in bl_rest_time  # time_window
-    assert "P_X" in bl_poi  # hard_constraint 距离 + social_context
-    assert "R_Y" in bl_rest  # hard_constraint + dietary + social_context
+    assert ("R_Y", "17:00") in bl_rest_time  # RESTAURANT_FULL_UNRESOLVED
+    assert "R_Y" in bl_rest  # DIETARY_VIOLATION
+    assert "P_X" in bl_poi  # SOCIAL_CONTEXT_MISMATCH 定向到 POI 节点

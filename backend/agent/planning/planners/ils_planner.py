@@ -12,24 +12,48 @@ local search + 5% 接受劣解。LangGraph 第 3 次 replan 仍调用 plan_hybri
 （参见 graph/nodes/replan.py）。
 
 含 spec A R5 加固：
-- `_overload_penalty(poi, intent)` 单段过载强惩罚（年龄 cap 兜底）
+- `_overload_penalty(poi, intent)` 单段过载强惩罚（年龄 cap 兜底；cap 表读
+  `critic/age_caps.py` 单一真相源，ADR-0009 决策 6）
 - `_resolve_dynamic_dining_slots(intent, segments)` 动态用餐时段
-- `_retry_with_critic_feedback` 4 类违规黑名单
+- critic-to-solver 有界修复闭环（`_compute_blacklists` 按 ViolationCode 路由 +
+  `_search_best_avoiding` 重搜 + 重 gate；ADR-0009 决策 3/4/6·C-4）
+
+【ADR-0009 C-3：critic-to-solver 闭环接统一 critic】
+
+C 段（critic 验证）不再用本模块曾经内嵌的 4 维打分 critic（`ils_score_critic.run_critics`：
+hard_constraint/time_window/budget/style，已删除），改吃 ADR-0008 的统一
+`critics_v2.validate_itinerary`（`list[Violation]`，`.code` + `.severity`，无 critic 名）。
+`_run_unified_critic` 是薄 adapter，把 `list[Violation]` 适配成本模块内部消费的
+`passed` / `hard_violations()` 形状。
+
+`_classify_violation` / `_compute_blacklists` 从「按 critic 名 + 关键词」改「按
+`ViolationCode` 路由」，实现 ADR-0009 的 ViolationCode → ILS 重搜动作 映射表：
+可廉价修的码（满座 / 饮食 / 桌型 / 社交 hard / 营业时间 / 非饭点）拉黑对应实体触发重搜；
+结构码 / `AGE_DURATION_MISMATCH` 不产生黑名单动作（留给 rule 地板，非本模块可修）。
+`SOCIAL_CONTEXT_MISMATCH` 现按 `Violation.field_path` 解析肇事节点，只定向拉黑那一个
+实体（而非旧版「POI + 餐厅一起拉黑」）。
+
+【ADR-0009 C-4：有界修复闭环 + gate】
+
+plan_hybrid 步骤 6 是 min-conflicts + tabu 的有界修复循环：每轮 `validate`；有 HARD →
+`_compute_blacklists` 产黑名单并**跨轮单调累积**（防「16:30↔17:00」震荡）→
+`_search_best_avoiding` 避开黑名单重搜 → 重组装 → 重 `validate`。**只有 validate 干净才
+接受**（gate——绝不返回带 HARD 的方案）；预算（`MAX_REPAIR_ROUNDS`）耗尽 / 候选池被
+掏空 / 无 ILS 可修算子 → 失败上抛，让上层落 rule 地板（D2）。
 
 【spec planning-quality-deep-review R5】（Wave 4 Task 5，2026-05-23）
 
 ILS 兜底路径加 3 项业务对齐改动：
 
-1. `_overload_penalty(poi, intent) -> float`：按 _resolve_age_caps 同款公式（婴幼儿 ≤45 /
+1. `_overload_penalty(poi, intent) -> float`：按年龄分级 cap（婴幼儿 ≤45 /
    学龄前 ≤75 / 学童 ≤120 / 高龄 ≤60）推单段 cap，用 get_duration_for_companions 投影
    POI 推荐时长，超 cap 返 0.3 强惩罚（否则 0.0）。
 2. `_utility` 公式末尾追加 `-0.5 * _overload_penalty(poi, intent)` 项，让 ILS 在候选池里
    先剔除「成人 180min 但 5 岁娃只能玩 90min」类反人性方案；保留原 4 维 comfort/time/cost/smoothness 不变。
 3. DINING_SLOTS 改用 planner.py:_resolve_time_window 推（按 intent.start_time + duration_hours
    动态算），不再硬编码 ("17:00","17:30","18:00")。
-4. `_retry_with_critic_feedback` 黑名单按违规类型 4 类全覆盖（time_window / hard_constraint /
-   dietary / social_context），通过 helper `_compute_blacklists` 做单点路由；critics.py 当前
-   没暴露 dietary critic name，关键词路由作 future-proof。
+4. critic-to-solver 有界修复闭环：`_compute_blacklists` 黑名单按 ADR-0009 映射表路由、
+   `_search_best_avoiding` 重搜、重 gate（见上「ADR-0009 C-4」）。
 
 学术依据：
 - A 段（ILS 启发式）：[Vansteenwegen et al. 2009 ILS for TOPTW]、
@@ -45,9 +69,9 @@ ILS 兜底路径加 3 项业务对齐改动：
         ↓
     [Algo] ILS：扰动（swap POI / 换餐厅 / 移时段）+ 局部搜索 N 次
         ↓
-    [Critic] HardConstraint/TimeWindow/Budget/Style 4 个 Critic 验证
+    [Critic] 统一 critic（critics_v2.validate_itinerary，ADR-0008 分阶段 hard/soft 单注册表）验证
         ↓
-        硬违规 → 用违规反馈再跑一次 ILS（Critic backprompt to ILS，不是 LLM）
+        硬违规 → 用违规反馈再跑一次 ILS（Critic backprompt to ILS，不是 LLM；ADR-0009 映射表）
         否则 → 返回 utility 最高的方案
         ↓
     [Algo] 失败兜底：rule planner
@@ -60,7 +84,7 @@ ILS 兜底路径加 3 项业务对齐改动：
 
 不负责：
 - 权重决策（在 weights_llm.py）
-- Critic 实现（在 critics.py）
+- Critic 实现（在 critics_v2.py / _rules/checks.py）
 - HTTP/SSE（在 main.py）
 - Tool 实现（在 tools/）
 """
@@ -70,6 +94,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -86,7 +111,8 @@ from schemas.tools import (
     SearchRestaurantsOutput,
 )
 
-from ..critic.ils_score_critic import CriticReport, run_critics
+from ..critic.age_caps import cap_for_age
+from ..critic.critics_v2 import Severity, Violation, ViolationCode, validate_itinerary
 from ...core.trace import Tracer
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
@@ -115,6 +141,11 @@ def _env_float(name: str, default: float) -> float:
 
 # ILS 迭代次数（评测时段：30 → ~50ms，足够 demo 实时）
 ILS_ITERATIONS = _env_int("PLANNER_ILS_ITERATIONS", 30)
+
+# critic-to-solver 修复闭环的最大迭代轮数（ADR-0009 决策 5/7·C-4：retry 有界）。
+# 一次修复可能引入二次违规（min-conflicts），需多轮收敛；受 demo 30s 红线 + D2 地板
+# 兜底约束，保持小值。3 足够覆盖「16:30 meal_time → 17:00 full → 17:30 clean」这类链。
+MAX_REPAIR_ROUNDS = _env_int("PLANNER_MAX_REPAIR_ROUNDS", 3)
 
 # 候选 top-K（每槽位保留多少候选参与组合）
 CANDIDATE_TOP_K = _env_int("PLANNER_CANDIDATE_TOP_K", 5)
@@ -154,6 +185,43 @@ class CandidatePlan:
 
 
 # ============================================================
+# 统一 critic 薄 adapter（ADR-0009 决策 1/3）
+# ============================================================
+
+@dataclass
+class HybridCriticReport:
+    """plan_hybrid 消费统一 critic 的薄适配层。
+
+    ADR-0008 的 `critics_v2.validate_itinerary` 产出 `list[Violation]`
+    （`.code` + `.severity`，无 critic 名）；本模块内部历史上按「已删除的
+    `ils_score_critic.CriticReport`」的形状消费（`passed` / `hard_violations()`）。
+    这层薄 adapter **只做形状转换，不改变任何判定逻辑**——passed 就是「无 HARD
+    violation」，hard_violations() 就是 severity==HARD 的子集。
+
+    ADR-0008 B-1 已删除 reward/soft_score 加权机制；本 adapter 不复活类似的
+    「soft_score」标量指标，trace 叙事改为直接报 hard/soft 计数。
+    """
+
+    violations: list[Violation] = field(default_factory=list)
+
+    @property
+    def passed(self) -> bool:
+        return not any(v.severity == Severity.HARD for v in self.violations)
+
+    def hard_violations(self) -> list[Violation]:
+        return [v for v in self.violations if v.severity == Severity.HARD]
+
+
+def _run_unified_critic(itinerary: Itinerary, intent: IntentExtraction) -> HybridCriticReport:
+    """跑统一 critic（ADR-0008 `validate_itinerary`）并适配成 plan_hybrid 需要的形状。
+
+    替代已删除的 `ils_score_critic.run_critics`（ADR-0009 决策 1/3）。
+    """
+    violations = validate_itinerary(itinerary, intent)
+    return HybridCriticReport(violations=violations)
+
+
+# ============================================================
 # 入口
 # ============================================================
 
@@ -164,7 +232,7 @@ class HybridResult:
     success: bool
     itinerary: Optional[Itinerary] = None
     weights: Optional[PlanningWeights] = None
-    critic_report: Optional[CriticReport] = None
+    critic_report: Optional[HybridCriticReport] = None
     failure_reason: Optional[FailureReason] = None
     failure_detail: Optional[str] = None
 
@@ -349,59 +417,99 @@ def plan_hybrid(
             weights=weights,
         )
 
-    # ---- 步骤 6：Critic 验证（C 段）----
-    report = run_critics(itinerary, intent)
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"Critic 验证：passed={report.passed}，soft_score={report.soft_score:.2f}，"
-                f"违规 {len(report.violations)} 条"
-            ),
-        },
-    )
-    for v in report.violations:
+    # ---- 步骤 6：Critic 验证 + 有界修复闭环（C 段；ADR-0009 决策 1/3/5·C-4）----
+    # min-conflicts 启发式修复 + tabu：每轮 validate；有 HARD → 累积黑名单（单调，防
+    # 「16:30↔17:00」震荡）→ 重搜（避开黑名单）→ 重组装 → 重 validate。干净即接受；
+    # 预算耗尽 / 违规无 ILS 可修算子 / 候选池被掏空 / 组装失败 → 失败上抛落 rule 地板（D2）。
+    # 这是要展示的 critic-to-solver 闭环：critic 把违规反馈给 ILS 算法逐步自纠。
+    current_cand = best
+    current_itin = itinerary
+    bl_poi: set[str] = set()
+    bl_rest: set[str] = set()
+    bl_rest_time: set[tuple[str, str]] = set()
+    report = _run_unified_critic(current_itin, intent)
+
+    for attempt in range(MAX_REPAIR_ROUNDS + 1):
+        hard = report.hard_violations()
+        soft = [v for v in report.violations if v.severity == Severity.SOFT]
         tracer.emit(
             "agent_thought",
-            {"text": f"[{v.severity.upper()}] {v.critic}: {v.message}"},
+            {
+                "text": (
+                    f"Critic 验证（第 {attempt} 轮）：passed={report.passed}，"
+                    f"hard={len(hard)}，soft={len(soft)}（共 {len(report.violations)} 条违规）"
+                ),
+            },
         )
+        for v in report.violations:
+            tracer.emit(
+                "agent_thought",
+                {"text": f"[{v.severity.value.upper()}] {v.code.value}: {v.message}"},
+            )
 
-    if not report.passed:
-        # 硬违规 → 触发一次基于 critic 反馈的重排
+        if report.passed:
+            return HybridResult(
+                success=True,
+                itinerary=current_itin,
+                weights=weights,
+                critic_report=report,
+            )
+
+        if attempt >= MAX_REPAIR_ROUNDS:
+            break  # 修复预算耗尽，停止迭代
+
+        # 累积黑名单（单调 tabu）——防「移到 17:00 又被换回 16:30」的震荡
+        add_poi, add_rest, add_rest_time = _compute_blacklists(
+            current_cand, current_itin, intent, report.violations
+        )
+        if not (add_poi or add_rest or add_rest_time):
+            break  # 违规无 ILS 可修算子（结构码 / AGE）→ 落地板
+        bl_poi |= add_poi
+        bl_rest |= add_rest
+        bl_rest_time |= add_rest_time
+
         tracer.emit(
             "replan_triggered",
             {
                 "reason": "critic_hard_violation",
                 "from_tool": "critics",
                 "action": "retry_with_critic_feedback",
-                "violations": [v.message for v in report.hard_violations()],
+                "violations": [v.message for v in hard],
             },
         )
-        retried = _retry_with_critic_feedback(
-            best, poi_top, rest_top, intent, weights, report, rule_assembler, tracer,
-            dining_slots,
-        )
-        if retried is not None:
-            return HybridResult(
-                success=True,
-                itinerary=retried,
-                weights=weights,
-                critic_report=run_critics(retried, intent),
-            )
-        # 重排仍失败 → 失败上抛，让上层 fallback 到 rule planner
-        return HybridResult(
-            success=False,
-            failure_reason=FailureReason.UPSTREAM_FAILURE,
-            failure_detail=(
-                "Critic 硬违规：" + "；".join(v.message for v in report.hard_violations())
-            ),
-            weights=weights,
-            critic_report=report,
-        )
 
+        new_cand = _search_best_avoiding(
+            poi_top, rest_top, intent, weights, dining_slots,
+            bl_poi, bl_rest, bl_rest_time, semantic_scores=semantic_scores,
+        )
+        if new_cand is None:
+            break  # 候选池被黑名单掏空 → 落地板
+        new_itin = rule_assembler(intent, new_cand, tracer)
+        if new_itin is None:
+            break  # 组装失败 → 落地板
+
+        tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"基于 Critic 反馈的重排（第 {attempt + 1} 轮）：POI="
+                    f"{new_cand.main_poi.id if new_cand.main_poi else None} / 餐厅="
+                    f"{new_cand.restaurant.id if new_cand.restaurant else None} / "
+                    f"时段={new_cand.dining_time}"
+                ),
+            },
+        )
+        current_cand, current_itin = new_cand, new_itin
+        report = _run_unified_critic(current_itin, intent)
+
+    # 循环未收敛到干净方案 → 失败上抛（上层 fallback rule planner，D2）
     return HybridResult(
-        success=True,
-        itinerary=itinerary,
+        success=False,
+        failure_reason=FailureReason.UPSTREAM_FAILURE,
+        failure_detail=(
+            f"Critic 硬违规（重排 {MAX_REPAIR_ROUNDS} 轮未收敛）："
+            + "；".join(v.message for v in report.hard_violations())
+        ),
         weights=weights,
         critic_report=report,
     )
@@ -660,20 +768,20 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
 # 加权效用 utility（A 段核心）
 # ============================================================
 
-# spec planning-quality-deep-review R5：年龄分级 cap（与 blueprint.py:_resolve_age_caps
-# / critics_v2.py:_check_age_aware_duration 同源公式；ILS 路径在此重写避免循环 import）
-_AGE_CAP_TODDLER = 45    # ≤3 岁婴幼儿
-_AGE_CAP_PRESCHOOL = 75  # 4-6 岁学龄前
-_AGE_CAP_SCHOOL_AGE = 120  # 7-12 岁学童
-_AGE_CAP_SENIOR = 60     # ≥75 岁高龄长辈
-_AGE_CAP_NO_LIMIT = 9999  # 哨兵：无 age 信息时返此值
+# ADR-0009 决策 6：年龄 cap 表读 `critic/age_caps.py` 单一真相源（不再本地内联第三份
+# 45/75/120/60 副本）。_AGE_CAP_NO_LIMIT 是 ILS 路径自用的「无年龄约束」哨兵——
+# age_caps.cap_for_age 对不落 4 档的年龄返 None，本函数把 None 适配成 9999，
+# 供 _overload_penalty / _grounding_filter_poi 沿用「越大越不限」的判定习惯。
+_AGE_CAP_NO_LIMIT = 9999  # 哨兵：无 age 信息 / age 不落任何分级档时返此值
 
 
 def _resolve_age_cap(intent: IntentExtraction) -> int:
-    """从 intent.companions 推单段最严 cap（min）。
+    """从 intent.companions 推单段最严 cap（min）——读 age_caps.py 单一真相源。
 
-    与 `agent/blueprint.py:_resolve_age_caps` / `agent/v2/critics_v2.py:_check_age_aware_duration`
-    业务等价；返回 9999 表示无年龄约束（spec planning-quality-deep-review R5）。
+    与 `critic/age_caps.py:cap_for_age`（供 `check_age_aware_duration` 用）同源；
+    本函数只是在其基础上取同行人群体内最严（min）一档。ADR-0009 决策 6：并入
+    ils_planner 这份第三份年龄 cap 副本，消灭与 critic 层的分叉风险
+    （盘点见 ADR-0008：critic 与 blueprint 曾各存一份漂移）。
     """
     if intent is None or not getattr(intent, "companions", None):
         return _AGE_CAP_NO_LIMIT
@@ -683,14 +791,9 @@ def _resolve_age_cap(intent: IntentExtraction) -> int:
         age = getattr(c, "age", None)
         if not isinstance(age, int) or age < 0:
             continue
-        if age <= 3:
-            caps.append(_AGE_CAP_TODDLER)
-        elif age <= 6:
-            caps.append(_AGE_CAP_PRESCHOOL)
-        elif age <= 12:
-            caps.append(_AGE_CAP_SCHOOL_AGE)
-        elif age >= 75:
-            caps.append(_AGE_CAP_SENIOR)
+        tier = cap_for_age(age)
+        if tier is not None:
+            caps.append(tier[0])
 
     if not caps:
         return _AGE_CAP_NO_LIMIT
@@ -1134,136 +1237,218 @@ def _local_search(
 
 
 # ============================================================
-# Critic 失败后的重排（C 段反馈）
+# Critic 失败后的重排（C 段反馈，ADR-0009 决策 3/4/5/6：ViolationCode → ILS 重搜动作 映射表）
 # ============================================================
+#
+# 旧版（spec planning-quality-deep-review R5）按「critic 名 + message 关键词」路由——
+# 那套 4-critic（hard_constraint/time_window/budget/style）已随 ils_score_critic 删除。
+# ADR-0009 改为按统一 critic 的 `ViolationCode` 路由，逐码实现 ADR 决策 6 的映射表：
+#
+# | 判决           | ViolationCode                    | 动作                                  |
+# |----------------|-----------------------------------|----------------------------------------|
+# | 闭环重搜       | RESTAURANT_FULL_UNRESOLVED        | 拉黑 (餐厅,时段) → 移时段；不行则连带换店（同一机制自然涌现，见下） |
+# | 闭环重搜       | DIETARY_VIOLATION                 | 拉黑整店 → 换饮食兼容                  |
+# | 闭环重搜       | CAPACITY_REQUIREMENT_VIOLATED     | 拉黑整店 → 换大桌/包间                 |
+# | 闭环重搜       | SOCIAL_CONTEXT_MISMATCH（HARD）   | 按 field_path 定向拉黑肇事那一个实体   |
+# | 闭环重搜       | OPENING_HOURS_VIOLATION           | 餐厅侧：拉黑 (餐厅,时段)；POI 侧：拉黑整个 POI（start_time 非 ILS 变量） |
+# | 闭环重搜       | MEAL_TIME_UNREASONABLE            | 拉黑 (餐厅,时段) → 移到饭点槽          |
+# | 弱杠杆         | DURATION_OUT_OF_RANGE             | 仅当疑似通勤过远时拉黑最远实体，否则不产生动作（交给地板） |
+# | 落 rule 地板   | INVARIANT_BROKEN / NODES_INCOMPLETE / TIMELINE_INCONSISTENT / TOOL_RESPONSE_INCONSISTENCY / HOP_INFEASIBLE / AGE_DURATION_MISMATCH | 不产生黑名单动作（ILS 搜索变量不参与，或 α 组装期已预防） |
+#
+# soft（DISTANCE_EXCEEDED、SOCIAL_CONTEXT_MISMATCH 的 POOR 档）不进本表——
+# `_classify_violation` 对非 HARD 一律返回空集合，只叙事不重搜（ADR-0009 决策 3）。
+#
+# 【定向 blame 的实现选择（ADR-0009 决策 5）】
+# ADR 允许「填 Violation.node_ref」或「直接解析 field_path」二选一。本实现选后者：
+# `Violation.field_path` 已按 "nodes[{idx}]..." 编码肇事节点下标（见 _rules/checks.py
+# 各 check 的 field_path 赋值），`_blamed_target` 解析下标、回查 itinerary.nodes[idx] 拿
+# (target_kind, target_id) 即可定位，不必再多维护一个 node_ref 字段。
+#
+# 【与 C-4 的边界（明确不动）】
+# - retry 后是否重新 gate（重跑 validate 并据此决定 success）—— C-4 的活；本函数返回的
+#   Itinerary 由调用方 plan_hybrid 无条件当作成功接受，与改动前行为一致，不在本次加重。
+# - `blacklist_rest_time` 键继续用 `failed.dining_time`（ILS 候选层面的时段标签，
+#   与 `_greedy_init`/`_local_search` 用的同一个 `dining_slots` 池同源）——不去读
+#   assemble 后的 `node.start_time`（那是 check_demo_restaurant_full 读的真值来源，
+#   两者不保证相等，是 ADR-0009 点名的「黑名单键值错位」bug，明确归 C-4，本函数不碰）。
 
-# spec planning-quality-deep-review R5：critic 名 → 黑名单类型映射
-# 当前 critics.py 的 4 个 critic：hard_constraint / time_window / budget / style；
-# 新增 dietary / social_context 关键词路由，让黑名单覆盖 ≥ 4 类违规：
-# - time_window：餐厅 + 时段对禁用
-# - hard_constraint：距离/时长越界 → 剔除越界 POI/餐厅
-# - dietary（关键词或 critic name）：当前 message 包含「饮食/不辣/过敏」类违规 → 剔除餐厅
-# - social_context（critic="style" 或关键词）：调性不匹配 → 剔除 POI/餐厅
-_DIETARY_KEYWORDS = ("饮食", "辣", "过敏", "素食", "低脂", "kids-meal", "包间")
-_SOCIAL_KEYWORDS = ("调性", "social_context", "suitable_for", "氛围", "场景")
 
+def _classify_violation(v: Violation) -> set[str]:
+    """按 ViolationCode（ADR-0009 决策 6）把违规归类为 ILS 重搜「动作桶」。
 
-def _classify_violation(v) -> set[str]:
-    """把 CriticViolation 归类为 {time_window, hard_constraint, dietary, social_context} 子集。
+    只看 `v.code` + `v.severity`，不看 itinerary——定向 blame（该拉黑哪个具体实体）
+    由 `_blamed_target` 单独解析 `field_path`，这里只回答「这条违规该走哪条重搜策略」。
 
-    一条违规可能同时命中多个类（如 critic="style" 的餐厅 dietary 不匹配 + 调性不匹配）。
+    SOFT 一律返回空集合（ADR-0009 决策 3：soft 只叙事，不进重搜，不论其 code 是什么）。
+
+    动作桶：
+    - "restaurant_time"：拉黑 (餐厅, 候选时段)，让重搜移时段 / 自然连带换店
+      （RESTAURANT_FULL_UNRESOLVED / MEAL_TIME_UNREASONABLE）
+    - "restaurant_swap"：整店拉黑，逼重搜换店
+      （DIETARY_VIOLATION / CAPACITY_REQUIREMENT_VIOLATED）
+    - "directed_swap"：需要 field_path 定向解析出的实体拉黑（SOCIAL_CONTEXT_MISMATCH hard）
+    - "opening_hours"：需要 field_path 定向解析「是 POI 还是餐厅」，两侧动作不同
+      （POI 拉黑整个 POI；餐厅按 restaurant_time 处理）
+    - "distance_lever"：弱杠杆，具体是否产出黑名单还要看距离是否真的接近上限
+      （DURATION_OUT_OF_RANGE）
+    - 空集合：结构码 / AGE_DURATION_MISMATCH——ILS 搜索变量不参与，落 rule 地板。
     """
-    classes: set[str] = set()
-    name = getattr(v, "critic", "") or ""
-    msg = getattr(v, "message", "") or ""
+    if v.severity != Severity.HARD:
+        return set()
 
-    if name == "time_window":
-        classes.add("time_window")
-    if name == "hard_constraint":
-        classes.add("hard_constraint")
-    if name == "dietary" or any(k in msg for k in _DIETARY_KEYWORDS):
-        classes.add("dietary")
-    if name in ("style", "social_context") or any(
-        k in msg for k in _SOCIAL_KEYWORDS
-    ):
-        classes.add("social_context")
-    return classes
+    if v.code in (ViolationCode.RESTAURANT_FULL_UNRESOLVED, ViolationCode.MEAL_TIME_UNREASONABLE):
+        return {"restaurant_time"}
+    if v.code in (ViolationCode.DIETARY_VIOLATION, ViolationCode.CAPACITY_REQUIREMENT_VIOLATED):
+        return {"restaurant_swap"}
+    if v.code == ViolationCode.SOCIAL_CONTEXT_MISMATCH:
+        return {"directed_swap"}
+    if v.code == ViolationCode.OPENING_HOURS_VIOLATION:
+        return {"opening_hours"}
+    if v.code == ViolationCode.DURATION_OUT_OF_RANGE:
+        return {"distance_lever"}
+    return set()
+
+
+_NODE_FIELD_PATH_RE = re.compile(r"^nodes\[(\d+)\]")
+
+
+def _blamed_target(
+    itinerary: Optional[Itinerary], field_path: str
+) -> tuple[Optional[str], Optional[str]]:
+    """从 `Violation.field_path` 解析肇事节点（ADR-0009 决策 5：定向 blame）。
+
+    `field_path` 形如 "nodes[2].target_id" / "nodes[1].start_time"；只取 node 下标，
+    索引进 `itinerary.nodes` 拿 (target_kind, target_id)。
+
+    解析失败（itinerary 为空 / 下标越界 / 不含 "nodes[N]" 前缀）→ (None, None)，
+    调用方据此回退（见 _compute_blacklists 里 "directed_swap" 分支的保守两拉黑兜底）。
+    """
+    if itinerary is None:
+        return None, None
+    m = _NODE_FIELD_PATH_RE.match(field_path or "")
+    if not m:
+        return None, None
+    idx = int(m.group(1))
+    if idx < 0 or idx >= len(itinerary.nodes):
+        return None, None
+    node = itinerary.nodes[idx]
+    return node.target_kind, node.target_id
 
 
 def _compute_blacklists(
     failed: CandidatePlan,
+    itinerary: Optional[Itinerary],
     intent: IntentExtraction,
-    report: CriticReport,
+    violations: list[Violation],
 ) -> tuple[set[str], set[str], set[tuple[str, str]]]:
-    """根据 critic 报告产出 (POI 黑名单 / 餐厅黑名单 / 餐厅×时段 黑名单)。
+    """根据统一 critic 违规产出 (POI 黑名单 / 餐厅黑名单 / 餐厅×时段 黑名单)。
 
-    spec planning-quality-deep-review R5：覆盖 4 类违规：
-    - time_window → 把 (失败餐厅, 失败时段) 加入 rest_time 黑名单
-    - hard_constraint → 距离越界则剔除对应实体
-    - dietary → 失败餐厅入餐厅黑名单（让重排去找 dietary 兼容餐厅）
-    - social_context → 失败 POI / 餐厅都入对应黑名单
+    ADR-0009 决策 6 映射表的落地：逐条违规先经 `_classify_violation` 归类到动作桶，
+    再按桶产出具体黑名单条目。`itinerary` 是本轮失败方案（供 SOCIAL_CONTEXT_MISMATCH /
+    OPENING_HOURS 的定向 blame 解析 field_path 用；无 itinerary 时退回保守兜底）。
     """
     blacklist_rest_time: set[tuple[str, str]] = set()
     blacklist_rest: set[str] = set()
     blacklist_poi: set[str] = set()
 
-    for v in report.hard_violations():
-        classes = _classify_violation(v)
+    for v in violations:
+        buckets = _classify_violation(v)
+        if not buckets:
+            continue
 
-        if "time_window" in classes and failed.restaurant is not None:
-            blacklist_rest_time.add(
-                (failed.restaurant.id, failed.dining_time)
-            )
+        if "restaurant_time" in buckets and failed.restaurant is not None:
+            blacklist_rest_time.add((failed.restaurant.id, failed.dining_time))
 
-        if "hard_constraint" in classes and "总耗时" in (v.message or ""):
-            # 时长超限：尝试换更近的 POI/餐厅
-            if (
-                failed.main_poi is not None
-                and failed.main_poi.distance_km > intent.distance_max_km - 1
-            ):
-                blacklist_poi.add(failed.main_poi.id)
-            if (
-                failed.restaurant is not None
-                and failed.restaurant.distance_km > intent.distance_max_km - 1
-            ):
-                blacklist_rest.add(failed.restaurant.id)
-
-        if "dietary" in classes and failed.restaurant is not None:
+        if "restaurant_swap" in buckets and failed.restaurant is not None:
             blacklist_rest.add(failed.restaurant.id)
 
-        if "social_context" in classes:
-            if failed.main_poi is not None:
+        if "directed_swap" in buckets:
+            target_kind, _target_id = _blamed_target(itinerary, v.field_path)
+            if target_kind == "poi" and failed.main_poi is not None:
                 blacklist_poi.add(failed.main_poi.id)
-            if failed.restaurant is not None:
+            elif target_kind == "restaurant" and failed.restaurant is not None:
                 blacklist_rest.add(failed.restaurant.id)
+            else:
+                # field_path 解析失败（旧行为兜底）：两个都拉黑，不静默漏修
+                if failed.main_poi is not None:
+                    blacklist_poi.add(failed.main_poi.id)
+                if failed.restaurant is not None:
+                    blacklist_rest.add(failed.restaurant.id)
+
+        if "opening_hours" in buckets:
+            target_kind, _target_id = _blamed_target(itinerary, v.field_path)
+            if target_kind == "restaurant" and failed.restaurant is not None:
+                blacklist_rest_time.add((failed.restaurant.id, failed.dining_time))
+            elif target_kind == "poi" and failed.main_poi is not None:
+                blacklist_poi.add(failed.main_poi.id)
+            # 解析失败：POI/餐厅两侧动作不同（一个整拉黑一个只拉时段），
+            # 两拉黑等于同时套错误动作，不做兜底——宁可漏拉黑，不误拉黑。
+
+        if "distance_lever" in buckets:
+            max_km = intent.distance_max_km
+            if max_km is not None:
+                if (
+                    failed.main_poi is not None
+                    and failed.main_poi.distance_km > max_km - 1
+                ):
+                    blacklist_poi.add(failed.main_poi.id)
+                if (
+                    failed.restaurant is not None
+                    and failed.restaurant.distance_km > max_km - 1
+                ):
+                    blacklist_rest.add(failed.restaurant.id)
 
     return blacklist_poi, blacklist_rest, blacklist_rest_time
 
 
-def _retry_with_critic_feedback(
-    failed: CandidatePlan,
+def _search_best_avoiding(
     pois: list[Poi],
     rests: list[Restaurant],
     intent: IntentExtraction,
     w: PlanningWeights,
-    report: CriticReport,
-    rule_assembler,
-    tracer: Tracer,
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-) -> Optional[Itinerary]:
-    """根据硬违规反馈在候选池中找替代。
+    dining_slots: tuple[str, ...],
+    blacklist_poi: set[str],
+    blacklist_rest: set[str],
+    blacklist_rest_time: set[tuple[str, str]],
+    semantic_scores: dict[str, float] | None = None,
+) -> Optional[CandidatePlan]:
+    """在黑名单外重搜 utility 最高的 feasible 候选（min-conflicts 重赋 + tabu 过滤）。
 
-    spec planning-quality-deep-review R5：黑名单覆盖 ≥ 4 类违规——
-    time_window / hard_constraint / dietary / social_context（见 _compute_blacklists）。
+    plan_hybrid 的修复闭环每轮调用：黑名单由 `_compute_blacklists`（按 ADR-0009 映射表
+    路由）产出并跨轮单调累积，本函数据此过滤后重搜。与 `_greedy_init` 一样处理三场景
+    （POI×餐厅 / 仅 POI / 仅餐厅），额外跳过：
+    - blacklist_poi / blacklist_rest 里的实体；
+    - blacklist_rest_time 里的 (餐厅, 时段) 对。
+    池被黑名单掏空 → 返 None（调用方据此落 rule 地板 D2）。
     """
-    blacklist_poi, blacklist_rest, blacklist_rest_time = _compute_blacklists(
-        failed, intent, report
-    )
-
-    pois_filtered = [p for p in pois if p.id not in blacklist_poi]
-    rests_filtered = [r for r in rests if r.id not in blacklist_rest]
+    pois_f = [p for p in pois if p.id not in blacklist_poi]
+    rests_f = [r for r in rests if r.id not in blacklist_rest]
 
     best: Optional[CandidatePlan] = None
-    for poi in pois_filtered:
-        for rest in rests_filtered:
-            for slot in dining_slots:
-                if (rest.id, slot) in blacklist_rest_time:
-                    continue
-                cand = _make_candidate(poi, rest, slot, intent, w, pois_filtered)
-                if not cand.feasible:
-                    continue
-                if best is None or cand.utility > best.utility:
-                    best = cand
-    if best is None:
-        return None
 
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"基于 Critic 反馈的重排：选 POI={best.main_poi.id} / "
-                f"餐厅={best.restaurant.id} / 时段={best.dining_time}"
-            ),
-        },
-    )
-    return rule_assembler(intent, best, tracer)
+    def _consider(poi, rest, slot) -> None:
+        nonlocal best
+        if rest is not None and (rest.id, slot) in blacklist_rest_time:
+            return
+        cand = _make_candidate(
+            poi, rest, slot, intent, w, pois_f, semantic_scores=semantic_scores
+        )
+        if not cand.feasible:
+            return
+        if best is None or cand.utility > best.utility:
+            best = cand
+
+    if pois_f and rests_f:
+        for poi in pois_f:
+            for rest in rests_f:
+                for slot in dining_slots:
+                    _consider(poi, rest, slot)
+    elif pois_f:
+        for poi in pois_f:
+            _consider(poi, None, "")
+    elif rests_f:
+        for rest in rests_f:
+            for slot in dining_slots:
+                _consider(None, rest, slot)
+
+    return best

@@ -195,7 +195,7 @@ def test_legal_itinerary_no_critical_violations():
     itinerary = _make_legal_itinerary()
 
     violations = validate_itinerary(itinerary, intent)
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
+    critical = [v for v in violations if v.severity == Severity.HARD]
 
     assert critical == [], f"合法 itinerary 不应有 critical violation，实际：{critical}"
 
@@ -217,7 +217,7 @@ def test_invariants_critic_catches_hops_count_mismatch():
     assert ViolationCode.INVARIANT_BROKEN in codes, (
         f"hops 数与 nodes-1 不匹配应触发 INVARIANT_BROKEN，实际：{codes}"
     )
-    assert all(v.severity == Severity.CRITICAL for v in violations if v.code == ViolationCode.INVARIANT_BROKEN)
+    assert all(v.severity == Severity.HARD for v in violations if v.code == ViolationCode.INVARIANT_BROKEN)
 
 
 def test_invariants_critic_catches_non_home_first_node():
@@ -310,7 +310,7 @@ def test_nodes_incomplete_when_only_home_nodes():
 
     intent = _make_intent()
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.CRITICAL]
+    codes = [v.code for v in violations if v.severity == Severity.HARD]
 
     assert ViolationCode.NODES_INCOMPLETE in codes, (
         f"应触发 NODES_INCOMPLETE，实际 codes={codes}"
@@ -330,7 +330,7 @@ def test_duration_too_long_triggers_critical():
     object.__setattr__(itinerary, "total_minutes", 480)
 
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.CRITICAL]
+    codes = [v.code for v in violations if v.severity == Severity.HARD]
 
     assert ViolationCode.DURATION_OUT_OF_RANGE in codes, (
         f"应触发 DURATION_OUT_OF_RANGE（过长），实际 codes={codes}"
@@ -344,7 +344,7 @@ def test_duration_too_short_triggers_critical():
     object.__setattr__(itinerary, "total_minutes", 60)
 
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.CRITICAL]
+    codes = [v.code for v in violations if v.severity == Severity.HARD]
 
     assert ViolationCode.DURATION_OUT_OF_RANGE in codes
 
@@ -419,7 +419,7 @@ def test_temporal_inconsistent_to_node_too_early():
 
     intent = _make_intent(duration_hours=[1, 2])
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.CRITICAL]
+    codes = [v.code for v in violations if v.severity == Severity.HARD]
 
     assert ViolationCode.TIMELINE_INCONSISTENT in codes, (
         f"to_node 早于 hop.end + buffer 应触发 TIMELINE_INCONSISTENT，实际 codes={codes}"
@@ -435,13 +435,13 @@ def test_format_violations_only_critical_in_message():
     """1 critical + 1 warning → 输出仅含 critical。"""
     critical_v = Violation(
         code=ViolationCode.NODES_INCOMPLETE,
-        severity=Severity.CRITICAL,
+        severity=Severity.HARD,
         message="行程中间没有任何活动节点（nodes 仅含首尾 home）。",
         field_path="nodes",
     )
     warning_v = Violation(
         code=ViolationCode.DISTANCE_EXCEEDED,
-        severity=Severity.WARNING,
+        severity=Severity.SOFT,
         message="第 2 段「主活动 · 远点」距家 8.0km 超出。",
         field_path="nodes[1].target_id",
     )
@@ -458,7 +458,7 @@ def test_format_violations_empty_when_no_critical():
 
     only_warning = Violation(
         code=ViolationCode.DISTANCE_EXCEEDED,
-        severity=Severity.WARNING,
+        severity=Severity.SOFT,
         message="略超",
         field_path="nodes[1]",
     )
@@ -475,7 +475,7 @@ def test_format_violations_does_not_leak_dot_path():
     violations = [
         Violation(
             code=ViolationCode.HOP_INFEASIBLE,
-            severity=Severity.CRITICAL,
+            severity=Severity.HARD,
             message=(
                 "第 2 段「主活动 · 童趣海洋亲子馆」去往 第 3 段「用餐 · 轻语沙拉」"
                 "的通勤实际需要约 9 分钟（taxi），但行程里这段 hop 只留了 3 分钟。"
@@ -484,7 +484,7 @@ def test_format_violations_does_not_leak_dot_path():
         ),
         Violation(
             code=ViolationCode.INVARIANT_BROKEN,
-            severity=Severity.CRITICAL,
+            severity=Severity.HARD,
             message="行程结构不变量违反：首节点必须是 home。",
             field_path="nodes[0]",
         ),
@@ -499,25 +499,59 @@ def test_format_violations_does_not_leak_dot_path():
     assert "第 2 段" in msg or "童趣海洋亲子馆" in msg, f"应包含人话定位：\n{msg}"
 
 
+def test_format_violations_renders_expected_range_natural_language():
+    """spec planning-quality-deep-review R4：format 输出含「建议范围 X-Y min」，**不**含字段名。
+
+    迁移自 test_age_aware_critic.py（ADR-0009 决策 8 删蓝图死 critic 层时收拢到本文件
+    ——这条测的是 critics_v2.format_violations_for_llm 的活行为，与已删的蓝图 critic
+    无关，不随蓝图死层一起删）。
+    """
+    v = Violation(
+        code=ViolationCode.AGE_DURATION_MISMATCH,
+        severity=Severity.HARD,
+        message="第 1 段 90 分钟超出年龄约束（含 5 岁孩）",
+        field_path="nodes[1].duration_min",
+        expected_range=(60, 75),
+    )
+    text = format_violations_for_llm([v])
+    assert "建议范围 60-75 min" in text
+    # 不暴露字段名
+    assert "expected_range" not in text
+    assert "nodes[1]" not in text
+    assert "duration_min" not in text
+    assert "field_path" not in text
+
+
+def test_format_violations_no_expected_range_no_extra_text():
+    """无 expected_range 的 violation → format 不加「建议范围」段（同上，迁移自 test_age_aware_critic.py）。"""
+    v = Violation(
+        code=ViolationCode.DURATION_OUT_OF_RANGE,
+        severity=Severity.HARD,
+        message="总时长超上限",
+    )
+    text = format_violations_for_llm([v])
+    assert "建议范围" not in text
+
+
 # ============================================================
 # 测试 9：DIETARY_VIOLATION + demo_full_check
 # ============================================================
 
 
-def test_dietary_violation_warning_when_restaurant_tags_miss():
-    """intent dietary=['粤菜'] / 餐厅 R001（低脂）不含粤菜 → warning。"""
+def test_dietary_violation_hard_when_restaurant_tags_miss():
+    """intent dietary=['粤菜'] / 餐厅 R001（低脂）不含粤菜 → B-2a 升 HARD（gate 修复）。"""
     intent = _make_intent(dietary_constraints=["粤菜"])
     itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001 tags 不含粤菜
 
     violations = validate_itinerary(itinerary, intent)
-    dietary_warnings = [
+    dietary_hard = [
         v for v in violations
-        if v.code == ViolationCode.DIETARY_VIOLATION and v.severity == Severity.WARNING
+        if v.code == ViolationCode.DIETARY_VIOLATION and v.severity == Severity.HARD
     ]
 
-    assert dietary_warnings, (
-        f"R001 不含粤菜 tag 应触发 DIETARY_VIOLATION warning，"
-        f"实际 violations={[v.code for v in violations]}"
+    assert dietary_hard, (
+        f"B-2a：R001 不含粤菜 tag 应触发 DIETARY_VIOLATION HARD（升级自 warning），"
+        f"实际 violations={[(v.code, v.severity) for v in violations]}"
     )
 
 
@@ -589,7 +623,7 @@ def test_demo_full_check_enabled_triggers_at_17_00(monkeypatch):
     intent = _make_intent()
 
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.CRITICAL]
+    codes = [v.code for v in violations if v.severity == Severity.HARD]
 
     assert ViolationCode.RESTAURANT_FULL_UNRESOLVED in codes, (
         f"开关开 + 17:00 应触发 RESTAURANT_FULL_UNRESOLVED，实际 codes={codes}"
@@ -634,7 +668,7 @@ def test_capacity_violated_when_party_size_exceeds_table():
     capacity_violations = [
         v for v in violations
         if v.code == ViolationCode.CAPACITY_REQUIREMENT_VIOLATED
-        and v.severity == Severity.CRITICAL
+        and v.severity == Severity.HARD
     ]
 
     assert capacity_violations, (
@@ -669,3 +703,59 @@ def test_capacity_no_trigger_when_none():
     violations = validate_itinerary(itinerary, intent)
     codes = [v.code for v in violations]
     assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes
+
+
+# ============================================================
+# O3 characterization：check_capacity 的 cap_req==5 分支（合并前钉死行为）
+#
+# 重构前 check_capacity 对 cap_req>=6 与 5 人（else 分支）两支判定逻辑字节完全相同
+# （都是 has_seat = cap.six or cap.eight or cap.private_room）。以下两条测试钉死
+# 5 人场景（触发 / 不触发）的现有行为，O3 合并死分支后必须仍然通过（行为不变）。
+# ============================================================
+
+
+def test_capacity_violated_when_party_size_is_5():
+    """intent.capacity_requirement=5 / R001 仅 2/4 桌 → 触发 CAPACITY_REQUIREMENT_VIOLATED HARD。
+
+    O3 重构前后行为必须一致：5 人一样坐不下 2/4 人桌，一样要触发。
+    """
+    intent = _make_intent()
+    intent.capacity_requirement = 5  # 5 人（else 分支）
+
+    itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001: 2/4 only
+    violations = validate_itinerary(itinerary, intent)
+    capacity_violations = [
+        v for v in violations
+        if v.code == ViolationCode.CAPACITY_REQUIREMENT_VIOLATED
+        and v.severity == Severity.HARD
+    ]
+    assert capacity_violations, (
+        f"R001 仅含 2/4 桌但同行 5 人 → 应触发 CAPACITY_REQUIREMENT_VIOLATED，"
+        f"实际 violations={[v.code for v in violations]}"
+    )
+
+
+def test_capacity_no_trigger_when_5_with_six_seat_restaurant():
+    """capacity_requirement=5 / R002 含 6 人桌 → 不触发。"""
+    intent = _make_intent(social_context="商务接待")
+    intent.capacity_requirement = 5
+
+    itinerary = _make_legal_itinerary(restaurant_id="R002")  # R002: six=True
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes, (
+        f"R002 含 6 人桌，5 人应可坐下，不应触发，实际 codes={codes}"
+    )
+
+
+def test_capacity_no_trigger_when_6_with_six_seat_restaurant():
+    """capacity_requirement=6 / R002 含 6 人桌 → 不触发（对称覆盖 if 分支的通过路径）。"""
+    intent = _make_intent(social_context="商务接待")
+    intent.capacity_requirement = 6
+
+    itinerary = _make_legal_itinerary(restaurant_id="R002")  # R002: six=True
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes, (
+        f"R002 含 6 人桌，6 人应可坐下，不应触发，实际 codes={codes}"
+    )
