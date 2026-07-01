@@ -290,7 +290,7 @@ def test_hop_minutes_too_small_triggers_critical(profile):
     hop_v = _filter_hop(violations)
 
     assert hop_v, f"hop.minutes=3 < actual=9 - 容差 2 = 7，应触发 CRITICAL，实际：{violations}"
-    assert all(v.severity == Severity.CRITICAL for v in hop_v)
+    assert all(v.severity == Severity.HARD for v in hop_v)
     msg = hop_v[0].message
     # 人话约束：消息里应含具体分钟、目标点标题，不暴露 dot-path
     assert "9" in msg, f"消息应含 actual_min=9：{msg}"

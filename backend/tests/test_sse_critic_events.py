@@ -25,7 +25,7 @@ def test_critic_violations_event_payload():
     """SseEvent(CRITIC_VIOLATIONS, ...) 能正常构造（edge_v1：HOP_INFEASIBLE 替代 COMMUTE_INFEASIBLE）。"""
     v = Violation(
         code=ViolationCode.HOP_INFEASIBLE,
-        severity=Severity.CRITICAL,
+        severity=Severity.HARD,
         message="hop 时间不足以走完通勤",
         field_path="hops[0].minutes",
     )
@@ -39,7 +39,7 @@ def test_critic_violations_event_payload():
     assert dumped["payload"]["fix_attempt"] == 2
     assert len(dumped["payload"]["violations"]) == 1
     assert dumped["payload"]["violations"][0]["code"] == "hop_infeasible"
-    assert dumped["payload"]["violations"][0]["severity"] == "critical"
+    assert dumped["payload"]["violations"][0]["severity"] == "hard"
 
 
 def test_critic_fix_attempt_event_payload():
@@ -80,13 +80,13 @@ def test_violation_dump_shape_for_sse_payload():
     """
     v = Violation(
         code=ViolationCode.DURATION_OUT_OF_RANGE,
-        severity=Severity.CRITICAL,
+        severity=Severity.HARD,
         message="行程总时长 360 分钟超过用户上限",
         field_path="total_minutes",
     )
     dumped = v.model_dump()
     # 前端 ToolTracePanel 渲染依赖以下字段（spec R4 后增加 expected_range）
-    assert set(dumped.keys()) == {"code", "severity", "message", "field_path", "expected_range"}
+    assert set(dumped.keys()) == {"code", "severity", "message", "field_path", "expected_range", "node_ref", "hint"}
     assert dumped["code"] == "duration_out_of_range"
-    assert dumped["severity"] == "critical"
+    assert dumped["severity"] == "hard"
     assert dumped["expected_range"] is None  # 默认 None，未填时不渲染

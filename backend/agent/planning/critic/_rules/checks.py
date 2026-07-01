@@ -112,7 +112,7 @@ def check_invariants(
         out.append(
             Violation(
                 code=ViolationCode.INVARIANT_BROKEN,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"行程结构不变量违反：hops 数量 {len(itinerary.hops)} "
                     f"应等于 nodes 数量减 1（{expected_hops}）。"
@@ -128,7 +128,7 @@ def check_invariants(
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：首节点必须是 home（实际 target_kind={first.target_kind!r}）。"
                         "请把出发起点设为家，由系统自动注入即可。"
@@ -140,7 +140,7 @@ def check_invariants(
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：首节点（home）停留时长应为 0 "
                         f"（实际 {first.duration_min} 分钟）。home 是抽象起终点，不表达「在家停留」。"
@@ -154,7 +154,7 @@ def check_invariants(
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：尾节点必须是 home（实际 target_kind={last.target_kind!r}）。"
                         "请把回家终点设为家，由系统自动注入即可。"
@@ -166,7 +166,7 @@ def check_invariants(
             out.append(
                 Violation(
                     code=ViolationCode.INVARIANT_BROKEN,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"行程结构不变量违反：尾节点（home）停留时长应为 0 "
                         f"（实际 {last.duration_min} 分钟）。"
@@ -195,7 +195,7 @@ def check_nodes_incomplete(
         return [
             Violation(
                 code=ViolationCode.NODES_INCOMPLETE,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     "行程中间没有任何活动节点（nodes 仅含首尾 home）。"
                     "请至少安排一个 POI 或餐厅作为活动主体。"
@@ -235,7 +235,7 @@ def check_duration(
         return [
             Violation(
                 code=ViolationCode.DURATION_OUT_OF_RANGE,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"行程总时长 {actual} 分钟（约 {actual / 60:.1f}h）"
                     f"不在用户期望的 {lo}-{hi}h（含 ±30min 容差）内。{advice}"
@@ -275,7 +275,7 @@ def check_temporal_feasibility(
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 或下一段时间格式不合法（应为 HH:MM）。"
                         "请重新生成行程使所有时间戳为合法 HH:MM。"
@@ -293,7 +293,7 @@ def check_temporal_feasibility(
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 结束于 {fmt_hhmm(from_end)}，"
                         f"但下一段通勤却从 {hop.start_time} 开始（错位 "
@@ -310,7 +310,7 @@ def check_temporal_feasibility(
             out.append(
                 Violation(
                     code=ViolationCode.TIMELINE_INCONSISTENT,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i + 1, to_node)} 开始于 {to_node.start_time}，"
                         f"早于通勤完成（{fmt_hhmm(hop_end)}）+ buffer({hop.buffer_min}min) "
@@ -371,7 +371,7 @@ def check_hop_feasibility(
             out.append(
                 Violation(
                     code=ViolationCode.HOP_INFEASIBLE,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(i, from_node)} 去往 "
                         f"{humanize_node(i + 1, to_node)} 的通勤实际需要约 "
@@ -452,7 +452,7 @@ def check_age_aware_duration(
             out.append(
                 Violation(
                     code=ViolationCode.AGE_DURATION_MISMATCH,
-                    severity=Severity.CRITICAL,
+                    severity=Severity.HARD,
                     message=(
                         f"{humanize_node(idx, node)} 停留 {duration} 分钟"
                         f"超出年龄约束（{reason_text}）"
@@ -513,7 +513,7 @@ def check_distance(
             out.append(
                 Violation(
                     code=ViolationCode.DISTANCE_EXCEEDED,
-                    severity=Severity.WARNING,
+                    severity=Severity.SOFT,
                     message=(
                         f"{humanize_node(idx, node)} 距家 {target_distance:.1f}km，"
                         f"超过用户期望 {max_km:.1f}km。如条件允许请换距离更近的候选。"
@@ -566,7 +566,7 @@ def check_demo_restaurant_full(
         out.append(
             Violation(
                 code=ViolationCode.RESTAURANT_FULL_UNRESOLVED,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)} 在 {node_time} 已满座"
                     f"（mock 餐厅 reservation_slots 标记 available=False）。"
@@ -636,7 +636,7 @@ def check_capacity(
         out.append(
             Violation(
                 code=ViolationCode.CAPACITY_REQUIREMENT_VIOLATED,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)}({rest.name})桌型不够 {cap_req} 人就餐"
                     f"（仅 2/4 人桌，无 6 人桌 / 8 人桌 / 包间）。"
@@ -689,7 +689,7 @@ def check_dietary(
         out.append(
             Violation(
                 code=ViolationCode.DIETARY_VIOLATION,
-                severity=Severity.WARNING,
+                severity=Severity.SOFT,
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}）的标签不含用户饮食约束 "
                     f"{sorted(constraints_set)} 中任何一项。建议换符合饮食偏好的餐厅。"
@@ -746,7 +746,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.CRITICAL,
+                        severity=Severity.HARD,
                         message=(
                             f"{humanize_node(idx, node)}（{poi.name}）与场景调性严重不匹配："
                             f"{reason}。请在候选预览中换其它 social_context 适配的 POI。"
@@ -758,7 +758,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.WARNING,
+                        severity=Severity.SOFT,
                         message=(
                             f"{humanize_node(idx, node)}（{poi.name}）调性偏差："
                             f"{reason}（仍可接受，但更优候选可考虑换）。"
@@ -773,7 +773,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.CRITICAL,
+                        severity=Severity.HARD,
                         message=(
                             f"{humanize_node(idx, node)}（{rest.name}）与场景调性严重不匹配："
                             f"{reason}。请在候选预览中换其它 social_context 适配的餐厅。"
@@ -785,7 +785,7 @@ def check_social_context(
                 out.append(
                     Violation(
                         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                        severity=Severity.WARNING,
+                        severity=Severity.SOFT,
                         message=(
                             f"{humanize_node(idx, node)}（{rest.name}）调性偏差："
                             f"{reason}（仍可接受，但更优候选可考虑换）。"
@@ -805,7 +805,7 @@ def check_social_context(
                     out.append(
                         Violation(
                             code=ViolationCode.SOCIAL_CONTEXT_MISMATCH,
-                            severity=Severity.CRITICAL,
+                            severity=Severity.HARD,
                             message=(
                                 f"独处放空场景，但 {order.target_name} 预约 {detail}。"
                                 "请改为单人位，或换符合「独处放空」的餐厅。"
@@ -883,7 +883,7 @@ def check_tool_consistency(
         out.append(
             Violation(
                 code=ViolationCode.TOOL_RESPONSE_INCONSISTENCY,
-                severity=Severity.CRITICAL,
+                severity=Severity.HARD,
                 message=(
                     f"{humanize_node(idx, node)}：方案中的{kind_label}「{title}」"
                     "不在候选池中，可能是 AI 编造的，请重新规划，"
@@ -958,7 +958,7 @@ def check_meal_time(
         out.append(
             Violation(
                 code=ViolationCode.MEAL_TIME_UNREASONABLE,
-                severity=Severity.WARNING,
+                severity=Severity.SOFT,
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}· {cuisine}）"
                     f"安排在 {node.start_time}，不在常规饭点（午餐 11:00-13:30 / "

@@ -236,7 +236,7 @@ def test_critic_blocking_social_triggers_critical():
 
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)
-    critical = [v for v in social_v if v.severity == Severity.CRITICAL]
+    critical = [v for v in social_v if v.severity == Severity.HARD]
 
     assert critical, (
         f"家庭日常 + 商务接待餐厅应触发 CRITICAL，实际 social violations："
@@ -296,5 +296,5 @@ def test_critic_solo_with_multi_seat_order_still_critical():
     )
     violations = validate_itinerary(itinerary, intent)
     social_v = _filter_social(violations)
-    critical = [v for v in social_v if v.severity == Severity.CRITICAL]
+    critical = [v for v in social_v if v.severity == Severity.HARD]
     assert critical, "独处 + 2 人位 order 应仍触发 CRITICAL（旧逻辑保留）"

@@ -72,7 +72,7 @@ def test_hallucinated_poi_id_triggers_violation():
     assert len(violations) == 1
     v = violations[0]
     assert v.code == ViolationCode.TOOL_RESPONSE_INCONSISTENCY
-    assert v.severity == Severity.CRITICAL
+    assert v.severity == Severity.HARD
     assert "P999" in v.message
     assert "候选池" in v.message
     assert "编造" in v.message or "重新规划" in v.message

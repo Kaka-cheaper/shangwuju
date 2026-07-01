@@ -148,26 +148,31 @@ def _capacity_intent() -> IntentExtraction:
 
 
 _BATTERY = [
+    # B-1 severity labels: critical → hard, warning → soft
     ("success_legal", _legal(), _mk_intent(), "demo_user", None, []),
     ("duration_out_of_range", _duration_long(), _mk_intent(), "demo_user", None,
-        [("duration_out_of_range", "critical")]),
+        [("duration_out_of_range", "hard")]),
+    # nodes_incomplete: Stage-0 short-circuit — NODES_INCOMPLETE fires in Stage 0,
+    # DURATION_OUT_OF_RANGE (Stage 1) is suppressed. Expected: only nodes_incomplete.
     ("nodes_incomplete", _degenerate(), _mk_intent(), "demo_user", None,
-        [("duration_out_of_range", "critical"), ("nodes_incomplete", "critical")]),
+        [("nodes_incomplete", "hard")]),
     ("distance_exceeded", _legal(), _mk_intent(distance_max_km=0.1), "demo_user", None,
-        [("distance_exceeded", "warning"), ("distance_exceeded", "warning")]),
+        [("distance_exceeded", "soft"), ("distance_exceeded", "soft")]),
     ("dietary_violation", _legal(rest_id="R001"), _mk_intent(dietary_constraints=["粤菜"]), "demo_user", None,
-        [("dietary_violation", "warning")]),
+        [("dietary_violation", "soft")]),
     ("capacity_violated", _legal(rest_id="R001"), _capacity_intent(), "demo_user", None,
-        [("capacity_requirement_violated", "critical")]),
+        [("capacity_requirement_violated", "hard")]),
     ("age_duration_mismatch", _legal(), _mk_intent(companions=[Companion(role="孩子", age=5)]), "demo_user", None,
-        [("age_duration_mismatch", "critical")]),
+        [("age_duration_mismatch", "hard")]),
+    # tool_response_inconsistency: Stage-0 fires (check_tool_consistency is Stage 0),
+    # short-circuit — same single violation, just severity label updated.
     ("tool_response_inconsistency", _legal(), _mk_intent(), "demo_user",
         {"pois": [_FakePoi("P033")], "restaurants": [_FakePoi("R001")]},
-        [("tool_response_inconsistency", "critical")]),
+        [("tool_response_inconsistency", "hard")]),
     ("restaurant_full_unresolved", _single_restaurant("R001", "17:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
-        [("restaurant_full_unresolved", "critical")]),
+        [("restaurant_full_unresolved", "hard")]),
     ("meal_time_unreasonable", _single_restaurant("R046", "15:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
-        [("meal_time_unreasonable", "warning")]),
+        [("meal_time_unreasonable", "soft")]),
 ]
 
 

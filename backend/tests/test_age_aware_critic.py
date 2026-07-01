@@ -181,7 +181,7 @@ def test_format_violations_renders_expected_range_natural_language() -> None:
     """format 输出含「建议范围 X-Y min」，**不**含字段名。"""
     v = Violation(
         code=ViolationCode.AGE_DURATION_MISMATCH,
-        severity=Severity.CRITICAL,
+        severity=Severity.HARD,
         message="第 1 段 90 分钟超出年龄约束（含 5 岁孩）",
         field_path="nodes[1].duration_min",
         expected_range=(60, 75),
@@ -199,7 +199,7 @@ def test_format_violations_no_expected_range_no_extra_text() -> None:
     """无 expected_range 的 violation → format 不加「建议范围」段。"""
     v = Violation(
         code=ViolationCode.DURATION_OUT_OF_RANGE,
-        severity=Severity.CRITICAL,
+        severity=Severity.HARD,
         message="总时长超上限",
     )
     text = format_violations_for_llm([v])

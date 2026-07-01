@@ -163,8 +163,8 @@ def verify_s1_family_half_day() -> bool:
     )
 
     violations = validate_itinerary(itin, intent)
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
-    warning = [v for v in violations if v.severity == Severity.WARNING]
+    critical = [v for v in violations if v.severity == Severity.HARD]
+    warning = [v for v in violations if v.severity == Severity.SOFT]
     results.append(
         _check(
             f"critic 无 critical（warning {len(warning)} 条）",
@@ -230,7 +230,7 @@ def verify_s2_dining_only() -> bool:
     )
 
     violations = validate_itinerary(itin, intent)
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
+    critical = [v for v in violations if v.severity == Severity.HARD]
     results.append(
         _check(
             f"critic 无 critical（{len(violations)} 条 violations）",
@@ -319,7 +319,7 @@ def verify_s3_in_place_reuse() -> bool:
     )
 
     violations = validate_itinerary(itin, intent)
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
+    critical = [v for v in violations if v.severity == Severity.HARD]
     # 只看 hop / 不变量相关的 critical（duration 等业务规则不算 edge_v1 集成失败）
     structural = [
         v
@@ -397,7 +397,7 @@ def verify_s4_reverse_order() -> bool:
     )
 
     violations = validate_itinerary(itin, intent)
-    critical = [v for v in violations if v.severity == Severity.CRITICAL]
+    critical = [v for v in violations if v.severity == Severity.HARD]
     results.append(
         _check(
             f"critic 无 critical（{len(violations)} 条 violations）",

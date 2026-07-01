@@ -58,7 +58,7 @@ def critic_node(state: AgentState) -> dict[str, Any]:
             "restaurants": state.get("restaurants") or [],
         },
     )
-    has_critical = any(v.severity == Severity.CRITICAL for v in violations)
+    has_critical = any(v.severity == Severity.HARD for v in violations)
 
     # spec interaction-experience-review：规则模式产出的 itinerary 已经过 plan_itinerary
     # 内部的 5 级降级 + dining_slots 试探，不应再走 LLM-Modulo critic backprompt 闭环——
@@ -92,7 +92,7 @@ def critic_node(state: AgentState) -> dict[str, Any]:
         raw_codes = [
             getattr(getattr(v, "code", None), "value", str(getattr(v, "code", "")))
             for v in violations
-            if v.severity == Severity.CRITICAL
+            if v.severity == Severity.HARD
         ]
         code_counter = Counter(raw_codes)
         critical_codes = [
