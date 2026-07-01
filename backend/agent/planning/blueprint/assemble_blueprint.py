@@ -48,8 +48,9 @@ nodes.append(home_end_node(start=cursor+commute_back, duration=0))
 【不负责】
 
 - LLM 调用与 prompt（在 `agent/blueprint_llm.py` / `agent/prompts/blueprint_prompt.py`）
-- 蓝图级 critic（在 `agent/blueprint.py` 的 `run_blueprint_critics`）
-- Itinerary 级 critic（在 `agent/v2/critics_v2.py`）
+- 蓝图级 critic（ADR-0009 决策 8 已删——曾在 `blueprint.py` 的 `run_blueprint_critics`，
+  确认无生产调用者后随 Phase C-5 移除）
+- Itinerary 级 critic（在 `agent/planning/critic/critics_v2.py`）
 - decision_trace 填写（由 LangGraph `agent/graph/nodes/assemble.py` 节点注入）
 - share_message / orders 生成（由 narrate / execute 节点填充）
 """

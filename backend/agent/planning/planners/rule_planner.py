@@ -225,7 +225,6 @@ def plan_itinerary(
 
     # ---- 2. 查询 POI 候选（按需）----
     main_poi: Poi | None = None
-    backup_pois: list[Poi] = []
     if needs_main:
         pois = _query_pois(intent, _call, tracer)
         if isinstance(pois, FailureReason):
@@ -233,7 +232,6 @@ def plan_itinerary(
         if not pois:
             return _abort(tracer, FailureReason.EMPTY_CANDIDATES, "POI 候选为空")
         main_poi = pois[0]
-        backup_pois = pois[1:4]
 
     # ---- 3. 查询餐厅候选（按需）----
     chosen_restaurant: Restaurant | None = None
@@ -296,7 +294,6 @@ def plan_itinerary(
                     pois = _query_pois(intent, _call, tracer)
                     if not isinstance(pois, FailureReason) and pois:
                         main_poi = pois[0]
-                        backup_pois = pois[1:4]
                 # 重新算 time_window
                 depart_time, dining_slots, main_minutes, dining_minutes = (
                     _resolve_time_window(intent, segments=segments)
@@ -326,7 +323,6 @@ def plan_itinerary(
         poi_to_rest=poi_to_rest,
         rest_to_home=rest_to_home,
         party_size=party_size,
-        backup_pois=backup_pois,
         depart_time=depart_time,
         main_activity_minutes=main_minutes,
         dining_minutes=dining_minutes,
@@ -1000,7 +996,6 @@ def _assemble_itinerary(
     poi_to_rest: int,
     rest_to_home: int,
     party_size: int,
-    backup_pois: list[Poi],
     depart_time: str = DEFAULT_DEPART_TIME,
     main_activity_minutes: int = DEFAULT_MAIN_ACTIVITY_MINUTES,
     dining_minutes: int = DEFAULT_DINING_MINUTES,

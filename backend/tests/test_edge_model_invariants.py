@@ -160,11 +160,12 @@ def _make_random_blueprint(
     生成策略：
     - mid nodes 数量在 [1, 5] 内随机；
     - 每个节点以 50% 概率从 POI 候选选，否则从 restaurant 候选选；
-    - duration_min 区间：POI [30, 180] / 餐厅 [40, 120]，与 blueprint critic 的
-      [10, 300] 合理区间对齐，绝不触发 RuntimeError；
+    - duration_min 区间：POI [30, 180] / 餐厅 [40, 120]，落在原蓝图 critic 的
+      [10, 300] 合理区间内（该 critic 已随 ADR-0009 决策 8 删除，此处仅延续
+      同一输入域，绝不触发 RuntimeError）；
     - 累计 duration 上限：(24h - start_min - HOP_BUDGET) → 防止 cursor 跨过 24:00
-      让 `_fmt_hhmm` 静默 mod 24h（design.md 明确不支持跨日；blueprint._temporal_critic
-      已经在 LLM 路径上禁掉，fuzz 须自行约束输入域）。
+      让 `_fmt_hhmm` 静默 mod 24h（design.md 明确不支持跨日，fuzz 须自行约束
+      输入域）。
       若新节点会让累计超额，**改用合理上限内的随机值**，保证至少有一节点入选；
     - 30% 概率把第二个节点的 target_id/target_kind 复制给第一个节点，
       触发 lookup_hop 的 1 级 in_place 分支；

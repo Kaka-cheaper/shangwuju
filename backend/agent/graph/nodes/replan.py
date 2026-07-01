@@ -257,7 +257,6 @@ def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optiona
             poi_to_rest=poi_to_rest,
             rest_to_home=rest_to_home,
             party_size=party_size,
-            backup_pois=list(getattr(candidate, "backup_pois", []) or []),
             depart_time=depart_time,
             main_activity_minutes=main_minutes,
             dining_minutes=dining_minutes,

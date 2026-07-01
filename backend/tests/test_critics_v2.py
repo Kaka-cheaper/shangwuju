@@ -499,6 +499,40 @@ def test_format_violations_does_not_leak_dot_path():
     assert "第 2 段" in msg or "童趣海洋亲子馆" in msg, f"应包含人话定位：\n{msg}"
 
 
+def test_format_violations_renders_expected_range_natural_language():
+    """spec planning-quality-deep-review R4：format 输出含「建议范围 X-Y min」，**不**含字段名。
+
+    迁移自 test_age_aware_critic.py（ADR-0009 决策 8 删蓝图死 critic 层时收拢到本文件
+    ——这条测的是 critics_v2.format_violations_for_llm 的活行为，与已删的蓝图 critic
+    无关，不随蓝图死层一起删）。
+    """
+    v = Violation(
+        code=ViolationCode.AGE_DURATION_MISMATCH,
+        severity=Severity.HARD,
+        message="第 1 段 90 分钟超出年龄约束（含 5 岁孩）",
+        field_path="nodes[1].duration_min",
+        expected_range=(60, 75),
+    )
+    text = format_violations_for_llm([v])
+    assert "建议范围 60-75 min" in text
+    # 不暴露字段名
+    assert "expected_range" not in text
+    assert "nodes[1]" not in text
+    assert "duration_min" not in text
+    assert "field_path" not in text
+
+
+def test_format_violations_no_expected_range_no_extra_text():
+    """无 expected_range 的 violation → format 不加「建议范围」段（同上，迁移自 test_age_aware_critic.py）。"""
+    v = Violation(
+        code=ViolationCode.DURATION_OUT_OF_RANGE,
+        severity=Severity.HARD,
+        message="总时长超上限",
+    )
+    text = format_violations_for_llm([v])
+    assert "建议范围" not in text
+
+
 # ============================================================
 # 测试 9：DIETARY_VIOLATION + demo_full_check
 # ============================================================

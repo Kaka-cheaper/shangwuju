@@ -558,12 +558,13 @@ def check_age_aware_duration(
 ) -> list[Violation]:
     """spec planning-quality-deep-review R4：ILS 路径年龄感知单段时长 critic（镜像）。
 
-    与 `agent/blueprint.py:_age_aware_duration_critic` 业务等价，但作用对象是
-    Itinerary（已 assemble）而非 PlanBlueprint——LangGraph LLM 主路径走 blueprint
-    critic，ILS / fallback 路径走本 critic。**两者镜像防绕过**。
+    作用对象是已 assemble 的 Itinerary（非 PlanBlueprint）。所有规划路径（LLM 主路径 /
+    ILS / rule）的产物都过这一条统一 critic，是年龄合规的**兜底**——组装器已按 age_caps
+    在装配时夹好 POI 时长（ADR-0009 C-2·方案 α），此 check 正常极少触发。
+    （旧的 blueprint 级 `_age_aware_duration_critic` 已随 ADR-0009 C-5 删除。）
 
-    业务规则（ADR-0008 B-2b：年龄→cap 查表改读单一真相源 `agent.planning.critic.age_caps`，
-    与 blueprint.py 独立维护的 `_resolve_age_caps` 不再是唯一同源——本 check 现在直接读表）：
+    业务规则（cap 读单一真相源 `agent.planning.critic.age_caps`，与组装器 / grounding /
+    ILS penalty 四方共读同一张表）：
     - companions 含 ≤3 岁 → cap 45min（婴幼儿）
     - companions 含 4-6 岁 → cap 75min（学龄前）
     - companions 含 7-12 岁 → cap 120min（学童）
