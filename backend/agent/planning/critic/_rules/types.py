@@ -46,6 +46,7 @@ class ViolationCode(str, Enum):
     TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2
     CAPACITY_REQUIREMENT_VIOLATED = "capacity_requirement_violated"  # spec innovation-review M3
     MEAL_TIME_UNREASONABLE = "meal_time_unreasonable"  # spec planning-pipeline-consolidation R1
+    OPENING_HOURS_VIOLATION = "opening_hours_violation"  # ADR-0008 B-2b：营业时间检查（新增）
 
 
 class Severity(str, Enum):
@@ -114,8 +115,7 @@ DURATION_TOLERANCE_MIN: int = 30
 # distance critic 容差（km）
 DISTANCE_TOLERANCE_KM: float = 0.5
 
-# demo-aware 17:00 满座埋点
-DEMO_FULL_TIME: str = "17:00"
-
 
 # (ADR-0008 B-1: SEVERITY_WEIGHTS / CODE_WEIGHTS / VALID_FEEDBACK_MODES 随 reward/feedback-mode 机制一起删除)
+# (ADR-0008 B-2b O11: DEMO_FULL_TIME 孤儿常量已删——check_demo_restaurant_full 早改查
+#  mock reservation_slots 真值，不再依赖写死的 17:00)

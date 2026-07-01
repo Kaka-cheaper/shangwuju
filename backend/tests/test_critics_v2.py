@@ -669,3 +669,59 @@ def test_capacity_no_trigger_when_none():
     violations = validate_itinerary(itinerary, intent)
     codes = [v.code for v in violations]
     assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes
+
+
+# ============================================================
+# O3 characterization：check_capacity 的 cap_req==5 分支（合并前钉死行为）
+#
+# 重构前 check_capacity 对 cap_req>=6 与 5 人（else 分支）两支判定逻辑字节完全相同
+# （都是 has_seat = cap.six or cap.eight or cap.private_room）。以下两条测试钉死
+# 5 人场景（触发 / 不触发）的现有行为，O3 合并死分支后必须仍然通过（行为不变）。
+# ============================================================
+
+
+def test_capacity_violated_when_party_size_is_5():
+    """intent.capacity_requirement=5 / R001 仅 2/4 桌 → 触发 CAPACITY_REQUIREMENT_VIOLATED HARD。
+
+    O3 重构前后行为必须一致：5 人一样坐不下 2/4 人桌，一样要触发。
+    """
+    intent = _make_intent()
+    intent.capacity_requirement = 5  # 5 人（else 分支）
+
+    itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001: 2/4 only
+    violations = validate_itinerary(itinerary, intent)
+    capacity_violations = [
+        v for v in violations
+        if v.code == ViolationCode.CAPACITY_REQUIREMENT_VIOLATED
+        and v.severity == Severity.HARD
+    ]
+    assert capacity_violations, (
+        f"R001 仅含 2/4 桌但同行 5 人 → 应触发 CAPACITY_REQUIREMENT_VIOLATED，"
+        f"实际 violations={[v.code for v in violations]}"
+    )
+
+
+def test_capacity_no_trigger_when_5_with_six_seat_restaurant():
+    """capacity_requirement=5 / R002 含 6 人桌 → 不触发。"""
+    intent = _make_intent(social_context="商务接待")
+    intent.capacity_requirement = 5
+
+    itinerary = _make_legal_itinerary(restaurant_id="R002")  # R002: six=True
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes, (
+        f"R002 含 6 人桌，5 人应可坐下，不应触发，实际 codes={codes}"
+    )
+
+
+def test_capacity_no_trigger_when_6_with_six_seat_restaurant():
+    """capacity_requirement=6 / R002 含 6 人桌 → 不触发（对称覆盖 if 分支的通过路径）。"""
+    intent = _make_intent(social_context="商务接待")
+    intent.capacity_requirement = 6
+
+    itinerary = _make_legal_itinerary(restaurant_id="R002")  # R002: six=True
+    violations = validate_itinerary(itinerary, intent)
+    codes = [v.code for v in violations]
+    assert ViolationCode.CAPACITY_REQUIREMENT_VIOLATED not in codes, (
+        f"R002 含 6 人桌，6 人应可坐下，不应触发，实际 codes={codes}"
+    )

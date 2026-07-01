@@ -20,14 +20,21 @@ ADR-0008 B-2a 对 B-1 的增量改变：
 
 - Stage 1（hard 语义，gate 修复）：check_duration / check_hop_feasibility /
   check_temporal_alignment（拆自原 check_temporal_feasibility 的对齐部分）/
-  check_demo_restaurant_full / check_social_context /
-  check_age_aware_duration / check_capacity /
+  check_demo_restaurant_full / check_opening_hours（B-2b 新增）/
+  check_social_context / check_age_aware_duration / check_capacity /
   check_dietary（B-2a 升 HARD）/ check_meal_time（B-2a 升 HARD）
 
 - Stage 2（soft 建议，narration only）：check_distance
 
 Stage 0 无违规时，Stage 1 + Stage 2 **collect-all 跨两阶段**（soft 建议与 hard
 诊断并列——LLM-Modulo 原则：soft 不 gate，但要让 LLM 看到）。
+
+【Phase B-2b：营业时间检查移植（新增，非 tier 调整）】
+
+`check_opening_hours` 从死代码 blueprint._opening_hours_critic 移植营业时间判定
+逻辑（`_is_in_business_hours`），作用对象改为已 assemble 的 Itinerary（真实
+node.start_time，含 hop 通勤耗时），注册在 Stage 1 hard——填补 ADR-0008 背景诊断
+指出的「营业时间校验生产无任何实现」漏检。
 
 【tier 与 stage 的关系】
 
@@ -36,6 +43,7 @@ Stage 0 无违规时，Stage 1 + Stage 2 **collect-all 跨两阶段**（soft 建
 - temporal_feasibility (G2 拆位)：可解析 → Stage 0 check_time_parseable；
   hop/buffer 对齐 → Stage 1 check_temporal_alignment。
 - nodes_incomplete (B1 修订)：改按 decide_nodes→target_kind 判，不按自由文本 kind。
+- opening_hours (B-2b 新增)：Stage 1 hard，None-guard 防重蹈 O4 的 TypeError。
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ from ._rules.checks import (
     check_invariants,
     check_meal_time,
     check_nodes_incomplete,
+    check_opening_hours,
     check_social_context,
     check_temporal_alignment,
     check_temporal_feasibility,  # noqa: F401  保留兼容：critics_v2 别名仍用
@@ -98,6 +107,8 @@ REGISTRY: list[CheckSpec] = [
     # B-2a G2 拆位：hop/buffer 对齐 → Stage 1 hard（原 check_temporal_feasibility 拆出）
     CheckSpec(ViolationCode.TIMELINE_INCONSISTENT, 1, "hard", check_temporal_alignment),
     CheckSpec(ViolationCode.RESTAURANT_FULL_UNRESOLVED, 1, "hard", check_demo_restaurant_full),
+    # B-2b G3：营业时间检查移植自死的 blueprint._opening_hours_critic（新增，非 tier 调整）
+    CheckSpec(ViolationCode.OPENING_HOURS_VIOLATION, 1, "hard", check_opening_hours),
     # social：BLOCKING(hard/stage1) + POOR(soft/stage2) 同 check；标其 gating 能力
     CheckSpec(ViolationCode.SOCIAL_CONTEXT_MISMATCH, 1, "hard", check_social_context),
     CheckSpec(ViolationCode.AGE_DURATION_MISMATCH, 1, "hard", check_age_aware_duration),

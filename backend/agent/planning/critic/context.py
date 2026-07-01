@@ -20,8 +20,8 @@ ILS 路径无搜索快照 → `tool_results=None` → 反幻觉在该路径为 n
 
 【Phase A 边界】
 
-本类只搬运数据，不含任何判定逻辑；CRITICAL/WARNING 语义、check 顺序、短路与否
-全部不变（仍由 critics_v2 的 flat collect-all 决定）。
+本类只搬运数据，不含任何判定逻辑；hard/soft 语义、check 顺序、分阶段短路
+全部由 validate 的分阶段 REGISTRY 决定，与本类无关。
 """
 
 from __future__ import annotations

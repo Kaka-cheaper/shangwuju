@@ -60,6 +60,7 @@ from ._rules.checks import (
     check_invariants,
     check_meal_time,
     check_nodes_incomplete,
+    check_opening_hours,
     check_social_context,
     check_temporal_alignment,
     check_temporal_feasibility,
@@ -90,6 +91,7 @@ _check_temporal_alignment = check_temporal_alignment  # B-2a 新增：Stage 1 ho
 _check_hop_feasibility = check_hop_feasibility
 _check_distance = check_distance
 _check_demo_restaurant_full = check_demo_restaurant_full
+_check_opening_hours = check_opening_hours  # B-2b 新增：营业时间检查
 _check_dietary = check_dietary
 _check_social_context = check_social_context
 _check_age_aware_duration = check_age_aware_duration
@@ -132,7 +134,7 @@ def validate_itinerary(
 ) -> list[Violation]:
     """跑全套 critic 检查（分阶段）。返回 violations 列表（可能为空）。
 
-    顺序约定（ADR-0008 B-2a 分阶段）：
+    顺序约定（ADR-0008 B-2b 分阶段）：
     Stage 0（结构门，命中短路）：
       1. INVARIANT_BROKEN（防御性兜底）
       2. NODES_INCOMPLETE（按 decide_nodes→target_kind 判，B-2a B1 修订）
@@ -143,13 +145,14 @@ def validate_itinerary(
       6. HOP_INFEASIBLE（_check_hop_feasibility）
       7. TIMELINE_INCONSISTENT / check_temporal_alignment（hop/buffer 对齐，G2 拆位）
       8. RESTAURANT_FULL_UNRESOLVED（demo-aware）
-      9. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
-      10. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
-      11. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
-      12. DIETARY_VIOLATION（B-2a 升 HARD，gate 修复）
-      13. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
+      9. OPENING_HOURS_VIOLATION（B-2b 新增：营业时间，移植自死代码 blueprint 层）
+      10. SOCIAL_CONTEXT_MISMATCH（hard / soft 分级）
+      11. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
+      12. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
+      13. DIETARY_VIOLATION（B-2a 升 HARD，gate 修复）
+      14. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
     Stage 2（soft 建议，narration only）：
-      14. DISTANCE_EXCEEDED（warning）
+      15. DISTANCE_EXCEEDED（soft）
 
     Args:
         itinerary:    要校验的方案（已通过 Pydantic 构造）。
