@@ -5,7 +5,8 @@ W2 owner = A 同学的 planner.py 主体；本测试是 owner=A 的 P2 加分项
 
 覆盖维度：
 1. weights_llm 启发式兜底正确性（按 social_context 给出合理权重）
-2. critics 4 个 Critic 的硬/软违规分流（基于 nodes/hops 模型）
+2. plan_hybrid 的统一 critic 适配层 `_run_unified_critic`（ADR-0009 C-3：替代已删除的
+   ils_score_critic 4 维打分 critic）硬/软违规分流是否如期反映在 passed/hard_violations()
 3. utility 函数对距离 / 评分 / cost 的敏感性
 4. 端到端：构造 mock LLM client → ils_planner.plan_hybrid → hybrid 路径
 
@@ -26,11 +27,9 @@ import pytest
 
 from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
 from agent.planning.blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
-from agent.planning.critic.ils_score_critic import (
-    run_critics,
-)
+from agent.planning.critic.critics_v2 import Severity, ViolationCode
 from agent.core.trace import Tracer
-from agent.planning.planners.ils_planner import plan_hybrid
+from agent.planning.planners.ils_planner import _run_unified_critic, plan_hybrid
 from agent.planning.planners.rule_planner import plan_itinerary
 from agent.planning.weights_llm import (
     PlanningWeights,
@@ -132,8 +131,32 @@ def test_planning_weights_normalize_zero_input():
 
 
 # ============================================================
-# 2. 4 个 Critic 的硬/软违规分流（edge_v1：基于 nodes/hops）
+# 2. plan_hybrid 统一 critic 适配层的硬/软违规分流（ADR-0009 C-3）
+#
+# 这 4 个测试是 spec Wave 7 遗留的「4 个 ils_score_critic」characterization 测试的
+# 意图延续（intentional，非纯 characterization 删除）：ils_score_critic 本身随
+# ADR-0009 决策 1/3 删除，但「plan_hybrid 的 critic 步骤能正确识别满座/缺节点/
+# 调性软违规/总时长超限」这几条行为保证仍然成立——只是现在经由
+# `_run_unified_critic`（薄 adapter 包 critics_v2.validate_itinerary）实现，
+# 断言从 `v.critic == "xxx"` 换成 `v.code == ViolationCode.XXX`。
+#
+# 用 `_intent_no_age_cap()` 而非共享 `_intent()`：统一 critic 比旧 4 维 critic
+# 多出 check_age_aware_duration 等一整套 Stage 1 检查——本文件 `_itinerary()`
+# 靠反推 POI 时长命中目标 dining_time，通常算出 150-200min 的 POI 停留，
+# 远超 5 岁孩子的 75min cap，会让 AGE_DURATION_MISMATCH 掺进来污染这几个测试
+# 想单独验证的信号（是否满座 / 是否缺节点 / 调性软违规 / 总时长超限）。
+# 换成成人同行人排除这个confound，不代表 age-aware 校验不重要——
+# 那条行为有专门覆盖，见 test_critics_v2.py / test_age_aware_critic.py。
 # ============================================================
+
+def _intent_no_age_cap(**overrides) -> IntentExtraction:
+    """同 `_intent()`，但 companions 全为成人（无年龄 cap 触发）。"""
+    overrides.setdefault(
+        "companions",
+        (Companion(role="妻子", count=1), Companion(role="丈夫", count=1)),
+    )
+    return _intent(**overrides)
+
 
 def _itinerary(
     *,
@@ -219,7 +242,7 @@ def _itinerary_dining_at(target_dining_time: str, restaurant_id: str = "R001") -
 
 def test_critic_passes_clean_plan():
     """合法 plan：R001 有 17:30 可订时段（mock 数据）。"""
-    intent = _intent()
+    intent = _intent_no_age_cap()
     # 通过精调让用餐节点落在某个 mock 中可订的时段
     plan = _itinerary(poi_id="P001", restaurant_id="R001", dining_time="17:30")
     # 用餐节点实际开始时刻可能因 lookup_hop 与 buffer 略有偏移；找出真实 dining_node.start_time
@@ -229,7 +252,7 @@ def test_critic_passes_clean_plan():
     assert dining_node is not None
     # 若实际时刻不在 mock 时段内，跳过该断言（critic 会硬违规，本测试转为验「无硬违规需在合法时段」）
     # 对常见 mock：R001 提供 17:00/17:30/18:00 等时段
-    report = run_critics(plan, intent)
+    report = _run_unified_critic(plan, intent)
     # 不强求完全 pass（因 dining_time 可能微偏移），但若用餐节点落在 mock 可订时段则应 pass
     if dining_node.start_time in {"17:00", "17:30", "18:00", "18:30", "19:00"}:
         # 这些是 R001 mock 中 available=True 的时段（17:00 是 available=False，故排除）
@@ -241,8 +264,8 @@ def test_critic_passes_clean_plan():
 
 
 def test_critic_catches_unavailable_slot():
-    """让用餐节点落在 mock 中 available=false 的 17:00 → 应硬违规。"""
-    intent = _intent()
+    """让用餐节点落在 mock 中 available=false 的 17:00 → 应硬违规（RESTAURANT_FULL_UNRESOLVED）。"""
+    intent = _intent_no_age_cap()
     # 调 dining_time=17:00 让 critic 看到不可订时段
     plan = _itinerary(poi_id="P001", restaurant_id="R001", dining_time="17:00")
     dining_node = next(
@@ -255,48 +278,56 @@ def test_critic_catches_unavailable_slot():
             f"实际 dining 节点起始时刻 {dining_node.start_time}，"
             f"非 mock 不可订时段，本测试条件不满足"
         )
-    report = run_critics(plan, intent)
+    report = _run_unified_critic(plan, intent)
     assert not report.passed
-    msgs = [v.message for v in report.hard_violations()]
+    hard = report.hard_violations()
+    assert any(v.code == ViolationCode.RESTAURANT_FULL_UNRESOLVED for v in hard), hard
+    msgs = [v.message for v in hard]
     assert any("17:00" in m and "已满" in m for m in msgs), msgs
 
 
 def test_critic_catches_missing_node_kind():
-    """缺「用餐」节点 → 硬违规（hard_constraint 节点 kind 缺失）。
+    """缺「用餐」节点 → 硬违规（NODES_INCOMPLETE，Stage 0 结构门）。
 
     edge_v1：决定 mid_nodes 的依据是 decide_nodes(intent)；家庭场景应有 [主活动, 用餐]。
     构造仅含主活动节点的行程，预期 critic 报「中间节点缺失」硬违规。
     """
-    intent = _intent()
+    intent = _intent_no_age_cap()
     plan = _itinerary(poi_id="P001", restaurant_id=None, skip_restaurant=True)
-    report = run_critics(plan, intent)
+    report = _run_unified_critic(plan, intent)
     assert not report.passed
+    hard = report.hard_violations()
     assert any(
-        v.critic == "hard_constraint" and "缺失" in v.message
-        for v in report.violations
-    )
+        v.code == ViolationCode.NODES_INCOMPLETE and "缺" in v.message
+        for v in hard
+    ), hard
 
 
 def test_critic_style_soft_violation_for_mismatched_context():
     """商务场景但用了家庭餐厅 R001 → 软违规（不阻断）。
 
-    R001 = 轻语沙拉（suitable_for=["家庭日常"]），与商务接待不匹配。
+    R001 = 轻语沙拉（suitable_for=["家庭日常"]），与商务接待不匹配
+    （social_compat 矩阵：("商务接待","家庭日常") → POOR，非 BLOCKING）。
     """
-    intent = _intent(social_context="商务接待")
+    intent = _intent_no_age_cap(social_context="商务接待")
     plan = _itinerary(poi_id="P001", restaurant_id="R001", dining_time="17:30")
-    report = run_critics(plan, intent)
-    style_violations = [v for v in report.violations if v.critic == "style"]
-    assert any(v.severity == "soft" for v in style_violations)
-    # soft 不卡 passed，但 soft_score 会被扣
-    assert report.soft_score < 1.0
+    report = _run_unified_critic(plan, intent)
+    social_violations = [
+        v for v in report.violations if v.code == ViolationCode.SOCIAL_CONTEXT_MISMATCH
+    ]
+    assert any(v.severity == Severity.SOFT for v in social_violations), (
+        f"应至少有一条 SOFT 社交调性违规；实际全部违规：{[(v.code, v.severity, v.message) for v in report.violations]}"
+    )
+    # soft 不卡 passed
+    assert all(v.severity == Severity.SOFT for v in social_violations)
 
 
 def test_critic_total_minutes_overflow_hard():
     """构造一个超长行程（duration ≥ 4h）→ 硬违规（intent 上限 5h，4h+30tolerance=不必硬违规）。
 
-    采用 POI 极长停留（240min）+ 餐厅 60min，总跨度约 5+ 小时 → 触发 total_minutes 硬违规。
+    采用 POI 极长停留（240min）+ 餐厅 60min，总跨度约 5+ 小时 → 触发 DURATION_OUT_OF_RANGE 硬违规。
     """
-    intent = _intent()  # 最大 5h = 300min；total > 330min 触发硬违规
+    intent = _intent_no_age_cap()  # 最大 5h = 300min；total > 330min 触发硬违规
     bp = PlanBlueprint(
         nodes=[
             BlueprintNode(
@@ -320,8 +351,10 @@ def test_critic_total_minutes_overflow_hard():
         f"测试前提：total_minutes 应 > 330min（intent 5h + 30min 容差），"
         f"实际 {plan.total_minutes}"
     )
-    report = run_critics(plan, intent)
+    report = _run_unified_critic(plan, intent)
     assert not report.passed
+    hard = report.hard_violations()
+    assert any(v.code == ViolationCode.DURATION_OUT_OF_RANGE for v in hard), hard
 
 
 # ============================================================
