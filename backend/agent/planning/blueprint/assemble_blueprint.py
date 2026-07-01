@@ -358,6 +358,15 @@ def assemble_from_blueprint(
 
         node_start_min = cursor_min + buffer
 
+        # 乙（ADR-0009 决策 2）：节点可声明「最早开始时刻」not_before_start（如餐厅
+        # 预约 chosen_time）。自然到达早于它时，把节点开始推迟到该时刻——差额是餐前
+        # 空闲/休息，让排定时刻与 note/reservation 自洽（cap 砍短 POI 后餐厅仍准点）。
+        # buffer 保持真实过渡值不变；check_temporal_alignment 因 to_start ≥
+        # hop_end + buffer 仍通过（推迟只会让 to_start 更大，不会更小）。
+        nb_raw = getattr(bp_node, "not_before_start", None)
+        if nb_raw and _TIME_RE.match(nb_raw):
+            node_start_min = max(node_start_min, _parse_hhmm(nb_raw))
+
         # bp_node.target_kind 是 BlueprintTargetKind 枚举（poi/restaurant），
         # 与 ActivityNode.target_kind 的 Literal["poi","restaurant","home"] 兼容
         target_kind_str: NodeTargetKind = bp_node.target_kind.value  # type: ignore[assignment]

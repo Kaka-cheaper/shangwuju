@@ -131,6 +131,15 @@ class BlueprintNode(BaseModel):
         default=None,
         description='给前端的补充提示文案，如"已预约 17:00 三人位"',
     )
+    not_before_start: Optional[str] = Field(
+        default=None,
+        description=(
+            '节点最早开始时刻 "HH:MM"（如餐厅预约 chosen_time）。'
+            "assemble_from_blueprint 在自然到达早于此刻时，把节点开始推迟到此刻"
+            "（差额为餐前空闲/休息），让排定时刻与 note/reservation 自洽"
+            "（ADR-0009 决策 2·乙）。默认 None=不约束，LLM 路径不设即 no-op。"
+        ),
+    )
 
 
 # ============================================================

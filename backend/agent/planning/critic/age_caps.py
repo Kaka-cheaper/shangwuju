@@ -43,3 +43,29 @@ def cap_for_age(age: int) -> tuple[int, str] | None:
     if age >= 75:
         return SENIOR_CAP_MIN, "高龄"
     return None
+
+
+def strictest_cap_for_companions(companions) -> int | None:
+    """遍历同行人，返回其中最严（min）单段时长 cap；无人落任何分桶时返回 None。
+
+    ADR-0009 决策 2（方案 α）：组装器把 POI 时长夹到本函数的返回值，取代
+    `check_age_aware_duration` 里「仅供兜底复核」的内联多代际取最严逻辑——
+    两处算法必须一致（同源单一真相源），故抽成本函数供两边共读。
+
+    与 `check_age_aware_duration` 的差异：本函数只返回数值 cap（组装器只需要
+    夹时长），不拼人类可读 reason 文案（那是 critic 消息展示的关切，组装器不需要）。
+
+    参数用鸭子类型（不 import `schemas.intent.Companion`）：任何带 `.age`
+    属性（`Optional[int]`）的对象列表都能传；`companions` 为 None/空/无合法
+    年龄时返回 None（不约束）。
+    """
+    caps: list[int] = []
+    for c in companions or []:
+        age = getattr(c, "age", None)
+        if not isinstance(age, int) or age < 0:
+            continue
+        tier = cap_for_age(age)
+        if tier is None:
+            continue
+        caps.append(tier[0])
+    return min(caps) if caps else None
