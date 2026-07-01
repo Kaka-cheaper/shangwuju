@@ -88,7 +88,7 @@ from ._rules.checks import (
     check_temporal_feasibility,
     check_tool_consistency,
 )
-from ._rules.helpers import safe_load_user_profile
+from ._rules.helpers import safe_load_user_profile  # noqa: F401  兼容旧 import 路径
 from ._rules.types import (
     CODE_WEIGHTS,
     SEVERITY_WEIGHTS,
@@ -97,6 +97,8 @@ from ._rules.types import (
     Violation,
     ViolationCode,
 )
+from .context import CriticContext
+from .validate import validate
 
 
 # ============================================================
@@ -246,28 +248,17 @@ def validate_itinerary(
 
     Returns:
         Violation 列表；调用方据 severity 决定是否 backprompt / replan。
-    """
-    profile = safe_load_user_profile(user_id)
 
-    violations: list[Violation] = []
-    violations.extend(check_invariants(itinerary))
-    violations.extend(check_nodes_incomplete(itinerary))
-    violations.extend(check_duration(itinerary, intent))
-    violations.extend(check_temporal_feasibility(itinerary))
-    violations.extend(check_hop_feasibility(itinerary, user_profile=profile))
-    violations.extend(check_distance(itinerary, intent))
-    violations.extend(check_demo_restaurant_full(itinerary))
-    violations.extend(check_dietary(itinerary, intent))
-    violations.extend(check_social_context(itinerary, intent))
-    # spec planning-quality-deep-review R4：ILS 路径年龄感知 critic（镜像）
-    violations.extend(check_age_aware_duration(itinerary, intent))
-    # spec algorithm-redesign R2：tool 响应一致性（hallucination 防护）
-    violations.extend(check_tool_consistency(itinerary, tool_results))
-    # spec innovation-review M3：capacity_requirement critic（≥5 人桌型校验）
-    violations.extend(check_capacity(itinerary, intent))
-    # spec planning-pipeline-consolidation R1：用餐时段合理性（正餐不落非饭点）
-    violations.extend(check_meal_time(itinerary))
-    return violations
+    【ADR-0008 Phase A：本函数已收窄为 thin shim】
+
+    签名与返回类型保持不变（所有调用方/测试无感）；内部改走新接缝：
+    1. `CriticContext.build` 一次性载入 profile / 全量 mock / tool_results 快照；
+    2. `validate(itinerary, ctx)` 遍历 Check 注册表 flat collect-all（当前顺序）。
+    与重构前逐字节等价——唯一区别是数据加载一次而非逐 check 加载。顺序 / 短路 /
+    CRITICAL·WARNING 语义全部不变（分阶段短路与 tier 调整属 Phase B）。
+    """
+    ctx = CriticContext.build(intent, user_id=user_id, tool_results=tool_results)
+    return validate(itinerary, ctx)
 
 
 def format_violations_for_llm(violations: list[Violation]) -> str:

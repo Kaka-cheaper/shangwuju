@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
@@ -37,6 +37,24 @@ from .helpers import (
     safe_load_pois,
     safe_load_restaurants,
 )
+
+if TYPE_CHECKING:  # 仅类型标注用，运行时不 import，避免 checks ↔ context 任何环依赖
+    from agent.planning.critic.context import CriticContext
+
+
+# ============================================================
+# CriticContext 接缝（ADR-0008 Phase A）
+# ============================================================
+#
+# 每个 check 新增 keyword-only 形参 `ctx: CriticContext | None`：
+# - validate() 走注册表统一以 `fn(plan, ctx=ctx)` 调用 → 数据从 ctx 读（一次性加载）。
+# - 历史直调（测试 / 脚本如 `check_meal_time(itin)` / `_check_tool_consistency(itin, None)`）
+#   不传 ctx → 各 check 回退到旧的 `safe_load_*()` 自加载，**行为逐字节不变**。
+# 因为 ctx 与回退路径都走同一组 `safe_load_*`，两条路径产出的数据完全一致。
+#
+# `_UNSET`：区分「显式传入 tool_results=None（跳过反幻觉）」与「未传、应从 ctx 取」。
+
+_UNSET = object()
 from .types import (
     DEMO_FULL_TIME,  # noqa: F401  保留兼容：旧引用方可能 import
     DISTANCE_TOLERANCE_KM,
@@ -71,8 +89,12 @@ def _get_lookup_hop():
 # ============================================================
 
 
-def check_invariants(itinerary: Itinerary) -> list[Violation]:
+def check_invariants(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """edge_v1 三条结构不变量（防御性兜底）。
+
+    `ctx` 在本 check 不消费（纯结构断言，不查任何外部数据）；保留形参仅为注册表统一调用。
 
     通常 Pydantic `Itinerary._check_invariants` 已在 model_validator 阶段拦下；
     本 critic 仅在「有人手工 bypass Pydantic 构造」或「下游 mutate 后破坏不变量」
@@ -156,8 +178,12 @@ def check_invariants(itinerary: Itinerary) -> list[Violation]:
     return out
 
 
-def check_nodes_incomplete(itinerary: Itinerary) -> list[Violation]:
+def check_nodes_incomplete(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """验中间节点（非首尾 home）至少 1 个。
+
+    `ctx` 在本 check 不消费（纯结构断言）；保留形参仅为注册表统一调用。
 
     退化情形：nodes=[home, home] / hops=[in_place 0min] —— 用户原地不动，
     没有任何活动节点，行程毫无意义；触发 CRITICAL 让 planner replan。
@@ -180,8 +206,17 @@ def check_nodes_incomplete(itinerary: Itinerary) -> list[Violation]:
     return []
 
 
-def check_duration(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_duration(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """验 total_minutes 是否落在 intent.duration_hours±30min 容差。"""
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None:
+        return []  # 无 intent 无从校验（旧路径恒有 intent，此处仅防御）
     duration = intent.duration_hours
     if not duration or len(duration) != 2:
         return []  # schema 校验已保证此处必有值，但防御一下
@@ -211,8 +246,12 @@ def check_duration(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return []
 
 
-def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
+def check_temporal_feasibility(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """验时序自洽：hop.start ≈ from_node.end 且 to_node.start ≥ hop.end + buffer。
+
+    `ctx` 在本 check 不消费（只读 itinerary 自身的时间戳）；保留形参仅为注册表统一调用。
 
     设计依据（design.md _check_temporal_feasibility 伪代码）：
     - 容差 2min（assemble 内部按整数分钟取整，可能轻微浮动）
@@ -288,6 +327,8 @@ def check_temporal_feasibility(itinerary: Itinerary) -> list[Violation]:
 def check_hop_feasibility(
     itinerary: Itinerary,
     user_profile=None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """验 hop.minutes ≥ lookup_hop 实际值 - 容差。
 
@@ -299,6 +340,8 @@ def check_hop_feasibility(
     """
     out: list[Violation] = []
 
+    if user_profile is None and ctx is not None:
+        user_profile = ctx.profile
     if user_profile is None:
         return out
 
@@ -345,7 +388,10 @@ def check_hop_feasibility(
 
 
 def check_age_aware_duration(
-    itinerary: Itinerary, intent: IntentExtraction
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """spec planning-quality-deep-review R4：ILS 路径年龄感知单段时长 critic（镜像）。
 
@@ -362,6 +408,8 @@ def check_age_aware_duration(
 
     仅对 target_kind=poi 的 mid node 校验（餐厅按 typical_dining_min 是另一规则）。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     if intent is None or not getattr(intent, "companions", None):
         return []
 
@@ -417,18 +465,31 @@ def check_age_aware_duration(
     return out
 
 
-def check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_distance(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """单个 mid node 距家距离 > intent.distance_max_km → warning。
 
     edge_v1：直接遍历 nodes（home 节点 distance 无意义跳过）。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     out: list[Violation] = []
+    if intent is None:
+        return out
     max_km = intent.distance_max_km
     if max_km is None or max_km <= 0:
         return out
 
-    pois_by_id = {p.id: p for p in safe_load_pois()}
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind == "home":
@@ -464,7 +525,9 @@ def check_distance(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return out
 
 
-def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
+def check_demo_restaurant_full(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """demo-aware 满座埋点：mock 餐厅在「reservation_slots[time].available=False」是 RESTAURANT_FULL 异常埋点。
 
     spec planning-quality-deep-review R4：从「写死 17:00」改为查 mock 真值——
@@ -477,7 +540,11 @@ def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     if enabled in ("0", "false", "no", "off"):
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     out: list[Violation] = []
     for idx, node in enumerate(itinerary.nodes):
@@ -512,7 +579,12 @@ def check_demo_restaurant_full(itinerary: Itinerary) -> list[Violation]:
     return out
 
 
-def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_capacity(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """spec innovation-review M3：capacity_requirement critic（≥6 人但餐厅无 8 人桌型）。
 
     业务背景：
@@ -527,11 +599,17 @@ def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     - 餐厅 load 失败 → 跳过（无数据不误伤）
     - severity=CRITICAL（≥6 人没桌等于不能就餐，比 dietary warning 严重）
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     cap_req = getattr(intent, "capacity_requirement", None)
     if cap_req is None or cap_req <= 4:
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
@@ -570,17 +648,28 @@ def check_capacity(itinerary: Itinerary, intent: IntentExtraction) -> list[Viola
     return out
 
 
-def check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violation]:
+def check_dietary(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
     """用餐 node 餐厅 tags 是否覆盖 intent.dietary_constraints。
 
     - intent 没饮食约束 → 跳过
     - node 不是 restaurant → 跳过
     - load 失败 → 跳过
     """
-    if not intent.dietary_constraints:
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None or not intent.dietary_constraints:
         return []
 
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
@@ -612,7 +701,10 @@ def check_dietary(itinerary: Itinerary, intent: IntentExtraction) -> list[Violat
 
 
 def check_social_context(
-    itinerary: Itinerary, intent: IntentExtraction
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """social_context 与候选 suitable_for 的兼容性 critic。
 
@@ -623,8 +715,10 @@ def check_social_context(
 
     edge_v1：遍历 nodes 而非 stages；POI/Restaurant 节点分别走 evaluate_poi/_restaurant。
     """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
     out: list[Violation] = []
-    sc = intent.social_context or ""
+    sc = (intent.social_context or "") if intent is not None else ""
     if not sc:
         return out
 
@@ -637,8 +731,12 @@ def check_social_context(
     except ImportError:
         return out
 
-    pois_by_id = {p.id: p for p in safe_load_pois()}
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
 
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind == "poi" and node.target_id in pois_by_id:
@@ -721,7 +819,9 @@ def check_social_context(
 
 def check_tool_consistency(
     itinerary: Itinerary,
-    tool_results: dict | None,
+    tool_results: "dict | None | object" = _UNSET,
+    *,
+    ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
     """验 itinerary 中 POI/Restaurant target_id 是否在工具实际返回的候选池里。
 
@@ -742,7 +842,12 @@ def check_tool_consistency(
     - 错误 message **不**暴露字段名（不写 "target_id"），用「方案中『XX』不在候选池中」
     - target_kind=home 不检查（home 不来自工具）
     - tool_results=None 或两个候选池都为空 → 跳过（stub mode / 无候选场景）
+
+    `tool_results` 用 `_UNSET` 哨兵：显式传 None（含历史直调 `(itin, None)`）= 跳过反幻觉；
+    完全不传 = 从 ctx.tool_results 取（注册表路径）。两者都解析为「None → 跳过」是等价的。
     """
+    if tool_results is _UNSET:
+        tool_results = ctx.tool_results if ctx is not None else None
     if tool_results is None:
         return []
 
@@ -805,7 +910,9 @@ _DINNER_END_MIN = 20 * 60         # 20:00
 _SUPPER_START_MIN = 21 * 60       # 21:00（夜宵；含烧烤/火锅等夜宵正餐）
 
 
-def check_meal_time(itinerary: Itinerary) -> list[Violation]:
+def check_meal_time(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
     """正餐节点 start_time 是否落在合理饭点窗口（R1）。
 
     规则：
@@ -817,7 +924,11 @@ def check_meal_time(itinerary: Itinerary) -> list[Violation]:
     设计动机（S4 实测 bug）：下午 14:05 安排正餐火锅不符合常识。本 check 让
     critic 能检出"非饭点正餐"，触发 LLM 自纠或 narration 提示。
     """
-    restaurants_by_id = {r.id: r for r in safe_load_restaurants()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
     if not restaurants_by_id:
         return []
 
