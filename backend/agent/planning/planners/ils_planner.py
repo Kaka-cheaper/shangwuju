@@ -15,7 +15,8 @@ local search + 5% 接受劣解。LangGraph 第 3 次 replan 仍调用 plan_hybri
 - `_overload_penalty(poi, intent)` 单段过载强惩罚（年龄 cap 兜底；cap 表读
   `critic/age_caps.py` 单一真相源，ADR-0009 决策 6）
 - `_resolve_dynamic_dining_slots(intent, segments)` 动态用餐时段
-- `_retry_with_critic_feedback` 按 ViolationCode 路由的黑名单动作（ADR-0009 决策 3/4/6）
+- critic-to-solver 有界修复闭环（`_compute_blacklists` 按 ViolationCode 路由 +
+  `_search_best_avoiding` 重搜 + 重 gate；ADR-0009 决策 3/4/6·C-4）
 
 【ADR-0009 C-3：critic-to-solver 闭环接统一 critic】
 
@@ -32,6 +33,14 @@ hard_constraint/time_window/budget/style，已删除），改吃 ADR-0008 的统
 `SOCIAL_CONTEXT_MISMATCH` 现按 `Violation.field_path` 解析肇事节点，只定向拉黑那一个
 实体（而非旧版「POI + 餐厅一起拉黑」）。
 
+【ADR-0009 C-4：有界修复闭环 + gate】
+
+plan_hybrid 步骤 6 是 min-conflicts + tabu 的有界修复循环：每轮 `validate`；有 HARD →
+`_compute_blacklists` 产黑名单并**跨轮单调累积**（防「16:30↔17:00」震荡）→
+`_search_best_avoiding` 避开黑名单重搜 → 重组装 → 重 `validate`。**只有 validate 干净才
+接受**（gate——绝不返回带 HARD 的方案）；预算（`MAX_REPAIR_ROUNDS`）耗尽 / 候选池被
+掏空 / 无 ILS 可修算子 → 失败上抛，让上层落 rule 地板（D2）。
+
 【spec planning-quality-deep-review R5】（Wave 4 Task 5，2026-05-23）
 
 ILS 兜底路径加 3 项业务对齐改动：
@@ -43,7 +52,8 @@ ILS 兜底路径加 3 项业务对齐改动：
    先剔除「成人 180min 但 5 岁娃只能玩 90min」类反人性方案；保留原 4 维 comfort/time/cost/smoothness 不变。
 3. DINING_SLOTS 改用 planner.py:_resolve_time_window 推（按 intent.start_time + duration_hours
    动态算），不再硬编码 ("17:00","17:30","18:00")。
-4. `_retry_with_critic_feedback` 黑名单按 ADR-0009 映射表路由（见上）。
+4. critic-to-solver 有界修复闭环：`_compute_blacklists` 黑名单按 ADR-0009 映射表路由、
+   `_search_best_avoiding` 重搜、重 gate（见上「ADR-0009 C-4」）。
 
 学术依据：
 - A 段（ILS 启发式）：[Vansteenwegen et al. 2009 ILS for TOPTW]、
@@ -131,6 +141,11 @@ def _env_float(name: str, default: float) -> float:
 
 # ILS 迭代次数（评测时段：30 → ~50ms，足够 demo 实时）
 ILS_ITERATIONS = _env_int("PLANNER_ILS_ITERATIONS", 30)
+
+# critic-to-solver 修复闭环的最大迭代轮数（ADR-0009 决策 5/7·C-4：retry 有界）。
+# 一次修复可能引入二次违规（min-conflicts），需多轮收敛；受 demo 30s 红线 + D2 地板
+# 兜底约束，保持小值。3 足够覆盖「16:30 meal_time → 17:00 full → 17:30 clean」这类链。
+MAX_REPAIR_ROUNDS = _env_int("PLANNER_MAX_REPAIR_ROUNDS", 3)
 
 # 候选 top-K（每槽位保留多少候选参与组合）
 CANDIDATE_TOP_K = _env_int("PLANNER_CANDIDATE_TOP_K", 5)
@@ -402,27 +417,57 @@ def plan_hybrid(
             weights=weights,
         )
 
-    # ---- 步骤 6：Critic 验证（C 段，ADR-0009 决策 1/3：统一 critic 替代 ils_score_critic）----
-    report = _run_unified_critic(itinerary, intent)
-    hard = report.hard_violations()
-    soft = [v for v in report.violations if v.severity == Severity.SOFT]
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"Critic 验证：passed={report.passed}，"
-                f"hard={len(hard)}，soft={len(soft)}（共 {len(report.violations)} 条违规）"
-            ),
-        },
-    )
-    for v in report.violations:
+    # ---- 步骤 6：Critic 验证 + 有界修复闭环（C 段；ADR-0009 决策 1/3/5·C-4）----
+    # min-conflicts 启发式修复 + tabu：每轮 validate；有 HARD → 累积黑名单（单调，防
+    # 「16:30↔17:00」震荡）→ 重搜（避开黑名单）→ 重组装 → 重 validate。干净即接受；
+    # 预算耗尽 / 违规无 ILS 可修算子 / 候选池被掏空 / 组装失败 → 失败上抛落 rule 地板（D2）。
+    # 这是要展示的 critic-to-solver 闭环：critic 把违规反馈给 ILS 算法逐步自纠。
+    current_cand = best
+    current_itin = itinerary
+    bl_poi: set[str] = set()
+    bl_rest: set[str] = set()
+    bl_rest_time: set[tuple[str, str]] = set()
+    report = _run_unified_critic(current_itin, intent)
+
+    for attempt in range(MAX_REPAIR_ROUNDS + 1):
+        hard = report.hard_violations()
+        soft = [v for v in report.violations if v.severity == Severity.SOFT]
         tracer.emit(
             "agent_thought",
-            {"text": f"[{v.severity.value.upper()}] {v.code.value}: {v.message}"},
+            {
+                "text": (
+                    f"Critic 验证（第 {attempt} 轮）：passed={report.passed}，"
+                    f"hard={len(hard)}，soft={len(soft)}（共 {len(report.violations)} 条违规）"
+                ),
+            },
         )
+        for v in report.violations:
+            tracer.emit(
+                "agent_thought",
+                {"text": f"[{v.severity.value.upper()}] {v.code.value}: {v.message}"},
+            )
 
-    if not report.passed:
-        # 硬违规 → 触发一次基于 critic 反馈的重排（ADR-0009 决策 3：只有 HARD 驱动重搜）
+        if report.passed:
+            return HybridResult(
+                success=True,
+                itinerary=current_itin,
+                weights=weights,
+                critic_report=report,
+            )
+
+        if attempt >= MAX_REPAIR_ROUNDS:
+            break  # 修复预算耗尽，停止迭代
+
+        # 累积黑名单（单调 tabu）——防「移到 17:00 又被换回 16:30」的震荡
+        add_poi, add_rest, add_rest_time = _compute_blacklists(
+            current_cand, current_itin, intent, report.violations
+        )
+        if not (add_poi or add_rest or add_rest_time):
+            break  # 违规无 ILS 可修算子（结构码 / AGE）→ 落地板
+        bl_poi |= add_poi
+        bl_rest |= add_rest
+        bl_rest_time |= add_rest_time
+
         tracer.emit(
             "replan_triggered",
             {
@@ -432,34 +477,39 @@ def plan_hybrid(
                 "violations": [v.message for v in hard],
             },
         )
-        retried = _retry_with_critic_feedback(
-            best, itinerary, poi_top, rest_top, intent, weights, report.violations,
-            rule_assembler, tracer, dining_slots,
-        )
-        if retried is not None:
-            # 注：此处仍无条件 success=True，不重新 gate retried 的 critic 结果——
-            # 这是 ADR-0009「retry 不 gate」已知 bug，明确归 C-4 修，C-3 不动
-            # （见 ADR-0009 决策 5②：retry 后重跑 validate 并 gate）。
-            return HybridResult(
-                success=True,
-                itinerary=retried,
-                weights=weights,
-                critic_report=_run_unified_critic(retried, intent),
-            )
-        # 重排仍失败 → 失败上抛，让上层 fallback 到 rule planner
-        return HybridResult(
-            success=False,
-            failure_reason=FailureReason.UPSTREAM_FAILURE,
-            failure_detail=(
-                "Critic 硬违规：" + "；".join(v.message for v in hard)
-            ),
-            weights=weights,
-            critic_report=report,
-        )
 
+        new_cand = _search_best_avoiding(
+            poi_top, rest_top, intent, weights, dining_slots,
+            bl_poi, bl_rest, bl_rest_time, semantic_scores=semantic_scores,
+        )
+        if new_cand is None:
+            break  # 候选池被黑名单掏空 → 落地板
+        new_itin = rule_assembler(intent, new_cand, tracer)
+        if new_itin is None:
+            break  # 组装失败 → 落地板
+
+        tracer.emit(
+            "agent_thought",
+            {
+                "text": (
+                    f"基于 Critic 反馈的重排（第 {attempt + 1} 轮）：POI="
+                    f"{new_cand.main_poi.id if new_cand.main_poi else None} / 餐厅="
+                    f"{new_cand.restaurant.id if new_cand.restaurant else None} / "
+                    f"时段={new_cand.dining_time}"
+                ),
+            },
+        )
+        current_cand, current_itin = new_cand, new_itin
+        report = _run_unified_critic(current_itin, intent)
+
+    # 循环未收敛到干净方案 → 失败上抛（上层 fallback rule planner，D2）
     return HybridResult(
-        success=True,
-        itinerary=itinerary,
+        success=False,
+        failure_reason=FailureReason.UPSTREAM_FAILURE,
+        failure_detail=(
+            f"Critic 硬违规（重排 {MAX_REPAIR_ROUNDS} 轮未收敛）："
+            + "；".join(v.message for v in report.hard_violations())
+        ),
         weights=weights,
         critic_report=report,
     )
@@ -1351,52 +1401,54 @@ def _compute_blacklists(
     return blacklist_poi, blacklist_rest, blacklist_rest_time
 
 
-def _retry_with_critic_feedback(
-    failed: CandidatePlan,
-    itinerary: Optional[Itinerary],
+def _search_best_avoiding(
     pois: list[Poi],
     rests: list[Restaurant],
     intent: IntentExtraction,
     w: PlanningWeights,
-    violations: list[Violation],
-    rule_assembler,
-    tracer: Tracer,
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-) -> Optional[Itinerary]:
-    """根据统一 critic 的违规反馈（ADR-0009 映射表）在候选池中找替代。
+    dining_slots: tuple[str, ...],
+    blacklist_poi: set[str],
+    blacklist_rest: set[str],
+    blacklist_rest_time: set[tuple[str, str]],
+    semantic_scores: dict[str, float] | None = None,
+) -> Optional[CandidatePlan]:
+    """在黑名单外重搜 utility 最高的 feasible 候选（min-conflicts 重赋 + tabu 过滤）。
 
-    `itinerary` 是本轮失败方案（供定向 blame 解析用）；`violations` 是
-    `validate_itinerary` 的完整输出（含 soft），过滤与路由都在 `_compute_blacklists`
-    → `_classify_violation` 内部完成。
+    plan_hybrid 的修复闭环每轮调用：黑名单由 `_compute_blacklists`（按 ADR-0009 映射表
+    路由）产出并跨轮单调累积，本函数据此过滤后重搜。与 `_greedy_init` 一样处理三场景
+    （POI×餐厅 / 仅 POI / 仅餐厅），额外跳过：
+    - blacklist_poi / blacklist_rest 里的实体；
+    - blacklist_rest_time 里的 (餐厅, 时段) 对。
+    池被黑名单掏空 → 返 None（调用方据此落 rule 地板 D2）。
     """
-    blacklist_poi, blacklist_rest, blacklist_rest_time = _compute_blacklists(
-        failed, itinerary, intent, violations
-    )
-
-    pois_filtered = [p for p in pois if p.id not in blacklist_poi]
-    rests_filtered = [r for r in rests if r.id not in blacklist_rest]
+    pois_f = [p for p in pois if p.id not in blacklist_poi]
+    rests_f = [r for r in rests if r.id not in blacklist_rest]
 
     best: Optional[CandidatePlan] = None
-    for poi in pois_filtered:
-        for rest in rests_filtered:
-            for slot in dining_slots:
-                if (rest.id, slot) in blacklist_rest_time:
-                    continue
-                cand = _make_candidate(poi, rest, slot, intent, w, pois_filtered)
-                if not cand.feasible:
-                    continue
-                if best is None or cand.utility > best.utility:
-                    best = cand
-    if best is None:
-        return None
 
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"基于 Critic 反馈的重排：选 POI={best.main_poi.id} / "
-                f"餐厅={best.restaurant.id} / 时段={best.dining_time}"
-            ),
-        },
-    )
-    return rule_assembler(intent, best, tracer)
+    def _consider(poi, rest, slot) -> None:
+        nonlocal best
+        if rest is not None and (rest.id, slot) in blacklist_rest_time:
+            return
+        cand = _make_candidate(
+            poi, rest, slot, intent, w, pois_f, semantic_scores=semantic_scores
+        )
+        if not cand.feasible:
+            return
+        if best is None or cand.utility > best.utility:
+            best = cand
+
+    if pois_f and rests_f:
+        for poi in pois_f:
+            for rest in rests_f:
+                for slot in dining_slots:
+                    _consider(poi, rest, slot)
+    elif pois_f:
+        for poi in pois_f:
+            _consider(poi, None, "")
+    elif rests_f:
+        for rest in rests_f:
+            for slot in dining_slots:
+                _consider(None, rest, slot)
+
+    return best

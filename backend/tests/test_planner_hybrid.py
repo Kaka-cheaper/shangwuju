@@ -681,3 +681,126 @@ def test_ils_candidate_lands_in_itinerary_production_adapter(monkeypatch):
         _RULE_ASSEMBLER_ADAPTER, monkeypatch
     )
     _assert_ils_candidate_landed_in_itinerary(result, captured)
+
+
+# ============================================================
+# C-4（ADR-0009 决策 5）：retry 重校验 + gate —— plan_hybrid 绝不返回带 HARD 违规的方案
+# ============================================================
+
+
+def test_plan_hybrid_never_returns_plan_with_hard_violation():
+    """C-4 gate 不变量（最重要）：plan_hybrid 若 success=True，产物必无 HARD 违规。
+
+    现状 bug（ADR-0009 决策 5）：retry 修好一个 hard 却引入另一个（实测：ILS 选
+    16:30 → MEAL_TIME_UNREASONABLE → 移到 17:00 撞 RESTAURANT_FULL），不重新 gate
+    就当 success 返回 → 先红。用真实 5 岁家庭 intent + 生产 adapter 复现该链。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
+    from agent.planning.critic.critics_v2 import validate_itinerary
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[3, 5],
+        distance_max_km=5,
+        companions=[
+            Companion(role="妻子", count=1),
+            Companion(role="孩子", age=5, count=1),
+        ],
+        physical_constraints=["亲子友好"],
+        dietary_constraints=["健康轻食"],
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input="和老婆 5 岁孩子出去玩",
+        parse_confidence=0.9,
+    )
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
+    )
+    if result.success:
+        hard = [
+            v
+            for v in validate_itinerary(result.itinerary, intent)
+            if v.severity == Severity.HARD
+        ]
+        assert not hard, (
+            "plan_hybrid 返回 success，产物却含 HARD 违规："
+            f"{[v.code.value for v in hard]}——retry 后未重新 gate（C-4 修复目标）"
+        )
+
+
+def test_plan_hybrid_converges_via_iterative_repair():
+    """C-4 收敛：需多轮修复的链（实测 R001：16:30 MEAL_TIME → 17:00 RESTAURANT_FULL
+    → 17:30 干净）——plan_hybrid 应**迭代**收敛到干净的 ILS 方案（success=True），
+    而非单轮修一个引另一个后就放弃甩 rule 地板。
+
+    这是 critic-to-solver 闭环的展示核心：单调 tabu 黑名单逐轮累积，避免 16:30↔17:00
+    震荡，直到落到 available 且 meal-valid 的 17:30。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
+    from agent.planning.critic.critics_v2 import validate_itinerary
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[3, 5],
+        distance_max_km=5,
+        companions=[
+            Companion(role="妻子", count=1),
+            Companion(role="孩子", age=5, count=1),
+        ],
+        physical_constraints=["亲子友好"],
+        dietary_constraints=["健康轻食"],
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input="和老婆 5 岁孩子出去玩",
+        parse_confidence=0.9,
+    )
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
+    )
+    assert result.success, (
+        f"应迭代收敛到干净 ILS 方案，而非单轮放弃甩地板：{result.failure_detail}"
+    )
+    hard = [
+        v
+        for v in validate_itinerary(result.itinerary, intent)
+        if v.severity == Severity.HARD
+    ]
+    assert not hard, f"迭代收敛后不应残留 HARD：{[v.code.value for v in hard]}"
+
+
+def test_plan_hybrid_gives_up_when_repair_budget_exhausted(monkeypatch):
+    """C-4 有界放弃：修复预算耗尽仍有 HARD → success=False（上层落 rule 地板 D2），
+    绝不返回带 HARD 的脏方案、绝不无限循环。
+
+    把 MAX_REPAIR_ROUNDS 压成 0 强制「初轮有 HARD 即放弃」，用已知初轮必有 HARD 的
+    5 岁场景（16:30 meal_time）验证有界性 + 放弃语义。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
+    from agent.planning.planners import ils_planner
+
+    monkeypatch.setattr(ils_planner, "MAX_REPAIR_ROUNDS", 0)
+
+    intent = IntentExtraction(
+        start_time="today_afternoon",
+        duration_hours=[3, 5],
+        distance_max_km=5,
+        companions=[
+            Companion(role="妻子", count=1),
+            Companion(role="孩子", age=5, count=1),
+        ],
+        physical_constraints=["亲子友好"],
+        dietary_constraints=["健康轻食"],
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input="和老婆 5 岁孩子出去玩",
+        parse_confidence=0.9,
+    )
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
+    )
+    assert result.success is False, (
+        "预算=0 且初轮有 HARD → 应放弃（success=False）落地板，不返回脏方案"
+    )
