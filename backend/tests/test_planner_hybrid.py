@@ -398,14 +398,82 @@ class _MockLLMClient:
 
 
 def _rule_assembler(intent, candidate, tracer):
-    """plan_hybrid 的 rule_assembler 回调：复用 rule planner 完成时间轴拼装。
+    """plan_hybrid 的 rule_assembler 回调：真按 ILS 选中的 candidate 组装（ADR-0009 C-1）。
 
-    镜像 graph/nodes/replan.py:ils_replan_node 的 _RULE_ASSEMBLER_ADAPTER——
-    plan_hybrid 选定 candidate 后，把拼装委托给 survivor 入口 rule_planner.plan_itinerary。
+    镜像 graph/nodes/replan.py:_RULE_ASSEMBLER_ADAPTER——两处必须行为一致。
+
+    历史 bug（ADR-0009「背景·地基 A」）：旧实现收 candidate 却不用，直接
+    `plan_itinerary(intent)` 重跑规则地板，让 ILS 的 utility 选点 / 黑名单 / 重搜
+    对最终产物零影响。现改为镜像 rule_planner.plan_itinerary 对
+    `_assemble_itinerary` 的参数推导（segments / depart_time / 时长分配 /
+    party_size），但主活动 POI / 餐厅 / 用餐时段直接取 candidate 的选择，
+    不再重新搜索。
     """
-    t = tracer if isinstance(tracer, Tracer) else Tracer()
-    result = plan_itinerary(intent, tracer=t)
-    return result.itinerary if (result.success and result.itinerary) else None
+    from data.loader import load_user_profile
+
+    from agent.planning.blueprint.node_decider import decide_segments
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from agent.planning.planners.rule_planner import _assemble_itinerary, _resolve_time_window
+
+    try:
+        main_poi = getattr(candidate, "main_poi", None)
+        chosen_restaurant = getattr(candidate, "restaurant", None)
+        chosen_time = getattr(candidate, "dining_time", "") or None
+
+        # segments 只由 intent 推导（与 ils_planner.plan_hybrid 步骤 0 的
+        # decide_nodes(intent) 同源），candidate 里 main_poi/restaurant 的
+        # None 与否本应与之一致（ILS 按同一 decide_nodes 决定要不要搜那一维）。
+        segments = decide_segments(intent)
+        depart_time, _dining_slots, main_minutes, dining_minutes = _resolve_time_window(
+            intent, segments=segments
+        )
+        party_size = sum(c.count for c in intent.companions) or 1
+
+        user_profile = load_user_profile()
+        transport_pref = (
+            user_profile.transport_preference
+            if user_profile.transport_preference in {"walking", "taxi", "bus"}
+            else "taxi"
+        )
+
+        def _hop_minutes(from_id: str, to_id: str) -> int:
+            # home_to_poi/poi_to_rest/rest_to_home 只喂给 _assemble_itinerary 内部
+            # chosen_time 的补偿算术；真实 hop 由 assemble_from_blueprint 内部同一个
+            # lookup_hop 重算一遍，两处用同一个函数保证数值一致。
+            minutes, _mode, _path = lookup_hop(from_id, to_id, transport_pref, user_profile)
+            return minutes
+
+        home_to_poi = _hop_minutes("home", main_poi.id) if main_poi is not None else 0
+        poi_to_rest = (
+            _hop_minutes(main_poi.id, chosen_restaurant.id)
+            if (main_poi is not None and chosen_restaurant is not None)
+            else 0
+        )
+        if chosen_restaurant is not None:
+            rest_to_home = _hop_minutes(chosen_restaurant.id, "home")
+        elif main_poi is not None:
+            rest_to_home = _hop_minutes(main_poi.id, "home")
+        else:
+            rest_to_home = 0
+
+        return _assemble_itinerary(
+            main_poi=main_poi,
+            chosen_restaurant=chosen_restaurant,
+            chosen_time=chosen_time,
+            home_to_poi=home_to_poi,
+            poi_to_rest=poi_to_rest,
+            rest_to_home=rest_to_home,
+            party_size=party_size,
+            backup_pois=list(getattr(candidate, "backup_pois", []) or []),
+            depart_time=depart_time,
+            main_activity_minutes=main_minutes,
+            dining_minutes=dining_minutes,
+            segments=segments,
+            intent=intent,
+            user_profile=user_profile,
+        )
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def test_hybrid_end_to_end_with_mock_client():
@@ -480,3 +548,103 @@ def test_hybrid_uses_stub_client_falls_back_to_rule():
     assert result.itinerary is not None
     # stub 无主观决策能力 → 权重来自启发式（非 LLM），等价旧 rule 兼容路径
     assert result.weights is not None and result.weights.source == "stub"
+
+
+# ============================================================
+# 5. C-1（ADR-0009 决策 1）：ILS 选中的 candidate 必须真落进产物
+#
+# 地基 A 的回归测试：旧 _rule_assembler / _RULE_ASSEMBLER_ADAPTER 收 candidate
+# 却不用，直接 plan_itinerary(intent) 重跑规则地板——ILS 的选点/黑名单/重搜
+# 对最终产物零影响。本节把 ILS 的候选池钉死成唯一一个 POI + 一家餐厅（P001 /
+# R003，均已验证不是 plan_itinerary(intent) 独立搜索会选中的结果——见
+# docstring 下方 _run_single_candidate_ils_scenario），让「ILS 选中谁」变得
+# 可预期，再断言它（而不是规则地板独立搜出来的东西）真出现在产物里。
+# ============================================================
+
+def _run_single_candidate_ils_scenario(rule_assembler_fn, monkeypatch):
+    """跑一次 plan_hybrid，候选池被钉死为单一 POI（P001）+ 单一餐厅（R003）。
+
+    P001 / R003 是刻意选的：对同一 `_intent()`，rule_planner.plan_itinerary(intent)
+    独立搜索会选中 P033 / R023（已用脚本核实），与 P001 / R003 明确不同——
+    如果 rule_assembler_fn 丢弃 candidate 改跑 plan_itinerary(intent)，
+    产物就会是 P033/R023 而非 P001/R003，暴露地基 A 的 bug。
+
+    用 monkeypatch 直接替换 ils_planner._query_pois / _query_restaurants（而非走
+    真实 search_pois/search_restaurants Tool + grounding filter），把 ILS 的候选池
+    钉死成恰好 1 个 POI + 1 家餐厅——不管 utility 怎么算、扰动怎么走，
+    `_greedy_init`/`_local_search` 都只能选中这一个，让「ILS 会选谁」完全确定性，
+    不依赖 ILS_SEED 或候选池排序的脆弱假设。
+
+    返回 (HybridResult, captured_candidates)；captured_candidates 是
+    rule_assembler_fn 每次被调用时收到的 CandidatePlan 列表（初次 + critic
+    retry 各一次，视 critic 是否命中硬违规而定）。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.planning.planners import ils_planner
+    from data.loader import load_pois, load_restaurants
+
+    intent = _intent()
+    poi = next(p for p in load_pois() if p.id == "P001")
+    rest = next(r for r in load_restaurants() if r.id == "R003")
+
+    monkeypatch.setattr(ils_planner, "_query_pois", lambda intent, tracer: [poi])
+    monkeypatch.setattr(ils_planner, "_query_restaurants", lambda intent, tracer: [rest])
+
+    captured: list = []
+
+    def _spy(intent_, candidate, tracer_):
+        captured.append(candidate)
+        return rule_assembler_fn(intent_, candidate, tracer_)
+
+    tracer = Tracer()
+    result = plan_hybrid(
+        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_spy,
+    )
+    return result, captured
+
+
+def _assert_ils_candidate_landed_in_itinerary(result, captured) -> None:
+    """断言：captured 里最后一次 candidate（plan_hybrid 最终采纳的那个）真出现在产物里。"""
+    assert result.success, f"应成功；失败原因：{result.failure_detail}"
+    assert captured, "rule_assembler 应至少被调用一次"
+    final_candidate = captured[-1]
+    assert final_candidate.main_poi is not None and final_candidate.main_poi.id == "P001", (
+        "候选池被钉死为 P001，ILS 传给 assembler 的 candidate 应仍是 P001"
+    )
+    assert final_candidate.restaurant is not None and final_candidate.restaurant.id == "R003"
+
+    itinerary = result.itinerary
+    assert itinerary is not None
+    poi_node = next((n for n in itinerary.nodes if n.target_kind == "poi"), None)
+    rest_node = next((n for n in itinerary.nodes if n.target_kind == "restaurant"), None)
+    assert poi_node is not None and poi_node.target_id == "P001", (
+        f"ILS 选中的 P001 应真出现在产物 nodes 里；实际 "
+        f"{poi_node.target_id if poi_node else None}"
+        "（若不是，说明 assembler 丢弃了 candidate，重跑了 rule planner 的独立搜索）"
+    )
+    assert rest_node is not None and rest_node.target_id == "R003", (
+        f"ILS 选中的 R003 应真出现在产物 nodes 里；实际 "
+        f"{rest_node.target_id if rest_node else None}"
+    )
+    assert rest_node.note and final_candidate.dining_time in rest_node.note, (
+        f"assembler 应把 ILS 选中的 dining_time={final_candidate.dining_time!r} "
+        f"写进餐厅节点 note；实际 note={rest_node.note!r}"
+    )
+
+
+def test_ils_candidate_lands_in_itinerary_test_assembler(monkeypatch):
+    """C-1：本文件的 _rule_assembler 必须真按 plan_hybrid 选中的 candidate 组装。"""
+    result, captured = _run_single_candidate_ils_scenario(_rule_assembler, monkeypatch)
+    _assert_ils_candidate_landed_in_itinerary(result, captured)
+
+
+def test_ils_candidate_lands_in_itinerary_production_adapter(monkeypatch):
+    """C-1：生产 _RULE_ASSEMBLER_ADAPTER（graph/nodes/replan.py）必须同样真按
+    candidate 组装——两处镜像修复，行为一致。
+    """
+    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
+
+    result, captured = _run_single_candidate_ils_scenario(
+        _RULE_ASSEMBLER_ADAPTER, monkeypatch
+    )
+    _assert_ils_candidate_landed_in_itinerary(result, captured)
