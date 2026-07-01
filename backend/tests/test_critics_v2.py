@@ -504,20 +504,20 @@ def test_format_violations_does_not_leak_dot_path():
 # ============================================================
 
 
-def test_dietary_violation_warning_when_restaurant_tags_miss():
-    """intent dietary=['粤菜'] / 餐厅 R001（低脂）不含粤菜 → warning。"""
+def test_dietary_violation_hard_when_restaurant_tags_miss():
+    """intent dietary=['粤菜'] / 餐厅 R001（低脂）不含粤菜 → B-2a 升 HARD（gate 修复）。"""
     intent = _make_intent(dietary_constraints=["粤菜"])
     itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001 tags 不含粤菜
 
     violations = validate_itinerary(itinerary, intent)
-    dietary_warnings = [
+    dietary_hard = [
         v for v in violations
-        if v.code == ViolationCode.DIETARY_VIOLATION and v.severity == Severity.SOFT
+        if v.code == ViolationCode.DIETARY_VIOLATION and v.severity == Severity.HARD
     ]
 
-    assert dietary_warnings, (
-        f"R001 不含粤菜 tag 应触发 DIETARY_VIOLATION warning，"
-        f"实际 violations={[v.code for v in violations]}"
+    assert dietary_hard, (
+        f"B-2a：R001 不含粤菜 tag 应触发 DIETARY_VIOLATION HARD（升级自 warning），"
+        f"实际 violations={[(v.code, v.severity) for v in violations]}"
     )
 
 

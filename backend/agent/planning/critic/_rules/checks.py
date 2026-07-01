@@ -181,16 +181,61 @@ def check_invariants(
 def check_nodes_incomplete(
     itinerary: Itinerary, *, ctx: "CriticContext | None" = None
 ) -> list[Violation]:
-    """验中间节点（非首尾 home）至少 1 个。
+    """验行程必要节点完整性（B-2a: 按 target_kind，非自由文本 kind）。
 
-    `ctx` 在本 check 不消费（纯结构断言）；保留形参仅为注册表统一调用。
+    ADR-0008 红队 B1 修订：节点完整性必须对照 `decide_nodes(intent)` 返回的
+    required kinds，并按 **target_kind** 判断，绝不比对自由文本 `node.kind`
+    （LLM 可能标 "夜宵" / "早茶" / "自由" 等任意标签）。
 
-    退化情形：nodes=[home, home] / hops=[in_place 0min] —— 用户原地不动，
-    没有任何活动节点，行程毫无意义；触发 CRITICAL 让 planner replan。
+    规则：
+    - `ctx.intent` 可用时：
+        * `KIND_MAIN` (主活动) required ⇒ 需要 ≥1 个 `target_kind=="poi"` 节点
+        * `KIND_DINING` (用餐) required ⇒ 需要 ≥1 个 `target_kind=="restaurant"` 节点
+        * 缺任何一种 → 一条 HARD NODES_INCOMPLETE，消息列出所有缺失 kind
+    - `ctx` 为 None 或 intent 缺失（向后兼容直调）→ 回退到旧「len<3」结构检查
 
-    边界：design.md 显式声明「单段方案（如只想吃饭）→ nodes=[home, R024, home]」
-    是合法的；所以最小允许 mid_nodes_count == 1。
+    Emit HARD，Stage 0（结构门：命中即短路）。
     """
+    intent = ctx.intent if ctx is not None else None
+
+    if intent is not None:
+        try:
+            from agent.planning.blueprint.node_decider import (  # 运行时 import 避免循环依赖
+                KIND_DINING,
+                KIND_MAIN,
+                decide_nodes,
+            )
+            required_kinds = decide_nodes(intent)
+        except ImportError:
+            required_kinds = []
+
+        if required_kinds:
+            mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
+            missing: list[str] = []
+            if KIND_MAIN in required_kinds and not any(
+                n.target_kind == "poi" for n in mid_nodes
+            ):
+                missing.append("主活动节点（POI）")
+            if KIND_DINING in required_kinds and not any(
+                n.target_kind == "restaurant" for n in mid_nodes
+            ):
+                missing.append("用餐节点（餐厅）")
+
+            if missing:
+                return [
+                    Violation(
+                        code=ViolationCode.NODES_INCOMPLETE,
+                        severity=Severity.HARD,
+                        message=(
+                            f"行程缺少必要节点：{'  /  '.join(missing)}。"
+                            "请在候选池中补充对应类型节点后重新规划。"
+                        ),
+                        field_path="nodes",
+                    )
+                ]
+            return []
+
+    # 向后兼容回退：ctx/intent 缺失 或 decide_nodes 返回空列表
     if len(itinerary.nodes) < 3:
         return [
             Violation(
@@ -283,6 +328,123 @@ def check_temporal_feasibility(
                     field_path=f"hops[{i}].start_time",
                 )
             )
+            continue
+
+        from_end = from_start + from_node.duration_min
+        hop_end = hop_start + hop.minutes
+
+        # 1. hop.start 与 from_node.end 必须紧接（容差 2min）
+        if abs(hop_start - from_end) > TEMPORAL_TOLERANCE_MIN:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(i, from_node)} 结束于 {fmt_hhmm(from_end)}，"
+                        f"但下一段通勤却从 {hop.start_time} 开始（错位 "
+                        f"{abs(hop_start - from_end)} 分钟）。请让通勤紧接节点结束时刻。"
+                    ),
+                    field_path=f"hops[{i}].start_time",
+                )
+            )
+
+        # 2. to_node.start 必须 ≥ hop.end + buffer（容差 2min）
+        required_to_start = hop_end + hop.buffer_min
+        if to_start < required_to_start - TEMPORAL_TOLERANCE_MIN:
+            shortage = required_to_start - to_start
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(i + 1, to_node)} 开始于 {to_node.start_time}，"
+                        f"早于通勤完成（{fmt_hhmm(hop_end)}）+ buffer({hop.buffer_min}min) "
+                        f"应有的 {fmt_hhmm(required_to_start)}，缺 {shortage} 分钟。"
+                        "请把下一段开始时间推迟到通勤完成 + buffer 之后。"
+                    ),
+                    field_path=f"nodes[{i + 1}].start_time",
+                )
+            )
+
+    return out
+
+
+def check_time_parseable(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """Stage 0 结构门：验所有节点 / hop 的 start_time 可解析为 HH:MM。
+
+    ADR-0008 红队 G2 拆位：时间**可解析**属结构不变量 → Stage 0（命中短路）。
+    hop/buffer **对齐**（TIMELINE_INCONSISTENT）→ Stage 1（check_temporal_alignment）。
+
+    检查所有 node.start_time 和 hop.start_time；任意一处无法解析 → HARD 违规。
+    `ctx` 不消费（只读 itinerary 自身时间戳）；保留形参供注册表统一调用。
+    """
+    out: list[Violation] = []
+
+    for idx, node in enumerate(itinerary.nodes):
+        if parse_hhmm(node.start_time) is None:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(idx, node)} 的开始时间 {node.start_time!r} "
+                        "格式不合法（应为 HH:MM）。"
+                        "请重新生成行程使所有时间戳为合法 HH:MM 格式。"
+                    ),
+                    field_path=f"nodes[{idx}].start_time",
+                )
+            )
+
+    for i, hop in enumerate(itinerary.hops):
+        if parse_hhmm(hop.start_time) is None:
+            out.append(
+                Violation(
+                    code=ViolationCode.TIMELINE_INCONSISTENT,
+                    severity=Severity.HARD,
+                    message=(
+                        f"第 {i + 1} 段通勤的开始时间 {hop.start_time!r} "
+                        "格式不合法（应为 HH:MM）。"
+                        "请重新生成行程使所有时间戳为合法 HH:MM 格式。"
+                    ),
+                    field_path=f"hops[{i}].start_time",
+                )
+            )
+
+    return out
+
+
+def check_temporal_alignment(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """Stage 1 hard：验 hop.start ≈ from_node.end 且 to_node.start ≥ hop.end + buffer。
+
+    ADR-0008 红队 G2 拆位：hop/buffer 对齐属语义校验 → Stage 1（check_temporal_alignment）；
+    时间可解析性 → Stage 0（check_time_parseable）。
+
+    设计依据（design.md _check_temporal_feasibility 伪代码）：
+    - 容差 2min（assemble 内部按整数分钟取整，可能轻微浮动）
+    - Stage 0 已确保所有时间戳可解析；本 check 若遇到解析失败则静默跳过该 hop
+      （防御性兜底，正常路径 Stage 0 已短路不会走到此处）
+    `ctx` 不消费（只读 itinerary 自身时间戳）；保留形参供注册表统一调用。
+    """
+    out: list[Violation] = []
+    nodes = itinerary.nodes
+    hops = itinerary.hops
+
+    bound = min(len(hops), len(nodes) - 1)
+    for i in range(bound):
+        hop = hops[i]
+        from_node = nodes[i]
+        to_node = nodes[i + 1]
+
+        from_start = parse_hhmm(from_node.start_time)
+        hop_start = parse_hhmm(hop.start_time)
+        to_start = parse_hhmm(to_node.start_time)
+
+        # Stage 0 应已拦截解析失败；此处静默跳过（避免 TypeError，防御性兜底）
+        if from_start is None or hop_start is None or to_start is None:
             continue
 
         from_end = from_start + from_node.duration_min
@@ -689,10 +851,10 @@ def check_dietary(
         out.append(
             Violation(
                 code=ViolationCode.DIETARY_VIOLATION,
-                severity=Severity.SOFT,
+                severity=Severity.HARD,  # B-2a: 升级为 HARD（gate 修复）
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}）的标签不含用户饮食约束 "
-                    f"{sorted(constraints_set)} 中任何一项。建议换符合饮食偏好的餐厅。"
+                    f"{sorted(constraints_set)} 中任何一项。请换符合饮食偏好的餐厅。"
                 ),
                 field_path=f"nodes[{idx}].target_id",
             )
@@ -949,6 +1111,11 @@ def check_meal_time(
         except (ValueError, AttributeError):
             continue  # 时间解析失败跳过（其它 check 会报）
 
+        # None-guard (O4)：parse_hhmm 返回 None（不抛异常），
+        # 直接用 None 做比较会抛 TypeError；跳过，让 check_time_parseable 报告。
+        if start_min is None:
+            continue
+
         in_lunch = _LUNCH_START_MIN <= start_min <= _LUNCH_END_MIN
         in_dinner = _DINNER_START_MIN <= start_min <= _DINNER_END_MIN
         in_supper = start_min >= _SUPPER_START_MIN
@@ -958,11 +1125,11 @@ def check_meal_time(
         out.append(
             Violation(
                 code=ViolationCode.MEAL_TIME_UNREASONABLE,
-                severity=Severity.SOFT,
+                severity=Severity.HARD,  # B-2a: 升级为 HARD（gate 修复）
                 message=(
                     f"{humanize_node(idx, node)}（{rest.name}· {cuisine}）"
                     f"安排在 {node.start_time}，不在常规饭点（午餐 11:00-13:30 / "
-                    f"晚餐 17:00-20:00 / 夜宵 21:00 后）。建议把正餐调整到饭点时段，"
+                    f"晚餐 17:00-20:00 / 夜宵 21:00 后）。请把正餐调整到饭点时段，"
                     f"或在该时段安排下午茶 / 轻食类。"
                 ),
                 field_path=f"nodes[{idx}].start_time",

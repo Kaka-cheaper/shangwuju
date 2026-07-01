@@ -61,7 +61,9 @@ from ._rules.checks import (
     check_meal_time,
     check_nodes_incomplete,
     check_social_context,
+    check_temporal_alignment,
     check_temporal_feasibility,
+    check_time_parseable,
     check_tool_consistency,
 )
 from ._rules.helpers import safe_load_user_profile  # noqa: F401  兼容旧 import 路径
@@ -82,7 +84,9 @@ from .validate import validate
 _check_invariants = check_invariants
 _check_nodes_incomplete = check_nodes_incomplete
 _check_duration = check_duration
-_check_temporal_feasibility = check_temporal_feasibility
+_check_temporal_feasibility = check_temporal_feasibility  # B-2a: 已拆为 _check_time_parseable + _check_temporal_alignment
+_check_time_parseable = check_time_parseable      # B-2a 新增：Stage 0 时间可解析性门
+_check_temporal_alignment = check_temporal_alignment  # B-2a 新增：Stage 1 hop/buffer 对齐
 _check_hop_feasibility = check_hop_feasibility
 _check_distance = check_distance
 _check_demo_restaurant_full = check_demo_restaurant_full
@@ -128,23 +132,24 @@ def validate_itinerary(
 ) -> list[Violation]:
     """跑全套 critic 检查（分阶段）。返回 violations 列表（可能为空）。
 
-    顺序约定（ADR-0008 B-1 分阶段）：
+    顺序约定（ADR-0008 B-2a 分阶段）：
     Stage 0（结构门，命中短路）：
       1. INVARIANT_BROKEN（防御性兜底）
-      2. NODES_INCOMPLETE（mid 节点至少 1 个）
-      3. TIMELINE_INCONSISTENT（_check_temporal_feasibility）
+      2. NODES_INCOMPLETE（按 decide_nodes→target_kind 判，B-2a B1 修订）
+      3. TIMELINE_INCONSISTENT / check_time_parseable（时间可解析性，G2 拆位）
       4. TOOL_RESPONSE_INCONSISTENCY（hallucination 防护）
     Stage 1（hard 语义，gate 修复）：
       5. DURATION_OUT_OF_RANGE（总时长容差）
       6. HOP_INFEASIBLE（_check_hop_feasibility）
-      7. RESTAURANT_FULL_UNRESOLVED（demo-aware）
-      8. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
-      9. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
-      10. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
+      7. TIMELINE_INCONSISTENT / check_temporal_alignment（hop/buffer 对齐，G2 拆位）
+      8. RESTAURANT_FULL_UNRESOLVED（demo-aware）
+      9. SOCIAL_CONTEXT_MISMATCH（critical / warning 分级）
+      10. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
+      11. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
+      12. DIETARY_VIOLATION（B-2a 升 HARD，gate 修复）
+      13. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
     Stage 2（soft 建议，narration only）：
-      11. DISTANCE_EXCEEDED（warning）
-      12. DIETARY_VIOLATION（warning）
-      13. MEAL_TIME_UNREASONABLE（warning）
+      14. DISTANCE_EXCEEDED（warning）
 
     Args:
         itinerary:    要校验的方案（已通过 Pydantic 构造）。

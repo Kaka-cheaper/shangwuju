@@ -9,31 +9,33 @@ metacontroller**。Fowler 明确警告别用「隐式规则引擎」（链式流
 - `REGISTRY`：**显式有序列表**，按 stage 分组，组内保留原调用顺序。
 - `validate`：分阶段校验——Stage 0 结构门命中则短路，否则 Stage 1+2 collect-all。
 
-【Phase B-1：引入分阶段短路（有意行为改变）】
+【Phase B-2a：tier 升级 + 节点完整性重设计 + 时间检查拆位（有意行为改变）】
 
-ADR-0008 G4 决策：分阶段短路属 Phase B，不在 Phase A（行为保持）。
-B-1 实现 ADR-0008 决策 2 的 staging + short-circuit：
+ADR-0008 B-2a 对 B-1 的增量改变：
 
 - Stage 0（结构门）：check_invariants / check_nodes_incomplete /
-  check_temporal_feasibility / check_tool_consistency
+  check_time_parseable（拆自原 check_temporal_feasibility 的解析部分）/
+  check_tool_consistency
   → 阶段内 collect-all；命中任一违规即**短路，返回 Stage-0 违规，不再跑 Stage 1/2**。
-  语义：结构破损或幻觉方案上跑语义校验是噪声，Stage-0 短路省掉这些噪声。
 
 - Stage 1（hard 语义，gate 修复）：check_duration / check_hop_feasibility /
+  check_temporal_alignment（拆自原 check_temporal_feasibility 的对齐部分）/
   check_demo_restaurant_full / check_social_context /
-  check_age_aware_duration / check_capacity
+  check_age_aware_duration / check_capacity /
+  check_dietary（B-2a 升 HARD）/ check_meal_time（B-2a 升 HARD）
 
-- Stage 2（soft 建议，narration only）：check_distance / check_dietary /
-  check_meal_time
+- Stage 2（soft 建议，narration only）：check_distance
 
 Stage 0 无违规时，Stage 1 + Stage 2 **collect-all 跨两阶段**（soft 建议与 hard
 诊断并列——LLM-Modulo 原则：soft 不 gate，但要让 LLM 看到）。
 
 【tier 与 stage 的关系】
 
-- dietary / meal_time：B-1 仍为 tier="soft"（B-2 升 hard），但 stage 已归到 2。
+- dietary / meal_time：B-2a 升 hard，归 Stage 1（gate 修复）。
 - social_context：单 check 同时产 HARD（BLOCKING）与 SOFT（POOR），stage=1（取其 gating 能力）。
-- temporal_feasibility：B-1 归 Stage 0（结构门），B-2 的 G2 拆位视具体需求推后。
+- temporal_feasibility (G2 拆位)：可解析 → Stage 0 check_time_parseable；
+  hop/buffer 对齐 → Stage 1 check_temporal_alignment。
+- nodes_incomplete (B1 修订)：改按 decide_nodes→target_kind 判，不按自由文本 kind。
 """
 
 from __future__ import annotations
@@ -55,7 +57,9 @@ from ._rules.checks import (
     check_meal_time,
     check_nodes_incomplete,
     check_social_context,
-    check_temporal_feasibility,
+    check_temporal_alignment,
+    check_temporal_feasibility,  # noqa: F401  保留兼容：critics_v2 别名仍用
+    check_time_parseable,
     check_tool_consistency,
 )
 from ._rules.types import Violation, ViolationCode
@@ -79,26 +83,30 @@ class CheckSpec:
 
 
 # 显式有序注册表 —— 按 stage 分组，组内顺序严格等于原调用顺序（行为保持组内顺序）。
-# 调序 / 新增 / tier 变更 = 行为改变，属 Phase B-2+。
+# 调序 / 新增 / tier 变更 = 有意行为改变，记录在 ADR-0008 B-2a。
 REGISTRY: list[CheckSpec] = [
     # ── Stage 0: 结构门（命中任一 → 短路，不运行 Stage 1/2） ──────────────
     CheckSpec(ViolationCode.INVARIANT_BROKEN, 0, "hard", check_invariants),
+    # B-2a: check_nodes_incomplete 改按 decide_nodes→target_kind 判（非自由文本 kind）
     CheckSpec(ViolationCode.NODES_INCOMPLETE, 0, "hard", check_nodes_incomplete),
-    CheckSpec(ViolationCode.TIMELINE_INCONSISTENT, 0, "hard", check_temporal_feasibility),
+    # B-2a G2 拆位：时间可解析 → Stage 0 结构门（原 check_temporal_feasibility 拆出）
+    CheckSpec(ViolationCode.TIMELINE_INCONSISTENT, 0, "hard", check_time_parseable),
     CheckSpec(ViolationCode.TOOL_RESPONSE_INCONSISTENCY, 0, "hard", check_tool_consistency),
     # ── Stage 1: hard 语义（gate 修复） ────────────────────────────────────
     CheckSpec(ViolationCode.DURATION_OUT_OF_RANGE, 1, "hard", check_duration),
     CheckSpec(ViolationCode.HOP_INFEASIBLE, 1, "hard", check_hop_feasibility),
+    # B-2a G2 拆位：hop/buffer 对齐 → Stage 1 hard（原 check_temporal_feasibility 拆出）
+    CheckSpec(ViolationCode.TIMELINE_INCONSISTENT, 1, "hard", check_temporal_alignment),
     CheckSpec(ViolationCode.RESTAURANT_FULL_UNRESOLVED, 1, "hard", check_demo_restaurant_full),
     # social：BLOCKING(hard/stage1) + POOR(soft/stage2) 同 check；标其 gating 能力
     CheckSpec(ViolationCode.SOCIAL_CONTEXT_MISMATCH, 1, "hard", check_social_context),
     CheckSpec(ViolationCode.AGE_DURATION_MISMATCH, 1, "hard", check_age_aware_duration),
     CheckSpec(ViolationCode.CAPACITY_REQUIREMENT_VIOLATED, 1, "hard", check_capacity),
+    # B-2a: dietary / meal_time 升 HARD → 移入 Stage 1，驱动修复闭环
+    CheckSpec(ViolationCode.DIETARY_VIOLATION, 1, "hard", check_dietary),
+    CheckSpec(ViolationCode.MEAL_TIME_UNREASONABLE, 1, "hard", check_meal_time),
     # ── Stage 2: soft 建议（narration only，不 gate） ──────────────────────
     CheckSpec(ViolationCode.DISTANCE_EXCEEDED, 2, "soft", check_distance),
-    # dietary / meal_time：B-1 保持 soft；B-2 升 hard 与 stage 对齐
-    CheckSpec(ViolationCode.DIETARY_VIOLATION, 2, "soft", check_dietary),
-    CheckSpec(ViolationCode.MEAL_TIME_UNREASONABLE, 2, "soft", check_meal_time),
 ]
 
 

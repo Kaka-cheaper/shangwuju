@@ -158,8 +158,9 @@ _BATTERY = [
         [("nodes_incomplete", "hard")]),
     ("distance_exceeded", _legal(), _mk_intent(distance_max_km=0.1), "demo_user", None,
         [("distance_exceeded", "soft"), ("distance_exceeded", "soft")]),
+    # B-2a: dietary → HARD（gate 修复）
     ("dietary_violation", _legal(rest_id="R001"), _mk_intent(dietary_constraints=["粤菜"]), "demo_user", None,
-        [("dietary_violation", "soft")]),
+        [("dietary_violation", "hard")]),
     ("capacity_violated", _legal(rest_id="R001"), _capacity_intent(), "demo_user", None,
         [("capacity_requirement_violated", "hard")]),
     ("age_duration_mismatch", _legal(), _mk_intent(companions=[Companion(role="孩子", age=5)]), "demo_user", None,
@@ -169,10 +170,25 @@ _BATTERY = [
     ("tool_response_inconsistency", _legal(), _mk_intent(), "demo_user",
         {"pois": [_FakePoi("P033")], "restaurants": [_FakePoi("R001")]},
         [("tool_response_inconsistency", "hard")]),
-    ("restaurant_full_unresolved", _single_restaurant("R001", "17:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
+    # restaurant_full: use duration=[1,1]+dietary=["低脂"] → decide_nodes=["用餐"] → restaurant-only
+    # plan passes Stage 0; R001 suitable_for=家庭日常 matches social=家庭日常 → no social violation;
+    # R001 tags include 低脂 → no dietary violation; R001 slot 17:00 available=False → FULL fires.
+    ("restaurant_full_unresolved", _single_restaurant("R001", "17:00"),
+        _mk_intent(duration_hours=[1, 1], dietary_constraints=["低脂"]), "demo_user", None,
         [("restaurant_full_unresolved", "hard")]),
-    ("meal_time_unreasonable", _single_restaurant("R046", "15:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
-        [("meal_time_unreasonable", "soft")]),
+    # B-2a: _single_restaurant("R046") [home,R046,home] + duration=[1,3] → decide_nodes returns
+    # ["主活动","用餐"]（medium-long，social=家庭日常）→ poi required but missing → Stage 0
+    # NODES_INCOMPLETE short-circuits; meal_time check never runs.
+    ("meal_time_unreasonable_now_nodes_incomplete",
+        _single_restaurant("R046", "15:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
+        [("nodes_incomplete", "hard")]),
+    # B-2a: meal_time → HARD（gate 修复）。用 decide_nodes→["用餐"]-only 的 intent
+    # (duration=[1,2], social=商务接待) 让餐厅单节点通过 Stage 0，再由 meal_time 在 Stage 1 触发。
+    # R002（粤味轩）suitable_for 包含商务接待 → check_social_context 不触发。
+    ("meal_time_as_hard",
+        _single_restaurant("R002", "15:00"), _mk_intent(duration_hours=[1, 2], social_context="商务接待"),
+        "demo_user", None,
+        [("meal_time_unreasonable", "hard")]),
 ]
 
 
@@ -212,4 +228,114 @@ def test_tool_consistency_reads_snapshot_not_full_mock():
     codes = [v.code.value for v in violations]
     assert "tool_response_inconsistency" in codes, (
         "P040 在全量 mock 但不在搜索快照 → 应判幻觉；若读了全量 mock 则会漏判"
+    )
+
+
+# ============================================================
+# B-2a 新增：节点完整性按 target_kind 判断（非自由文本 kind）
+# ============================================================
+
+
+def test_missing_restaurant_node_fires_nodes_incomplete():
+    """dining-required plan（[home, poi, home]）缺少餐厅节点 → NODES_INCOMPLETE（Stage 0）。
+
+    B-2a B1：decide_nodes(intent) 返回 ["主活动","用餐"]（duration=[4,6] 家庭日常）。
+    plan 只有 poi 节点，无 target_kind=="restaurant" → 触发 NODES_INCOMPLETE。
+    Stage 0 短路 → 不产出其他 Stage-1/2 违规。
+    """
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    # 构造 [home, P040(poi), home]，时间自洽
+    m1, _, pt1 = lookup_hop("home", "P040", "taxi", profile)
+    m2, _, pt2 = lookup_hop("P040", "home", "taxi", profile)
+    dep_min = 14 * 60
+    end_min = dep_min + m1 + 120
+    arr_min = end_min + m2
+    nodes = [
+        ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home",
+                     start_time=_hhmm(dep_min), duration_min=0, title="出发"),
+        ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id="P040",
+                     start_time=_hhmm(dep_min + m1), duration_min=120, title="P040"),
+        ActivityNode(node_id="n2", kind="终点", target_kind="home", target_id="home",
+                     start_time=_hhmm(arr_min), duration_min=0, title="回家"),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1",
+            start_time=_hhmm(dep_min), minutes=m1, mode="taxi", path_type=pt1, buffer_min=0),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2",
+            start_time=_hhmm(end_min), minutes=m2, mode="taxi", path_type=pt2, buffer_min=0),
+    ]
+    plan = Itinerary(summary="poi_only", nodes=nodes, hops=hops, total_minutes=arr_min - dep_min)
+
+    # intent: duration=[4,6] 家庭日常 → decide_nodes=["主活动","用餐"] → 需要 restaurant
+    intent = _mk_intent(duration_hours=[4, 6])
+    violations = validate_itinerary(plan, intent)
+
+    codes = [v.code.value for v in violations]
+    assert "nodes_incomplete" in codes, (
+        "dining-required plan 缺 restaurant 节点 → 应触发 NODES_INCOMPLETE；"
+        f"实际 codes={codes}"
+    )
+    # Stage 0 短路：不应有 Stage-1/2 违规（DURATION 等不应出现）
+    assert all(v.code.value == "nodes_incomplete" for v in violations), (
+        f"Stage 0 应短路，不应有其他违规；实际 violations={codes}"
+    )
+
+
+def test_yexiao_labeled_restaurant_passes_completeness():
+    """夜宵类型 node（kind='夜宵' 自由文本）target_kind==restaurant → 不误触 NODES_INCOMPLETE。
+
+    B-2a B1 核心防御：kind 是 LLM 自由选的展示标签（夜宵/早茶/自由...），
+    completeness 判断必须走 target_kind，否则会把合法夜场/宵夜方案误判为缺餐厅节点。
+
+    intent: decide_nodes=["主活动","用餐"]（duration=[4,6] 家庭日常）→ 需要 poi + restaurant。
+    plan: [home, P040(poi), R046(target_kind=restaurant, kind="夜宵"), home] → 两种都有 → passes。
+    """
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    # 构造 [home, P040(poi, kind=主活动), R046(restaurant, kind="夜宵"), home]
+    m01, _, _ = lookup_hop("home", "P040", "taxi", profile)
+    m12, _, _ = lookup_hop("P040", "R046", "taxi", profile)
+    m23, _, _ = lookup_hop("R046", "home", "taxi", profile)
+    t0 = 14 * 60
+    t1 = t0 + m01
+    t1e = t1 + 90   # poi 停 90min
+    t2 = t1e + m12
+    t2e = t2 + 60   # 餐厅停 60min
+    t3 = t2e + m23
+    nodes = [
+        ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home",
+                     start_time=_hhmm(t0), duration_min=0, title="出发"),
+        ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id="P040",
+                     start_time=_hhmm(t1), duration_min=90, title="P040"),
+        ActivityNode(node_id="n2", kind="夜宵",  # ← LLM 自由标签，非 "用餐"
+                     target_kind="restaurant", target_id="R046",
+                     start_time=_hhmm(t2), duration_min=60, title="R046"),
+        ActivityNode(node_id="n3", kind="终点", target_kind="home", target_id="home",
+                     start_time=_hhmm(t3), duration_min=0, title="回家"),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1",
+            start_time=_hhmm(t0), minutes=m01, mode="taxi", path_type="real_route", buffer_min=0),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2",
+            start_time=_hhmm(t1e), minutes=m12, mode="taxi", path_type="real_route", buffer_min=0),
+        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3",
+            start_time=_hhmm(t2e), minutes=m23, mode="taxi", path_type="real_route", buffer_min=0),
+    ]
+    plan = Itinerary(summary="yexiao_rest", nodes=nodes, hops=hops, total_minutes=t3 - t0)
+
+    intent = _mk_intent(duration_hours=[4, 6])
+    ctx = CriticContext.build(intent, user_id="demo_user")
+    from agent.planning.critic._rules.checks import check_nodes_incomplete
+    violations = check_nodes_incomplete(plan, ctx=ctx)
+
+    codes = [v.code.value for v in violations]
+    assert "nodes_incomplete" not in codes, (
+        "target_kind==restaurant 节点（kind='夜宵'）应通过节点完整性检查；"
+        "不得因自由文本 kind 不是 '用餐' 而误判；"
+        f"实际 violations={codes}"
     )
