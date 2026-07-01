@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -194,16 +195,32 @@ def _persist_memory_impl(
 
 
 def _resolve_profile_path(override: Path | None) -> Path:
-    """解析 user_profile.json 路径。"""
+    """解析 user_profile.json 读写路径。
+
+    优先级：显式 override > SHANGWUJU_MOCK_DIR > gitignore 运行副本（护栏）。
+
+    护栏（根因修复）：memory_writer 是运行时**唯一**改 user_profile 的写入点。
+    env 未设时若直接写 <repo>/mock_data/user_profile.json（版本控制的种子），任何
+    裸跑（脚本 / dev app）都会污染 tracked 种子 → git 噪音 + 误提运行时状态。因此
+    默认落到 gitignore 的 mock_data_runtime/ 运行副本（首次从种子播种），种子保持
+    只读——「跑系统永不改种子」。
+    - 测试经 conftest 设 SHANGWUJU_MOCK_DIR → 走 tmp，不触发本分支。
+    - recall 经 data.loader 读种子，不受影响（其余读照旧走种子）。
+    """
     if override is not None:
         return override
-    # 与 data/loader 同源逻辑
+    # 显式指定 mock 目录时读写都走它（测试 tmp / 自定义部署）
     mock_dir = os.getenv("SHANGWUJU_MOCK_DIR")
     if mock_dir:
         return Path(mock_dir) / "user_profile.json"
-    # 默认 mock_data/user_profile.json（相对项目根目录）
+    # 护栏：默认写 gitignore 运行副本而非 tracked 种子；首次从种子播种，让 RMW 有数据
     project_root = Path(__file__).resolve().parents[3]
-    return project_root / "mock_data" / "user_profile.json"
+    seed = project_root / "mock_data" / "user_profile.json"
+    runtime = project_root / "mock_data_runtime" / "user_profile.json"
+    if not runtime.exists() and seed.exists():
+        runtime.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(seed, runtime)
+    return runtime
 
 
 def _load_profile_safe(path: Path) -> Optional[UserProfile]:
