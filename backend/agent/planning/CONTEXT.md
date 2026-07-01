@@ -30,3 +30,6 @@
 - **hard / soft（严重度即动作）** — `hard` = 进修复闭环（驱动 backprompt/replan）；`soft` = 只建议（narration），不 gate。
   单一 `Violation` 类型承载，消灭旧的 CRITICAL/WARNING 与 hard/soft 双词汇。见 ADR-0008。
 - **Violation** — 单一校验产出类型：`code / severity(hard|soft) / 节点定位 / fix-hint`。hard 违规 **collect-all 拼成一条 backprompt**（可执行反馈，VAL 教训）。见 ADR-0008。
+- **age_caps（年龄上限单一真相源）** — 一张「年龄 → 单段时长 cap」表（`critic/age_caps.py`），由**组装器（执行）/ critic（兜底）/ grounding（质量）/ ILS penalty（偏置）四方共读**。历史上 critic / blueprint / grounding 各存一份且相互漂移；收口为单表。见 ADR-0008 / ADR-0009。
+- **修复算子（repair operator）** — 一条 hard `Violation` 触发的、ILS 在 `(main_poi, restaurant, dining_time)` 候选空间上的重搜响应：拉黑肇事实体 /（餐厅,时段）对 + 过滤后重解。soft 违规**不**产生修复算子（只叙事）。见 ADR-0009。
+- **闭环修复 backprompt（critic-to-solver）** — critic 把 hard 违规反馈给 **ILS 算法**（不是 LLM）驱动的一次有向重搜（min-conflicts 的 directed perturbation）。区别于 `llm_backprompt`（反馈给 LLM 重生成）。ILS 由此成为 replan 阶梯里「产出被真正采用」的一条梯级（非装饰），区别于同产品的 rule 地板。见 ADR-0009。

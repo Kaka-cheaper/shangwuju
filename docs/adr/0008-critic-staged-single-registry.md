@@ -71,4 +71,4 @@
 - **小项**：删 roster 里的「多样性」（无实现/无数据源，赘文，G1）；budget 检查改读 `CriticContext.profile`（对齐 user_id）；删 reward 机制连带删 `tests/test_critic_feedback_mode.py`（全套基线相应下调）；blueprint 死层删除时其营业时间逻辑须先移植。
 
 ---
-**落地状态**：⏳ 待实现（决策 2026-06-30 · 红队修订已并入 · 见「待办 / 红队审查修订」；按 A→B→C 分阶段 test-first 实现）
+**落地状态**：🔁 部分落地（决策 2026-06-30 · 红队修订已并入）。Phase A（结构迁移，2535d94）/ B-1（hard·soft 严重度 + 分阶段短路，f7f7ad2）/ B-2a（dietary·meal_time 升 hard + 节点完整性改 target_kind + temporal 拆分，7977097）/ B-2b（营业时间检查 + age_caps 单表 + O3/O10/O11 + 消词漂移，963b39a）已落地（936 passed）。**Phase C（接 ILS + grounding 对齐 + 删死 blueprint 层）转由 [ADR-0009](0009-ils-real-rung-and-critic-repair-loop.md) 承接并深化**。
