@@ -80,4 +80,8 @@ ADR-0008 收口了 critic 校验层，但把「ILS 接统一 critic」列为 Pha
 
 ## 落地状态
 
-⏳ **待实现**（决策 2026-07-01 · grill-with-docs 会话 · 按 C-1→C-5 分步 test-first；证据锚点待各步 commit 落地后回填本行）
+✅ **已落地**（决策 2026-07-01 · grill-with-docs 会话 · C-1→C-5 分步 test-first 落地）。
+C-1 assembler 真组装候选（f35fccb）/ C-2 年龄进组装器 α + 餐厅时刻自洽 乙（973566d）/
+C-3 接统一 critic + ViolationCode 映射表 + 删 ils_score_critic（3957037）/
+C-4 有界修复闭环 + gate（abd09c8）/ C-5 删死 blueprint critic 层（fb29dcf）。
+全套 950 passed / 1 skipped；旗舰「满座→改期」端到端逐步收敛（16:30→17:00→17:30）。
