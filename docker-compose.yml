@@ -23,6 +23,12 @@
 #   - 后端切 SESSION_STORE=redis
 #   - 前端打到 OSS+CDN 或 Vercel
 #   - 后端 image 推 ACR → FC Custom Container 部署
+#
+# ⚠ 部署硬约束（ADR-0012 决策 1）：会话跨轮真相源 = LangGraph checkpointer。
+#   本文件默认 memory 模式（进程内 checkpointer）——backend 只能单 worker/单实例
+#   （backend/Dockerfile 已固定 uvicorn --workers 1）。要横向扩多实例/多 worker，
+#   必须叠加 docker-compose.redis.yml（SESSION_STORE=redis），否则不同 worker
+#   看到的会话状态会各自为政。
 
 services:
   # ============================================================

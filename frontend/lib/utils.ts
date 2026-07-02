@@ -142,7 +142,7 @@ export function setUserIdCookie(userId: string): void {
 // ============================================================
 // Session 历史管理（多 session UI）
 //   - 用 localStorage 存最多 8 个 session 记录
-//   - 切 session 后端 ConversationStore 按 session_id 自动隔离上下文
+//   - 切 session 后端按 thread_id(=session_id) 自动隔离上下文（LangGraph checkpointer）
 // ============================================================
 
 const SESSIONS_KEY = "shangwuju_sessions";

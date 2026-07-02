@@ -8,7 +8,7 @@
 
 核心拓扑（详见 build.py）：
     START → router_node → {chitchat | intent} → planner → execute(并行) →
-        assemble → critic → {narrate | replan_router} → interrupt → execute_finalize → END
+        assemble → critic → {narrate | replan_router} → END
 
 各节点职责：
 - router_node      : 6 类输入分类（复用旧 router.py）
@@ -20,21 +20,28 @@
 - assemble_node    : 蓝图→Itinerary（复用 assemble_blueprint）
 - critic_node      : 7 类 ViolationCode（复用 critics_v2）
 - replan_router    : LLM backprompt（≤2 次） / ILS 兜底（复用 planner_hybrid）
-- narrate_node     : 暖语气文案（复用 narrator）
-- interrupt(plan)  : HITL 等三按钮决策
+- narrate_node     : 暖语气文案（复用 narrator）；narrate → END 是图的真实终点
 - refiner_node     : 反馈合并（复用 refiner）
-- execute_finalize : reserve / buy / extra / share
+
+确认（confirm）不是图内节点（ADR-0012 决策 2「结构诚实」）：narrate → END 之后，
+三按钮里 confirm 由 /chat/confirm 走 HTTP 旁路直调 graph/nodes/execute_finalize.py
+的 execute_finalize_node 函数完成下单，再用 aupdate_state 把终版方案 +
+user_decision="confirm" 回写进本图 checkpoint（见 api/_streams/graph_confirm.py）；
+refine 由前端再发一轮 /chat/turn 触发新的 graph 执行；cancel 不触发任何后端调用。
 
 不负责（仍由旧模块管）：
 - 9 工具实现       (在 backend/tools/)
 - LLM 客户端       (在 agent/llm_client.py)
-- ConversationStore (在 agent/v2/conversation.py，graph 复用)
+- 跨 turn 会话真相 (LangGraph checkpointer 自身，见 build.py 的 InMemorySaver /
+                     AsyncRedisSaver；ADR-0012 决策 1)
 - SSE 转换         (在 graph/sse_adapter.py，main.py 接入点)
 
 复用纪律：
 - 节点模块仅是 LangGraph 包装；不改原算法语义
 - 算法核心（planner_hybrid / planner_llm_first / blueprint / critics_v2 等）零改动
-- 旧 ReAct 路径保留为 fallback（USE_LANGGRAPH=0 仍可走）
+- 旧 ReAct / V1 orchestrator 路径已随各自退役批次删除，不存在 fallback；
+  USE_LANGGRAPH 现存唯一残余语义是切 /chat/confirm 实现 + lifespan 是否预热
+  redis checkpointer（退役计划见 ADR-0012 E-0-c）
 """
 
 from .build import build_graph, get_compiled_graph

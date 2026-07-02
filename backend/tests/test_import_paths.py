@@ -63,8 +63,8 @@ def test_planning_imports() -> None:
 
 
 def test_runtime_imports() -> None:
-    """agent/runtime/ 含运行时框架模块（V2 ReAct + V1 orchestrator 均已退役删除）。"""
-    from agent.runtime import conversation  # noqa: F401
+    """agent/runtime/ 含运行时框架模块（V2 ReAct + V1 orchestrator + ConversationState/
+    Repository 均已退役删除，见 ADR-0012 决策 3「旧仓库葬礼」）。"""
     from agent.runtime.tools import search_adapter  # noqa: F401
 
 
@@ -142,6 +142,8 @@ def test_planning_planners_imports() -> None:
         "agent.runtime.observability",
         # V1 单一编排器退役删除（/chat/stream + /chat/refine 收口后死代码）
         "agent.runtime.orchestrator",
+        # ADR-0012 决策 3：ConversationState/ConversationRepository 全删（旧仓库葬礼）
+        "agent.runtime.conversation",
         # V1 规划层退役删除（plan_itinerary_with_mode 分发器 + 两套 LLM planner 收口）
         "agent.planning.planners.llm_planner",
         "agent.planning.planners.llm_first_planner",

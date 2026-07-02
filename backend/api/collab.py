@@ -56,30 +56,17 @@ async def create_room(req: CreateRoomRequest, request: Request) -> CreateRoomRes
     room.session_id = req.session_id
 
     # 如果有现有 session 的行程，带入房间
-    # 优先从 ConversationRepository 取（LangGraph/ReAct 路径存这里）
-    if req.session_id:
-        itinerary_found = False
-        # 路径 1：ConversationRepository（v2 路径）
-        try:
-            from agent.runtime.conversation import get_default_repo
-
-            repo = get_default_repo()
-            state = await repo.get(req.session_id)
-            if state and state.itinerary_snapshot:
-                room.current_itinerary_dict = state.itinerary_snapshot
-                room.current_intent_dict = state.intent_snapshot
-                itinerary_found = True
-        except Exception:  # noqa: BLE001
-            pass
-        # 路径 2：SESSION_STORE（旧 stub/planner 路径）
-        if not itinerary_found and req.session_id in SESSION_STORE:
-            cached = SESSION_STORE[req.session_id]
-            room.current_intent_dict = cached.get("intent")
-            room.current_itinerary_dict = cached.get("itinerary")
-            # 带入规划事件历史（新成员加入时回放 ToolTracePanel）
-            planning_events = cached.get("planning_events")
-            if planning_events:
-                room.planning_events_history = list(planning_events)
+    # 唯一来源 = SESSION_STORE（ADR-0012 决策 3：曾经的「路径 1」ConversationRepository
+    # 已删除——实证 intent_snapshot 全仓无生产写入，那条路径永远读到 None，真实数据
+    # 全靠这里）
+    if req.session_id and req.session_id in SESSION_STORE:
+        cached = SESSION_STORE[req.session_id]
+        room.current_intent_dict = cached.get("intent")
+        room.current_itinerary_dict = cached.get("itinerary")
+        # 带入规划事件历史（新成员加入时回放 ToolTracePanel）
+        planning_events = cached.get("planning_events")
+        if planning_events:
+            room.planning_events_history = list(planning_events)
 
     # 带入对话历史（前端传入）
     if req.chat_messages:

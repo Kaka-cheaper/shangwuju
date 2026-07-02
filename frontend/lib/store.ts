@@ -422,7 +422,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     abortController?.abort();
     const cur = get();
     // 切换到目标 session：清前端中间过程，但保留 user 身份与场景缓存
-    // 后端 ConversationStore 按 session_id 隔离；当前实现里前端不从后端拉历史
+    // 后端跨轮上下文 = LangGraph checkpointer，按 thread_id(=session_id) 隔离；
+    // 当前实现里前端不从后端拉历史
     // （v3 可加 GET /sessions/:id/messages 拉取，本次先实现切 id）
     set({
       ...initialState,

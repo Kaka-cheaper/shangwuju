@@ -17,16 +17,20 @@ execute 阶段（并行 worker）：
 execute_collect → planner（出 weights + blueprint）
                 → assemble（蓝图→Itinerary）
                 → critic（验证）
-                  ├── 通过 → narrate → interrupt(plan_ready) → ...
+                  ├── 通过 → narrate → END
                   └── 硬违规 → replan_router
                               ├── llm_backprompt → planner（带 critic_feedback）
                               ├── ils_fallback → ils_replan → narrate
                               └── give_up → narrate
 
-interrupt(plan_ready) HITL：
-  ├── confirm → execute_finalize → END
-  ├── refine → refiner → execute → planner → ...
-  └── cancel → END
+narrate → END 是图的真实终点（不是虚构的图内 interrupt；ADR-0012 决策 2「结构
+诚实」）。前端的「三按钮」不靠图内 HITL 实现：
+  - confirm：不进图。/chat/confirm 走 HTTP 旁路（api/_streams/graph_confirm.py），
+    直调 graph/nodes/execute_finalize.py 的 execute_finalize_node 函数完成下单，
+    再用 aupdate_state 把终版方案 + user_decision="confirm" 回写进本图 checkpoint。
+    execute_finalize_node 函数体保留，但**不是**本图注册的节点（见下方 g.add_node 注释）。
+  - refine：前端再发一轮 /chat/turn，router 识别为反馈 → refiner → execute → planner → ...
+  - cancel：前端不再调用任何后端接口，图不感知。
 
 InMemorySaver checkpointer：thread_id=session_id，跨 turn 持久化 messages。
 """
@@ -48,7 +52,6 @@ from agent.graph.nodes.execute import (
     search_pois_worker,
     search_restaurants_worker,
 )
-from agent.graph.nodes.execute_finalize import execute_finalize_node
 from agent.graph.nodes.intent import intent_node
 from agent.graph.nodes.narrate import narrate_node
 from agent.graph.nodes.planner import planner_node
@@ -187,9 +190,12 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     g.add_node("replan_router", drain_on_error(replan_router_node, "rule_floor"))
     g.add_node("ils_replan", drain_on_error(ils_replan_node, "rule_floor"))
 
-    # narrate（异常 → 推已通过的方案、跳文案）+ finalize（不挂：execute_finalize 逻辑不动）
+    # narrate（异常 → 推已通过的方案、跳文案）
+    # execute_finalize 不在这里注册（ADR-0012 决策 2「结构诚实」）：它是确认流
+    # HTTP 旁路直调的函数（api/_streams/graph_confirm.py），不是图节点——曾经的
+    # add_node("execute_finalize", ...) 注册过一个【无入边】永达不到的死节点，
+    # 现在把"不进图"这件事做成结构事实，而不只是靠注释描述。
     g.add_node("narrate", drain_on_error(narrate_node, "emit_plan"))
-    g.add_node("execute_finalize", execute_finalize_node)
 
     # ---- 边 ----
     # START → router
@@ -256,13 +262,12 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
         },
     )
 
-    # narrate → END（v1：interrupt 在 main.py 的 SSE 适配层暴露三按钮，不在 graph 内）
-    # 三按钮的 confirm / refine / cancel 由前端再次发起 /chat/turn 触发新的 graph 执行：
-    #   - confirm → 走 execute_finalize 路径（用户态字段携带）
+    # narrate → END（confirm 不在图内：HTTP 旁路 /chat/confirm 直调 execute_finalize_node
+    # 函数体 + aupdate_state 写回图状态，见 api/_streams/graph_confirm.py；ADR-0012 决策 2）
+    # 三按钮里 refine / cancel 由前端再次发起 /chat/turn 触发新的 graph 执行：
     #   - refine  → 走 refiner_node 路径（user_input 是反馈）
     #   - cancel  → 不再触发 graph
     g.add_edge("narrate", END)
-    g.add_edge("execute_finalize", END)
 
     # ---- 编译 ----
     if checkpointer is not None:

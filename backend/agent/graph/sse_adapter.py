@@ -31,7 +31,6 @@ from ._emit_context import EmitContext, make_event, now_ms
 from ._emit_handlers import (
     emit_assemble,
     emit_critic,
-    emit_execute_finalize,
     emit_fanout_worker,
     emit_ils_replan,
     emit_intent,
@@ -122,8 +121,6 @@ async def run_graph_stream(
                     events = emit_assemble(ctx, node_diff)
                 elif node_name == "narrate":
                     events = emit_narrate(ctx, node_diff)
-                elif node_name == "execute_finalize":
-                    events = emit_execute_finalize(ctx, node_diff)
                 else:
                     # 未识别节点：跳过事件转换，但仍累积统计
                     events = []

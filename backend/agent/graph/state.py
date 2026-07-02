@@ -134,7 +134,8 @@ class AgentState(TypedDict, total=False):
     # ---- spec algorithm-redesign R5：memory_writer 副作用结果（用于 SSE memory_persisted 推送）----
     memory_status: Optional[dict[str, Any]]
 
-    # ---- HITL（interrupt 后等三按钮）----
+    # ---- 确认态字段（不是图内 interrupt——HITL 三按钮里只有 confirm 会写这里，
+    # 经 /chat/confirm 的 HTTP 旁路 aupdate_state 回写；ADR-0012 决策 2）----
     user_decision: Optional[Literal["confirm", "refine", "cancel"]]
     refine_feedback: Optional[str]
     orders: list[Any]           # list[Order]

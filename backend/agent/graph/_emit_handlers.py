@@ -366,40 +366,14 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
                 if a.get("message")
             ]
         out.append(ctx.emit(SseEventType.AGENT_NARRATION, narration_payload))
-    # 注：MEMORY_PERSISTED 推送已迁到 execute_finalize 段（2026-05-25）
+    # 注：MEMORY_PERSISTED 推送已迁到确认流（2026-05-25）——execute_finalize_node
+    # 产出 memory_status，由 api/_streams/graph_confirm.py 直接拼 SSE 推送，不再
+    # 经图节点 emit（execute_finalize 已退注册，见 emit_execute_finalize 删除说明）
     # 产品语义：用户确认预约后才记住偏好；方案就绪不应触发
     return out
 
 
-def emit_execute_finalize(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
-    out: list[SseEvent] = []
-    for item in diff.get("execution_tool_results") or []:
-        tool = item.get("tool")
-        if not tool:
-            continue
-        out.append(
-            ctx.emit(
-                SseEventType.TOOL_CALL_START,
-                {"tool": tool, "input": item.get("input") or {}},
-            )
-        )
-        out.append(
-            ctx.emit(
-                SseEventType.TOOL_CALL_END,
-                {
-                    "tool": tool,
-                    "output": item.get("output") or {},
-                    "duration_ms": item.get("duration_ms") or 0,
-                },
-            )
-        )
-    itin = diff.get("itinerary")
-    if itin is not None:
-        out.append(ctx.emit(SseEventType.ITINERARY_READY, itin.model_dump()))
-    # spec algorithm-redesign R5：memory 副作用结果推 SSE
-    # 让评委看到「Agent 已把这次行程写回用户画像，下次同场景会召回」
-    # 2026-05-25 修正：从 narrate 段迁到此处，与「确认预约后才记住」产品语义对齐
-    memory_status = diff.get("memory_status")
-    if memory_status is not None:
-        out.append(ctx.emit(SseEventType.MEMORY_PERSISTED, memory_status))
-    return out
+# 注：emit_execute_finalize 已删除（ADR-0012 决策 2「结构诚实」）——execute_finalize
+# 已从图节点退注册（build.py 不再 add_node），这个 emit 函数只为图内节点事件准备，
+# 节点退注册后是永远走不到的死分支。确认流（/chat/confirm）自己拼 SSE 事件
+# （见 api/_streams/graph_confirm.py），不经过 run_graph_stream / 本 dispatch。

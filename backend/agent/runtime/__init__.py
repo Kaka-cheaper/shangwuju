@@ -1,8 +1,8 @@
-"""agent.runtime —— Pydantic AI ReAct 运行时框架（spec agent-directory-restructure）。
+"""agent.runtime —— 运行时框架模块目录（spec agent-directory-restructure）。
 
-含 ReActAgent / Orchestrator / Conversation / ToolProvider 等运行时框架模块。
 不放业务编排（在 graph/）、不放业务规则（在 planning/）、不放底座（在 core/）。
 
-注：本目录的 observability.py 与 core/observability_init.py 不同——
-后者是 OpenTelemetry instrument 入口，前者是 Pydantic AI 专用的 observability helper。
+历史：ReActAgent / Orchestrator（V1/V2 运行时）与 Conversation（ConversationState/
+Repository，ADR-0012 决策 3「旧仓库葬礼」）均已随各自退役批次删除。当前目录下
+仅剩 tools/（agent.runtime.tools.search_adapter 等运行时工具适配）。
 """

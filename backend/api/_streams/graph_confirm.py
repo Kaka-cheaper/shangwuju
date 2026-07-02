@@ -2,14 +2,19 @@
 
 规划阶段由 /chat/turn 的 LangGraph 主路径产出 intent + itinerary 并写入
 SESSION_STORE；用户点确认后，本流读取该快照，调用 graph/nodes/execute_finalize.py
-的真实执行节点完成预约 / 购票 / 附加服务 / 转发文案。
-确认成功后，memory_writer 与 ConversationStore 记录作为后台副作用执行，
-不阻塞 tool_call / itinerary_ready / done。
+的真实执行函数（不是图内节点，见下）完成预约 / 购票 / 附加服务 / 转发文案。
+
+确认成功后两件事并行发生：
+- memory_writer 副作用作为后台任务执行，不阻塞 tool_call / itinerary_ready / done；
+- 终版方案（含 orders）与 user_decision="confirm" 在推 DONE 事件之前**同步**回写进
+  LangGraph 图状态（ADR-0012 决策 2：会话跨轮真相源=图状态），使下一轮 /chat/turn
+  能从图状态看到「已下单」。该 session 没有图 checkpoint（如协作房间会话）或回写
+  本身失败时，记 warning 日志降级跳过——绝不影响确认结果本身。
 
 不负责：
 - 重新规划。
 - 重新调用 LLM planner。
-- 修改 graph/build.py 拓扑。
+- 修改 graph/build.py 拓扑（execute_finalize 已从图节点退注册，函数体仍在）。
 """
 
 from __future__ import annotations
@@ -166,11 +171,11 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
                 final_itinerary=final_itinerary_obj,
             )
 
-        _schedule_background_confirm_record(
+        # ADR-0012 决策 2：确认成功后把终版方案回写进图状态，时序纪律要求在 DONE
+        # 事件之前**同步**完成（压竞态窗口）——不是后台任务，故不用 _schedule_* helper。
+        await _writeback_graph_state(
             session_id=req.session_id,
-            user_id=cached.get("user_id") or req.user_id or "demo_user",
-            final_itinerary=final_itinerary_obj,
-            agent_message=result.get("narration") or "已完成下单。",
+            itinerary=final_itinerary_obj,
         )
 
     if result.get("narration"):
@@ -196,24 +201,6 @@ def _schedule_background_memory_persist(
             finalize_state=finalize_state,
             intent=intent,
             final_itinerary=final_itinerary,
-        )
-    )
-    _track_background_task(task)
-
-
-def _schedule_background_confirm_record(
-    *,
-    session_id: str,
-    user_id: str,
-    final_itinerary: Itinerary,
-    agent_message: str,
-) -> None:
-    task = asyncio.create_task(
-        _record_confirm_later(
-            session_id=session_id,
-            user_id=user_id,
-            final_itinerary=final_itinerary,
-            agent_message=agent_message,
         )
     )
     _track_background_task(task)
@@ -248,21 +235,54 @@ async def _persist_memory_later(
         logger.debug("graph_confirm: background memory persist failed", exc_info=True)
 
 
-async def _record_confirm_later(
+async def _writeback_graph_state(
     *,
     session_id: str,
-    user_id: str,
-    final_itinerary: Itinerary,
-    agent_message: str,
+    itinerary: Itinerary,
 ) -> None:
-    try:
-        from agent.runtime.conversation import record_confirm_result
+    """确认成功后把终版方案回写进 LangGraph checkpointer（ADR-0012 决策 2）。
 
-        await record_confirm_result(
-            session_id=session_id,
-            user_id=user_id,
-            final_itinerary=final_itinerary,
-            agent_message=agent_message,
+    调用方纪律（时序）：必须在 yield DONE 事件之前 await 完这个函数——回写若晚于
+    DONE，用户在确认动画期间抢发新消息可能先落盘，迟到的回写会把"确认时的旧方案"
+    盖到新一轮状态上（ADR-0012 决策 2 的并发纪律；压窗后的残余竞态是已接受的
+    demo 级风险，不在本函数处理）。
+
+    失败降级（纪律）：无 checkpoint（协作房间会话没跑过图 / 未来还没来得及跑过图
+    的场景）或写失败（如 redis 抖动）——记 warning 日志后静默返回，绝不向上抛出、
+    绝不影响确认结果本身（投影端口 SESSION_STORE 里仍有终版方案兜底）。
+
+    as_node 选型（自行拍板，见任务报告）：显式传 "narrate"，不用默认的 as_node=None
+    自动解析——"execute_finalize" 已从图退注册，不再是合法 as_node；narrate 是
+    topology 上「进入确认前」的最后一个真实节点，语义上最贴近"confirm 发生在
+    narrate 之后"，且是确定性选择（不依赖 langgraph 对 versions_seen 的启发式
+    消歧，避免小概率 InvalidUpdateError("Ambiguous update")）。
+    """
+    try:
+        from agent.graph.build import get_compiled_graph
+
+        graph = get_compiled_graph()
+        config = {"configurable": {"thread_id": session_id}}
+        snapshot = await graph.aget_state(config)
+        if not snapshot or not snapshot.values:
+            logger.info(
+                "graph_confirm: session %s 无图 checkpoint（协作房间会话或未跑过图），"
+                "跳过状态回写",
+                session_id,
+            )
+            return
+        await graph.aupdate_state(
+            config,
+            {"itinerary": itinerary, "user_decision": "confirm"},
+            as_node="narrate",
+        )
+        logger.info(
+            "graph_confirm: session %s 图状态回写成功（orders=%d，user_decision=confirm）",
+            session_id,
+            len(itinerary.orders or []),
         )
     except Exception:  # noqa: BLE001
-        logger.debug("graph_confirm: background confirm record failed", exc_info=True)
+        logger.warning(
+            "graph_confirm: session %s 图状态回写失败，降级跳过（不影响确认结果）",
+            session_id,
+            exc_info=True,
+        )

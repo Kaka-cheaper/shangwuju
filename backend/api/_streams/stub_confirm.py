@@ -1,7 +1,7 @@
 """_stub_confirm —— /chat/confirm demo fixture。
 
 reserve_restaurant + order_extra_service + generate_share_message 模拟
-memory 累积 + ConversationStore 同步。
+memory 累积（data/memory_store，见 _accumulate_memory_after_confirm）。
 """
 
 from __future__ import annotations
@@ -134,19 +134,6 @@ async def _stub_confirm(
                 {"text": confirm_narration, "stage": "confirm"},
             )
             await _delay(120)
-    except Exception:  # noqa: BLE001
-        pass
-
-    # v2 ConversationStore 同步 hook（confirm 后状态升级 itinerary 含 orders）
-    try:
-        from agent.runtime.conversation import record_confirm_result
-
-        await record_confirm_result(
-            session_id=req.session_id,
-            user_id=cached.get("user_id") or "demo_user",
-            final_itinerary=Itinerary.model_validate(itin_dict),
-            agent_message=confirm_narration or "已完成下单。",
-        )
     except Exception:  # noqa: BLE001
         pass
 

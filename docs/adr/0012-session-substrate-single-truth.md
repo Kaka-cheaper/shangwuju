@@ -52,4 +52,5 @@
 
 ## 落地状态
 
-⏳ **待实现**(决策 2026-07-02;先收官 ADR-0010 D-8;证据锚点待回填)
+🔁 **部分落地**(决策 2026-07-02)。
+**E-0-a 已完成**(2026-07-02):确认回写(`_writeback_graph_state`,DONE 前同步、as_node="narrate" 显式选型、无 checkpoint 优雅跳过)+ ConversationState/verify_repository 整体删除 + collab 单路径化 + execute_finalize 图内退注册与死 emit 分支删除 + 全部谎话注释/死配置注释改真话 + 部署硬约束注释;1073 passed(+2 回写图级测试 +1 ImportError 守卫)。实施中发现并纠正 ADR 一处前提:`PLANNER_USE_REAL` 不是死配置(health.py `/ready` 与房间确认流活读),真死的只有 `USE_REACT_AGENT`。余 E-0-b(生命周期表)/E-0-c(确认流合一)。
