@@ -11,8 +11,9 @@
 这是 Plan-and-Execute 的标准做法：约束变了 → 重 plan，但 plan 仍要看新候选。
 
 【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P1-H3）】
-- return dict 重置 critic_attempts / fallback_chain / alternatives / quality_issues 4 字段；
-  反馈合并意味着重新走一遍 plan-critic-narrate，不能让上一轮的 trace 痕迹混入新轮次。
+- return dict 重置 critic_attempts / fallback_chain / alternatives / quality_issues /
+  advisories（D-7 补）5 字段；反馈合并意味着重新走一遍 plan-critic-narrate，
+  不能让上一轮的 trace 痕迹混入新轮次。
 - 同步删除已死的 routes 字段（state.py 已删，refiner 不再写）。
 """
 
@@ -61,6 +62,9 @@ def refiner_node(state: AgentState) -> dict[str, Any]:
         "fallback_chain": [],
         "alternatives": [],
         "quality_issues": [],
+        # D-7：advisory 同理重置——防上一轮的「点名排不进/超预算」告知漏进新一轮
+        # （反馈已经改变了约束，旧告知很可能已经不适用）。
+        "advisories": [],
         # 同步重置策略指针，避免 replan_router 拿旧 strategy 跑空 turn
         "replan_strategy": None,
         "decision_trace": None,

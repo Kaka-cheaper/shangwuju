@@ -80,7 +80,11 @@ class SseEvent(BaseModel):
     - REFINEMENT_START payload = {"feedback_text": str}
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
     - CHITCHAT_REPLY   payload = RouterDecision.model_dump()
-    - AGENT_NARRATION  payload = {"text": str, "stage": "stream" | "confirm"}
+    - AGENT_NARRATION  payload = {"text": str, "stage": "stream" | "confirm",
+      "messages": [{"kind": "advisory", "code": str, "text": str}, ...]}
+      （"messages" 可选，仅当规划器产出「绝不默默忽略」的结构化告知时出现——
+      ADR-0010 D-7 / ADR-0011 决策 5「统一 agent 消息面」；kind 目前恒为
+      "advisory"，未来澄清等消息类型复用同一形状/字段）
     - MEMORY_PERSISTED payload = {"social_context": str, "summary_preview": str, "success": bool, "skipped_reason": str | None}
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}

@@ -124,6 +124,9 @@ class AgentState(TypedDict, total=False):
     critic_attempts: list[Any]     # list[CriticAttempt]
     alternatives: list[Any]        # list[AlternativeCandidate]
     quality_issues: list[Any]      # list[str]：narrator 主动质疑信号（spec R6）
+    advisories: list[Any]          # list[dict]（Advisory.model_dump()）：D-7「绝不默默
+    # 忽略」的结构化告知——ils_replan_node 在 hybrid 成功时写入（见 replan.py），
+    # narrate_node 消费并透传进 SSE（见 _emit_handlers.emit_narrate）。
 
     # ---- 暖语气 ----
     narration: Optional[str]
@@ -177,6 +180,7 @@ def make_initial_state(
         critic_attempts=[],
         alternatives=[],
         quality_issues=[],
+        advisories=[],
         pois_relaxed_tags=[],
         restaurants_relaxed_tags=[],
     )

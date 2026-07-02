@@ -181,6 +181,7 @@ def build_narrator_user_message(
     critic_summary: str = "",
     quality_warnings: list[str] | None = None,
     unmet_cuisines: list[str] | None = None,
+    advisories: list[str] | None = None,
     want_title: bool = False,
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
@@ -193,6 +194,10 @@ def build_narrator_user_message(
             修复反馈），narrator 据此触发主动质疑规则。空串 = 不触发。
         quality_warnings: spec R6 新增。可选 meta-critic 输出的额外质量提醒。
             None / 空列表 = 不触发。
+        unmet_cuisines: 诚实告知用。用户明示但未排进行程的品类/活动诉求。
+        advisories: ADR-0010 D-7 新增。planner「绝不默默忽略」的结构化告知
+            （每条已是自包含中文完整句），进诚实告知区，与 unmet_cuisines 同一
+            纪律（先坦白、不假装满足）。None / 空列表 = 不触发。
         want_title: True 时要求 LLM 用 JSON 同次产出 title（小红书大标题）+ narration。
             narrate 节点的非流式路径用 True（要写回 itinerary.summary）；
             流式打字路径用 False（保持逐字 narration 的 UX，summary 走规则兜底）。
@@ -258,6 +263,14 @@ def build_narrator_user_message(
             f"【未满足的品类诉求】用户明确想要「{unmet_str}」，但附近没有匹配的餐厅"
             f"（超出距离范围或本地无此品类），方案里用了替代餐厅。\n"
             f"→ 必须按【诚实告知规则】先坦白没找到「{unmet_str}」，再暖语气说明用了替代、欢迎反馈。"
+        )
+    if advisories:
+        advisories_str = "；".join(advisories)
+        extras.append(
+            f"【规划限制告知】{advisories_str}\n"
+            f"→ 这些是规划器已经如实检测到的限制/建议（如点名的目标这次排不进、"
+            f"超出常用预算、总时长比期望短等）。必须按【诚实告知规则】的坦白精神，"
+            f"把这些内容自然带进文案，不要省略、不要轻描淡写成正常方案介绍。"
         )
     extras_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 

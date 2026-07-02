@@ -40,6 +40,8 @@ base_score 里，不再被抵消。
   本身，只对它们的输出做池准备）。
 - `route_commute_compactness` / `route_diversity_penalty` / `route_budget_penalty`：
   路线级 utility 三项（通勤紧凑 / 轻量多样性罚 / 预算软罚）。
+- `route_total_cost`（D-7 新增）：路线总花费（元）——`route_budget_penalty` 与
+  `ils_planner.plan_hybrid` 的 `AdvisoryCode.OVER_BUDGET` 判定共读同一口径。
 - `route_score` / `marginal_score`：路线级 utility 组合 + 插入边际分 helper
   （D-4 贪心插入构造消费）。
 
@@ -629,6 +631,17 @@ def route_diversity_penalty(visits: Sequence[Visit]) -> float:
     return penalty
 
 
+def route_total_cost(visits: Sequence[Visit]) -> float:
+    """路线总花费（元）——Σ`Visit.cost`。
+
+    抽成小函数（D-7）：原先内联在 `route_budget_penalty` 里的一行 `sum(...)`，
+    现在还被 `ils_planner.plan_hybrid` 的 `AdvisoryCode.OVER_BUDGET` 判定复用——
+    "总花费"这件事本身（不是"超没超、罚多少"）两处要的是同一个数字，抽出来
+    避免出现第二套算钱逻辑（ADR-0010 决策 11 verbatim 要求"复用同一口径"）。
+    """
+    return sum(v.cost for v in visits)
+
+
 def route_budget_penalty(visits: Sequence[Visit], budget: float) -> float:
     """路线总花费超预算的软罚（ADR-0010 决策 10"钱(软)"）。
 
@@ -644,7 +657,7 @@ def route_budget_penalty(visits: Sequence[Visit], budget: float) -> float:
     """
     if budget <= 0:
         return 0.0
-    total_cost = sum(v.cost for v in visits)
+    total_cost = route_total_cost(visits)
     overage_ratio = max(0.0, (total_cost - budget) / budget)
     if overage_ratio <= 0:
         return 0.0

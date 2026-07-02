@@ -124,12 +124,14 @@
   客观搜索放给算法。
 
 接口：
-    def plan_hybrid(intent, *, client=None, tracer=None) -> HybridResult
+    def plan_hybrid(intent, *, client=None, tracer=None, pinned=None) -> HybridResult
 
 输入与旧版基本一致（**去掉 `rule_assembler` 形参**——新流程组装是模块内部直调，
-不再需要外部注入；见 ADR-0010 D-5 连带决策 4）。被
+不再需要外部注入；见 ADR-0010 D-5 连带决策 4）。**D-7 新增 `pinned` 形参**
+（`Sequence[PinSpec]`，见本文件「D-7」小节）——`HybridResult` 相应新增
+`advisories` 字段（ADR-0010 决策 11「绝不默默忽略」）。被
 `graph/nodes/replan.py:ils_replan_node` 调（第 3 次 ILS 兜底），以及
-`tests/test_planner_hybrid.py` 直接驱动。
+`tests/test_planner_hybrid.py`/`tests/test_planner_pinning_advisory.py` 直接驱动。
 
 不负责：
 - 权重决策（在 `weights_llm.py`）
@@ -150,10 +152,12 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
+from schemas.advisory import Advisory, AdvisoryCode
 from schemas.domain import Poi, Restaurant, SuggestedDuration
 from schemas.errors import FailureReason
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
+from schemas.pin import PinSpec
 from schemas.tools import (
     SearchPoisInput,
     SearchPoisOutput,
@@ -249,7 +253,14 @@ def _run_unified_critic(itinerary: Itinerary, intent: IntentExtraction) -> Hybri
 
 @dataclass
 class HybridResult:
-    """planner_hybrid 内部结果（不是公共 API；上层包成 PlannerResult）。"""
+    """planner_hybrid 内部结果（不是公共 API；上层包成 PlannerResult）。
+
+    `advisories`（D-7 新增）：ADR-0010 决策 11「绝不默默忽略」的结构化告知——
+    只在 `success=True` 时有意义地填充，描述**这一个最终交付的方案**（点名的
+    目标排不进/被修复闭环换掉、总时长比期望短、总花费超预算等）。语义铁律：
+    `plan_hybrid` 失败落 rule 地板时 hybrid 尝试期间的账单作废（那个方案没
+    交付），失败分支恒不填充（保持 `default_factory=list` 的空列表）。
+    """
 
     success: bool
     itinerary: Optional[Itinerary] = None
@@ -257,6 +268,7 @@ class HybridResult:
     critic_report: Optional[HybridCriticReport] = None
     failure_reason: Optional[FailureReason] = None
     failure_detail: Optional[str] = None
+    advisories: list[Advisory] = field(default_factory=list)
 
 
 def _resolve_depart_min(start_time: str) -> int:
@@ -273,11 +285,190 @@ def _resolve_depart_min(start_time: str) -> int:
     return (hour if hour is not None else default_hour) * 60
 
 
+# ============================================================
+# D-7：pinned 解析 + advisory 收集（ADR-0010 决策 11「绝不默默忽略」）
+# ============================================================
+#
+# 范围声明（ADR-0010 D-7 原文）：本节只做「planner 接受结构化 `PinSpec` +
+# advisory 产出」；`IntentExtraction` 无 pin 字段、intent 解析 prompt 也不抽取
+# ——intent 层的 pin 抽取是跨层依赖，单独立项。`pinned` 因此目前只能被单测手工
+# 构造喂入，生产调用点（`graph/nodes/replan.py:ils_replan_node`）暂不传参
+# （等价于"无锚点"，不影响现状行为）。
+
+
+def _visit_display_name(visit: "Visit") -> str:
+    """pin 相关 advisory 文案里"目标叫什么"——优先取真实实体名
+    （`Visit.entity` 是 `Poi`/`Restaurant`，两者都有 `.name`），entity 缺失
+    （目前只有单测里手工构造的哨兵 Visit 会这样）时退回 `target_id`。"""
+    entity = getattr(visit, "entity", None)
+    name = getattr(entity, "name", None) if entity is not None else None
+    return name or visit.target_id
+
+
+def _no_matching_candidates_advisory(missed: Sequence[PinSpec]) -> Advisory:
+    """pin 在已召回候选池里找不到匹配实体——ADR-0010 决策 11「过预算/无匹配候选：
+    告知并建议放宽」。
+
+    多条 miss 合并成**一条**告知（深审修正：文案本就无法点名不存在的实体——
+    只有内部 id，消息纪律禁止外露——N 条同码告知只是同文重复，合并无信息损失，
+    还避免 narrator 模板段落被同码句子撑爆）。
+    """
+    kinds = {p.kind for p in missed}
+    if kinds == {"poi"}:
+        kind_label = "地点"
+    elif kinds == {"restaurant"}:
+        kind_label = "餐厅"
+    else:
+        kind_label = "地点和餐厅"
+    return Advisory(
+        code=AdvisoryCode.NO_MATCHING_CANDIDATES,
+        message=(
+            f"你点名想去的{kind_label}这次在候选范围内没找到匹配项"
+            "（可能是距离太远或条件筛没了），要不换个目标，要不放宽一下筛选范围？"
+        ),
+    )
+
+
+def _resolve_pinned(
+    pinned: Optional[Sequence[PinSpec]],
+    pois: Sequence[Poi],
+    restaurants: Sequence[Restaurant],
+    intent: IntentExtraction,
+    weights: PlanningWeights,
+    semantic_scores: dict[str, float],
+) -> tuple[list["Visit"], list[Advisory]]:
+    """把 `PinSpec` 列表 resolve 成 `Visit`（供 `route_builder.build_route(pinned=
+    ...)` 消费——它已有的形参正是本函数产出的形状，D-4 时就把消费端建好了）。
+
+    按 `target_id` 在**已查回**的 `pois`/`restaurants`（`plan_hybrid` 步骤 1
+    的召回+grounding 过滤结果）里查找；查不到 → `NO_MATCHING_CANDIDATES`
+    advisory，不静默丢弃（ADR-0010 决策 11）。复用 `build_visit_from_poi`/
+    `build_visit_from_restaurant`（D-1 既有构造路径）产出 `Visit`——不新建一条
+    平行构造路径，这样 pin 与涌现候选共享完全相同的时长/窗口/utility 计算口径。
+    """
+    if not pinned:
+        return [], []
+
+    from .activity_pool import build_visit_from_poi, build_visit_from_restaurant
+
+    poi_by_id = {p.id: p for p in pois}
+    rest_by_id = {r.id: r for r in restaurants}
+
+    visits: list["Visit"] = []
+    missed: list[PinSpec] = []
+    for pin in pinned:
+        if pin.kind == "poi":
+            entity = poi_by_id.get(pin.target_id)
+            if entity is None:
+                missed.append(pin)
+                continue
+            visits.append(
+                build_visit_from_poi(entity, intent, weights, semantic_scores=semantic_scores)
+            )
+        else:  # "restaurant"
+            entity = rest_by_id.get(pin.target_id)
+            if entity is None:
+                missed.append(pin)
+                continue
+            visits.append(build_visit_from_restaurant(entity, intent, weights))
+
+    advisories = [_no_matching_candidates_advisory(missed)] if missed else []
+    return visits, advisories
+
+
+def _build_success_advisories(
+    *,
+    pin_advisories: list[Advisory],
+    unmet_pinned: Sequence["Visit"],
+    dropped_pins: set[tuple[str, str]],
+    pinned_by_key: dict[tuple[str, str], "Visit"],
+    violations: list[Violation],
+    current_scheduled: Sequence[Any],
+    money_budget: float,
+) -> list[Advisory]:
+    """把这一路收集到的告知拼成**最终交付方案**的 advisories 列表。
+
+    只在 `plan_hybrid` 判定 `success=True`（`report.passed`）那一刻被调用——
+    ADR-0010 决策 11 语义铁律："advisories 描述最终交付的方案"，hybrid 尝试
+    期间任何中间态（未收敛的重排轮次、最终仍失败落地板的尝试）都不产 advisory。
+    """
+    from .activity_pool import route_total_cost
+
+    advisories: list[Advisory] = list(pin_advisories)
+
+    # 成员资格过滤（深审修正 1）：告知必须对「最终交付的方案」字面为真。
+    # unmet/dropped 是构造期/修复期的**历史记录**——修复闭环换血时重搜池含全部
+    # 实体，原本塞不进/被牺牲的 pin 有可能作为普通候选被重新插回；凡最终排程里
+    # 实际存在的目标，一律不产「没进方案」类告知（否则出现"方案里明明有它、
+    # 开场白却说塞不进去"的假告知）。
+    scheduled_keys = {(sv.visit.kind, sv.visit.target_id) for sv in current_scheduled}
+
+    # 同码合并（深审修正 2）：多个 pin 同码时合成一句点全名字——「绝不静默忽略」
+    # 的通道若因同码句子逐条膨胀、在 narrator 模板里被截断，反而自吞告知，
+    # 本末倒置；合并后每码至多一句，模板可全量渲染。
+    unmet_names = [
+        _visit_display_name(v)
+        for v in unmet_pinned
+        if (v.kind, v.target_id) not in scheduled_keys
+    ]
+    if unmet_names:
+        names_str = "".join(f"『{n}』" for n in unmet_names)
+        advisories.append(
+            Advisory(
+                code=AdvisoryCode.PINNED_UNSATISFIABLE,
+                message=(
+                    f"你点名想去的{names_str}这次的时间和路线里"
+                    "塞不进去了，要不延长一点时长，要不我去掉别的活动腾地方？"
+                ),
+            )
+        )
+
+    dropped_names: list[str] = []
+    for key in sorted(dropped_pins):
+        if key in scheduled_keys:
+            continue
+        v = pinned_by_key.get(key)
+        dropped_names.append(_visit_display_name(v) if v is not None else key[1])
+    if dropped_names:
+        names_str = "".join(f"『{n}』" for n in dropped_names)
+        tail = "这一站" if len(dropped_names) == 1 else "这些站"
+        advisories.append(
+            Advisory(
+                code=AdvisoryCode.PINNED_DROPPED_IN_REPAIR,
+                message=(
+                    f"你点名的{names_str}在处理其它冲突时被换掉了，是为了让整体方案"
+                    f"排得开——如果{tail}必须保留，告诉我我再想别的办法。"
+                ),
+            )
+        )
+
+    for v in violations:
+        if v.severity == Severity.SOFT and v.code == ViolationCode.DURATION_OUT_OF_RANGE:
+            # 复用 check_duration 已经写好的用户向文案（同一纪律：自包含中文人话），
+            # 不重写第二份措辞（DRY；措辞改进只需改一处）。
+            advisories.append(Advisory(code=AdvisoryCode.SHORTER_THAN_REQUESTED, message=v.message))
+
+    total_cost = route_total_cost([sv.visit for sv in current_scheduled])
+    if money_budget > 0 and total_cost > money_budget:
+        advisories.append(
+            Advisory(
+                code=AdvisoryCode.OVER_BUDGET,
+                message=(
+                    f"这次预估花费约 {total_cost:.0f} 元，比你平时 {money_budget:.0f} 元"
+                    "左右的预算高一些——不介意的话可以直接用，想省钱也可以告诉我砍掉哪一站。"
+                ),
+            )
+        )
+
+    return advisories
+
+
 def plan_hybrid(
     intent: IntentExtraction,
     *,
     client: Any | None = None,
     tracer: Optional[Tracer] = None,
+    pinned: Optional[Sequence[PinSpec]] = None,
 ) -> HybridResult:
     """多活动 TOPTW 混合规划主流程（ADR-0010 D-5：见模块 docstring「新流程」节）。
 
@@ -285,10 +476,15 @@ def plan_hybrid(
         intent: 用户意图。
         client: LLMClient；None 时权重/语义打分走启发式兜底（stub）。
         tracer: 可选 Tracer；None 时创建一个新的。
+        pinned: 用户「点名必去」的结构化条目（D-7；见模块「D-7」小节的范围声明）。
+            None/空 = 无锚点，行为与 D-7 之前完全一致。resolve 不到 / 排不进 /
+            被修复闭环换掉都不静默丢弃，反映在 `HybridResult.advisories` 里。
 
     Returns:
         HybridResult；success=True 时 itinerary 保证经统一 critic 验证无 HARD
-        违规（gate 不变量，ADR-0009 决策 5·C-4，迁移后原样保留）。
+        违规（gate 不变量，ADR-0009 决策 5·C-4，迁移后原样保留）。advisories
+        只在 success=True 时有意义地填充（见 `HybridResult`/`_build_success_
+        advisories` docstring）。
     """
     tracer = tracer or Tracer()
 
@@ -335,7 +531,7 @@ def plan_hybrid(
             )
             semantic_scores = {p.id: 0.5 for p in pois}
 
-    # ---- 步骤 4：build_route（D-4 锚定两段贪心插入构造）----
+    # ---- 步骤 3.5：pinned 解析（D-7；resolve 不到 → NO_MATCHING_CANDIDATES）----
     from .activity_pool import (
         build_poi_route_pool,
         build_restaurant_route_pool,
@@ -349,6 +545,13 @@ def plan_hybrid(
     commute_fn = make_commute_fn(user_profile)
     money_budget = user_profile.default_budget
 
+    pinned_visits, pin_advisories = _resolve_pinned(
+        pinned, pois, restaurants, intent, weights, semantic_scores
+    )
+    pinned_keys = {(v.kind, v.target_id) for v in pinned_visits}
+    pinned_by_key = {(v.kind, v.target_id): v for v in pinned_visits}
+
+    # ---- 步骤 4：build_route（D-4 锚定两段贪心插入构造）----
     build_result = build_route(
         pois,
         restaurants,
@@ -357,6 +560,7 @@ def plan_hybrid(
         depart_min=depart_min,
         commute_fn=commute_fn,
         semantic_scores=semantic_scores,
+        pinned=pinned_visits,
     )
     if not build_result.schedule.scheduled:
         return HybridResult(
@@ -398,6 +602,8 @@ def plan_hybrid(
     bl_rest_time: set[tuple[str, str]] = set()
     poi_visits: Optional[list["Visit"]] = None
     rest_visits: Optional[list["Visit"]] = None
+    # D-7 决策 E：本轮修复闭环里真被牺牲（整店/整 POI 拉黑）的 pin，跨轮累积。
+    dropped_pins: set[tuple[str, str]] = set()
     report = _run_unified_critic(current_itin, intent)
 
     for attempt in range(MAX_REPAIR_ROUNDS + 1):
@@ -419,11 +625,21 @@ def plan_hybrid(
             )
 
         if report.passed:
+            advisories = _build_success_advisories(
+                pin_advisories=pin_advisories,
+                unmet_pinned=build_result.unmet_pinned,
+                dropped_pins=dropped_pins,
+                pinned_by_key=pinned_by_key,
+                violations=report.violations,
+                current_scheduled=current_scheduled,
+                money_budget=money_budget,
+            )
             return HybridResult(
                 success=True,
                 itinerary=current_itin,
                 weights=weights,
                 critic_report=report,
+                advisories=advisories,
             )
 
         if attempt >= MAX_REPAIR_ROUNDS:
@@ -433,8 +649,25 @@ def plan_hybrid(
         add_poi, add_rest, add_rest_time = _compute_blacklists(current_itin, report.violations)
         if not (add_poi or add_rest or add_rest_time):
             break  # 违规无 ILS 可修算子（结构码 / AGE / 总时长）→ 落地板
-        bl_poi |= add_poi
-        bl_rest |= add_rest
+
+        # D-7 决策 E：pinned 的 (kind, target_id) 默认不进整体黑名单（保护）；仅当
+        # 本轮唯一的可行动作全部指向被保护的 pin（过滤后"安全"额度为空）时，才
+        # 允许把它纳入黑名单救全局——绝不静默：真被牺牲的 pin 记进 dropped_pins，
+        # 最终交付方案里若确实不含它，由 _build_success_advisories 产
+        # PINNED_DROPPED_IN_REPAIR。封槽（bl_rest_time）不触发保护——挖窗只是把
+        # 该餐厅的时刻挪走（仍在方案里），不等于把 pin 整个换掉。
+        protected_poi = {tid for tid in add_poi if ("poi", tid) in pinned_keys}
+        protected_rest = {tid for tid in add_rest if ("restaurant", tid) in pinned_keys}
+        safe_poi = add_poi - protected_poi
+        safe_rest = add_rest - protected_rest
+        if not (safe_poi or safe_rest or add_rest_time):
+            safe_poi = protected_poi
+            safe_rest = protected_rest
+            dropped_pins.update(("poi", tid) for tid in protected_poi)
+            dropped_pins.update(("restaurant", tid) for tid in protected_rest)
+
+        bl_poi |= safe_poi
+        bl_rest |= safe_rest
         bl_rest_time |= add_rest_time
 
         tracer.emit(

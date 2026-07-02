@@ -16,6 +16,8 @@
 - state["replan_strategy"] = "llm_backprompt" / "ils_fallback" / "give_up"
 - state["retry_count"] += 1（对外可见的累计次数）
 - 触发 ils_fallback 时直接把新 itinerary 写回 state["itinerary"]，绕过 planner→assemble
+- ils_fallback 成功时同时写回 state["advisories"]（D-7：plan_hybrid 的「绝不默默
+  忽略」告知，透传给 narrate_node）
 """
 
 from __future__ import annotations
@@ -139,6 +141,9 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
                 "has_critical": False,
                 "violations": [],
                 "critic_feedback_text": None,
+                # D-7：透传 plan_hybrid 收集到的「绝不默默忽略」告知（点名排不进/
+                # 被修复闭环换掉/超预算/时长不足等），narrate_node 消费。
+                "advisories": [a.model_dump() for a in result.advisories],
             }
     except Exception:  # noqa: BLE001
         pass

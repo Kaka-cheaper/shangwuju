@@ -65,7 +65,9 @@ def _build_critic_summary(critic_attempts: list[Any]) -> str:
 def _extract_quality_warnings(state: AgentState) -> list[str]:
     """把 state.quality_issues 转成 list[str] 喂给 narrator。
 
-    quality_issues 由上游节点（如未来的 meta_critic）写入；当前为空。
+    quality_issues 由上游节点写入（`intent_node` 的词典外社交意图检测——见
+    `agent/graph/nodes/intent.py` R1；`refiner_node` 在反馈合并时重置为空，
+    防上一轮残留漏进新一轮）。
     """
     issues = state.get("quality_issues") or []
     out: list[str] = []
@@ -75,6 +77,35 @@ def _extract_quality_warnings(state: AgentState) -> list[str]:
         elif isinstance(it, dict) and it.get("message"):
             out.append(str(it["message"]).strip())
     return out
+
+
+def _extract_advisories(state: AgentState) -> list[dict]:
+    """把 state.advisories（`Advisory.model_dump()` 列表，D-7）原样取出。
+
+    由 `ils_replan_node` 写入（hybrid 成功时），`refiner_node` 在反馈合并时重置。
+    本函数只做防御性过滤（非法条目跳过，宁缺毋崩），不改写内容——`narrate_node`
+    既用它拼 narrator 文案，也原样回填进返回 diff 供 `emit_narrate` 取用
+    （见 `agent/graph/_emit_handlers.py`）。
+    """
+    advisories = state.get("advisories") or []
+    return [a for a in advisories if isinstance(a, dict) and a.get("message")]
+
+
+def _dedupe_unmet_desires_against_advisories(
+    unmet_desires: list[str], advisory_messages: list[str]
+) -> list[str]:
+    """去重：advisory 消息里已经提过的名词，不在 unmet_desires 里重复说一遍。
+
+    简单包含判重（ADR-0010 D-7 决策 G 原话），不做语义匹配——advisory 与
+    unmet_desires 服务不同检测机制（前者来自 planner 的 pin/预算/时长判定，
+    后者来自 narrate 自身的品类/POI 诉求检测），两者命中同一诉求词的概率低，
+    简单 substring 包含足以避免"同一件事说两遍"这个具体风险，不值得引入更复杂
+    的语义去重。
+    """
+    if not advisory_messages:
+        return unmet_desires
+    combined = "".join(advisory_messages)
+    return [d for d in unmet_desires if d not in combined]
 
 
 def _detect_unmet_cuisines(intent: Any, itinerary: Any) -> list[str]:
@@ -159,6 +190,11 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     critic_summary = _build_critic_summary(state.get("critic_attempts") or [])
     quality_warnings = _extract_quality_warnings(state)
 
+    # D-7：state.advisories（planner「绝不默默忽略」的结构化告知）→ narrator 的
+    # 完整句子列表。
+    advisories = _extract_advisories(state)
+    advisory_messages = [a["message"] for a in advisories]
+
     # 诚实告知（用户观察的 bug）：用户明示诉求但因超距/无候选/重排仍未选上而未排进行程
     # → 检测未满足诉求，让 narrator 诚实说明"附近没找到 X，帮你换了替代品"。
     # cuisine 版走餐厅菜系维度，poi 版走活动场所维度（spec narration-and-intent-fidelity R4）；
@@ -169,6 +205,8 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     for d in [*unmet_cuisines, *unmet_pois]:
         if d and d not in unmet_desires:
             unmet_desires.append(d)
+    # D-7 决策 G：advisory 已经提过的名词不在 unmet_desires 里重复说。
+    unmet_desires = _dedupe_unmet_desires_against_advisories(unmet_desires, advisory_messages)
 
     # 同次产出：title（小红书风格大标题，写回 itinerary.summary）+ narration（开场白）
     # title 必须覆盖所有主要站点（旧 bug：只取停留最久的单站）。
@@ -180,6 +218,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         critic_summary=critic_summary,
         quality_warnings=quality_warnings,
         unmet_cuisines=unmet_desires,
+        advisories=advisory_messages,
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
@@ -239,5 +278,13 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # 新实现：persist_memory 副作用迁到 execute_finalize_node（confirm 路径）；narrate 节点
     # 不再触发 memory 写入。这与 memory_writer.py 的「user_decision != 'confirm' 时
     # success=False」语义对齐，让「记住」与「下单」两个动作绑同一触发点。
-    result: dict[str, Any] = {"narration": text, "itinerary": new_itinerary}
+    #
+    # D-7：advisories 原样透传进返回 diff（不是本节点新算的，只是让 emit_narrate
+    # 能直接从 diff 里拿到，不必依赖 EmitContext.last_state 的时序假设——见
+    # agent/graph/_emit_handlers.py:emit_narrate）。
+    result: dict[str, Any] = {
+        "narration": text,
+        "itinerary": new_itinerary,
+        "advisories": advisories,
+    }
     return result

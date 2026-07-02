@@ -353,12 +353,19 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         )
         ctx.itinerary_emitted = True
     if text:
-        out.append(
-            ctx.emit(
-                SseEventType.AGENT_NARRATION,
-                {"text": text, "stage": "stream"},
-            )
-        )
+        narration_payload: dict[str, Any] = {"text": text, "stage": "stream"}
+        # D-7（ADR-0010 决策 11 / ADR-0011 决策 5「统一 agent 消息面」）：
+        # narrate_node 把 state.advisories 原样透传进自己的 diff（见 narrate.py），
+        # 这里转成前端可渲染的结构化条目——形状故意与「统一 agent 消息面」对齐
+        # （kind/code/text 三要素），future 澄清消息可复用同一个列表字段。
+        advisories = diff.get("advisories") or []
+        if advisories:
+            narration_payload["messages"] = [
+                {"kind": "advisory", "code": a.get("code"), "text": a.get("message")}
+                for a in advisories
+                if a.get("message")
+            ]
+        out.append(ctx.emit(SseEventType.AGENT_NARRATION, narration_payload))
     # 注：MEMORY_PERSISTED 推送已迁到 execute_finalize 段（2026-05-25）
     # 产品语义：用户确认预约后才记住偏好；方案就绪不应触发
     return out

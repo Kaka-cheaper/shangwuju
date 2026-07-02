@@ -320,6 +320,7 @@ def _template_narration(
     stage_label: str,
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    advisories: Optional[list[str]] = None,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
 
@@ -330,6 +331,10 @@ def _template_narration(
     - 含 ≤6 岁孩 + 任一非 home 节点 duration_min > 90 时，强制追加质疑短语，
       让 LLM 失败的兜底路径也能让用户感知"AI 在为我考虑"。
     - quality_warnings（如果由调用方传入）会被合并进质疑短语。
+
+    ADR-0010 D-7：`advisories`（planner 产出的「绝不默默忽略」告知，每条已是
+    自包含中文完整句）并入 honest_text 段（"说明一下，……"）——与 unmet_cuisines
+    同属"诚实告知"语义，共用同一个开场词，不新起一段（见函数体 honest_text 拼接）。
     """
     total_h = itinerary.total_minutes / 60
     companions_phrase = _format_companions(
@@ -414,14 +419,22 @@ def _template_narration(
     else:
         ending = "哪里不合适跟我说一声。"
 
-    # 诚实告知：用户明示品类未排进行程（如附近没烧烤）→ 先坦白再说替代
-    honest_text = ""
+    # 诚实告知：用户明示品类未排进行程（如附近没烧烤）→ 先坦白再说替代；
+    # D-7：advisories（点名排不进/超预算/时长不足等）并入同一段，共用"说明一下"
+    # 开场词——两者都是"诚实告知限制"的同一语义（不新起一段）。
+    honest_segments: list[str] = []
     if unmet_cuisines:
         cuisines_str = "、".join(unmet_cuisines[:2])
-        honest_text = (
-            f"说明一下，你想要的{cuisines_str}附近没找到合适的，"
+        honest_segments.append(
+            f"你想要的{cuisines_str}附近没找到合适的，"
             f"先帮你选了方案里的替代，不满意我再换。"
         )
+    if advisories:
+        # 不截断（深审修正）：advisory 在 planner 侧已按码合并（每码至多一句，
+        # 现实上限 ~4 句），这里全量渲染——「绝不默默忽略」的通道自己因 [:2]
+        # 吞掉第三句告知，是本末倒置。
+        honest_segments.extend(advisories)
+    honest_text = ("说明一下，" + "".join(honest_segments)) if honest_segments else ""
 
     return f"{opener}{body}。{honest_text}{challenge_text}{ending}"
 
@@ -518,6 +531,7 @@ def _call_llm_narrator(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    advisories: Optional[list[str]] = None,
     want_title: bool = False,
 ) -> Optional[tuple[Optional[str], str]]:
     """调 LLM 生成开场白（want_title=True 时同次产出 title + narration）。
@@ -527,6 +541,8 @@ def _call_llm_narrator(
     spec R6：透传 critic_summary / quality_warnings，prompt 里有「主动质疑规则」
     段会指导 LLM 在收到这两个字段时主动加一句质疑性建议。
     unmet_cuisines：诚实告知未满足的用户指定品类。
+    advisories（ADR-0010 D-7）：planner「绝不默默忽略」的结构化告知（完整句子），
+    进 prompt 的诚实告知区，与 unmet_cuisines 同一纪律——先坦白、不假装满足。
 
     want_title：True 时要求 LLM 用同一次调用输出 JSON {"title","narration"}——
     title 写回 itinerary.summary（小红书风格大标题），narration 作开场白。
@@ -548,6 +564,7 @@ def _call_llm_narrator(
         critic_summary=critic_summary,
         quality_warnings=list(quality_warnings or []),
         unmet_cuisines=list(unmet_cuisines or []),
+        advisories=list(advisories or []),
         want_title=want_title,
     )
 
@@ -651,6 +668,7 @@ def generate_title_and_narration(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    advisories: Optional[list[str]] = None,
 ) -> tuple[str, str]:
     """同次产出 (title, narration)。
 
@@ -660,6 +678,9 @@ def generate_title_and_narration(
     LLM 路径：复用同一次 LLM 调用（want_title=True，JSON 输出）拿到两者；
     解析不出 title 时只兜 title（用规则模板），narration 仍用 LLM 原文。
     规则 / stub 路径：title 走 _template_title，narration 走 _template_narration。
+
+    advisories（ADR-0010 D-7）：planner「绝不默默忽略」的结构化告知（完整句子
+    列表），并入 narration 的诚实告知段——见 `_template_narration`/prompt。
 
     Returns:
         (title, narration)，两者永远非空。
@@ -674,6 +695,7 @@ def generate_title_and_narration(
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
             unmet_cuisines=unmet_cuisines,
+            advisories=advisories,
             want_title=True,
         )
         if out is not None:
@@ -681,7 +703,7 @@ def generate_title_and_narration(
 
     # narration：LLM 有就用 LLM；否则规则模板兜底
     narration = llm_narration or _template_narration(
-        intent, itinerary, stage, quality_warnings, unmet_cuisines
+        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories
     )
     # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
     title = llm_title or _template_title(intent, itinerary)
@@ -697,6 +719,7 @@ def generate_narration(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    advisories: Optional[list[str]] = None,
 ) -> str:
     """生成 Agent 暖心开场白。
 
@@ -713,6 +736,8 @@ def generate_narration(
             （如「老人单段过长」），LLM 与模板兜底都会消费。
         unmet_cuisines: 诚实告知用。用户明示但未排进行程的餐饮品类（如「烧烤」）
             ——narrator 须诚实说明"附近没找到 X，帮你换了方案里的替代品"。
+        advisories: ADR-0010 D-7 新增。planner「绝不默默忽略」的结构化告知
+            （完整句子，如「点名想去的『XX馆』这次塞不进去了」），并入诚实告知段。
 
     Returns:
         2-3 句中文文案（80-200 字）。永远返回非空字符串。
@@ -728,6 +753,7 @@ def generate_narration(
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
             unmet_cuisines=unmet_cuisines,
+            advisories=advisories,
             want_title=False,
         )
         if out is not None:
@@ -737,7 +763,7 @@ def generate_narration(
 
     # Fallback / 规则模式（含 spec R6 兜底质疑 + 诚实告知）
     return _template_narration(
-        intent, itinerary, stage, quality_warnings, unmet_cuisines
+        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories
     )
 
 

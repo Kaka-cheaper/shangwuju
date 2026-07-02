@@ -15,7 +15,9 @@ D-1（`activity_pool.py`）给出候选池 + `Visit` + utility；D-2（`route_sc
 
 【构造两段（ADR 决策 3）】
 
-1. **锚点段**：`pinned`（D-7 才有真实来源，本步只留列表接口）逐个 `try_insert`；
+1. **锚点段**：`pinned`（D-4 时只留列表接口；D-7 起由 `ils_planner.plan_hybrid`
+   经 `_resolve_pinned` 灌入真实值——resolve 逻辑归 D-7，本模块仍只消费已经是
+   `Visit` 形态的列表）逐个 `try_insert`；
    插不进——不静默丢弃，记入 `unmet_pinned`（advisory 数据，D-7 消费）。
    **软锚饭**（`dining_soft_anchored`，规则见该函数 docstring）命中且尚无餐厅
    入选时，从餐厅候选池挑 `base_score` 最高且 `try_insert` 可行的一家先放——
@@ -390,8 +392,8 @@ def build_route(
             了不同于"天真解析"的 `depart_min`，如 rule 地板的时段协商）。
         commute_fn: 通勤查询，生产环境用 `make_commute_fn(user_profile)` 生成。
         semantic_scores: 转发给 `build_visit_from_poi` 的语义分（可选）。
-        pinned: 用户明确需求对应的 `Visit` 列表（D-7 才有真实来源；本步接口
-            留空即可，传 `None` 等同于"无锚点"）。
+        pinned: 用户明确需求对应的 `Visit` 列表（D-7 起由 `ils_planner.plan_hybrid`
+            经 `_resolve_pinned` 灌入真实值；传 `None` 等同于"无锚点"）。
 
     Returns:
         `RouteBuildResult`：见其 docstring。
