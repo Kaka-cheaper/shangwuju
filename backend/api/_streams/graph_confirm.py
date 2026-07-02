@@ -4,12 +4,21 @@
 SESSION_STORE；用户点确认后，本流读取该快照，调用 graph/nodes/execute_finalize.py
 的真实执行函数（不是图内节点，见下）完成预约 / 购票 / 附加服务 / 转发文案。
 
-确认成功后两件事并行发生：
-- memory_writer 副作用作为后台任务执行，不阻塞 tool_call / itinerary_ready / done；
+确认成功后三件事并行发生（ADR-0012 决策 5：两种记忆副作用不是二选一，缺一都会
+断掉一条已有读者的闭环）：
+- memory_writer 副作用（写 user_profile.json 的 recent_trips）作为后台任务执行；
+- memory_store 标签 / 访问累积（`.memory._accumulate_memory_after_confirm`，写
+  UserMemory——persona_qa / intent_parser 先验 / search_adapter 排重 / preferences
+  API 的真实读者）同样作为后台任务执行，与 memory_writer 并列、互不等待；
+  二者都不阻塞 tool_call / itinerary_ready / done。
 - 终版方案（含 orders）与 user_decision="confirm" 在推 DONE 事件之前**同步**回写进
   LangGraph 图状态（ADR-0012 决策 2：会话跨轮真相源=图状态），使下一轮 /chat/turn
   能从图状态看到「已下单」。该 session 没有图 checkpoint（如协作房间会话）或回写
   本身失败时，记 warning 日志降级跳过——绝不影响确认结果本身。
+
+本流现在是协作房间与主 App 唯一共用的确认实现（ADR-0012 决策 5，`_stub_confirm`
+已删除）：房间确认前已把方案写进 SESSION_STORE 投影，本流只认这个端口取数，
+房间会话没有图 checkpoint 时 `_writeback_graph_state` 优雅跳过（见该函数 docstring）。
 
 不负责：
 - 重新规划。
@@ -31,6 +40,7 @@ from schemas import IntentExtraction, Itinerary, SseEvent, SseEventType
 
 from .._session_store import SESSION_STORE
 from .._sse_helpers import now_ms as _now_ms
+from .memory import _accumulate_memory_after_confirm
 from .models import ChatConfirmRequest
 
 
@@ -163,6 +173,15 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         SESSION_STORE[req.session_id] = {**cached, "itinerary": final_payload}
         yield emit(SseEventType.ITINERARY_READY, final_payload)
 
+        # ADR-0012 决策 5 硬门 1：memory_store 标签/访问累积——平移 _stub_confirm
+        # 的调用语义（无条件调用，不依赖 intent 是否解析成功；用 cached 里的原始
+        # user_id，不是 finalize_state 兜底过的那个，见任务报告「自行拍板判断点」），
+        # 与 memory_writer 并列作为后台任务执行。
+        _schedule_background_memory_accumulate(
+            cached=cached,
+            final_itinerary_dict=final_payload,
+        )
+
         # intent 缺省（ReAct 路径没落库）时跳过写偏好——没意图无从推画像；订单/文案/record 照常。
         if result.get("post_confirm_effects_deferred") and intent is not None:
             _schedule_background_memory_persist(
@@ -233,6 +252,38 @@ async def _persist_memory_later(
             )
     except Exception:  # noqa: BLE001
         logger.debug("graph_confirm: background memory persist failed", exc_info=True)
+
+
+def _schedule_background_memory_accumulate(
+    *,
+    cached: dict[str, Any],
+    final_itinerary_dict: dict[str, Any],
+) -> None:
+    """ADR-0012 决策 5 硬门 1：调度 memory_store 标签/访问累积（与 memory_writer 并列）。
+
+    平移 `_stub_confirm`（已删除）里 `_accumulate_memory_after_confirm` 的调用
+    语义：无条件调用——不像 memory_writer 那样要求 intent 解析成功（tag 来自
+    itinerary.nodes 反查 mock_data，不依赖 IntentExtraction 对象本身），user_id
+    取原始 SESSION_STORE 快照里的 `cached["user_id"]`（房间确认前已把 room.owner_id
+    写进这里；缺失时 `_accumulate_memory_after_confirm` 自己短路跳过，不阻塞主流程）。
+    """
+    task = asyncio.create_task(
+        _accumulate_memory_later(cached=cached, final_itinerary_dict=final_itinerary_dict)
+    )
+    _track_background_task(task)
+
+
+async def _accumulate_memory_later(
+    *,
+    cached: dict[str, Any],
+    final_itinerary_dict: dict[str, Any],
+) -> None:
+    try:
+        await asyncio.to_thread(
+            _accumulate_memory_after_confirm, cached, final_itinerary_dict
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("graph_confirm: background memory accumulate failed", exc_info=True)
 
 
 async def _writeback_graph_state(

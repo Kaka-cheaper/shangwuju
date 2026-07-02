@@ -59,16 +59,18 @@ from api.health import VERSION
 async def lifespan(app: FastAPI):
     session_store = (os.getenv("SESSION_STORE") or "memory").strip().lower()
     if session_store == "redis":
-        # 1) LangGraph 用 AsyncRedisSaver（需 await asetup）——仅 USE_LANGGRAPH=1 时有意义
-        if (os.getenv("USE_LANGGRAPH") or "0").strip() == "1":
-            try:
-                from agent.graph.build import warm_up_graph
+        # 1) LangGraph 用 AsyncRedisSaver（需 await asetup）——/chat/turn 恒走图、
+        #    /chat/confirm 也已统一到同一条 graph_confirm 流（ADR-0012 决策 5，
+        #    USE_LANGGRAPH 开关已退役），预热不再有条件可判断，SESSION_STORE=redis
+        #    即预热。
+        try:
+            from agent.graph.build import warm_up_graph
 
-                backend = await warm_up_graph()
-                logging.getLogger("main").info("graph checkpointer backend: %s", backend)
-            except Exception:  # noqa: BLE001
-                logging.getLogger("main").warning("graph warm-up failed", exc_info=True)
-        # 2) 会话快照从 Redis 预热回内存（confirm / refine / 协作创建依赖它）
+            backend = await warm_up_graph()
+            logging.getLogger("main").info("graph checkpointer backend: %s", backend)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("main").warning("graph warm-up failed", exc_info=True)
+        # 2) 会话快照从 Redis 预热回内存（confirm / 协作创建依赖它）
         try:
             from api._session_store import SESSION_STORE
 

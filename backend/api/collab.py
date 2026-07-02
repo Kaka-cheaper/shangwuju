@@ -10,14 +10,12 @@
 from __future__ import annotations
 
 import time
-import os
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, ConfigDict, Field
 
 from collab import get_room_manager
-from schemas import resolve_planner_mode
 
 from ._session_store import SESSION_STORE
 
@@ -194,8 +192,9 @@ async def ws_collab(websocket: WebSocket, room_id: str):
                         }
                     )
                     continue
-                mode = resolve_planner_mode(env_value=os.getenv("PLANNER_MODE"))
-                await manager.confirm(room, user_id, mode=mode)
+                # 确认统一走 _graph_confirm（ADR-0012 决策 5）；它不读 PLANNER_MODE，
+                # confirm narration 恒为快速规则文案，故这里不再需要解析 mode。
+                await manager.confirm(room, user_id)
 
             elif msg_type == "ping":
                 await websocket.send_json({"type": "pong"})

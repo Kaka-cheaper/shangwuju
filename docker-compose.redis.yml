@@ -6,9 +6,9 @@
 #   - redis 服务换成 Redis Stack（含 RediSearch 模块），LangGraph 的 AsyncRedisSaver
 #     checkpointer 才能建索引（普通 redis:7-alpine 不含 RediSearch，checkpointer 会
 #     自动降级回 InMemorySaver）。
-#   - backend 打开 SESSION_STORE=redis + USE_LANGGRAPH=1，跨 turn 会话真相
-#     （LangGraph checkpointer）与 confirm/collab 读侧投影（SESSION_STORE 快照）
-#     两者外置到 Redis。
+#   - backend 打开 SESSION_STORE=redis，跨 turn 会话真相（LangGraph checkpointer）
+#     与 confirm/collab 读侧投影（SESSION_STORE 快照）两者外置到 Redis
+#     （USE_LANGGRAPH 已退役，见 ADR-0012 决策 5，不再需要单独打开）。
 #
 # ⚠ 部署硬约束（ADR-0012 决策 1）：默认 docker-compose.yml 是 memory 模式，只能
 # 单 worker/单实例；**多实例/多 worker 部署必须叠加本文件**，不是可选性能优化。
@@ -28,5 +28,4 @@ services:
     environment:
       # 打开 Redis 会话持久化（覆盖镜像内置的 SESSION_STORE=memory 默认）
       SESSION_STORE: redis
-      USE_LANGGRAPH: "1"
       REDIS_URL: redis://redis:6379/0

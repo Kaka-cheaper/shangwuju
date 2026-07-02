@@ -22,7 +22,6 @@ from ._session_store import SESSION_STORE, resolve_user_id
 from ._sse_helpers import safe_stream
 from ._streams.models import ChatConfirmRequest, ChatStreamRequest
 from ._streams.graph_confirm import _graph_confirm
-from ._streams.stub_confirm import _stub_confirm
 
 router = APIRouter()
 
@@ -44,16 +43,18 @@ async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSource
         reserve_restaurant → buy_ticket（如有 POI 票）→ order_extra_service（如有蛋糕/鲜花）→ generate_share_message →
         itinerary_ready（含 orders + share_message）→ agent_narration → done
 
-    V3 LangGraph confirm 把 memory_writer 记忆回写放到后台执行（预约成功不等真实
-    LLM narrator / memory_writer）；终版方案 + user_decision="confirm" 则在推 DONE
-    事件前同步回写进图 checkpoint（ADR-0012 决策 2），见 graph_confirm._writeback_graph_state。
+    确认恒走 `_graph_confirm`（ADR-0012 决策 5：`USE_LANGGRAPH` 开关与专用的
+    `_stub_confirm` 已一并退役——协作房间也切到了同一条流，见 collab/room.py）。
+    它把 memory_writer 记忆回写 + memory_store 标签/访问累积都放到后台执行（预约
+    成功不等真实 LLM narrator / 两套记忆写入）；终版方案 + user_decision="confirm"
+    则在推 DONE 事件前同步回写进图 checkpoint（ADR-0012 决策 2），
+    见 graph_confirm._writeback_graph_state。
     """
     mode = resolve_planner_mode(
         header_value=request.headers.get("X-Planner-Mode"),
         env_value=os.getenv("PLANNER_MODE"),
     )
-    use_langgraph = (os.getenv("USE_LANGGRAPH") or "0").strip() == "1"
-    inner = _graph_confirm(req) if use_langgraph else _stub_confirm(req, mode=mode)
+    inner = _graph_confirm(req)
     return EventSourceResponse(
         safe_stream(inner),
         media_type="text/event-stream",

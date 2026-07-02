@@ -87,8 +87,8 @@ ENV PORT=8000 \
     HOST=0.0.0.0
 
 # Demo 默认值（生产用 .env / FC 函数环境变量覆盖）
+# USE_LANGGRAPH 已退役（ADR-0012 决策 5），不再声明
 ENV LLM_PROVIDER=stub \
-    USE_LANGGRAPH=1 \
     SESSION_STORE=memory \
     DATA_PROVIDER=mock \
     NEARBY_PROVIDER=mock \

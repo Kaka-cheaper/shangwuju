@@ -327,10 +327,18 @@ class RoomManager:
             if uid in room.members:
                 room.members[uid].ws = None
 
-    async def confirm(
-        self, room: Room, user_id: str, *, mode: str = "rule"
-    ) -> None:
-        """由房间发起人触发确认预约，并把确认阶段 SSE 事件广播给全员。"""
+    async def confirm(self, room: Room, user_id: str) -> None:
+        """由房间发起人触发确认预约，并把确认阶段 SSE 事件广播给全员。
+
+        确认流复用主 App 同一条 `_graph_confirm`（ADR-0012 决策 5：`_stub_confirm`
+        专用分支已删除，分叉没有承重理由）——它只读 SESSION_STORE 投影 + 直调
+        execute_finalize，不需要图 checkpoint；房间会话没有 checkpoint 时其内部
+        `_writeback_graph_state` 会优雅跳过（见 graph_confirm.py 该函数 docstring）。
+        confirm 阶段 narration 因此恒为快速规则文案（`execute_finalize_node` 的
+        `defer_post_confirm_effects=True` 硬编码 `use_llm=False`），不再由 PLANNER_MODE
+        控制真人味 LLM 文案——这是跟随主 App 已有设计的既定取舍，不是本次迁移新引入
+        的降级（`mode` 形参随 `_stub_confirm` 一起退场，调用方 collab.py 同步简化）。
+        """
         if user_id != room.owner_id:
             member = room.members.get(user_id)
             if member and member.ws is not None:
@@ -366,8 +374,8 @@ class RoomManager:
         room.session_id = session_id
 
         from api._session_store import SESSION_STORE
+        from api._streams.graph_confirm import _graph_confirm
         from api._streams.models import ChatConfirmRequest
-        from api._streams.stub_confirm import _stub_confirm
 
         cached = SESSION_STORE.get(session_id, {})
         if room.current_itinerary_dict:
@@ -379,7 +387,7 @@ class RoomManager:
             }
 
         req = ChatConfirmRequest(session_id=session_id, decision="confirm")
-        async for ev in _stub_confirm(req, mode=mode):
+        async for ev in _graph_confirm(req):
             event = ev.model_dump(mode="json")
             if event.get("type") == "itinerary_ready":
                 room.current_itinerary_dict = event.get("payload")

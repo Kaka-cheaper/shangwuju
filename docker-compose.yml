@@ -85,7 +85,6 @@ services:
       PORT: "8000"
       HOST: "0.0.0.0"
       # demo 模式默认值（生产用 .env 覆盖）
-      USE_LANGGRAPH: "1"
       DATA_PROVIDER: "mock"
       NEARBY_PROVIDER: "mock"
       LOG_FORMAT: "json"

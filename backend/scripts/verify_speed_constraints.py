@@ -303,7 +303,6 @@ def _render_report(results: list[dict[str, Any]]) -> int:
 
 def main() -> int:
     print(f"环境: LLM_PROVIDER={os.getenv('LLM_PROVIDER')!r}")
-    print(f"      USE_LANGGRAPH={os.getenv('USE_LANGGRAPH') or '0'!r}")
     print(f"      USE_REACT_AGENT={os.getenv('USE_REACT_AGENT') or '1'!r}")
     print(f"      PLANNER_USE_REAL={os.getenv('PLANNER_USE_REAL') or '(unset)'!r}")
 
