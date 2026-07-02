@@ -65,6 +65,21 @@ ReplanStrategy = Literal[
 # 主 State
 # ============================================================
 
+def _merge_demand_ledger(old: list[dict], new: list[dict]) -> list[dict]:
+    """demand_ledger 通道归并器(F-2 深审修正,SESSION_SCOPED 的结构性保障)。
+
+    不配 reducer 的 last-value 通道下,make_initial_state 每轮写 [] 会把
+    checkpointer 里的台账静默清空。语义:空更新=保留旧值(每轮初始化天然
+    no-op,同 messages 的 add_messages 先例),非空=整体替换(record_demand
+    返回含顶替状态改写的**全量**列表——条目状态会被改写,append 语义不适用)。
+    "清空台账"在业务上不存在:条目只标记(被顶替/已满足)不删除(ADR-0013
+    决策 3),故空列表永远只可能来自初始化,当 no-op 处理是安全的。
+    """
+    if not new:
+        return list(old or [])
+    return list(new)
+
+
 class AgentState(TypedDict, total=False):
     """LangGraph 全局 State。
 
@@ -166,6 +181,19 @@ class AgentState(TypedDict, total=False):
     chitchat_tone: Optional[str]  # TURN_SCOPED：同上
     chitchat_chips: list[Any]    # TURN_SCOPED：同上（list[CtaChip]）
 
+    # ---- 诉求台账（ADR-0013 决策 3 / F-2）----
+    demand_ledger: Annotated[list[dict], _merge_demand_ledger]  # SESSION_SCOPED：
+    # list[dict]（schemas.demand_ledger.LedgerEntry.model_dump()）。跨"规划事件"
+    # 存活是这个字段存在的唯一意义——ADR-0013 决策 3「诉求不随重排自动死」,
+    # 故不归 EPISODE_SCOPED(对比 advisories:那是"这一版方案"的即时告知,换方案
+    # 该清零;台账是跨版本的诉求史,语义正相反)。
+    # 【归并器,深审修正】不配 reducer 的 last-value 通道下,make_initial_state
+    # 每轮写 [] 会把 checkpointer 里的台账**静默清空**——"靠 F-4 接线时记得
+    # 读回传参"是我们一路在消灭的靠人记得式设计。照 messages(add_messages)
+    # 先例配 _merge_demand_ledger:空更新=保留旧值(每轮初始化天然 no-op),
+    # 非空=整体替换(record_demand 返回含顶替改写的全量列表,append 语义不适用)。
+    # 写入/消费接线归 F-4/F-5,但存活性从此是结构保障,不依赖任何调用方自觉。
+
 
 # ============================================================
 # 字段生命周期表（ADR-0012 决策 4）—— 真值来源
@@ -194,11 +222,14 @@ SESSION_SCOPED: frozenset[str] = frozenset({
     "scenario_id",
     "planner_mode",
     "messages",
+    "demand_ledger",
 })
 """跨轮持久，从不被 make_initial_state 的"清零"语义覆盖：
 messages 靠 add_messages reducer 自身跨轮累积；user_id/session_id/scenario_id/
 planner_mode 由调用方（sse_adapter）每轮传入同一值透传进 state——是"确认"不是
-"重置"，多数轮次这一步是 no-op（值和上一轮相同）。"""
+"重置"，多数轮次这一步是 no-op（值和上一轮相同）。demand_ledger 靠
+_merge_demand_ledger 归并器跨轮存活（空更新 no-op,同 messages 先例）——
+存活性是结构保障,不依赖调用方读回传参;写入/消费接线归 F-4/F-5。"""
 
 EPISODE_SCOPED: frozenset[str] = frozenset({
     "intent",
@@ -309,6 +340,10 @@ def make_initial_state(
     itinerary/critic_feedback_text 等字段才能真正跨 turn 存活到下一次
     router 读取（router_node 需要上一版 itinerary 判断新需求 vs 反馈），
     而不是被本函数在 router 跑之前就提前清空。
+
+    `demand_ledger` 无需形参（深审修正）：它挂 `_merge_demand_ledger` 归并器,
+    此处的 `[]` 经归并器是 no-op(同 messages 先例)——存档里的台账天然跨轮
+    存活,不需要任何调用方"记得读回传参"。
     """
     state = AgentState(
         # ---- TURN_SCOPED：清零成本轮初值 ----
@@ -324,6 +359,7 @@ def make_initial_state(
         scenario_id=scenario_id,
         planner_mode=planner_mode if planner_mode in ("rule", "llm") else None,
         messages=[],
+        demand_ledger=[],  # 经归并器 no-op,见字段注释
     )
     assert set(state.keys()) == (TURN_SCOPED | SESSION_SCOPED), (
         "make_initial_state 只应覆盖 TURN_SCOPED ∪ SESSION_SCOPED"

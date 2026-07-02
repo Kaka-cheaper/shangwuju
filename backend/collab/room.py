@@ -78,6 +78,13 @@ class Room:
     created_at: float = field(default_factory=time.time)
     # 被赞锁定的 stage index 集合（重规划时保留这些段）
     locked_stages: set[int] = field(default_factory=set)
+    # 诉求台账（ADR-0013 决策 3 / F-2）：list[dict]（schemas.demand_ledger.
+    # LedgerEntry.model_dump()）——房间侧的台账存储位，生命周期随房间本身
+    # （房间销毁即销毁，50min 空闲 TTL 清扫器一并清掉是 F-5 的事，本步不实现
+    # 计时/清扫）。写入（schemas.demand_ledger.record_demand）与消费（喂给
+    # F-1 引擎 / 前端台账面板）的接线——谁在何时调用——归 F-4/F-5；本字段
+    # 本步只提供存储位，不接入 add_constraint / get_state_snapshot 等既有流程。
+    demand_ledger: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def member_list(self) -> list[dict[str, Any]]:
