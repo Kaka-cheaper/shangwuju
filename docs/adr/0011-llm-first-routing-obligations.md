@@ -48,9 +48,19 @@
 ### 5. 统一 agent 消息面(与 D-7 的交汇点)
 澄清 / advisory / 婉拒 / 陪聊 = 同一个「agent 对用户说话」的出口。**D-7 的 advisory 载体按通用 agent 消息设计**(而非 planner 专用字段),E-3 澄清直接复用——两场工程共管道,不建平行管。
 
-## 前置核实(写实现 spec 前必做)
-- **会话层今天是否持久化「全量轮次日志 + 方案版本志」**(AgentState 只有当前方案)——若无,建会话日志是 E-3 的真实新增基础设施,成本计入;
-- graph 边映射对 RouteKind 塌缩(7→6)的迁移面;stub 图级测试对「地板默认 planning」的依赖面(E-1 的 intentional 迁移清单)。
+## 前置核实(2026-07-02 已完成——只读架构审查 + 主代理复核;底座烂账另立 ADR-0012)
+
+**① 会话层持久化现状:轮次日志与方案版本志都不存在。** 全系统唯一完整轮次日志在前端 Zustand store;后端每轮覆盖(user_input/intent/itinerary 均 last-value)。已拍板(用户 2026-07-02):**会话日志基础设施从 E-3 提前为 E-2 第一块砖**,选型 = AgentState 既有 `messages` 通道(`add_messages` reducer + checkpointer 序列化均已核实可用,langgraph msgpack 内置放行 langchain 消息类型)+ 方案版本志新增**累积**字段。四条护栏(不写进 spec 就是踩空):
+1. 新累积字段**必须带 reducer**(如 `Annotated[list, operator.add]`)——照抄现有 last-value 字段的写法必错,每轮被 `make_initial_state` 的空值清零;条目用纯 dict/str,否则要同步补 `build.py` 的 serde allowlist;
+2. confirm 轮次靠 ADR-0012 决策 2 的「确认后回写图状态」补全,否则日志天然缺确认轮;
+3. 协作房间轮次**明示不进会话日志**(房间每次重规划用一次性 session_id,维持现状);
+4. 消毒在**写入时**做(壳1 verdict 当时已知);持久化等级 = checkpointer 等级(memory 模式重启即失;redis saver 未配 TTL,随本砖补齐)。
+
+**② RouteKind 7→6 塌缩迁移面。** 图内小(3 处):`route_after_router` 三分支、`build.py` 条件边表、`emit_router` 的 SSE 事件三分支。图外是大头:`schemas/router.py` 的 `InputKind` 经 CHITCHAT_REPLY payload **直达前端**(`frontend/lib/types.ts:135-141` 硬编码同值枚举)——标签闭集改名 = 前后端契约同步改;归并删除点 `route_turn.py:300-302`。stub 测试迁移清单(E-1 动手时的 intentional 清单,按四类):
+- **A 翻转断言**:`test_router.py` 的「fallback 恒 planning」测试(反转对象本身);
+- **B 垫桩改道**:`test_d2_failure_drain.py` 6 个用例——输入靠规划词表快路进 planning,词表删除后需 monkeypatch classify_fn 钉住 planning(它们测规划链降级,不是路由);
+- **C 退役/改写**:`test_router_node_planning_fast_path.py` 整文件(测的就是要删的词表)、`test_router_node_feedback.py`(:105 归并断言删除;:84「ambiguous+有方案→feedback」是行为反转的标志性断言,新世界应变澄清)、`test_feedback_detector.py`(语义词删/字面信号留,逐条分拣)、`test_dialogue_acts.py`(行为契约平移到 6 标签断言面)、`test_router_context.py`(旧 prompt 机制消亡);
+- **D 断言搬家**:`test_itinerary_qa.py`/`test_persona_qa.py`(画像问答→壳2)、`test_soft_constraint_sniffer.py`(**ADR 未写明的联动点**:emotional 塌缩进「陪聊」后嗅探器挂点需重新指定,E-2 spec 时定)、`test_router_node_injection.py`(壳1 保留,断言字面值随闭集改名)。
 
 ## 边界(不在本 ADR)
 - intent 层 pin 抽取(D-7 跨层依赖,单独立项);轨道 B judge 审计工程(语料 eval 弧);narration 质量;前端新组件(不需要——chips 复用)。
@@ -62,11 +72,12 @@
 - **澄清问到清楚为止**——拒:审问式体验 + 死循环;一次上限 + 保守解释 + chips 出路。
 - **LLM 挂时维持「默认规划」**——拒:违反 L0 禁令 1;降级往保守退不往鲁莽退。
 
-## 实施拆步(E 系列;先收官 ADR-0010 的 D-7/D-8,再开本弧)
-- **E-1** 地板反转 + 词表清洗:`fallback_decision` 改保守(无方案陪聊引导/有方案澄清引导);语义词表删除、字面短路保留;stub 图级测试 intentional 迁移。
-- **E-2** 统一路由器 + 打包器:一次调用 6 标签+槽位;吸收 dialogue_acts(ADR-0002 标 Superseded);RouteKind 塌缩 + graph 边迁移;八场景少样本进 prompt。
-- **E-3** 澄清链路:pending_clarification 状态 + 会话日志基础设施(若前置核实为无)+ chips 呈现 + 一次上限语义。
+## 实施拆步(E 系列;先收官 ADR-0010 的 D-7/D-8,再开本弧。2026-07-02 修订:插入 E-0、日志提前)
+- **E-0** 会话底座收口(**见 ADR-0012**):图状态单一真相源、ConversationState 葬礼、confirm 回写、重置纪律收口、USE_LANGGRAPH 退役——E-1/E-2 的前提,不做则打包器与「满足-首轮」都踩浮沙。
+- **E-1** 地板反转 + 词表清洗:`fallback_decision` 改保守(无方案陪聊引导/有方案澄清引导);语义词表删除、字面短路保留;stub 图级测试按「前置核实②」的 A-D 四类清单 intentional 迁移。
+- **E-2** 统一路由器 + 打包器:**第一块砖 = 会话日志**(轮次日志接 `messages` 通道 + 方案版本志累积字段,带「前置核实①」四条护栏);然后一次调用 6 标签+槽位;吸收 dialogue_acts(ADR-0002 标 Superseded);RouteKind 塌缩 + graph 边迁移 + 前端 InputKind 枚举同步;八场景少样本进 prompt。
+- **E-3** 澄清链路(瘦身版,日志已由 E-2 承担):pending_clarification 状态 + chips 呈现 + 一次上限语义。
 - **E-4** 轨道 A 路由语料(标注回归,场景×话术×状态维度)上线 CI;轨道 B judge 审计脚本(离线)。
 
 ## 落地状态
-⏳ **待实现**(决策 2026-07-02;先 D-7(共用消息面)→ D-8 收官 ADR-0010 → E-1..E-4;证据锚点待回填)
+⏳ **待实现**(决策 2026-07-02;前置核实已完成并回填本文;D-7 已落地(6c3c65d,advisory 载体按决策 5 形状)→ D-8 收官 ADR-0010 → E-0(ADR-0012)→ E-1..E-4;证据锚点待回填)
