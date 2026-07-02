@@ -90,6 +90,11 @@
 
 【调研留痕：D-5 自行拍板、值得读者知道的判断点】
 
+（**ADR-0013 F-1 补记**：下面判断点 1 描述的 `_repair_route` 已搬到
+`route_builder.py` 并改名公开 `repair_route`——局部重解引擎
+`planners/node_swap.py` 需要同一"腾格→只补该格→不加塞"语义，两个调用方
+现在共享同一实现。判断点本身记述的设计动机原样有效，不因搬家而过时。）
+
 1. **重搜不重跑 `build_route`，而是新写 `_repair_route` 直接消费
    `route_scheduler.schedule_route`/`try_insert` + `activity_pool.route_score`**：
    `build_route`/`route_builder.py` 是 D-4 已 TDD 落地的"消费只读"零件（本步
@@ -170,7 +175,6 @@ from data.loader import load_user_profile
 from ..blueprint.assemble_blueprint import assemble_from_blueprint
 from ..critic.age_caps import cap_for_age
 from ..critic.critics_v2 import Severity, Violation, ViolationCode, validate_itinerary
-from ..critic._rules.helpers import parse_hhmm
 from ...core.trace import Tracer
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
@@ -180,8 +184,7 @@ if TYPE_CHECKING:  # 仅供类型标注；运行期各函数内部按需局部 i
     # 循环依赖说明：route_builder/route_scheduler/activity_pool 都（直接或经
     # activity_pool 间接）依赖本模块的 `_env_int`/`_env_float`/`_utility`，本模块
     # 若在模块顶层反向 import 它们会成环——局部 import 是刻意选择，不是遗漏。
-    from .activity_pool import TimeWindow, Visit
-    from .route_scheduler import CommuteFn, RouteSchedule
+    from .activity_pool import Visit
 
 
 # ============================================================
@@ -538,7 +541,12 @@ def plan_hybrid(
         build_visit_from_poi,
         build_visit_from_restaurant,
     )
-    from .route_builder import build_route, make_commute_fn, route_to_blueprint
+    from .route_builder import (
+        build_route,
+        make_commute_fn,
+        repair_route,
+        route_to_blueprint,
+    )
 
     depart_min = _resolve_depart_min(intent.start_time)
     user_profile = load_user_profile()
@@ -689,7 +697,7 @@ def plan_hybrid(
             ]
             rest_visits = [build_visit_from_restaurant(r, intent, weights) for r in rest_pool]
 
-        new_schedule = _repair_route(
+        new_schedule = repair_route(
             current_scheduled,
             poi_visits,
             rest_visits,
@@ -1355,185 +1363,12 @@ def _compute_blacklists(
 
 
 # ============================================================
-# 封槽 + 重搜（min-conflicts 风格有界修复；ADR-0010 D-5 新增，替代旧
-# `_search_best_avoiding` 的三元组穷举重搜）
+# 封槽 + 重搜——**ADR-0013 F-1 起搬家**：`_shrink_visit_windows` /
+# `_apply_blacklist_to_pool` / `_repair_route`（本节原先在此定义的三个函数）
+# 已逐字节原样迁移到 `route_builder.py`（`_repair_route` 同时提升为公开
+# `repair_route`，供 `planners/node_swap.py` 局部重解引擎共享复用——见该
+# 模块 docstring「机制修正」节）。本模块上方「C-3/C-4 迁移」「调研留痕」等
+# 历史叙事段落里对这三个函数的记述（设计动机/与 min-conflicts 的对应关系）
+# 描述的正是搬走后的同一份实现，行为逐字节未变，不必重写，仍可按原文理解；
+# 下方 `plan_hybrid` 改为 `from .route_builder import repair_route` 消费。
 # ============================================================
-
-
-def _shrink_visit_windows(visit: "Visit", blocked_slot_hhmm: str) -> Optional["Visit"]:
-    """把 `visit.windows` 挖掉 `[slot, slot+GRID-1]` 这一段（半点槽宽度，
-    `route_scheduler.RESERVATION_SLOT_GRID_MIN`）。
-
-    `Visit` 是 frozen dataclass，用 `dataclasses.replace` 复制改 `windows`；某个
-    窗被挖穿则拆成左右两段（若非空）；全部窗都被挖空 → 返回 None（该实体这轮
-    彻底不可用，调用方据此把它当整体拉黑处理）。
-
-    这是路线模型下"封 (餐厅,时段)"黑名单真正生效的机制——`route_scheduler.
-    _earliest_feasible_start` 总是取窗内**最早**可行开始时刻；不挖窗，同一批
-    候选原样重搜会算出同一个时刻，黑名单形同虚设、陷入原地震荡。
-
-    `blocked_slot_hhmm` 解析失败（防御性，正常不会发生）→ 原样返回 `visit`
-    （保守不挖，不误伤）。
-    """
-    blocked_start = parse_hhmm(blocked_slot_hhmm)
-    if blocked_start is None:
-        return visit
-
-    from .route_scheduler import RESERVATION_SLOT_GRID_MIN
-    from .activity_pool import TimeWindow
-    from dataclasses import replace
-
-    blocked_end = blocked_start + RESERVATION_SLOT_GRID_MIN - 1
-
-    new_windows: list[TimeWindow] = []
-    for w in visit.windows:
-        if blocked_end < w.start_min or blocked_start > w.end_min:
-            new_windows.append(w)  # 与挖除区间无交集，原样保留
-            continue
-        if w.start_min < blocked_start:
-            new_windows.append(TimeWindow(w.start_min, blocked_start - 1))
-        if w.end_min > blocked_end:
-            new_windows.append(TimeWindow(blocked_end + 1, w.end_min))
-
-    if not new_windows:
-        return None
-    return replace(visit, windows=new_windows)
-
-
-def _apply_blacklist_to_pool(
-    visits: list["Visit"],
-    blacklist_ids: set[str],
-    blacklist_time: set[tuple[str, str]],
-) -> list["Visit"]:
-    """按黑名单过滤/挖窗候选池（小 helper，供 `_repair_route` 复用，不埋进
-    `plan_hybrid` 主体）。
-
-    整体拉黑（`blacklist_ids`）优先于挖窗——同一实体若既整体拉黑又有封槽记录
-    （理论上不会同时发生，防御性处理）直接跳过。挖窗挖穿（返回 None）等价于
-    该实体本轮不可用，同样跳过。
-    """
-    out: list["Visit"] = []
-    for v in visits:
-        if v.target_id in blacklist_ids:
-            continue
-        blocked_slots = {slot for rid, slot in blacklist_time if rid == v.target_id}
-        cur: Optional["Visit"] = v
-        for slot in blocked_slots:
-            if cur is None:
-                break
-            cur = _shrink_visit_windows(cur, slot)
-        if cur is None:
-            continue
-        out.append(cur)
-    return out
-
-
-def _repair_route(
-    previous_scheduled: Sequence[Any],
-    poi_visits: list["Visit"],
-    rest_visits: list["Visit"],
-    weights: PlanningWeights,
-    *,
-    depart_min: int,
-    budget_min: int,
-    commute_fn: "CommuteFn",
-    money_budget: float,
-    blacklist_poi: set[str],
-    blacklist_rest: set[str],
-    blacklist_rest_time: set[tuple[str, str]],
-) -> Optional["RouteSchedule"]:
-    """min-conflicts 风格有界修复（ADR-0009 引用的 prior art：Minton et al. 1992）：
-    把上一轮方案里命中黑名单的节点从 `previous_scheduled` 剔除（POI/餐厅整黑
-    直接剔除；封槽餐厅挖窗后仍不可用才剔除），再从（同样按黑名单过滤/挖窗后的）
-    候选池里为每个空出的槽位找边际分最高的替补插回。找不到替补则该槽位空出，
-    不强凑（ADR-0010 决策 10「稀缺兜底」：宁可短而好，不塞次优凑数）。
-
-    与旧版 `_search_best_avoiding`（对 (POI,餐厅,时段) 三元组做穷举重搜，相当于
-    "整条方案推倒重来"）的关键差异：本函数只重赋"参与被违反约束的那个变量"，
-    其余节点原样保留——更贴近 min-conflicts 的字面定义，也让"仍是最优、只是这
-    个时刻不行"的候选（如旗舰 demo 的 R001）在挖窗后继续参与竞争，而不会被
-    误伤为整店拉黑（Poi 换掉/换个完全不相关的餐厅）。
-
-    Args:
-        previous_scheduled: 上一轮 `RouteSchedule.scheduled`
-            （`route_scheduler.ScheduledVisit` 序列）。
-        poi_visits / rest_visits: 完整候选 Visit 池（未按本轮黑名单过滤，
-            由调用方缓存跨轮复用）。
-        blacklist_poi / blacklist_rest / blacklist_rest_time: 跨轮单调累积的
-            黑名单（`plan_hybrid` 维护）。
-
-    Returns:
-        新的 `RouteSchedule`；`kept` 为空且无任何替补时返回一个 0 活动的平凡
-        排程（`schedule_route([], ...)` 的既有语义）——调用方按"scheduled 为空"
-        判断本轮修复是否产出可用方案。理论上 `kept` 恒可行（此前已知可行集合
-        的子集，去掉约束只会更容易排开），仍做防御性 None 检查以防未来
-        `route_scheduler` 语义变化时静默吞掉异常。
-    """
-    from .route_scheduler import schedule_route, try_insert
-    from .activity_pool import route_score
-
-    kept: list["Visit"] = []
-    removed_kinds: list[str] = []
-
-    for sv in previous_scheduled:
-        v = sv.visit
-        if v.kind == "poi" and v.target_id in blacklist_poi:
-            removed_kinds.append("poi")
-            continue
-        if v.kind == "restaurant" and v.target_id in blacklist_rest:
-            removed_kinds.append("restaurant")
-            continue
-        if v.kind == "restaurant":
-            blocked_slots = {slot for rid, slot in blacklist_rest_time if rid == v.target_id}
-            cur: Optional["Visit"] = v
-            for slot in blocked_slots:
-                if cur is None:
-                    break
-                cur = _shrink_visit_windows(cur, slot)
-            if cur is None:
-                removed_kinds.append("restaurant")
-                continue
-            v = cur
-        kept.append(v)
-
-    schedule = schedule_route(
-        kept, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
-    )
-    if schedule is None:
-        return None  # 防御性：kept 是此前已知可行集合的子集，理论恒可行
-
-    if not removed_kinds:
-        return schedule
-
-    poi_pool = _apply_blacklist_to_pool(poi_visits, blacklist_poi, set())
-    rest_pool = _apply_blacklist_to_pool(rest_visits, blacklist_rest, blacklist_rest_time)
-    kept_keys = {(v.kind, v.target_id) for v in kept}
-    poi_pool = [v for v in poi_pool if (v.kind, v.target_id) not in kept_keys]
-    rest_pool = [v for v in rest_pool if (v.kind, v.target_id) not in kept_keys]
-
-    for kind in removed_kinds:
-        pool = poi_pool if kind == "poi" else rest_pool
-        if not pool:
-            continue
-        base_score = route_score(
-            [sv.visit for sv in schedule.scheduled], weights, money_budget
-        )
-        best: Optional[tuple["Visit", "RouteSchedule", float]] = None
-        for v in pool:
-            candidate_schedule = try_insert(
-                kept, v, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
-            )
-            if candidate_schedule is None:
-                continue
-            margin = route_score(
-                [sv.visit for sv in candidate_schedule.scheduled], weights, money_budget
-            ) - base_score
-            if best is None or margin > best[2]:
-                best = (v, candidate_schedule, margin)
-        if best is not None:
-            chosen, candidate_schedule, _margin = best
-            kept.append(chosen)
-            schedule = candidate_schedule
-            pool.remove(chosen)
-
-    return schedule

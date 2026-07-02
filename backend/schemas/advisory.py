@@ -62,6 +62,18 @@ class AdvisoryCode(str, Enum):
     # 点名必去的目标：在已召回的候选池里完全找不到匹配的实体。
     NO_MATCHING_CANDIDATES = "no_matching_candidates"
 
+    # ---- ADR-0013 F-1：局部重解引擎（换菜/定向调整）----
+    # 换菜降级到第三级「近似满足」——没找到完全符合调整请求的候选，给了同 kind
+    # 内最接近的一个（仍可能不满足用户点的那个方向）。
+    SWAP_DEGRADED = "swap_degraded"
+    # 换掉目标节点后，钉住不动的其余节点在时间/路线上拼不到一块儿了（如中间站
+    # 被抽走后两端直达通勤暴涨）——无法只动这一格，方案保持原样未变。复用 D-7
+    # `PINNED_UNSATISFIABLE` 的「绝不静默、如实告知」先例语义。
+    SWAP_KEPT_NODE_UNFIT = "swap_kept_node_unfit"
+    # 同 kind 的候选池里连一个能塞进现有时间/路线的替代都没有——这一格彻底换不了，
+    # 方案保持原样未变。
+    SWAP_NO_ALTERNATIVE_FOUND = "swap_no_alternative_found"
+
 
 class Advisory(BaseModel):
     """一条「限制/建议」告知——不 gate 方案，只如实说明（区别于 Violation，见模块 docstring）。"""
