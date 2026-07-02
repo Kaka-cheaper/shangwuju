@@ -52,19 +52,6 @@ def _intent(payload: dict) -> IntentExtraction:
     )
 
 
-def _rule_assembler(intent, candidate, tracer):
-    """委托给生产 _RULE_ASSEMBLER_ADAPTER（ADR-0009 C-1/C-4）。
-
-    历史上这里独立镜像 assembler，正是「丢弃 candidate、重跑 plan_itinerary」bug 的
-    第三处副本。C-4 的 retry-gate 落地后，丢弃 candidate 的 stand-in 会让修复闭环
-    无法改变方案（永远是同一份 rule 地板）→ 脏方案被 gate 挡下 → 放弃。改为委托
-    生产 adapter，与真实 ILS 组装路径一致，杜绝镜像漂移。
-    """
-    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
-
-    return _RULE_ASSEMBLER_ADAPTER(intent, candidate, tracer)
-
-
 SCENARIOS: dict[str, dict] = {
     "S1": {
         "companions": [
@@ -190,12 +177,19 @@ def test_llm_mode_fallback_thought_emitted():
     dispatcher 已删。survivor 等价物：直调 plan_hybrid，stub 经 get_planning_weights 走
     启发式权重（source=stub），并在 trace 推「权重（stub）」降级信号——即 LLM 不可用时的
     优雅降级（成功出方案 + trace 可见）。
+
+    ADR-0010 D-5：S1 默认 duration_hours=[3,5] 下午局出行窗不完整覆盖任何饭点
+    惯例窗，`dining_soft_anchored` 判不到软锚，路线模型下"要不要餐厅"因此纯粹
+    涌现、不保证——本测试只关心权重降级信号是否出现（与是否含餐厅节点无关），
+    局部把 duration_hours 拓宽到 [3,6]（覆盖完整晚餐窗 17:00-20:00，触发软锚）
+    只是为了让 `plan_hybrid` 在真实全量搜索下稳定 success=True，走到能观察
+    trace 的分支，不影响本测试实际验证的内容。
     """
-    intent = _intent(SCENARIOS["S1"])
+    payload = dict(SCENARIOS["S1"])
+    payload["duration_hours"] = [3, 6]
+    intent = _intent(payload)
     tracer = Tracer()
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_rule_assembler,
-    )
+    result = plan_hybrid(intent, client=StubLLMClient(), tracer=tracer)
     assert result.success
     # stub → 权重来自启发式（非 LLM），证明 LLM 不可用时优雅降级
     assert result.weights is not None and result.weights.source == "stub"

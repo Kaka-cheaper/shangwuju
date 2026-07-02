@@ -21,7 +21,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Optional
+from typing import Any
 
 from agent.graph.state import AgentState, ReplanStrategy
 from agent.core.llm_client import get_llm_client
@@ -106,10 +106,18 @@ def route_after_replan(state: AgentState) -> str:
 
 
 def ils_replan_node(state: AgentState) -> dict[str, Any]:
-    """转 hybrid ILS 算法兜底。复用 plan_hybrid + rule_assembler。
+    """转 hybrid ILS（多活动 TOPTW）算法兜底。复用 plan_hybrid。
 
     成功 → 写回 itinerary，has_critical=False
     失败 → 走 rule planner 兜底；仍失败 → give_up（has_critical=False 让流程走 narrate）
+
+    ADR-0010 D-5 连带决策 5（FULL_SEGMENTS 门退役）：旧版只在 `decide_segments(intent)
+    == FULL_SEGMENTS`（5 段完整场景）时才走 ILS，其余「削段」场景直接跳过、只用
+    rule 地板——这个门是旧「1+1 三元组」模型的产物（ILS 只会拼 1 主活动+1 用餐，
+    削段场景给不出更好的东西）。新求解器（`plan_hybrid` 内部的 `build_route`）
+    天然处理任意组成（ADR-0010 核心：组成随 intent 涌现，不再有段/节点数的特权
+    假设），门已无存在理由——删除后 ILS 对所有场景都适用；仍失败时下方 rule
+    planner 兜底不变（D2 安全网原样保留）。
     """
     from schemas.decision_trace import FallbackHop
 
@@ -119,35 +127,23 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
 
     chain = list(state.get("fallback_chain") or [])
 
-    # ---- 先尝试 ILS（仅 5 段完整场景适用）----
-    ils_success = False
+    # ---- 先尝试 ILS（新求解器天然处理任意组成，不再按段集合门控）----
     try:
-        from agent.planning.planners.segment_decider import FULL_SEGMENTS, decide_segments
         from agent.planning.planners.ils_planner import plan_hybrid
 
-        segments = decide_segments(intent)
-        if segments == FULL_SEGMENTS:
-            # 5 段场景：走 ILS
-            from agent.planning.planners.rule_planner import _assemble_itinerary as rule_assembler
-            client = get_llm_client()
-            result = plan_hybrid(
-                intent,
-                client=client,
-                tracer=None,
-                rule_assembler=_RULE_ASSEMBLER_ADAPTER,
-            )
-            if result.success and result.itinerary is not None:
-                return {
-                    "itinerary": result.itinerary,
-                    "has_critical": False,
-                    "violations": [],
-                    "critic_feedback_text": None,
-                }
-        # 削段场景：ILS 不适用，跳到 rule planner 兜底
+        client = get_llm_client()
+        result = plan_hybrid(intent, client=client, tracer=None)
+        if result.success and result.itinerary is not None:
+            return {
+                "itinerary": result.itinerary,
+                "has_critical": False,
+                "violations": [],
+                "critic_feedback_text": None,
+            }
     except Exception:  # noqa: BLE001
         pass
 
-    # ---- ILS 失败或不适用 → rule planner 兜底 ----
+    # ---- ILS 失败 → rule planner 兜底 ----
     chain.append(
         FallbackHop(
             from_stage="ils",
@@ -186,83 +182,3 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         "has_critical": False,
         "fallback_chain": chain,
     }
-
-
-def _RULE_ASSEMBLER_ADAPTER(intent: Any, candidate: Any, tracer: Any) -> Optional[Any]:
-    """planner_hybrid.plan_hybrid 期待的 rule_assembler 签名（intent, CandidatePlan, tracer）。
-
-    真按 ILS 选中的 candidate 组装（ADR-0009 决策 1 / 子步 C-1）。
-
-    镜像 tests/test_planner_hybrid.py:_rule_assembler——两处必须行为一致。
-
-    历史 bug（ADR-0009「背景·地基 A」）：旧实现收 candidate 却不用，直接
-    `plan_itinerary(intent)` 重跑规则地板，让 ILS 的 utility 选点 / 黑名单 / 重搜
-    对最终产物零影响。现改为镜像 rule_planner.plan_itinerary 对
-    `_assemble_itinerary` 的参数推导（segments / depart_time / 时长分配 /
-    party_size），但主活动 POI / 餐厅 / 用餐时段直接取 candidate 的选择，
-    不再重新搜索。
-    """
-    from data.loader import load_user_profile
-
-    from agent.planning.blueprint.node_decider import decide_segments
-    from agent.planning.commute.lookup_hop import lookup_hop
-    from agent.planning.planners.rule_planner import _assemble_itinerary, _resolve_time_window
-
-    try:
-        main_poi = getattr(candidate, "main_poi", None)
-        chosen_restaurant = getattr(candidate, "restaurant", None)
-        chosen_time = getattr(candidate, "dining_time", "") or None
-
-        # segments 只由 intent 推导（与 ils_planner.plan_hybrid 步骤 0 的
-        # decide_nodes(intent) 同源），candidate 里 main_poi/restaurant 的
-        # None 与否本应与之一致（ILS 按同一 decide_nodes 决定要不要搜那一维）。
-        segments = decide_segments(intent)
-        depart_time, _dining_slots, main_minutes, dining_minutes = _resolve_time_window(
-            intent, segments=segments
-        )
-        party_size = sum(c.count for c in intent.companions) or 1
-
-        user_profile = load_user_profile()
-        transport_pref = (
-            user_profile.transport_preference
-            if user_profile.transport_preference in {"walking", "taxi", "bus"}
-            else "taxi"
-        )
-
-        def _hop_minutes(from_id: str, to_id: str) -> int:
-            # home_to_poi/poi_to_rest/rest_to_home 只喂给 _assemble_itinerary 内部
-            # chosen_time 的补偿算术；真实 hop 由 assemble_from_blueprint 内部同一个
-            # lookup_hop 重算一遍，两处用同一个函数保证数值一致。
-            minutes, _mode, _path = lookup_hop(from_id, to_id, transport_pref, user_profile)
-            return minutes
-
-        home_to_poi = _hop_minutes("home", main_poi.id) if main_poi is not None else 0
-        poi_to_rest = (
-            _hop_minutes(main_poi.id, chosen_restaurant.id)
-            if (main_poi is not None and chosen_restaurant is not None)
-            else 0
-        )
-        if chosen_restaurant is not None:
-            rest_to_home = _hop_minutes(chosen_restaurant.id, "home")
-        elif main_poi is not None:
-            rest_to_home = _hop_minutes(main_poi.id, "home")
-        else:
-            rest_to_home = 0
-
-        return _assemble_itinerary(
-            main_poi=main_poi,
-            chosen_restaurant=chosen_restaurant,
-            chosen_time=chosen_time,
-            home_to_poi=home_to_poi,
-            poi_to_rest=poi_to_rest,
-            rest_to_home=rest_to_home,
-            party_size=party_size,
-            depart_time=depart_time,
-            main_activity_minutes=main_minutes,
-            dining_minutes=dining_minutes,
-            segments=segments,
-            intent=intent,
-            user_profile=user_profile,
-        )
-    except Exception:  # noqa: BLE001
-        return None

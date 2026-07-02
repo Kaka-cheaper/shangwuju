@@ -1,122 +1,183 @@
-﻿"""agent.planning.planners.ils_planner —— A+C 混合 ILS 加分路径 + graph replan 第 3 次 ILS 兜底。
+"""agent.planning.planners.ils_planner —— 多活动 TOPTW 混合规划兜底 + graph replan 兜底。
+
+【ADR-0010 D-5：big-bang 换血——从「1+1 三元组」切到「路线模型」】
+
+本模块曾经的算法是穷举 (POI, restaurant, dining_time) 三元组 + ILS 扰动/局部搜索
+（架构审查候选 #8 诊断：该搜索空间因 `decide_nodes` 只给「1 主活动 + 1 用餐」而塌成
+平凡网格，扰动+局部搜索 provably inert——150 次迭代 0 次找到更优解）。ADR-0010 把
+问题重新定性为「带时间窗+节奏留白的团队定向问题（TOPTW）」，D-1..D-4 已分步建好
+新地基（`activity_pool.py` 约束+utility 构建 / `route_scheduler.py` 窗感知调度器 /
+`pace_budget.py` 节奏留白模型 / `route_builder.py` 锚定两段贪心插入构造）。本步把
+`plan_hybrid` 切换到这套路线模型上，并把 ADR-0009 C-3/C-4 的 critic-to-solver
+有界修复闭环迁移到路线上（旗舰「满座→改期」demo 亮点续命）。
 
 【真实定位】
 
-本模块是 ILS 算法兜底 planner，被以下入口消费：
+本模块是 ILS 兜底 planner，被以下入口消费：
 
-- `graph/nodes/replan.py:ils_replan`（LLM 重生成失败 N 次后第 3 次兜底）
+- `graph/nodes/replan.py:ils_replan_node`（LLM 重生成失败 N 次后第 3 次兜底）
 - `tests/test_planner_hybrid.py` / `test_planner_hybrid_overload.py`
 
-ILS 算法：搜索 (POI, restaurant, time) 三元组候选 + 4 维 utility 加权打分 +
-local search + 5% 接受劣解。LangGraph 第 3 次 replan 仍调用 plan_hybrid 作为 ILS 兜底层
-（参见 graph/nodes/replan.py）。
+【新流程（替代旧「(POI,餐厅,时段) 三元组 + ILS 扰动」模型）】
 
-含 spec A R5 加固：
-- `_overload_penalty(poi, intent)` 单段过载强惩罚（年龄 cap 兜底；cap 表读
-  `critic/age_caps.py` 单一真相源，ADR-0009 决策 6）
-- `_resolve_dynamic_dining_slots(intent, segments)` 动态用餐时段
-- critic-to-solver 有界修复闭环（`_compute_blacklists` 按 ViolationCode 路由 +
-  `_search_best_avoiding` 重搜 + 重 gate；ADR-0009 决策 3/4/6·C-4）
-
-【ADR-0009 C-3：critic-to-solver 闭环接统一 critic】
-
-C 段（critic 验证）不再用本模块曾经内嵌的 4 维打分 critic（`ils_score_critic.run_critics`：
-hard_constraint/time_window/budget/style，已删除），改吃 ADR-0008 的统一
-`critics_v2.validate_itinerary`（`list[Violation]`，`.code` + `.severity`，无 critic 名）。
-`_run_unified_critic` 是薄 adapter，把 `list[Violation]` 适配成本模块内部消费的
-`passed` / `hard_violations()` 形状。
-
-`_classify_violation` / `_compute_blacklists` 从「按 critic 名 + 关键词」改「按
-`ViolationCode` 路由」，实现 ADR-0009 的 ViolationCode → ILS 重搜动作 映射表：
-可廉价修的码（满座 / 饮食 / 桌型 / 社交 hard / 营业时间 / 非饭点）拉黑对应实体触发重搜；
-结构码 / `AGE_DURATION_MISMATCH` 不产生黑名单动作（留给 rule 地板，非本模块可修）。
-`SOCIAL_CONTEXT_MISMATCH` 现按 `Violation.field_path` 解析肇事节点，只定向拉黑那一个
-实体（而非旧版「POI + 餐厅一起拉黑」）。
-
-【ADR-0009 C-4：有界修复闭环 + gate】
-
-plan_hybrid 步骤 6 是 min-conflicts + tabu 的有界修复循环：每轮 `validate`；有 HARD →
-`_compute_blacklists` 产黑名单并**跨轮单调累积**（防「16:30↔17:00」震荡）→
-`_search_best_avoiding` 避开黑名单重搜 → 重组装 → 重 `validate`。**只有 validate 干净才
-接受**（gate——绝不返回带 HARD 的方案）；预算（`MAX_REPAIR_ROUNDS`）耗尽 / 候选池被
-掏空 / 无 ILS 可修算子 → 失败上抛，让上层落 rule 地板（D2）。
-
-【spec planning-quality-deep-review R5】（Wave 4 Task 5，2026-05-23）
-
-ILS 兜底路径加 3 项业务对齐改动：
-
-1. `_overload_penalty(poi, intent) -> float`：按年龄分级 cap（婴幼儿 ≤45 /
-   学龄前 ≤75 / 学童 ≤120 / 高龄 ≤60）推单段 cap，用 get_duration_for_companions 投影
-   POI 推荐时长，超 cap 返 0.3 强惩罚（否则 0.0）。
-2. `_utility` 公式末尾追加 `-0.5 * _overload_penalty(poi, intent)` 项，让 ILS 在候选池里
-   先剔除「成人 180min 但 5 岁娃只能玩 90min」类反人性方案；保留原 4 维 comfort/time/cost/smoothness 不变。
-3. DINING_SLOTS 改用 planner.py:_resolve_time_window 推（按 intent.start_time + duration_hours
-   动态算），不再硬编码 ("17:00","17:30","18:00")。
-4. critic-to-solver 有界修复闭环：`_compute_blacklists` 黑名单按 ADR-0009 映射表路由、
-   `_search_best_avoiding` 重搜、重 gate（见上「ADR-0009 C-4」）。
-
-学术依据：
-- A 段（ILS 启发式）：[Vansteenwegen et al. 2009 ILS for TOPTW]、
-  [Gunawan et al. 2019 Adjustment ILS for Multi-objective TOPTW]
-- C 段（Critic 验证）：[Kambhampati et al. 2024 LLM-Modulo Frameworks NeurIPS],
-  [Kim et al. 2024 Robust Planning with LLM-Modulo arXiv:2405.20625]
-- LLM 头尾：[ItiNera EMNLP 2024 Industry] 把主观决策（权重）放给 LLM、客观搜索放给算法
-
-整体流程：
+    召回(_query_pois/_query_restaurants，含 grounding-first 前置过滤)
+        ↓
     [LLM] 出 4 个权重 (comfort/time/cost/smoothness)
         ↓
-    [Algo] 候选生成（POI top-K × Restaurant top-K × dining_slot top-K）
+    [LLM] 语义打分（POI 维度，ItiNera 范式）
         ↓
-    [Algo] ILS：扰动（swap POI / 换餐厅 / 移时段）+ 局部搜索 N 次
+    [Algo D-4] build_route：锚定两段贪心插入构造——选子集+顺序+时刻一步到位，
+        组成随 intent 涌现（ADR-0010 决策 1：不再有「主活动/用餐」特权划分，
+        `decide_nodes` 对本路径作废，交由 build_route 的锚定+涌现逻辑决定组成）
         ↓
-    [Critic] 统一 critic（critics_v2.validate_itinerary，ADR-0008 分阶段 hard/soft 单注册表）验证
+    route_to_blueprint → assemble_from_blueprint（拼装 Itinerary）
         ↓
-        硬违规 → 用违规反馈再跑一次 ILS（Critic backprompt to ILS，不是 LLM；ADR-0009 映射表）
-        否则 → 返回 utility 最高的方案
+    [Critic] 统一 critic（critics_v2.validate_itinerary）验证
         ↓
-    [Algo] 失败兜底：rule planner
+        HARD 违规 → min-conflicts 有界修复闭环：`_compute_blacklists` 按
+        ViolationCode 路由 + field_path 定向 blame 到肇事节点 → `_repair_route`
+        避开黑名单重赋（挖窗/整体拉黑）→ 重组装 → 重 validate（ADR-0009 C-3/C-4
+        语义原样，迁移到路线模型；见下方「C-3/C-4 迁移」节）
+        干净 → 返回（success=True，gate 不变量：绝不返回带 HARD 违规的方案）
+    ↓
+    [Algo] 失败兜底：上抛给上层 rule planner（D2 地板）
+
+与旧版的关键差异：
+
+- **不再有 `CandidatePlan` / `_greedy_init` / `_perturb` / `_local_search` /
+  `_swap_node` / `_shift_node` / `_search_best_avoiding`**：ILS 扰动+局部搜索在
+  `build_route` 的贪心插入构造下彻底 provably inert（`build_route` 已经是「选
+  子集+顺序+时刻」的完整确定性答案，不存在"改良"空间；架构审查候选 #8 的诊断
+  经此彻底根除，而非只是修表面 bug）。
+- **不再需要外部注入 `rule_assembler`**：旧版靠函数注入 `_assemble_itinerary`
+  避免循环依赖（历史上正因这层注入被生产 adapter"忽略"过，见 ADR-0009「背景·
+  地基 A」）；新流程组装是模块内部直调 `route_builder.route_to_blueprint` +
+  `assemble_from_blueprint`，没有可注入的中间层，这类"注入被忽略"的 bug 类别
+  不复存在。
+- **候选池不再在本层预切 top-5**（旧 `CANDIDATE_TOP_K`，ADR-0010 诊断"单口味
+  搜索 top-5 → 同质池"的元凶之一）——grounding 过滤后的全量候选直接交给
+  `build_route`，池扩容/分层取样由 `activity_pool.build_route_candidate_pool`
+  负责（D-1）。
+- **不再有硬编码 `DINING_SLOTS` / `_resolve_dynamic_dining_slots`**：餐厅候选
+  时刻由 `route_scheduler` 在连续窗内求最早可行开始时刻（含半点槽 snap），不
+  再局限于几个离散候选时段。
+
+【C-3/C-4 迁移到路线模型（ADR-0009 语义原样，只换实现细节）】
+
+- `_classify_violation`（按 ViolationCode + severity 分桶）**逐字节保留复用**——
+  这层只回答"这条违规该走哪条重搜策略"，与候选模型是三元组还是路线无关。
+- `_blamed_target`（field_path→节点）**逐语义保留复用**，内部重构为委托
+  `_blamed_node`（新增：解析出完整节点而非只取 (kind,id)，供 `_compute_blacklists`
+  同时取 `target_id` 与 `start_time`）。
+- `_compute_blacklists` **改签名**：旧版吃 `(failed: CandidatePlan, itinerary,
+  intent, violations)`，新版吃 `(itinerary, violations)`——blame 一律走
+  `field_path` 定位到肇事节点实体（`_blamed_node`），不再依赖 `CandidatePlan`
+  的「至多两个实体」假设。产出形状不变：`(排除的 poi_id 集合, 排除的 rest_id
+  集合, 封锁的 (rest_id, slot_hhmm) 集合)`。
+- **封槽机制变化**（旧版：三元组模型里 `dining_time` 只是几个离散候选之一，
+  黑名单直接从候选枚举里跳过；新版：路线模型的餐厅候选时刻是连续窗内求出的
+  "最早可行"，必须真的**挖掉窗口里那 30 分钟**（`_shrink_visit_windows`），
+  否则重搜会算出同一个最早时刻、原地震荡不收敛）——`_repair_route` 消费
+  `_shrink_visit_windows`/`_apply_blacklist_to_pool` 两个小 helper 完成。
+- **重搜算法变化**（旧版 `_search_best_avoiding`：对 (POI,餐厅,时段) 三元组做
+  穷举重搜，相当于"整条方案推倒重来"；新版 `_repair_route`：只把命中黑名单的
+  节点从上一轮已选集合里剔除，为空出的槽位在过滤后的候选池里找边际分最高的
+  替补插回，其余节点原样保留——这其实**更贴近** ADR-0009 引用的 prior art
+  min-conflicts（Minton et al. 1992：只重赋"参与被违反约束的那个变量"）字面
+  定义，而不是退化）。
+- **retry 有界 + gate 不变量原样保留**：`MAX_REPAIR_ROUNDS`、"只有 validate
+  干净才 success=True"、黑名单跨轮单调累积——完全未动。
+
+【调研留痕：D-5 自行拍板、值得读者知道的判断点】
+
+1. **重搜不重跑 `build_route`，而是新写 `_repair_route` 直接消费
+   `route_scheduler.schedule_route`/`try_insert` + `activity_pool.route_score`**：
+   `build_route`/`route_builder.py` 是 D-4 已 TDD 落地的"消费只读"零件（本步
+   唯一改的是本文件），封槽（挖窗）必须发生在"喂给调度器的 Visit"这一层，而
+   `build_route` 内部把 Poi/Restaurant → Visit 的转换封在函数体内、不接受外部
+   预制的 Visit 池——没有不改 `route_builder.py` 就能从外部注入"这一个候选的
+   窗已被挖掉"的钩子。若为此在 `build_route` 上开一个参数，会把"这轮重搜要避开
+   什么"这个 ILS 内部关切泄漏进 D-4 的公开签名。改用 `_repair_route`（min-
+   conflicts：只重赋肇事变量）不仅避免了这个泄漏，还比"整条路线重新贪心构造
+   一遍"更贴合 ADR-0009 引用的 prior art 字面定义——一举两得，非退而求其次。
+2. **`decide_nodes(intent)` 对本路径彻底不再调用**（ADR-0010 决策 1 明文
+   "对 ILS 路径作废"）：旧版步骤 0 用它决定 `needs_poi`/`needs_dining`，本版
+   统一召回 POI + 餐厅两个维度，组成完全交给 `build_route` 的锚定+涌现逻辑
+   决定。唯一的失败条件是"两个维度的候选都是空"（连涌现的原材料都没有）。
+3. **`_utility` 的 LLM 语义分项改为中心化 `0.3*(s-0.5)`**（review-driven
+   calibration，取代旧 `0.3*s`）：旧公式在语义分缺省值 0.5 时仍会给 POI
+   +0.15 的分数，而该项只对 POI 生效（`_utility` 签名要求 `poi is not None`）、
+   餐厅侧永远拿不到——这在 `route_score` 把 POI/餐厅同池比较的新场景下（D-4
+   起两者才真的放进同一个 additive 打分池竞争）会造成系统性偏袒 POI 的假象
+   信号。中心化后 s=0.5（语义中性/缺省）时加项为 0，s>0.5 加分、s<0.5 扣分，
+   POI 之间的相对排序不变（仿射变换），偏置消除。受影响测试
+   `tests/test_utility_with_semantic.py` 已按新公式更新预期数值。
+
+学术依据（沿用 ADR-0009，路线模型迁移未改变引用关系）：
+- A 段（贪心插入构造，替代原 ILS 启发式）：[Vansteenwegen et al. 2009 ILS for
+  TOPTW]、[Gunawan et al. 2019 Adjustment ILS for Multi-objective TOPTW]——
+  ADR-0010 决策 7："先只做贪心插入构造；shake 存废由 S1-S8 实测数据决定（D-6）"。
+- C 段（Critic 验证 + 修复闭环）：[Kambhampati et al. 2024 LLM-Modulo Frameworks
+  NeurIPS]、[Kim et al. 2024 Robust Planning with LLM-Modulo arXiv:2405.20625]、
+  [Minton et al. 1992 min-conflicts, AIJ]（`_repair_route` 的"只重赋肇事变量"）。
+- LLM 头尾：[ItiNera EMNLP 2024 Industry] 把主观决策（权重/语义分）放给 LLM、
+  客观搜索放给算法。
 
 接口：
-    def plan_itinerary_hybrid(intent, *, client=None, tracer=None) -> PlannerResult
+    def plan_hybrid(intent, *, client=None, tracer=None) -> HybridResult
 
-输入与 plan_itinerary 完全相同；被 graph/nodes/replan.py:ils_replan_node 调（第 3 次 ILS 兜底），
-以及 tests/test_planner_hybrid.py 直接驱动（rule_assembler 注入）。
+输入与旧版基本一致（**去掉 `rule_assembler` 形参**——新流程组装是模块内部直调，
+不再需要外部注入；见 ADR-0010 D-5 连带决策 4）。被
+`graph/nodes/replan.py:ils_replan_node` 调（第 3 次 ILS 兜底），以及
+`tests/test_planner_hybrid.py` 直接驱动。
 
 不负责：
-- 权重决策（在 weights_llm.py）
-- Critic 实现（在 critics_v2.py / _rules/checks.py）
-- HTTP/SSE（在 main.py）
-- Tool 实现（在 tools/）
+- 权重决策（在 `weights_llm.py`）
+- 候选池/utility 构建（在 `activity_pool.py`，D-1）
+- 窗感知调度（在 `route_scheduler.py`，D-2）
+- 节奏留白模型（在 `pace_budget.py`，D-3）
+- 贪心插入构造（在 `route_builder.py`，D-4）
+- Critic 实现（在 `critics_v2.py` / `_rules/checks.py`）
+- HTTP/SSE（在 `main.py`）
+- Tool 实现（在 `tools/`）
 """
 
 from __future__ import annotations
 
 import math
 import os
-import random
 import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from schemas.domain import Poi, Restaurant, SuggestedDuration
 from schemas.errors import FailureReason
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
 from schemas.tools import (
-    EstimateRouteTimeInput,
-    EstimateRouteTimeOutput,
     SearchPoisInput,
     SearchPoisOutput,
     SearchRestaurantsInput,
     SearchRestaurantsOutput,
 )
 
+from data.loader import load_user_profile
+
+from ..blueprint.assemble_blueprint import assemble_from_blueprint
 from ..critic.age_caps import cap_for_age
 from ..critic.critics_v2 import Severity, Violation, ViolationCode, validate_itinerary
+from ..critic._rules.helpers import parse_hhmm
 from ...core.trace import Tracer
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
 from utils.duration_helpers import get_duration_for_companions
+
+if TYPE_CHECKING:  # 仅供类型标注；运行期各函数内部按需局部 import（见判断点 1 的
+    # 循环依赖说明：route_builder/route_scheduler/activity_pool 都（直接或经
+    # activity_pool 间接）依赖本模块的 `_env_int`/`_env_float`/`_utility`，本模块
+    # 若在模块顶层反向 import 它们会成环——局部 import 是刻意选择，不是遗漏。
+    from .activity_pool import TimeWindow, Visit
+    from .route_scheduler import CommuteFn, RouteSchedule
 
 
 # ============================================================
@@ -124,6 +185,10 @@ from utils.duration_helpers import get_duration_for_companions
 # ============================================================
 
 def _env_int(name: str, default: int) -> int:
+    """PUBLIC SEAM（ADR-0010 D-5 finding #4）：`activity_pool.py` 顶层
+    `from .ils_planner import _env_float, _env_int, _utility` 依赖本函数——
+    虽带下划线，事实上是跨模块公开契约。删除/改签名前先迁移那处 import。
+    """
     raw = os.getenv(name)
     try:
         return int(raw) if raw else default
@@ -132,6 +197,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _env_float(name: str, default: float) -> float:
+    """PUBLIC SEAM（同上，`activity_pool.py` 依赖）：删除/改签名前先迁移。"""
     raw = os.getenv(name)
     try:
         return float(raw) if raw else default
@@ -139,53 +205,15 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-# ILS 迭代次数（评测时段：30 → ~50ms，足够 demo 实时）
-ILS_ITERATIONS = _env_int("PLANNER_ILS_ITERATIONS", 30)
-
-# critic-to-solver 修复闭环的最大迭代轮数（ADR-0009 决策 5/7·C-4：retry 有界）。
-# 一次修复可能引入二次违规（min-conflicts），需多轮收敛；受 demo 30s 红线 + D2 地板
-# 兜底约束，保持小值。3 足够覆盖「16:30 meal_time → 17:00 full → 17:30 clean」这类链。
+# critic-to-solver 修复闭环的最大迭代轮数（ADR-0009 决策 5/7·C-4：retry 有界；
+# ADR-0010 D-5：语义原样迁移到路线模型，数值/含义未变）。一次修复可能引入二次
+# 违规（min-conflicts），需多轮收敛；受 demo 30s 红线 + D2 地板兜底约束，保持小值。
 MAX_REPAIR_ROUNDS = _env_int("PLANNER_MAX_REPAIR_ROUNDS", 3)
 
-# 候选 top-K（每槽位保留多少候选参与组合）
-CANDIDATE_TOP_K = _env_int("PLANNER_CANDIDATE_TOP_K", 5)
-
-# 用餐时段池：默认值（与 rule planner 默认 DEFAULT_DINING_TIMES 一致）。
-# spec planning-quality-deep-review R5：实际运行时 plan_hybrid 会调
-# planner._resolve_time_window 按 intent.start_time + duration_hours 推动态时段，
-# 然后传给 ILS 内部的算法用；本常量仅作 module 级 fallback / 老调用方兼容。
-DINING_SLOTS = ("17:00", "17:30", "18:00")
-
-# 随机种子（reproducibility；生产可设 None）
-ILS_SEED = _env_int("PLANNER_ILS_SEED", 20260517)
-
 
 # ============================================================
-# 候选方案（行程的中间表示，组装前的轻量结构）
-# ============================================================
-
-@dataclass
-class CandidatePlan:
-    """ILS 搜索空间内的一个点。
-
-    支持三种场景：
-    - 完整（主活动+用餐）：main_poi + restaurant + dining_time 都有值
-    - 仅主活动：main_poi 有值，restaurant=None，dining_time=""
-    - 仅用餐：restaurant + dining_time 有值，main_poi=None
-    """
-
-    main_poi: Optional[Poi] = None
-    restaurant: Optional[Restaurant] = None
-    dining_time: str = ""
-    backup_pois: list[Poi] = field(default_factory=list)
-    # 计算缓存
-    utility: float = 0.0
-    feasible: bool = True
-    fail_detail: Optional[str] = None
-
-
-# ============================================================
-# 统一 critic 薄 adapter（ADR-0009 决策 1/3）
+# 统一 critic 薄 adapter（ADR-0009 决策 1/3；路线模型迁移不影响本节——
+# 消费的是 Itinerary，与候选模型是三元组还是路线无关）
 # ============================================================
 
 @dataclass
@@ -197,9 +225,6 @@ class HybridCriticReport:
     `ils_score_critic.CriticReport`」的形状消费（`passed` / `hard_violations()`）。
     这层薄 adapter **只做形状转换，不改变任何判定逻辑**——passed 就是「无 HARD
     violation」，hard_violations() 就是 severity==HARD 的子集。
-
-    ADR-0008 B-1 已删除 reward/soft_score 加权机制；本 adapter 不复活类似的
-    「soft_score」标量指标，trace 叙事改为直接报 hard/soft 计数。
     """
 
     violations: list[Violation] = field(default_factory=list)
@@ -213,10 +238,7 @@ class HybridCriticReport:
 
 
 def _run_unified_critic(itinerary: Itinerary, intent: IntentExtraction) -> HybridCriticReport:
-    """跑统一 critic（ADR-0008 `validate_itinerary`）并适配成 plan_hybrid 需要的形状。
-
-    替代已删除的 `ils_score_critic.run_critics`（ADR-0009 决策 1/3）。
-    """
+    """跑统一 critic（ADR-0008 `validate_itinerary`）并适配成 plan_hybrid 需要的形状。"""
     violations = validate_itinerary(itinerary, intent)
     return HybridCriticReport(violations=violations)
 
@@ -237,99 +259,64 @@ class HybridResult:
     failure_detail: Optional[str] = None
 
 
+def _resolve_depart_min(start_time: str) -> int:
+    """把 `intent.start_time` 解析成出发分钟数（PUBLIC SEAM 消费方，见
+    `rule_planner._parse_start_time_hour` 的 docstring）。与
+    `route_builder._resolve_depart_min` 各自独立实现同一算法（判断点见模块
+    docstring 判断点 1 同精神：两处都直接依赖 `rule_planner` 这个共享的最底层
+    seam，而不是互相依赖对方的私有实现，保持层间独立）。解析不出 → 14:00 兜底。
+    """
+    from .rule_planner import DEFAULT_DEPART_TIME, _parse_start_time_hour
+
+    hour = _parse_start_time_hour(start_time)
+    default_hour = int(DEFAULT_DEPART_TIME.split(":")[0])
+    return (hour if hour is not None else default_hour) * 60
+
+
 def plan_hybrid(
     intent: IntentExtraction,
     *,
     client: Any | None = None,
     tracer: Optional[Tracer] = None,
-    rule_assembler=None,
 ) -> HybridResult:
-    """A+C 混合规划主流程。
+    """多活动 TOPTW 混合规划主流程（ADR-0010 D-5：见模块 docstring「新流程」节）。
 
-    rule_assembler: 复用 planner.py 已有的 _assemble_itinerary / _resolve_time_window /
-                    _estimate 工具函数；通过函数注入避免循环依赖。
+    Args:
+        intent: 用户意图。
+        client: LLMClient；None 时权重/语义打分走启发式兜底（stub）。
+        tracer: 可选 Tracer；None 时创建一个新的。
 
-    返回 HybridResult；上层 planner_with_mode 把它包成 PlannerResult。
-
-    Phase 0.10（pitfalls P1-2026-05-17）：
-    若 segment_decider 决定本次要削段（少于 5 段），ILS 的笛卡尔积不再适用——
-    削段场景直接上抛失败让上层 fallback rule planner（rule 已支持按 segments 拼）。
-    这样 hybrid 仍是 5 段场景的加分项；削段场景由 rule 兜底（demo 不翻车）。
+    Returns:
+        HybridResult；success=True 时 itinerary 保证经统一 critic 验证无 HARD
+        违规（gate 不变量，ADR-0009 决策 5·C-4，迁移后原样保留）。
     """
     tracer = tracer or Tracer()
-    rng = random.Random(ILS_SEED)
 
-    # ---- 步骤 0：决定中间节点集合（edge_v1：从 segment 视角切到 node 视角）----
-    # decide_nodes 返回中间节点 kind 列表（["主活动", "用餐"] / ["主活动"] / ["用餐"]）；
-    # 旧 decide_segments 仍兼容，但 ILS 内部直接看 nodes 更清晰。
-    from ..blueprint.node_decider import KIND_DINING, KIND_MAIN, decide_nodes
-
-    mid_nodes = decide_nodes(intent)
-    needs_poi = KIND_MAIN in mid_nodes
-    needs_dining = KIND_DINING in mid_nodes
-
-    # ---- 步骤 1：LLM 出权重 ----
-    weights = get_planning_weights(intent, client=client)
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"ILS 节点决策：mid_nodes={mid_nodes}（POI={'需要' if needs_poi else '跳过'}"
-                f"，餐厅={'需要' if needs_dining else '跳过'}）；"
-                f"权重（{weights.source}）：{weights.summary()}"
-            ),
-        },
-    )
-
-    # ---- 步骤 1.5：解析动态用餐时段（spec planning-quality-deep-review R5）----
-    # 不再硬编码 ("17:00","17:30","18:00")；用 planner._resolve_time_window 按
-    # intent.start_time + duration_hours + segments 推（与 rule planner 同源）。
-    dining_slots = _resolve_dynamic_dining_slots(intent, mid_nodes, tracer)
-
-    # ---- 步骤 2：候选生成（按需搜索）----
-    pois: list[Poi] = []
-    restaurants: list[Restaurant] = []
-
-    if needs_poi:
-        pois = _query_pois(intent, tracer)
-        if not pois:
-            return HybridResult(
-                success=False,
-                failure_reason=FailureReason.EMPTY_CANDIDATES,
-                failure_detail="ILS 阶段：POI 候选为空",
-                weights=weights,
-            )
-
-    if needs_dining:
-        restaurants = _query_restaurants(intent, tracer)
-        if not restaurants:
-            return HybridResult(
-                success=False,
-                failure_reason=FailureReason.EMPTY_CANDIDATES,
-                failure_detail="ILS 阶段：餐厅候选为空",
-                weights=weights,
-            )
-
-    # 至少要有一个维度的候选
+    # ---- 步骤 1：候选生成（POI + 餐厅都搜；组成交给 build_route 的锚定+涌现
+    # 逻辑决定，ADR-0010 决策 1：decide_nodes 对本路径作废，见判断点 2）----
+    pois = _query_pois(intent, tracer)
+    restaurants = _query_restaurants(intent, tracer)
     if not pois and not restaurants:
         return HybridResult(
             success=False,
             failure_reason=FailureReason.EMPTY_CANDIDATES,
-            failure_detail="ILS 阶段：POI 和餐厅候选均为空",
-            weights=weights,
+            failure_detail="路线构造阶段：POI 和餐厅候选均为空",
         )
 
-    poi_top = pois[:CANDIDATE_TOP_K] if pois else []
-    rest_top = restaurants[:CANDIDATE_TOP_K] if restaurants else []
+    # ---- 步骤 2：LLM 出权重 ----
+    weights = get_planning_weights(intent, client=client)
+    tracer.emit(
+        "agent_thought",
+        {"text": f"权重（{weights.source}）：{weights.summary()}"},
+    )
 
-    # ---- 步骤 2.5：LLM 语义打分（spec algorithm-redesign R4，ItiNera 范式）----
-    # 失败兜底全 0.5；stub 模式直接返全 0.5；ILS 主路径不阻断。
+    # ---- 步骤 3：LLM 语义打分（spec algorithm-redesign R4，ItiNera 范式）----
     semantic_scores: dict[str, float] = {}
-    if poi_top:
+    if pois:
         try:
             from agent.planning.preference_scorer import score_pois_with_llm
 
-            semantic_scores = score_pois_with_llm(intent, poi_top, client=client)
+            semantic_scores = score_pois_with_llm(intent, pois, client=client)
             if semantic_scores:
                 tracer.emit(
                     "agent_thought",
@@ -346,87 +333,71 @@ def plan_hybrid(
                 "agent_thought",
                 {"text": f"LLM 语义打分失败（{exc}），fallback 全 0.5"},
             )
-            semantic_scores = {p.id: 0.5 for p in poi_top}
+            semantic_scores = {p.id: 0.5 for p in pois}
 
-    # ---- 步骤 3：贪心初始解（utility 最高的 POI×餐厅×17:00）----
-    initial = _greedy_init(
-        poi_top, rest_top, intent, weights, tracer, dining_slots,
+    # ---- 步骤 4：build_route（D-4 锚定两段贪心插入构造）----
+    from .activity_pool import (
+        build_poi_route_pool,
+        build_restaurant_route_pool,
+        build_visit_from_poi,
+        build_visit_from_restaurant,
+    )
+    from .route_builder import build_route, make_commute_fn, route_to_blueprint
+
+    depart_min = _resolve_depart_min(intent.start_time)
+    user_profile = load_user_profile()
+    commute_fn = make_commute_fn(user_profile)
+    money_budget = user_profile.default_budget
+
+    build_result = build_route(
+        pois,
+        restaurants,
+        intent,
+        weights,
+        depart_min=depart_min,
+        commute_fn=commute_fn,
         semantic_scores=semantic_scores,
     )
-    if initial is None:
+    if not build_result.schedule.scheduled:
         return HybridResult(
             success=False,
             failure_reason=FailureReason.EMPTY_CANDIDATES,
-            failure_detail="ILS 阶段：贪心初始化失败",
+            failure_detail="路线构造阶段：候选池不足以排出任何活动（build_route 空排程）",
             weights=weights,
         )
-
-    best = initial
-    best_score = best.utility
     tracer.emit(
         "agent_thought",
         {
             "text": (
-                f"贪心初始解：POI={best.main_poi.id} / 餐厅={best.restaurant.id} / "
-                f"时段={best.dining_time} / utility={best_score:.3f}"
+                f"贪心插入构造：{len(build_result.visits)} 个活动"
+                f"（节奏={build_result.pace_tier}）——"
+                + "、".join(f"{v.kind}:{v.target_id}" for v in build_result.visits)
             ),
         },
     )
 
-    # ---- 步骤 4：ILS 迭代（扰动 + 局部搜索）----
-    current = best
-    for i in range(ILS_ITERATIONS):
-        # 扰动：随机换 POI / 换餐厅 / 移时段三选一
-        perturbed = _perturb(current, poi_top, rest_top, rng, dining_slots)
-        # 局部搜索：在邻域内贪心改进（仅用 utility，不查可订位）
-        improved = _local_search(
-            perturbed, poi_top, rest_top, intent, weights, dining_slots,
-            semantic_scores=semantic_scores,
-        )
-        s = improved.utility
-        if s > best_score:
-            best, best_score = improved, s
-            tracer.emit(
-                "agent_thought",
-                {
-                    "text": (
-                        f"ILS 迭代 {i+1}/{ILS_ITERATIONS}：发现更优解 "
-                        f"utility {best_score:.3f}（POI={best.main_poi.id} / "
-                        f"餐厅={best.restaurant.id} / 时段={best.dining_time}）"
-                    ),
-                },
-            )
-        # 接受准则：始终接受改进，5% 接受劣解（避免局部最优）
-        if s > current.utility or rng.random() < 0.05:
-            current = improved
-
-    # ---- 步骤 5：组装 Itinerary（用 rule planner 的 helper）----
-    if rule_assembler is None:
+    # ---- 步骤 5：组装 Itinerary ----
+    try:
+        blueprint = route_to_blueprint(build_result.schedule, intent, depart_min)
+        itinerary = assemble_from_blueprint(intent, blueprint, user_profile)
+    except Exception as exc:  # 防御性兜底（D2 failure-drain：绝不让异常逃出规划层）
         return HybridResult(
             success=False,
             failure_reason=FailureReason.UPSTREAM_FAILURE,
-            failure_detail="rule_assembler 未注入",
-            weights=weights,
-        )
-    itinerary = rule_assembler(intent, best, tracer)
-    if itinerary is None:
-        return HybridResult(
-            success=False,
-            failure_reason=FailureReason.UPSTREAM_FAILURE,
-            failure_detail="ILS 选定方案后 rule_assembler 拼装失败",
+            failure_detail=f"路线组装失败：{exc}",
             weights=weights,
         )
 
-    # ---- 步骤 6：Critic 验证 + 有界修复闭环（C 段；ADR-0009 决策 1/3/5·C-4）----
-    # min-conflicts 启发式修复 + tabu：每轮 validate；有 HARD → 累积黑名单（单调，防
-    # 「16:30↔17:00」震荡）→ 重搜（避开黑名单）→ 重组装 → 重 validate。干净即接受；
-    # 预算耗尽 / 违规无 ILS 可修算子 / 候选池被掏空 / 组装失败 → 失败上抛落 rule 地板（D2）。
-    # 这是要展示的 critic-to-solver 闭环：critic 把违规反馈给 ILS 算法逐步自纠。
-    current_cand = best
+    # ---- 步骤 6：Critic 验证 + 有界修复闭环（C 段；ADR-0009 决策 1/3/5·C-4，
+    # 迁移到路线模型：见模块 docstring「C-3/C-4 迁移」节）----
     current_itin = itinerary
+    current_scheduled = build_result.schedule.scheduled
+    budget_min = build_result.fill_targets.hi_min
     bl_poi: set[str] = set()
     bl_rest: set[str] = set()
     bl_rest_time: set[tuple[str, str]] = set()
+    poi_visits: Optional[list["Visit"]] = None
+    rest_visits: Optional[list["Visit"]] = None
     report = _run_unified_critic(current_itin, intent)
 
     for attempt in range(MAX_REPAIR_ROUNDS + 1):
@@ -459,11 +430,9 @@ def plan_hybrid(
             break  # 修复预算耗尽，停止迭代
 
         # 累积黑名单（单调 tabu）——防「移到 17:00 又被换回 16:30」的震荡
-        add_poi, add_rest, add_rest_time = _compute_blacklists(
-            current_cand, current_itin, intent, report.violations
-        )
+        add_poi, add_rest, add_rest_time = _compute_blacklists(current_itin, report.violations)
         if not (add_poi or add_rest or add_rest_time):
-            break  # 违规无 ILS 可修算子（结构码 / AGE）→ 落地板
+            break  # 违规无 ILS 可修算子（结构码 / AGE / 总时长）→ 落地板
         bl_poi |= add_poi
         bl_rest |= add_rest
         bl_rest_time |= add_rest_time
@@ -478,28 +447,49 @@ def plan_hybrid(
             },
         )
 
-        new_cand = _search_best_avoiding(
-            poi_top, rest_top, intent, weights, dining_slots,
-            bl_poi, bl_rest, bl_rest_time, semantic_scores=semantic_scores,
+        if poi_visits is None:  # 惰性建池：多数场景第 0 轮就 clean，用不到重搜
+            poi_pool = build_poi_route_pool(list(pois))
+            rest_pool = build_restaurant_route_pool(list(restaurants))
+            poi_visits = [
+                build_visit_from_poi(p, intent, weights, semantic_scores=semantic_scores)
+                for p in poi_pool
+            ]
+            rest_visits = [build_visit_from_restaurant(r, intent, weights) for r in rest_pool]
+
+        new_schedule = _repair_route(
+            current_scheduled,
+            poi_visits,
+            rest_visits,
+            weights,
+            depart_min=depart_min,
+            budget_min=budget_min,
+            commute_fn=commute_fn,
+            money_budget=money_budget,
+            blacklist_poi=bl_poi,
+            blacklist_rest=bl_rest,
+            blacklist_rest_time=bl_rest_time,
         )
-        if new_cand is None:
-            break  # 候选池被黑名单掏空 → 落地板
-        new_itin = rule_assembler(intent, new_cand, tracer)
-        if new_itin is None:
+        if new_schedule is None or not new_schedule.scheduled:
+            break  # 候选池被黑名单掏空 / 修复后无可用活动 → 落地板
+
+        try:
+            new_blueprint = route_to_blueprint(new_schedule, intent, depart_min)
+            new_itin = assemble_from_blueprint(intent, new_blueprint, user_profile)
+        except Exception:
             break  # 组装失败 → 落地板
 
         tracer.emit(
             "agent_thought",
             {
                 "text": (
-                    f"基于 Critic 反馈的重排（第 {attempt + 1} 轮）：POI="
-                    f"{new_cand.main_poi.id if new_cand.main_poi else None} / 餐厅="
-                    f"{new_cand.restaurant.id if new_cand.restaurant else None} / "
-                    f"时段={new_cand.dining_time}"
+                    f"基于 Critic 反馈的重排（第 {attempt + 1} 轮）：黑名单 "
+                    f"poi={sorted(bl_poi)} rest={sorted(bl_rest)} "
+                    f"rest_time={sorted(bl_rest_time)} → "
+                    + "、".join(f"{sv.visit.kind}:{sv.visit.target_id}@{sv.start_min}" for sv in new_schedule.scheduled)
                 ),
             },
         )
-        current_cand, current_itin = new_cand, new_itin
+        current_scheduled, current_itin = new_schedule.scheduled, new_itin
         report = _run_unified_critic(current_itin, intent)
 
     # 循环未收敛到干净方案 → 失败上抛（上层 fallback rule planner，D2）
@@ -517,6 +507,8 @@ def plan_hybrid(
 
 # ============================================================
 # 候选生成（直接调真 Tool；trace 里也会留下 tool_call_start/end）
+# 【ADR-0010 D-5：召回逻辑本身不动——只消费，见任务原文「_query_pois/
+# _query_restaurants（召回，保留）」】
 # ============================================================
 
 # spec algorithm-redesign R3：grounding-first 前置硬剔除常量
@@ -765,11 +757,12 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
 
 
 # ============================================================
-# 加权效用 utility（A 段核心）
+# 加权效用 utility（每活动基分；被 `activity_pool.build_visit_from_poi` /
+# `build_visit_from_restaurant` 消费，见模块顶部 PUBLIC SEAM 说明）
 # ============================================================
 
 # ADR-0009 决策 6：年龄 cap 表读 `critic/age_caps.py` 单一真相源（不再本地内联第三份
-# 45/75/120/60 副本）。_AGE_CAP_NO_LIMIT 是 ILS 路径自用的「无年龄约束」哨兵——
+# 45/75/120/60 副本）。_AGE_CAP_NO_LIMIT 是本模块自用的「无年龄约束」哨兵——
 # age_caps.cap_for_age 对不落 4 档的年龄返 None，本函数把 None 适配成 9999，
 # 供 _overload_penalty / _grounding_filter_poi 沿用「越大越不限」的判定习惯。
 _AGE_CAP_NO_LIMIT = 9999  # 哨兵：无 age 信息 / age 不落任何分级档时返此值
@@ -779,9 +772,7 @@ def _resolve_age_cap(intent: IntentExtraction) -> int:
     """从 intent.companions 推单段最严 cap（min）——读 age_caps.py 单一真相源。
 
     与 `critic/age_caps.py:cap_for_age`（供 `check_age_aware_duration` 用）同源；
-    本函数只是在其基础上取同行人群体内最严（min）一档。ADR-0009 决策 6：并入
-    ils_planner 这份第三份年龄 cap 副本，消灭与 critic 层的分叉风险
-    （盘点见 ADR-0008：critic 与 blueprint 曾各存一份漂移）。
+    本函数只是在其基础上取同行人群体内最严（min）一档。
     """
     if intent is None or not getattr(intent, "companions", None):
         return _AGE_CAP_NO_LIMIT
@@ -808,9 +799,9 @@ def _overload_penalty(poi: Optional[Poi], intent: IntentExtraction) -> float:
         0.0 表示「不超 cap 或无 age 信息」。
 
     与 critic 主路径的关系：
-    - blueprint critic / critics_v2._check_age_aware_duration：拦 LLM 主出错（已规划好的 itinerary）
-    - 本 penalty：在 ILS 候选生成 / 局部搜索阶段就给「显然不合适的 POI」打负分，让算法主动跳过
-    - 两者镜像防绕过；critic 是兜底，penalty 是先验。
+    - critics_v2._check_age_aware_duration：拦已排定的 itinerary（兜底）
+    - 本 penalty：在候选打分阶段就给「显然不合适的 POI」打负分（先验，
+      `activity_pool.build_visit_from_poi` 经由 `_utility` 消费本函数）
     """
     if poi is None:
         return 0.0
@@ -845,15 +836,25 @@ def _utility(
     w: PlanningWeights,
     semantic_scores: dict[str, float] | None = None,
 ) -> tuple[float, str | None]:
-    """加权效用函数（适配可选维度）。
+    """PUBLIC SEAM（ADR-0010 D-5 finding #4）：`activity_pool.py` 顶层
+    `from .ils_planner import _env_float, _env_int, _utility` 依赖本函数——
+    `build_visit_from_poi`/`build_visit_from_restaurant` 的 base_score 直接是
+    本函数的返回值。删除/改签名前先迁移 `activity_pool.py` 那处 import。
+
+    加权效用函数（适配可选维度）。
 
     四维度归一化到 [0, 1] 后按权重求和。
-    返回 (score, fail_detail)；fail_detail 非 None 表示该候选已物理不可行。
+    返回 (score, fail_detail)；fail_detail 非 None 表示该候选已物理不可行
+    （历史遗留返回值——ADR-0010 决策 5 起可行性判定已转移到 `route_scheduler.py`
+    D-2，`activity_pool.build_visit_from_poi`/`build_visit_from_restaurant` 不消费
+    这个字段，只取 score）。
 
-    spec algorithm-redesign R4：末尾追加 LLM 语义打分项
-    `+ 0.3 * semantic_scores.get(poi.id, 0.5)`（仅 POI 维度；餐厅由
-    dietary 硬约束 + spec A R7 social_compat 处理）。
-    semantic_scores=None 时不加项（向后兼容；spec A 测试基线不破）。
+    ADR-0010 D-5（review-driven calibration，取代旧 `+0.3*s`）：末尾 LLM 语义分项
+    改为**中心化** `+0.3*(s-0.5)`——s=0.5（语义中性/缺省）时不加不减，s>0.5 加分、
+    s<0.5 扣分，POI 间相对排序不变（仿射变换）。旧版 `+0.3*s` 在 s=0.5 时仍给
+    POI +0.15，而该项只对 POI 生效、餐厅永远拿不到，在 `route_score`（D-4 起
+    POI/餐厅才真的同池 additive 竞争）里会造成系统性偏袒 POI 的假信号，中心化
+    后消除这个偏置。semantic_scores=None 时不加项（向后兼容）。
     """
     # ---- comfort：标签匹配 + 评分 + 年龄适配 ----
     poi_tag_hit = len(set(poi.tags) & set(intent.physical_constraints)) if poi else 0
@@ -914,16 +915,14 @@ def _utility(
         + w.smoothness * smoothness
     )
 
-    # spec planning-quality-deep-review R5：年龄超 cap 的 POI 候选打强负分，
-    # 让 ILS 算法层先于 critic 主动跳过（保留原 4 维不变，仅末尾追加项）。
+    # spec planning-quality-deep-review R5：年龄超 cap 的 POI 候选打强负分。
     score -= 0.5 * _overload_penalty(poi, intent)
 
-    # spec algorithm-redesign R4：LLM 语义打分（ItiNera EMNLP'24 范式）
-    # 仅 POI 维度叠加；semantic_scores=None 时不加项（向后兼容）
+    # ADR-0010 D-5：LLM 语义打分项改中心化（见函数 docstring）。
     if poi is not None and semantic_scores is not None:
-        score += 0.3 * semantic_scores.get(poi.id, 0.5)
+        score += 0.3 * (semantic_scores.get(poi.id, 0.5) - 0.5)
 
-    # 物理可行性快检
+    # 物理可行性快检（历史遗留，见 docstring；下游不再消费 fail_detail）
     fail = None
     if poi and poi.distance_km > intent.distance_max_km + 1.0:
         fail = f"POI {poi.id} 距离 {poi.distance_km:g}km 超限"
@@ -937,361 +936,67 @@ def _utility(
     return score, fail
 
 
-def _make_candidate(
-    poi: Optional[Poi],
-    rest: Optional[Restaurant],
-    dining_time: str,
-    intent: IntentExtraction,
-    w: PlanningWeights,
-    backup: list[Poi],
-    semantic_scores: dict[str, float] | None = None,
-) -> CandidatePlan:
-    score, fail = _utility(
-        poi, rest, dining_time, intent, w, semantic_scores=semantic_scores
-    )
-    return CandidatePlan(
-        main_poi=poi,
-        restaurant=rest,
-        dining_time=dining_time,
-        backup_pois=backup[:3],
-        utility=score,
-        feasible=fail is None,
-        fail_detail=fail,
-    )
-
-
 # ============================================================
-# 贪心初始 + ILS
+# Critic 失败后的重排（C 段反馈，ADR-0009 决策 3/4/5/6：ViolationCode → ILS 重搜动作
+# 映射表；ADR-0010 D-5：迁移到路线模型，见模块 docstring「C-3/C-4 迁移」节）
 # ============================================================
-
-def _resolve_dynamic_dining_slots(
-    intent: IntentExtraction,
-    mid_nodes: list[str],
-    tracer: Tracer,
-) -> tuple[str, ...]:
-    """spec planning-quality-deep-review R5：动态用餐时段。
-
-    委托 planner.py:_resolve_time_window 推算（与 rule planner 同源逻辑），
-    避免 ILS 路径在 14:00 出发的场景仍然只试 17:00/17:30/18:00。
-
-    `mid_nodes` 是 decide_nodes(intent) 输出（含 "用餐"/"主活动" 等中文标签）；
-    本 helper 把它转成 segments frozenset 喂给 _resolve_time_window。
-
-    返 tuple；空 list 时返 module 级 DINING_SLOTS 兜底（保持向后兼容）。
-    """
-    try:
-        from agent.planning.planners.rule_planner import _resolve_time_window
-    except Exception:  # pragma: no cover —— 仅在 import 顺序异常时触发
-        return DINING_SLOTS
-
-    segments = frozenset(mid_nodes) if mid_nodes else None
-    try:
-        _, dining_slots, _, _ = _resolve_time_window(intent, segments=segments)
-    except Exception:  # pragma: no cover
-        return DINING_SLOTS
-
-    if not dining_slots:
-        return DINING_SLOTS
-    out = tuple(dining_slots)
-    tracer.emit(
-        "agent_thought",
-        {
-            "text": (
-                f"ILS 用餐时段（动态推导，spec R5）：{list(out)}"
-                f"（出发 {intent.start_time}，时长 {intent.duration_hours}h）"
-            ),
-        },
-    )
-    return out
-
-
-def _greedy_init(
-    pois: list[Poi],
-    rests: list[Restaurant],
-    intent: IntentExtraction,
-    w: PlanningWeights,
-    tracer: Tracer,  # noqa: ARG001
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-    semantic_scores: dict[str, float] | None = None,
-) -> Optional[CandidatePlan]:
-    """从候选中取 utility 最高且 feasible 的作为初始解。
-
-    适配三种场景：
-    - pois + rests 都有 → POI×餐厅×时段 笛卡尔积
-    - 只有 pois → POI 单维度
-    - 只有 rests → 餐厅×时段
-
-    `dining_slots` spec planning-quality-deep-review R5：调用方传入动态时段；
-    缺省时退化为 module 级 DINING_SLOTS（向后兼容旧调用方）。
-
-    `semantic_scores` spec algorithm-redesign R4：LLM 语义打分加项；None 时不加。
-    """
-    best: Optional[CandidatePlan] = None
-
-    if pois and rests:
-        # 完整场景：POI × 餐厅 × 时段
-        for poi in pois:
-            for rest in rests:
-                for slot in dining_slots:
-                    cand = _make_candidate(
-                        poi, rest, slot, intent, w, pois,
-                        semantic_scores=semantic_scores,
-                    )
-                    if not cand.feasible:
-                        continue
-                    if best is None or cand.utility > best.utility:
-                        best = cand
-    elif pois:
-        # 仅主活动：POI 单维度
-        for poi in pois:
-            cand = _make_candidate(
-                poi, None, "", intent, w, pois,
-                semantic_scores=semantic_scores,
-            )
-            if not cand.feasible:
-                continue
-            if best is None or cand.utility > best.utility:
-                best = cand
-    elif rests:
-        # 仅用餐：餐厅 × 时段
-        for rest in rests:
-            for slot in dining_slots:
-                cand = _make_candidate(
-                    None, rest, slot, intent, w, [],
-                    semantic_scores=semantic_scores,
-                )
-                if not cand.feasible:
-                    continue
-                if best is None or cand.utility > best.utility:
-                    best = cand
-
-    return best
-
-
-def _perturb(
-    current: CandidatePlan,
-    pois: list[Poi],
-    rests: list[Restaurant],
-    rng: random.Random,
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-) -> CandidatePlan:
-    """随机扰动当前解（edge_v1：邻域操作针对 nodes，不再针对 stages）。
-
-    操作目标：
-    - `_swap_node`（POI 维）：换中间节点 i（target_kind="poi"）的 target_id；
-      对应旧 `_swap_poi` 的语义
-    - `_swap_node`（餐厅维）：换中间节点 j（target_kind="restaurant"）的 target_id；
-      对应旧 `_swap_rest` 的语义
-    - `_shift_node`（时段维）：把用餐节点的 dining_time 推到下一时段；
-      对应旧 `_shift_time` 的语义
-
-    这里把三类操作内联在 `_perturb` 里以避免函数指针的 overhead；
-    `_swap_node` / `_shift_node` 命名作为概念暴露给 design.md / R7 验收。
-
-    选择策略：
-    - 有 POI + 有餐厅 → 三选一（_swap_node POI / _swap_node 餐厅 / _shift_node）
-    - 只有 POI → _swap_node POI
-    - 只有餐厅 → 二选一（_swap_node 餐厅 / _shift_node）
-    """
-    ops: list[str] = []
-    if pois and len(pois) > 1 and current.main_poi is not None:
-        ops.append("swap_node_poi")
-    if rests and len(rests) > 1 and current.restaurant is not None:
-        ops.append("swap_node_restaurant")
-    if rests and current.dining_time:
-        ops.append("shift_node")
-    # 兜底：如果没有可扰动的维度，直接返回原解
-    if not ops:
-        return current
-
-    op = rng.choice(ops)
-    new = CandidatePlan(
-        main_poi=current.main_poi,
-        restaurant=current.restaurant,
-        dining_time=current.dining_time,
-        backup_pois=current.backup_pois,
-    )
-    if op == "swap_node_poi" and pois:
-        new.main_poi = _swap_node(
-            current.main_poi, pois, rng, target_kind="poi"
-        )
-    elif op == "swap_node_restaurant" and rests:
-        new.restaurant = _swap_node(
-            current.restaurant, rests, rng, target_kind="restaurant"
-        )
-    elif op == "shift_node":
-        new.dining_time = _shift_node(current.dining_time, rng, dining_slots)
-    return new
-
-
-# ============================================================
-# ILS 邻域算子（edge_v1：node 操作；R7 / Task 9）
-# ============================================================
-
-
-def _swap_node(
-    current_target: Poi | Restaurant | None,
-    candidates: list[Poi] | list[Restaurant],
-    rng: random.Random,
-    *,
-    target_kind: str,
-) -> Poi | Restaurant | None:
-    """ILS 邻域算子：把指定 target_kind 的节点 target_id 换成另一个候选。
-
-    旧版 `_swap_poi` / `_swap_rest` 的合并：通过 `target_kind="poi" / "restaurant"`
-    控制操作目标，逻辑相同（在候选池中随机选一个不同于当前的）。
-
-    Args:
-        current_target: 当前节点的 target 实体（main_poi 或 restaurant）；
-                        None 时直接随机返一个候选
-        candidates: 候选池（已被 _query_pois / _query_restaurants 排序）
-        rng: 随机数发生器（reproducibility）
-        target_kind: "poi" / "restaurant"，仅作日志/调试用，不参与算法
-
-    Returns:
-        新的 target 实体；候选池为空或仅含当前 target 时返 None / 当前
-    """
-    _ = target_kind  # 显式忽略；保留参数让调用点一目了然
-    pool = [c for c in candidates if current_target is None or c.id != current_target.id]
-    if not pool:
-        return current_target
-    return rng.choice(pool)
-
-
-def _shift_node(
-    current_time: str,
-    rng: random.Random,
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-) -> str:
-    """ILS 邻域算子：把用餐节点的开始时刻推到 dining_slots 中另一时段。
-
-    旧版 `_shift_time` 重命名 + 语义对齐 edge_v1：
-    - 旧：操作 stage 索引上的 start/end 时刻
-    - 新：操作 ActivityNode（target_kind="restaurant"）对应的 dining_time，
-      由后续 rule_assembler 把它写到 BlueprintNode.note 上（assemble_from_blueprint
-      会按 chosen_time 推 preferred_start_time / dining 节点 note）
-
-    Args:
-        current_time: 当前用餐时段（"17:30" 之类）
-        rng: 随机数发生器
-        dining_slots: 候选时段池（spec R5 起按 _resolve_dynamic_dining_slots 推；
-                      缺省时退化为 module 级 DINING_SLOTS）
-
-    Returns:
-        新的时段；候选池为空时返当前
-    """
-    pool = [s for s in dining_slots if s != current_time]
-    if not pool:
-        return current_time
-    return rng.choice(pool)
-
-
-# ============================================================
-# 局部搜索（贪心改进，邻域内枚举）
-# ============================================================
-
-
-
-def _local_search(
-    seed: CandidatePlan,
-    pois: list[Poi],
-    rests: list[Restaurant],
-    intent: IntentExtraction,
-    w: PlanningWeights,
-    dining_slots: tuple[str, ...] = DINING_SLOTS,
-    semantic_scores: dict[str, float] | None = None,
-) -> CandidatePlan:
-    """在 seed 邻域内贪心改进：枚举每个可用维度的所有候选，选 utility 最高的。"""
-    best = _make_candidate(
-        seed.main_poi, seed.restaurant, seed.dining_time, intent, w, pois,
-        semantic_scores=semantic_scores,
-    )
-    # 枚举 POI 维度（如果有）
-    if pois and seed.main_poi is not None:
-        for poi in pois:
-            cand = _make_candidate(
-                poi, seed.restaurant, seed.dining_time, intent, w, pois,
-                semantic_scores=semantic_scores,
-            )
-            if cand.feasible and cand.utility > best.utility:
-                best = cand
-    # 枚举餐厅维度（如果有）
-    if rests and seed.restaurant is not None:
-        for rest in rests:
-            cand = _make_candidate(
-                best.main_poi, rest, best.dining_time, intent, w, pois,
-                semantic_scores=semantic_scores,
-            )
-            if cand.feasible and cand.utility > best.utility:
-                best = cand
-    # 枚举时段维度（如果有餐厅）
-    if seed.dining_time:
-        for slot in dining_slots:
-            cand = _make_candidate(
-                best.main_poi, best.restaurant, slot, intent, w, pois,
-                semantic_scores=semantic_scores,
-            )
-            if cand.feasible and cand.utility > best.utility:
-                best = cand
-    return best
-
-
-# ============================================================
-# Critic 失败后的重排（C 段反馈，ADR-0009 决策 3/4/5/6：ViolationCode → ILS 重搜动作 映射表）
-# ============================================================
-#
-# 旧版（spec planning-quality-deep-review R5）按「critic 名 + message 关键词」路由——
-# 那套 4-critic（hard_constraint/time_window/budget/style）已随 ils_score_critic 删除。
-# ADR-0009 改为按统一 critic 的 `ViolationCode` 路由，逐码实现 ADR 决策 6 的映射表：
 #
 # | 判决           | ViolationCode                    | 动作                                  |
 # |----------------|-----------------------------------|----------------------------------------|
-# | 闭环重搜       | RESTAURANT_FULL_UNRESOLVED        | 拉黑 (餐厅,时段) → 移时段；不行则连带换店（同一机制自然涌现，见下） |
+# | 闭环重搜       | RESTAURANT_FULL_UNRESOLVED        | 封 (餐厅,时段) → 挖窗后重搜；不行则连带换店（同一机制自然涌现，见下） |
 # | 闭环重搜       | DIETARY_VIOLATION                 | 拉黑整店 → 换饮食兼容                  |
 # | 闭环重搜       | CAPACITY_REQUIREMENT_VIOLATED     | 拉黑整店 → 换大桌/包间                 |
 # | 闭环重搜       | SOCIAL_CONTEXT_MISMATCH（HARD）   | 按 field_path 定向拉黑肇事那一个实体   |
-# | 闭环重搜       | OPENING_HOURS_VIOLATION           | 餐厅侧：拉黑 (餐厅,时段)；POI 侧：拉黑整个 POI（start_time 非 ILS 变量） |
-# | 闭环重搜       | MEAL_TIME_UNREASONABLE            | 拉黑 (餐厅,时段) → 移到饭点槽          |
-# | 弱杠杆         | DURATION_OUT_OF_RANGE             | 仅当疑似通勤过远时拉黑最远实体，否则不产生动作（交给地板） |
-# | 落 rule 地板   | INVARIANT_BROKEN / NODES_INCOMPLETE / TIMELINE_INCONSISTENT / TOOL_RESPONSE_INCONSISTENCY / HOP_INFEASIBLE / AGE_DURATION_MISMATCH | 不产生黑名单动作（ILS 搜索变量不参与，或 α 组装期已预防） |
+# | 闭环重搜       | OPENING_HOURS_VIOLATION           | 餐厅侧：封 (餐厅,时段)；POI 侧：拉黑整个 POI（start_time 非搜索变量） |
+# | 闭环重搜       | MEAL_TIME_UNREASONABLE            | 封 (餐厅,时段) → 挖窗后移到饭点窗      |
+# | 弱杠杆         | DURATION_OUT_OF_RANGE             | 不产生动作（见下方「判断点」，field_path 恒为 "total_minutes"，无法定位到具体节点） |
+# | 落 rule 地板   | INVARIANT_BROKEN / NODES_INCOMPLETE / TIMELINE_INCONSISTENT / TOOL_RESPONSE_INCONSISTENCY / HOP_INFEASIBLE / AGE_DURATION_MISMATCH | 不产生黑名单动作（搜索变量不参与，或 α 组装期已预防） |
 #
 # soft（DISTANCE_EXCEEDED、SOCIAL_CONTEXT_MISMATCH 的 POOR 档）不进本表——
 # `_classify_violation` 对非 HARD 一律返回空集合，只叙事不重搜（ADR-0009 决策 3）。
 #
-# 【定向 blame 的实现选择（ADR-0009 决策 5）】
-# ADR 允许「填 Violation.node_ref」或「直接解析 field_path」二选一。本实现选后者：
-# `Violation.field_path` 已按 "nodes[{idx}]..." 编码肇事节点下标（见 _rules/checks.py
-# 各 check 的 field_path 赋值），`_blamed_target` 解析下标、回查 itinerary.nodes[idx] 拿
-# (target_kind, target_id) 即可定位，不必再多维护一个 node_ref 字段。
+# 【判断点：DURATION_OUT_OF_RANGE 弱杠杆在路线模型下退化为恒不产生动作】
+# 旧版（CandidatePlan 模型）靠"恰好只有两个实体（main_poi/restaurant）+ intent
+# 传入"猜"离 distance_max_km 最近的那个该拉黑；ADR-0009 本就把它标注为"弱杠杆"
+# （最不确定、最投机的一条）。新签名 `_compute_blacklists(itinerary, violations)`
+# 依 D-5 任务原文彻底放弃了 CandidatePlan/intent 依赖，改为逐条违规按 field_path
+# 定位肇事节点——而 `check_duration` 的 field_path 恒为 `"total_minutes"`（总时长
+# 违规没有单一"肇事节点"：可能是任何一个活动、也可能是通勤太多），`_blamed_node`
+# 对此类 field_path 恒返回 None，本桶因此恒不产生黑名单动作。这不是遗漏：路线
+# 模型下活动数任意（不再是"恰好两个"），旧版"猜离上限最近的那个"这套启发式本就
+# 建立在三元组模型的巧合之上，不能照搬；诚实地不猜（转交 rule 地板，D2 安全）
+# 好过在 N 个实体里瞎猜误伤。已在 D-5 报告里 surface 给复审。
+#
+# 【定向 blame 的实现选择（ADR-0009 决策 5，路线模型下延续）】
+# `Violation.field_path` 按 "nodes[{idx}]..." 编码肇事节点下标（见 _rules/checks.py
+# 各 check 的 field_path 赋值），`_blamed_node`/`_blamed_target` 解析下标、回查
+# itinerary.nodes[idx] 定位，不依赖任何"候选模型有几个实体"的假设。
 #
 # 【与 C-4 的边界（明确不动）】
-# - retry 后是否重新 gate（重跑 validate 并据此决定 success）—— C-4 的活；本函数返回的
-#   Itinerary 由调用方 plan_hybrid 无条件当作成功接受，与改动前行为一致，不在本次加重。
-# - `blacklist_rest_time` 键继续用 `failed.dining_time`（ILS 候选层面的时段标签，
-#   与 `_greedy_init`/`_local_search` 用的同一个 `dining_slots` 池同源）——不去读
-#   assemble 后的 `node.start_time`（那是 check_demo_restaurant_full 读的真值来源，
-#   两者不保证相等，是 ADR-0009 点名的「黑名单键值错位」bug，明确归 C-4，本函数不碰）。
+# retry 后是否重新 gate ——C-4 的活，本节不碰；MAX_REPAIR_ROUNDS / 黑名单跨轮单调
+# 累积语义原样保留（见 plan_hybrid 步骤 6）。
 
 
 def _classify_violation(v: Violation) -> set[str]:
     """按 ViolationCode（ADR-0009 决策 6）把违规归类为 ILS 重搜「动作桶」。
 
-    只看 `v.code` + `v.severity`，不看 itinerary——定向 blame（该拉黑哪个具体实体）
-    由 `_blamed_target` 单独解析 `field_path`，这里只回答「这条违规该走哪条重搜策略」。
+    逐字节保留复用（ADR-0010 D-5）：只看 `v.code` + `v.severity`，不看
+    itinerary——这层判断与候选模型是三元组还是路线无关。定向 blame（该拉黑
+    哪个具体实体）由 `_blamed_target`/`_blamed_node` 单独解析 `field_path`。
 
     SOFT 一律返回空集合（ADR-0009 决策 3：soft 只叙事，不进重搜，不论其 code 是什么）。
 
     动作桶：
-    - "restaurant_time"：拉黑 (餐厅, 候选时段)，让重搜移时段 / 自然连带换店
+    - "restaurant_time"：封 (餐厅, 排定时刻)，挖窗后重搜移时段 / 自然连带换店
       （RESTAURANT_FULL_UNRESOLVED / MEAL_TIME_UNREASONABLE）
     - "restaurant_swap"：整店拉黑，逼重搜换店
       （DIETARY_VIOLATION / CAPACITY_REQUIREMENT_VIOLATED）
     - "directed_swap"：需要 field_path 定向解析出的实体拉黑（SOCIAL_CONTEXT_MISMATCH hard）
     - "opening_hours"：需要 field_path 定向解析「是 POI 还是餐厅」，两侧动作不同
       （POI 拉黑整个 POI；餐厅按 restaurant_time 处理）
-    - "distance_lever"：弱杠杆，具体是否产出黑名单还要看距离是否真的接近上限
+    - "distance_lever"：弱杠杆——路线模型下恒不产生黑名单动作，见上方模块级注释
       （DURATION_OUT_OF_RANGE）
-    - 空集合：结构码 / AGE_DURATION_MISMATCH——ILS 搜索变量不参与，落 rule 地板。
+    - 空集合：结构码 / AGE_DURATION_MISMATCH——搜索变量不参与，落 rule 地板。
     """
     if v.severity != Severity.HARD:
         return set()
@@ -1312,143 +1017,290 @@ def _classify_violation(v: Violation) -> set[str]:
 _NODE_FIELD_PATH_RE = re.compile(r"^nodes\[(\d+)\]")
 
 
+def _blamed_node(itinerary: Optional[Itinerary], field_path: str):
+    """从 `Violation.field_path` 解析出肇事节点本身（新增，ADR-0010 D-5）。
+
+    `field_path` 形如 "nodes[2].target_id" / "nodes[1].start_time"；只取 node
+    下标，索引进 `itinerary.nodes`。`_blamed_target` 委托本函数只取
+    (target_kind, target_id)；`_compute_blacklists` 直接用本函数还能取到
+    `start_time`（封槽黑名单要用）。
+
+    解析失败（itinerary 为空 / 下标越界 / field_path 不含 "nodes[N]" 前缀，
+    如 DURATION_OUT_OF_RANGE 的 "total_minutes"）→ None。
+    """
+    if itinerary is None:
+        return None
+    m = _NODE_FIELD_PATH_RE.match(field_path or "")
+    if not m:
+        return None
+    idx = int(m.group(1))
+    if idx < 0 or idx >= len(itinerary.nodes):
+        return None
+    return itinerary.nodes[idx]
+
+
 def _blamed_target(
     itinerary: Optional[Itinerary], field_path: str
 ) -> tuple[Optional[str], Optional[str]]:
     """从 `Violation.field_path` 解析肇事节点（ADR-0009 决策 5：定向 blame）。
 
-    `field_path` 形如 "nodes[2].target_id" / "nodes[1].start_time"；只取 node 下标，
-    索引进 `itinerary.nodes` 拿 (target_kind, target_id)。
-
-    解析失败（itinerary 为空 / 下标越界 / 不含 "nodes[N]" 前缀）→ (None, None)，
-    调用方据此回退（见 _compute_blacklists 里 "directed_swap" 分支的保守两拉黑兜底）。
+    逐语义保留复用（ADR-0010 D-5）：内部重构为委托 `_blamed_node`，行为不变——
+    解析失败仍返回 (None, None)。
     """
-    if itinerary is None:
+    node = _blamed_node(itinerary, field_path)
+    if node is None:
         return None, None
-    m = _NODE_FIELD_PATH_RE.match(field_path or "")
-    if not m:
-        return None, None
-    idx = int(m.group(1))
-    if idx < 0 or idx >= len(itinerary.nodes):
-        return None, None
-    node = itinerary.nodes[idx]
     return node.target_kind, node.target_id
 
 
 def _compute_blacklists(
-    failed: CandidatePlan,
     itinerary: Optional[Itinerary],
-    intent: IntentExtraction,
     violations: list[Violation],
 ) -> tuple[set[str], set[str], set[tuple[str, str]]]:
     """根据统一 critic 违规产出 (POI 黑名单 / 餐厅黑名单 / 餐厅×时段 黑名单)。
 
-    ADR-0009 决策 6 映射表的落地：逐条违规先经 `_classify_violation` 归类到动作桶，
-    再按桶产出具体黑名单条目。`itinerary` 是本轮失败方案（供 SOCIAL_CONTEXT_MISMATCH /
-    OPENING_HOURS 的定向 blame 解析 field_path 用；无 itinerary 时退回保守兜底）。
+    ADR-0010 D-5：改签名——旧版吃 `(failed: CandidatePlan, itinerary, intent,
+    violations)`，本版吃 `(itinerary, violations)`。blame 一律走 `field_path`
+    定位到肇事节点实体（`_blamed_node`），不再依赖 `CandidatePlan`"至多两个
+    实体（main_poi/restaurant）"的假设——路线模型下活动数量任意，任何一个中间
+    节点都可能是肇事者。
+
+    (rest_id, slot) 元组的 slot 来自**排定后的 `node.start_time`**（不是旧版
+    ILS 候选层面的 `dining_time` 标签）——这本就是 ADR-0009 C-4 定案的键值来源
+    （消除"黑名单键值错位"bug），路线模型下这个来源更加自然（`Visit` 本没有
+    离散候选时段标签，`node.start_time` 是唯一权威值）。
+
+    与旧版的行为差异（field_path 解析失败时的兜底）：旧版 `CandidatePlan` 只有
+    两个实体，"解析失败就两个都拉黑"是可枚举的保守兜底；路线模型下实体数量
+    任意，没有"两个都"这回事——本版统一遵循"宁可漏拉黑、不误拉黑"（`_compute_
+    blacklists` 对每个桶：解析失败 = 本条违规本轮不产生任何黑名单动作，不代表
+    整个函数放弃——其它能解析成功的违规仍正常产出）。这是 intentional 行为
+    变化，非退化：`_compute_blacklists` 的返回值随后被 `plan_hybrid` 检查
+    "全部为空则跳出循环落地板"，误伤空间反而更小。
+
+    Returns:
+        (排除的 poi_id 集合, 排除的 rest_id 集合, 封锁的 (rest_id, slot_hhmm) 集合)
     """
-    blacklist_rest_time: set[tuple[str, str]] = set()
-    blacklist_rest: set[str] = set()
     blacklist_poi: set[str] = set()
+    blacklist_rest: set[str] = set()
+    blacklist_rest_time: set[tuple[str, str]] = set()
 
     for v in violations:
         buckets = _classify_violation(v)
         if not buckets:
             continue
 
-        if "restaurant_time" in buckets and failed.restaurant is not None:
-            blacklist_rest_time.add((failed.restaurant.id, failed.dining_time))
+        node = _blamed_node(itinerary, v.field_path)
 
-        if "restaurant_swap" in buckets and failed.restaurant is not None:
-            blacklist_rest.add(failed.restaurant.id)
+        if "restaurant_time" in buckets:
+            if node is not None and node.target_kind == "restaurant":
+                blacklist_rest_time.add((node.target_id, node.start_time))
+
+        if "restaurant_swap" in buckets:
+            if node is not None and node.target_kind == "restaurant":
+                blacklist_rest.add(node.target_id)
 
         if "directed_swap" in buckets:
-            target_kind, _target_id = _blamed_target(itinerary, v.field_path)
-            if target_kind == "poi" and failed.main_poi is not None:
-                blacklist_poi.add(failed.main_poi.id)
-            elif target_kind == "restaurant" and failed.restaurant is not None:
-                blacklist_rest.add(failed.restaurant.id)
-            else:
-                # field_path 解析失败（旧行为兜底）：两个都拉黑，不静默漏修
-                if failed.main_poi is not None:
-                    blacklist_poi.add(failed.main_poi.id)
-                if failed.restaurant is not None:
-                    blacklist_rest.add(failed.restaurant.id)
+            if node is not None and node.target_kind == "poi":
+                blacklist_poi.add(node.target_id)
+            elif node is not None and node.target_kind == "restaurant":
+                blacklist_rest.add(node.target_id)
+            # field_path 解析失败：不再有"两个都拉黑"的兜底（见函数 docstring）
 
         if "opening_hours" in buckets:
-            target_kind, _target_id = _blamed_target(itinerary, v.field_path)
-            if target_kind == "restaurant" and failed.restaurant is not None:
-                blacklist_rest_time.add((failed.restaurant.id, failed.dining_time))
-            elif target_kind == "poi" and failed.main_poi is not None:
-                blacklist_poi.add(failed.main_poi.id)
-            # 解析失败：POI/餐厅两侧动作不同（一个整拉黑一个只拉时段），
-            # 两拉黑等于同时套错误动作，不做兜底——宁可漏拉黑，不误拉黑。
+            if node is not None and node.target_kind == "restaurant":
+                blacklist_rest_time.add((node.target_id, node.start_time))
+            elif node is not None and node.target_kind == "poi":
+                blacklist_poi.add(node.target_id)
 
-        if "distance_lever" in buckets:
-            max_km = intent.distance_max_km
-            if max_km is not None:
-                if (
-                    failed.main_poi is not None
-                    and failed.main_poi.distance_km > max_km - 1
-                ):
-                    blacklist_poi.add(failed.main_poi.id)
-                if (
-                    failed.restaurant is not None
-                    and failed.restaurant.distance_km > max_km - 1
-                ):
-                    blacklist_rest.add(failed.restaurant.id)
+        # "distance_lever"（DURATION_OUT_OF_RANGE）：field_path 恒为
+        # "total_minutes"，_blamed_node 恒解析失败 → 恒不产生动作。
+        # 见模块级注释「判断点：DURATION_OUT_OF_RANGE 弱杠杆在路线模型下
+        # 退化为恒不产生动作」。
 
     return blacklist_poi, blacklist_rest, blacklist_rest_time
 
 
-def _search_best_avoiding(
-    pois: list[Poi],
-    rests: list[Restaurant],
-    intent: IntentExtraction,
-    w: PlanningWeights,
-    dining_slots: tuple[str, ...],
+# ============================================================
+# 封槽 + 重搜（min-conflicts 风格有界修复；ADR-0010 D-5 新增，替代旧
+# `_search_best_avoiding` 的三元组穷举重搜）
+# ============================================================
+
+
+def _shrink_visit_windows(visit: "Visit", blocked_slot_hhmm: str) -> Optional["Visit"]:
+    """把 `visit.windows` 挖掉 `[slot, slot+GRID-1]` 这一段（半点槽宽度，
+    `route_scheduler.RESERVATION_SLOT_GRID_MIN`）。
+
+    `Visit` 是 frozen dataclass，用 `dataclasses.replace` 复制改 `windows`；某个
+    窗被挖穿则拆成左右两段（若非空）；全部窗都被挖空 → 返回 None（该实体这轮
+    彻底不可用，调用方据此把它当整体拉黑处理）。
+
+    这是路线模型下"封 (餐厅,时段)"黑名单真正生效的机制——`route_scheduler.
+    _earliest_feasible_start` 总是取窗内**最早**可行开始时刻；不挖窗，同一批
+    候选原样重搜会算出同一个时刻，黑名单形同虚设、陷入原地震荡。
+
+    `blocked_slot_hhmm` 解析失败（防御性，正常不会发生）→ 原样返回 `visit`
+    （保守不挖，不误伤）。
+    """
+    blocked_start = parse_hhmm(blocked_slot_hhmm)
+    if blocked_start is None:
+        return visit
+
+    from .route_scheduler import RESERVATION_SLOT_GRID_MIN
+    from .activity_pool import TimeWindow
+    from dataclasses import replace
+
+    blocked_end = blocked_start + RESERVATION_SLOT_GRID_MIN - 1
+
+    new_windows: list[TimeWindow] = []
+    for w in visit.windows:
+        if blocked_end < w.start_min or blocked_start > w.end_min:
+            new_windows.append(w)  # 与挖除区间无交集，原样保留
+            continue
+        if w.start_min < blocked_start:
+            new_windows.append(TimeWindow(w.start_min, blocked_start - 1))
+        if w.end_min > blocked_end:
+            new_windows.append(TimeWindow(blocked_end + 1, w.end_min))
+
+    if not new_windows:
+        return None
+    return replace(visit, windows=new_windows)
+
+
+def _apply_blacklist_to_pool(
+    visits: list["Visit"],
+    blacklist_ids: set[str],
+    blacklist_time: set[tuple[str, str]],
+) -> list["Visit"]:
+    """按黑名单过滤/挖窗候选池（小 helper，供 `_repair_route` 复用，不埋进
+    `plan_hybrid` 主体）。
+
+    整体拉黑（`blacklist_ids`）优先于挖窗——同一实体若既整体拉黑又有封槽记录
+    （理论上不会同时发生，防御性处理）直接跳过。挖窗挖穿（返回 None）等价于
+    该实体本轮不可用，同样跳过。
+    """
+    out: list["Visit"] = []
+    for v in visits:
+        if v.target_id in blacklist_ids:
+            continue
+        blocked_slots = {slot for rid, slot in blacklist_time if rid == v.target_id}
+        cur: Optional["Visit"] = v
+        for slot in blocked_slots:
+            if cur is None:
+                break
+            cur = _shrink_visit_windows(cur, slot)
+        if cur is None:
+            continue
+        out.append(cur)
+    return out
+
+
+def _repair_route(
+    previous_scheduled: Sequence[Any],
+    poi_visits: list["Visit"],
+    rest_visits: list["Visit"],
+    weights: PlanningWeights,
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: "CommuteFn",
+    money_budget: float,
     blacklist_poi: set[str],
     blacklist_rest: set[str],
     blacklist_rest_time: set[tuple[str, str]],
-    semantic_scores: dict[str, float] | None = None,
-) -> Optional[CandidatePlan]:
-    """在黑名单外重搜 utility 最高的 feasible 候选（min-conflicts 重赋 + tabu 过滤）。
+) -> Optional["RouteSchedule"]:
+    """min-conflicts 风格有界修复（ADR-0009 引用的 prior art：Minton et al. 1992）：
+    把上一轮方案里命中黑名单的节点从 `previous_scheduled` 剔除（POI/餐厅整黑
+    直接剔除；封槽餐厅挖窗后仍不可用才剔除），再从（同样按黑名单过滤/挖窗后的）
+    候选池里为每个空出的槽位找边际分最高的替补插回。找不到替补则该槽位空出，
+    不强凑（ADR-0010 决策 10「稀缺兜底」：宁可短而好，不塞次优凑数）。
 
-    plan_hybrid 的修复闭环每轮调用：黑名单由 `_compute_blacklists`（按 ADR-0009 映射表
-    路由）产出并跨轮单调累积，本函数据此过滤后重搜。与 `_greedy_init` 一样处理三场景
-    （POI×餐厅 / 仅 POI / 仅餐厅），额外跳过：
-    - blacklist_poi / blacklist_rest 里的实体；
-    - blacklist_rest_time 里的 (餐厅, 时段) 对。
-    池被黑名单掏空 → 返 None（调用方据此落 rule 地板 D2）。
+    与旧版 `_search_best_avoiding`（对 (POI,餐厅,时段) 三元组做穷举重搜，相当于
+    "整条方案推倒重来"）的关键差异：本函数只重赋"参与被违反约束的那个变量"，
+    其余节点原样保留——更贴近 min-conflicts 的字面定义，也让"仍是最优、只是这
+    个时刻不行"的候选（如旗舰 demo 的 R001）在挖窗后继续参与竞争，而不会被
+    误伤为整店拉黑（Poi 换掉/换个完全不相关的餐厅）。
+
+    Args:
+        previous_scheduled: 上一轮 `RouteSchedule.scheduled`
+            （`route_scheduler.ScheduledVisit` 序列）。
+        poi_visits / rest_visits: 完整候选 Visit 池（未按本轮黑名单过滤，
+            由调用方缓存跨轮复用）。
+        blacklist_poi / blacklist_rest / blacklist_rest_time: 跨轮单调累积的
+            黑名单（`plan_hybrid` 维护）。
+
+    Returns:
+        新的 `RouteSchedule`；`kept` 为空且无任何替补时返回一个 0 活动的平凡
+        排程（`schedule_route([], ...)` 的既有语义）——调用方按"scheduled 为空"
+        判断本轮修复是否产出可用方案。理论上 `kept` 恒可行（此前已知可行集合
+        的子集，去掉约束只会更容易排开），仍做防御性 None 检查以防未来
+        `route_scheduler` 语义变化时静默吞掉异常。
     """
-    pois_f = [p for p in pois if p.id not in blacklist_poi]
-    rests_f = [r for r in rests if r.id not in blacklist_rest]
+    from .route_scheduler import schedule_route, try_insert
+    from .activity_pool import route_score
 
-    best: Optional[CandidatePlan] = None
+    kept: list["Visit"] = []
+    removed_kinds: list[str] = []
 
-    def _consider(poi, rest, slot) -> None:
-        nonlocal best
-        if rest is not None and (rest.id, slot) in blacklist_rest_time:
-            return
-        cand = _make_candidate(
-            poi, rest, slot, intent, w, pois_f, semantic_scores=semantic_scores
+    for sv in previous_scheduled:
+        v = sv.visit
+        if v.kind == "poi" and v.target_id in blacklist_poi:
+            removed_kinds.append("poi")
+            continue
+        if v.kind == "restaurant" and v.target_id in blacklist_rest:
+            removed_kinds.append("restaurant")
+            continue
+        if v.kind == "restaurant":
+            blocked_slots = {slot for rid, slot in blacklist_rest_time if rid == v.target_id}
+            cur: Optional["Visit"] = v
+            for slot in blocked_slots:
+                if cur is None:
+                    break
+                cur = _shrink_visit_windows(cur, slot)
+            if cur is None:
+                removed_kinds.append("restaurant")
+                continue
+            v = cur
+        kept.append(v)
+
+    schedule = schedule_route(
+        kept, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+    )
+    if schedule is None:
+        return None  # 防御性：kept 是此前已知可行集合的子集，理论恒可行
+
+    if not removed_kinds:
+        return schedule
+
+    poi_pool = _apply_blacklist_to_pool(poi_visits, blacklist_poi, set())
+    rest_pool = _apply_blacklist_to_pool(rest_visits, blacklist_rest, blacklist_rest_time)
+    kept_keys = {(v.kind, v.target_id) for v in kept}
+    poi_pool = [v for v in poi_pool if (v.kind, v.target_id) not in kept_keys]
+    rest_pool = [v for v in rest_pool if (v.kind, v.target_id) not in kept_keys]
+
+    for kind in removed_kinds:
+        pool = poi_pool if kind == "poi" else rest_pool
+        if not pool:
+            continue
+        base_score = route_score(
+            [sv.visit for sv in schedule.scheduled], weights, money_budget
         )
-        if not cand.feasible:
-            return
-        if best is None or cand.utility > best.utility:
-            best = cand
+        best: Optional[tuple["Visit", "RouteSchedule", float]] = None
+        for v in pool:
+            candidate_schedule = try_insert(
+                kept, v, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+            )
+            if candidate_schedule is None:
+                continue
+            margin = route_score(
+                [sv.visit for sv in candidate_schedule.scheduled], weights, money_budget
+            ) - base_score
+            if best is None or margin > best[2]:
+                best = (v, candidate_schedule, margin)
+        if best is not None:
+            chosen, candidate_schedule, _margin = best
+            kept.append(chosen)
+            schedule = candidate_schedule
+            pool.remove(chosen)
 
-    if pois_f and rests_f:
-        for poi in pois_f:
-            for rest in rests_f:
-                for slot in dining_slots:
-                    _consider(poi, rest, slot)
-    elif pois_f:
-        for poi in pois_f:
-            _consider(poi, None, "")
-    elif rests_f:
-        for rest in rests_f:
-            for slot in dining_slots:
-                _consider(None, rest, slot)
-
-    return best
+    return schedule

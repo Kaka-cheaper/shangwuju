@@ -1,8 +1,17 @@
 """spec algorithm-redesign R4：_utility 函数加 semantic_scores 加项数学验证。
 
+【ADR-0010 D-5 finding #5：语义项改中心化（review-driven calibration）】
+
+原公式 `+0.3*s`（s∈[0,1]，缺省 0.5）在语义分缺省/中性时仍给 POI +0.15——而该项
+只对 POI 生效、餐厅永远拿不到，在 D-4 起 POI/餐厅同池 additive 竞争
+（`activity_pool.route_score`）的新场景下会造成系统性偏袒 POI 的假信号。改为
+中心化 `+0.3*(s-0.5)`：s=0.5 时加项为 0，s>0.5 加分、s<0.5 扣分，POI 间相对
+排序不变（仿射变换）。本文件测试预期数值随之更新（intentional，非回归）。
+
 测试覆盖（≥ 2 项）：
 - _utility 加 semantic_scores=None 时不加项（向后兼容）
-- _utility 加 semantic_scores={poi.id: 1.0} 时分数提升 0.3
+- _utility 加 semantic_scores={poi.id: 1.0} 时分数提升 0.15（= 0.3*(1.0-0.5)）
+- _utility 加 semantic_scores={poi.id: 0.0} 时分数下降 0.15（= 0.3*(0.0-0.5)）
 - 同一 POI 不同 semantic_score 反映在最终 utility 上
 """
 
@@ -49,7 +58,8 @@ def test_utility_without_semantic_scores_backward_compat():
 
 
 def test_utility_with_high_semantic_score_increases_utility():
-    """semantic_scores={poi.id: 1.0} → utility 比 None 时高 0.3"""
+    """semantic_scores={poi.id: 1.0} → utility 比 None 时高 0.15（= 0.3*(1.0-0.5)，
+    中心化后的加项峰值——ADR-0010 D-5 finding #5）。"""
     intent = _make_intent_solo()
     poi = _make_poi("P_1", distance_km=2.0)
     w = _default_weights()
@@ -57,14 +67,17 @@ def test_utility_with_high_semantic_score_increases_utility():
     score_high, _ = _utility(
         poi, None, "", intent, w, semantic_scores={"P_1": 1.0}
     )
-    assert score_high == pytest.approx(score_no_sem + 0.3, abs=1e-6), (
-        f"semantic=1.0 应让 utility +0.3：no_sem={score_no_sem:.4f} "
+    assert score_high == pytest.approx(score_no_sem + 0.15, abs=1e-6), (
+        f"semantic=1.0 应让 utility +0.15：no_sem={score_no_sem:.4f} "
         f"high={score_high:.4f}"
     )
 
 
-def test_utility_low_semantic_score_smaller_increase():
-    """semantic_scores={poi.id: 0.0} → utility +0（0.3 * 0 = 0）"""
+def test_utility_low_semantic_score_decreases_utility():
+    """semantic_scores={poi.id: 0.0} → utility -0.15（= 0.3*(0.0-0.5)，中心化后
+    低于中性的语义分应扣分而非"不加不减"——ADR-0010 D-5 finding #5 intentional
+    行为改变：旧公式 `0.3*s` 在 s=0 时也只是 +0，从不惩罚；中心化后 s<0.5 才
+    真正体现"这个 POI 语义契合度低于平均"。"""
     intent = _make_intent_solo()
     poi = _make_poi("P_1", distance_km=2.0)
     w = _default_weights()
@@ -72,11 +85,12 @@ def test_utility_low_semantic_score_smaller_increase():
     score_low, _ = _utility(
         poi, None, "", intent, w, semantic_scores={"P_1": 0.0}
     )
-    assert score_low == pytest.approx(score_no_sem + 0.0, abs=1e-6)
+    assert score_low == pytest.approx(score_no_sem - 0.15, abs=1e-6)
 
 
 def test_utility_missing_id_in_semantic_scores_uses_default_05():
-    """semantic_scores 不含 poi.id → 用默认 0.5（+0.15）"""
+    """semantic_scores 不含 poi.id → 用默认 0.5（中心化后加项为 0，不再 +0.15——
+    ADR-0010 D-5 finding #5：缺省/中性语义分不该系统性偏袒 POI）。"""
     intent = _make_intent_solo()
     poi = _make_poi("P_NOT_IN_SCORES", distance_km=2.0)
     w = _default_weights()
@@ -84,8 +98,7 @@ def test_utility_missing_id_in_semantic_scores_uses_default_05():
     score_default, _ = _utility(
         poi, None, "", intent, w, semantic_scores={"P_OTHER": 0.9}
     )
-    expected_diff = 0.3 * 0.5
-    assert score_default == pytest.approx(score_no_sem + expected_diff, abs=1e-6)
+    assert score_default == pytest.approx(score_no_sem, abs=1e-6)
 
 
 def test_utility_no_poi_no_semantic_added():

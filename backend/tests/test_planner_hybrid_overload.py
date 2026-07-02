@@ -1,25 +1,27 @@
-﻿"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty
-+ ADR-0009 C-3 ViolationCode → ILS 重搜动作 映射表。
+"""验 spec planning-quality-deep-review R5 ILS 算法兜底 utility 加 overload_penalty
++ ADR-0009 C-3 / ADR-0010 D-5 ViolationCode → ILS 重搜动作 映射表。
 
 测试矩阵：
 1. 5 岁娃 + P033 类候选（default=180 / kid_3_6=90 / cap=75）→ utility 罚分 0.3
 2. 同 POI 配成人客群（cap 9999）→ 无罚分（_overload_penalty 返 0.0）
-3. DINING_SLOTS 跟随 _resolve_time_window 推（14:00 出发 + 3-5h 时长 → 不再硬码 17:00）
-4. ADR-0009 映射表：`_classify_violation`（按 ViolationCode 路由到动作桶）+
+3. ADR-0009/0010 映射表：`_classify_violation`（按 ViolationCode 路由到动作桶）+
    `_compute_blacklists`（动作桶 → 具体黑名单条目，含按 field_path 定向 blame）
 
-【ADR-0009 C-3】
+【ADR-0010 D-5：`_compute_blacklists` 签名迁移】
 
-旧「黑名单 4 类全覆盖（time_window / hard_constraint / dietary / social_context）」
-测试矩阵用的是已删除的 `ils_score_critic.CriticViolation`（按 critic 名 + message
-关键词路由）。ils_score_critic 随 ADR-0009 决策 1/3 删除，`_classify_violation` /
-`_compute_blacklists` 改吃统一 critic 的 `Violation`（`.code` + `.severity` +
-`.field_path`）。测试矩阵 4 整体换血为按 ViolationCode 逐码验证映射表。
+旧签名 `_compute_blacklists(failed: CandidatePlan, itinerary, intent, violations)`
+依赖「候选恰好只有 main_poi/restaurant 两个实体」这个 (POI,餐厅,时段) 三元组模型
+的假设；D-5 big-bang 换血到路线模型后，候选池实体数量任意，`CandidatePlan` 已删。
+新签名 `_compute_blacklists(itinerary, violations)`——blame 一律走 `field_path`
+定位到肇事节点实体（`_blamed_node`），不再依赖 `intent`/`CandidatePlan`。本文件
+测试矩阵 3 整体随新签名换血；旧的 DINING_SLOTS / `_resolve_dynamic_dining_slots`
+测试矩阵随该常量/函数一并删除（路线模型下餐厅候选时刻是连续窗内求最早可行，
+不再有离散候选时段列表这个概念，见 `agent/planning/planners/route_scheduler.py`）。
 
 测试设计：
-- 直接调 `_overload_penalty` / `_utility` / `_resolve_dynamic_dining_slots` /
-  `_classify_violation` / `_compute_blacklists` 等 module 级 helper，不跑 plan_hybrid
-  全流程，避免 stub LLM client 等环境依赖。
+- 直接调 `_overload_penalty` / `_utility` / `_classify_violation` /
+  `_compute_blacklists` 等 module 级 helper，不跑 plan_hybrid 全流程，避免 stub
+  LLM client 等环境依赖。
 - 用最小 SuggestedDuration / Poi / Restaurant fixture，不依赖 mock_data 加载。
 - 定向 blame 测试用最小合法 Itinerary（不经 assemble_from_blueprint，手工拼
   ActivityNode/Hop，同 test_critics_v2.py 的 fixture 风格），只为定位 field_path
@@ -55,13 +57,10 @@ from agent.planning.critic.critics_v2 import (  # noqa: E402
     ViolationCode,
 )
 from agent.planning.planners.ils_planner import (  # noqa: E402
-    DINING_SLOTS,
-    CandidatePlan,
     _classify_violation,
     _compute_blacklists,
     _overload_penalty,
     _resolve_age_cap,
-    _resolve_dynamic_dining_slots,
     _utility,
 )
 from agent.core.trace import Tracer  # noqa: E402
@@ -201,93 +200,23 @@ def test_overload_penalty_no_suggested_returns_zero() -> None:
 
 
 # ============================================================
-# 测试 3：DINING_SLOTS 跟随 _resolve_time_window 推
+# 测试 3：ADR-0009/0010 决策 6 —— ViolationCode → ILS 重搜动作 映射表
 # ============================================================
-
-
-def test_dynamic_dining_slots_morning_intent() -> None:
-    """09:00 出发 + 4-6h 总时长 → 推算的用餐时段 ≠ 默认 17:00 三连。
-
-    覆盖 spec R5：不再硬编码 ("17:00","17:30","18:00")。
-    """
-    intent = _make_intent(start_time="today_morning", duration_hours=[4, 6])
-    tracer = Tracer()
-    slots = _resolve_dynamic_dining_slots(
-        intent, mid_nodes=["主活动", "用餐"], tracer=tracer
-    )
-    # 必须返非空 tuple
-    assert isinstance(slots, tuple) and len(slots) > 0
-    # 不应等同于默认 DINING_SLOTS（早上出发推出来不会是 17:00）
-    assert slots != DINING_SLOTS
-    # 早上 09:00 出发 + 主活动 ~2h → 用餐时段在 11:00 前后
-    first_slot_h = int(slots[0].split(":")[0])
-    assert 10 <= first_slot_h <= 13, f"早上场景首个用餐时段应在 10-13 点，实际 {slots[0]}"
-
-
-def test_dynamic_dining_slots_afternoon_intent() -> None:
-    """14:00 出发 + 3-5h → 用餐时段在 16:00-18:00 区间，含若干候选。"""
-    intent = _make_intent(start_time="today_afternoon", duration_hours=[3, 5])
-    tracer = Tracer()
-    slots = _resolve_dynamic_dining_slots(
-        intent, mid_nodes=["主活动", "用餐"], tracer=tracer
-    )
-    assert len(slots) >= 1
-    # 首个时段应 ≥ 14:00 + 主活动（保证不会回到默认 17:00 三连之外）
-    first_h = int(slots[0].split(":")[0])
-    first_m = int(slots[0].split(":")[1])
-    first_total = first_h * 60 + first_m
-    assert first_total >= 14 * 60 + 30, f"下午 14:00 出发首个用餐时段应 ≥ 14:30，实际 {slots[0]}"
-
-
-def test_dynamic_dining_slots_dinner_only_segment() -> None:
-    """仅有 "用餐" 段（没有主活动）→ 时段从出发后 ~30min 起算，不会偏到 17:00。"""
-    intent = _make_intent(start_time="today_evening", duration_hours=[1, 2])
-    tracer = Tracer()
-    slots = _resolve_dynamic_dining_slots(
-        intent, mid_nodes=["用餐"], tracer=tracer
-    )
-    assert len(slots) >= 1
-    # 18:00 出发，仅用餐 → 用餐时段应在 18:00-20:00 区间
-    first_h = int(slots[0].split(":")[0])
-    assert 18 <= first_h <= 20, f"晚间仅用餐场景首个时段应在 18-20 点，实际 {slots[0]}"
-
-
-# ============================================================
-# 测试 4：ADR-0009 决策 6 —— ViolationCode → ILS 重搜动作 映射表
-# ============================================================
-
-
-def _make_failed_candidate(
-    *,
-    poi_id: str = "P_FAIL",
-    rest_id: str = "R_FAIL",
-    dining_time: str = "17:30",
-) -> CandidatePlan:
-    poi = _make_poi(poi_id=poi_id, distance_km=4.5, suggested=90)
-    rest = Restaurant(
-        id=rest_id,
-        name="测试餐厅",
-        cuisine="中餐",
-        location=Location(name="测试地", lat=30.25, lng=120.15),
-        distance_km=4.5,
-        opening_hours="11:00-22:00",
-        avg_price=120,
-        rating=4.0,
-        suitable_for=["家庭日常"],
-    )
-    return CandidatePlan(
-        main_poi=poi,
-        restaurant=rest,
-        dining_time=dining_time,
-        backup_pois=[],
-    )
 
 
 def _make_itinerary_for_blame(
-    *, poi_id: str = "P_FAIL", rest_id: str = "R_FAIL"
+    *,
+    poi_id: str = "P_FAIL",
+    rest_id: str = "R_FAIL",
+    rest_start_time: str = "17:30",
 ) -> Itinerary:
-    """最小合法 Itinerary（home/poi/restaurant/home），只为 `_blamed_target` 解析
-    field_path 的 "nodes[idx]" 下标用——不跑真 critic 校验，字段值只求形状合法。
+    """最小合法 Itinerary（home/poi/restaurant/home），只为 `_blamed_node`/
+    `_blamed_target` 解析 field_path 的 "nodes[idx]" 下标用——不跑真 critic 校验，
+    字段值只求形状合法。
+
+    `rest_start_time`（ADR-0010 D-5 新增参数）：新版 `_compute_blacklists` 的
+    (rest_id, slot) 黑名单键来自**排定后的 `node.start_time`**（不再是旧版
+    `CandidatePlan.dining_time`），测试需要能控制这个值来钉死"封槽"断言。
     """
     nodes = [
         ActivityNode(
@@ -300,7 +229,7 @@ def _make_itinerary_for_blame(
         ),
         ActivityNode(
             node_id="n2", kind="用餐", target_kind="restaurant", target_id=rest_id,
-            start_time="17:30", duration_min=60, title=rest_id,
+            start_time=rest_start_time, duration_min=60, title=rest_id,
         ),
         ActivityNode(
             node_id="n3", kind="终点", target_kind="home", target_id="home",
@@ -318,19 +247,12 @@ def _make_itinerary_for_blame(
     return Itinerary(summary="测试用最小行程", nodes=nodes, hops=hops, total_minutes=300)
 
 
-def _intent_distance5() -> IntentExtraction:
-    return _make_intent(
-        companions=[Companion(role="妻子")],
-        distance_max_km=5.0,
-    )
-
-
-# ---- 4a. _classify_violation：按 ViolationCode + severity 路由到动作桶 ----
+# ---- 3a. _classify_violation：按 ViolationCode + severity 路由到动作桶 ----
 
 
 def test_classify_violation_restaurant_full_and_meal_time_route_to_restaurant_time() -> None:
     """RESTAURANT_FULL_UNRESOLVED / MEAL_TIME_UNREASONABLE → "restaurant_time" 桶
-    （拉黑 (餐厅,时段)，移时段 / 自然连带换店）。"""
+    （封 (餐厅,时段)，挖窗后移时段 / 自然连带换店）。"""
     for code in (ViolationCode.RESTAURANT_FULL_UNRESOLVED, ViolationCode.MEAL_TIME_UNREASONABLE):
         v = Violation(code=code, severity=Severity.HARD, message="测试")
         assert _classify_violation(v) == {"restaurant_time"}, code
@@ -384,168 +306,152 @@ def test_classify_violation_distance_exceeded_soft_is_ignored() -> None:
     assert _classify_violation(v) == set()
 
 
-# ---- 4b. _compute_blacklists：动作桶 → 具体黑名单条目（含定向 blame） ----
+# ---- 3b. _compute_blacklists：动作桶 → 具体黑名单条目（含定向 blame，新签名） ----
 
 
 def test_blacklist_restaurant_full_shifts_time_not_whole_restaurant() -> None:
-    """RESTAURANT_FULL_UNRESOLVED → 拉黑 (餐厅,时段)，不牵连整店——「不行则换店」
+    """RESTAURANT_FULL_UNRESOLVED → 封 (餐厅,时段)，不牵连整店——「不行则换店」
     由同一机制自然涌现（其它 (rest,slot) 组合仍在搜索空间里，不需要额外分支）。"""
-    failed = _make_failed_candidate(rest_id="R1", dining_time="17:30")
-    itinerary = _make_itinerary_for_blame(rest_id="R1")
+    itinerary = _make_itinerary_for_blame(rest_id="R1", rest_start_time="17:30")
     v = Violation(
         code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.HARD,
         message="R1 17:30 已满", field_path="nodes[2].start_time",
     )
-    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, itinerary, _intent_distance5(), [v]
-    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert ("R1", "17:30") in bl_rest_time
     assert "R1" not in bl_rest
 
 
 def test_blacklist_dietary_and_capacity_blacklist_whole_restaurant() -> None:
     for code in (ViolationCode.DIETARY_VIOLATION, ViolationCode.CAPACITY_REQUIREMENT_VIOLATED):
-        failed = _make_failed_candidate(rest_id="R_SWAP")
         itinerary = _make_itinerary_for_blame(rest_id="R_SWAP")
         v = Violation(
             code=code, severity=Severity.HARD, message="测试",
             field_path="nodes[2].target_id",
         )
-        _, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+        _, bl_rest, _ = _compute_blacklists(itinerary, [v])
         assert "R_SWAP" in bl_rest, code
 
 
 def test_blacklist_social_context_directed_to_poi_node_only() -> None:
     """SOCIAL_CONTEXT_MISMATCH 按 field_path 定向拉黑：命中 POI 节点时只拉黑 POI，
     不像旧版「POI+餐厅一起拉黑」那样连坐。"""
-    failed = _make_failed_candidate(poi_id="P_BIZ", rest_id="R_OK")
     itinerary = _make_itinerary_for_blame(poi_id="P_BIZ", rest_id="R_OK")
     v = Violation(
         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
         message="测试", field_path="nodes[1].target_id",  # nodes[1] = POI
     )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+    bl_poi, bl_rest, _ = _compute_blacklists(itinerary, [v])
     assert "P_BIZ" in bl_poi
     assert "R_OK" not in bl_rest
 
 
 def test_blacklist_social_context_directed_to_restaurant_node_only() -> None:
-    failed = _make_failed_candidate(poi_id="P_OK", rest_id="R_LOUD")
     itinerary = _make_itinerary_for_blame(poi_id="P_OK", rest_id="R_LOUD")
     v = Violation(
         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
         message="测试", field_path="nodes[2].target_id",  # nodes[2] = restaurant
     )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, itinerary, _intent_distance5(), [v])
+    bl_poi, bl_rest, _ = _compute_blacklists(itinerary, [v])
     assert "R_LOUD" in bl_rest
     assert "P_OK" not in bl_poi
 
 
-def test_blacklist_social_context_falls_back_to_both_when_field_path_unresolvable() -> None:
-    """field_path 解析失败（这里用 itinerary=None 模拟）→ 保守兜底：两个都拉黑，不静默漏修。"""
-    failed = _make_failed_candidate(poi_id="P_X", rest_id="R_Y")
+def test_blacklist_social_context_unresolvable_field_path_produces_no_blacklist() -> None:
+    """field_path 解析失败（itinerary=None 模拟）→ route 模型下不再有「两个都拉黑」
+    的兜底（ADR-0010 D-5 intentional 行为改变）。
+
+    旧版 `CandidatePlan` 恰好只有两个实体（main_poi/restaurant），"解析失败就
+    两个都拉黑"是可枚举的保守兜底；路线模型下活动数量任意，没有"两个都"这回事——
+    宁可这一条违规本轮不产生动作（不代表放弃：其它能解析的违规仍正常产黑名单；
+    critic 会在下一轮重新报告，最终收敛或耗尽预算落地板，D2 安全）。
+    """
     v = Violation(
         code=ViolationCode.SOCIAL_CONTEXT_MISMATCH, severity=Severity.HARD,
         message="测试", field_path="nodes[1].target_id",
     )
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, None, _intent_distance5(), [v])
-    assert "P_X" in bl_poi
-    assert "R_Y" in bl_rest
+    bl_poi, bl_rest, _ = _compute_blacklists(None, [v])
+    assert bl_poi == set()
+    assert bl_rest == set()
 
 
 def test_blacklist_opening_hours_restaurant_node_shifts_time() -> None:
-    failed = _make_failed_candidate(rest_id="R_CLOSED", dining_time="21:30")
-    itinerary = _make_itinerary_for_blame(rest_id="R_CLOSED")
+    itinerary = _make_itinerary_for_blame(rest_id="R_CLOSED", rest_start_time="21:30")
     v = Violation(
         code=ViolationCode.OPENING_HOURS_VIOLATION, severity=Severity.HARD,
         message="测试", field_path="nodes[2].start_time",
     )
-    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, itinerary, _intent_distance5(), [v]
-    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert ("R_CLOSED", "21:30") in bl_rest_time
     assert "R_CLOSED" not in bl_rest
 
 
 def test_blacklist_opening_hours_poi_node_blacklists_whole_poi() -> None:
-    """POI 侧 opening_hours 违规：start_time 非 ILS 变量，只能拉黑整个 POI 换。"""
-    failed = _make_failed_candidate(poi_id="P_EARLY_CLOSE")
+    """POI 侧 opening_hours 违规：start_time 非搜索变量，只能拉黑整个 POI 换。"""
     itinerary = _make_itinerary_for_blame(poi_id="P_EARLY_CLOSE")
     v = Violation(
         code=ViolationCode.OPENING_HOURS_VIOLATION, severity=Severity.HARD,
         message="测试", field_path="nodes[1].start_time",
     )
-    bl_poi, _bl_rest, bl_rest_time = _compute_blacklists(
-        failed, itinerary, _intent_distance5(), [v]
-    )
+    bl_poi, _bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert "P_EARLY_CLOSE" in bl_poi
     assert bl_rest_time == set()
 
 
 def test_blacklist_meal_time_unreasonable_shifts_time() -> None:
-    failed = _make_failed_candidate(rest_id="R_OFFHOUR", dining_time="14:30")
+    itinerary = _make_itinerary_for_blame(rest_id="R_OFFHOUR", rest_start_time="14:30")
     v = Violation(
         code=ViolationCode.MEAL_TIME_UNREASONABLE, severity=Severity.HARD,
         message="测试", field_path="nodes[2].start_time",
     )
-    _bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, None, _intent_distance5(), [v]
-    )
+    _bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert ("R_OFFHOUR", "14:30") in bl_rest_time
     assert "R_OFFHOUR" not in bl_rest
 
 
-def test_blacklist_duration_out_of_range_blacklists_far_entities_when_near_limit() -> None:
-    """弱杠杆：距离确实接近上限时才拉黑最远实体（4.5km 逼近 5.0km 上限）。"""
-    intent = _intent_distance5()  # distance_max_km=5.0
-    failed = _make_failed_candidate(poi_id="P_FAR", rest_id="R_FAR")  # 4.5km
-    v = Violation(code=ViolationCode.DURATION_OUT_OF_RANGE, severity=Severity.HARD, message="测试")
-    bl_poi, bl_rest, _ = _compute_blacklists(failed, None, intent, [v])
-    assert "P_FAR" in bl_poi
-    assert "R_FAR" in bl_rest
+def test_blacklist_duration_out_of_range_never_produces_action() -> None:
+    """DURATION_OUT_OF_RANGE（弱杠杆）：`check_duration` 的 field_path 恒为
+    "total_minutes"（总时长违规没有单一"肇事节点"，见 checks.py），
+    `_blamed_node` 对此类 field_path 恒解析失败——本条恒不产生黑名单动作。
 
-
-def test_blacklist_duration_out_of_range_no_action_when_not_far() -> None:
-    """距离远小于上限（不是通勤过远导致超时）→ 弱杠杆不触发，空黑名单交给地板。"""
-    intent = _make_intent(companions=[Companion(role="妻子")], distance_max_km=20.0)
-    failed = _make_failed_candidate(poi_id="P_NEAR", rest_id="R_NEAR")  # 4.5km ≪ 20km
+    ADR-0010 D-5 intentional 行为改变：旧版靠「CandidatePlan 恰好只有两个实体
+    + intent.distance_max_km」的巧合式启发式"猜离上限最近的那个该拉黑"；路线
+    模型下活动数量任意、新签名也不再吃 intent，这个猜测机制没有立足之地——诚实
+    地不猜，交给 rule 地板（D2 安全），好过在 N 个实体里瞎猜误伤。
+    """
+    itinerary = _make_itinerary_for_blame(poi_id="P_FAR", rest_id="R_FAR")
     v = Violation(code=ViolationCode.DURATION_OUT_OF_RANGE, severity=Severity.HARD, message="测试")
-    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(failed, None, intent, [v])
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert bl_poi == set() and bl_rest == set() and bl_rest_time == set()
 
 
 def test_blacklist_floor_only_codes_produce_empty_blacklist() -> None:
-    """结构码 / AGE_DURATION_MISMATCH：无黑名单动作——留给 rule 地板，非 ILS 搜索变量可修。"""
-    failed = _make_failed_candidate()
+    """结构码 / AGE_DURATION_MISMATCH：无黑名单动作——留给 rule 地板，非搜索变量可修。"""
+    itinerary = _make_itinerary_for_blame()
     for code in (
         ViolationCode.INVARIANT_BROKEN,
         ViolationCode.NODES_INCOMPLETE,
         ViolationCode.AGE_DURATION_MISMATCH,
     ):
         v = Violation(code=code, severity=Severity.HARD, message="测试")
-        bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-            failed, None, _intent_distance5(), [v]
-        )
+        bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
         assert bl_poi == set() and bl_rest == set() and bl_rest_time == set(), code
 
 
 def test_blacklist_ignores_soft_violations_regardless_of_code() -> None:
     """severity=SOFT 一律不产生黑名单动作（防御性：即便调用方传入未过滤的 soft
     违规，也不会误触发重搜——ADR-0009 决策 3 的键是 (code, severity)，不是只看 code）。"""
-    failed = _make_failed_candidate(rest_id="R1", dining_time="17:30")
+    itinerary = _make_itinerary_for_blame(rest_id="R1", rest_start_time="17:30")
     v = Violation(
         code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.SOFT, message="测试",
     )
-    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, None, _intent_distance5(), [v]
-    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, [v])
     assert bl_poi == set() and bl_rest == set() and bl_rest_time == set()
 
 
 def test_blacklist_aggregates_multiple_violations() -> None:
     """多类违规并存 → 黑名单合集覆盖各自动作（满座移时段 + 饮食换店 + 定向社交 + 地板码不产出）。"""
-    failed = _make_failed_candidate(poi_id="P_X", rest_id="R_Y", dining_time="17:00")
-    itinerary = _make_itinerary_for_blame(poi_id="P_X", rest_id="R_Y")
+    itinerary = _make_itinerary_for_blame(poi_id="P_X", rest_id="R_Y", rest_start_time="17:00")
     violations = [
         Violation(
             code=ViolationCode.RESTAURANT_FULL_UNRESOLVED, severity=Severity.HARD,
@@ -564,9 +470,7 @@ def test_blacklist_aggregates_multiple_violations() -> None:
             message="地板码，不应产生黑名单动作",
         ),
     ]
-    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(
-        failed, itinerary, _intent_distance5(), violations
-    )
+    bl_poi, bl_rest, bl_rest_time = _compute_blacklists(itinerary, violations)
     assert ("R_Y", "17:00") in bl_rest_time  # RESTAURANT_FULL_UNRESOLVED
     assert "R_Y" in bl_rest  # DIETARY_VIOLATION
     assert "P_X" in bl_poi  # SOCIAL_CONTEXT_MISMATCH 定向到 POI 节点

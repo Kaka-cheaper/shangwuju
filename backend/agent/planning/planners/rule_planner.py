@@ -851,7 +851,12 @@ _TIME_OF_DAY_DEPART_HOUR = {
 
 
 def _parse_start_time_hour(start_time: str | None) -> int | None:
-    """从 intent.start_time 抽出小时数（24h）。
+    """PUBLIC SEAM（ADR-0010 D-5 finding #4）：虽带下划线，`route_builder.py`
+    （`_resolve_depart_min`）与 `ils_planner.py`（`plan_hybrid` 的出发时刻解析）
+    都独立 import 本函数作为「口语时间标签 → 小时数」的单一真相源，不各自重写
+    一份解析逻辑。删除/改签名前先迁移这两处调用点，防未来清理误删。
+
+    从 intent.start_time 抽出小时数（24h）。
 
     支持的输入形态（按 §5.7 D-SoT）：
     - ISO-like："2026-05-09T14:00" / "2026-05-09 14:00"

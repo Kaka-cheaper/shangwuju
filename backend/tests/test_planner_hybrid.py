@@ -57,10 +57,23 @@ def _intent(
     ),
     raw_input: str = "今天下午想和老婆孩子出去玩几个小时",
     capacity: int | None = None,
+    duration_hours: tuple[int, int] = (3, 5),
 ) -> IntentExtraction:
+    """ADR-0010 D-5 新增 `duration_hours` 形参（默认保留原值 (3,5)，向后兼容）：
+
+    路线模型下"饭要不要"由 `build_route` 的锚定+涌现逻辑决定（ADR-0010 决策 1/3），
+    默认 (3,5) 下午局出行窗**不完整覆盖**任何饭点惯例窗（`dining_soft_anchored`
+    条件②判不到），且非 `_DINING_FOCUSED_CONTEXTS`（条件①也判不到）——飯是否
+    出现因此纯粹涌现，数据依赖、不保证。本文件里驱动 `plan_hybrid` 走真实
+    （非 monkeypatch 候选池）全量召回、且断言"用餐节点必然出现"的端到端测试
+    改用 `duration_hours=(3, 6)`（让出行窗恰好覆盖晚餐惯例窗 17:00-20:00，
+    触发条件②软锚）保证这个断言在新架构下仍然稳定成立；其余测试（C-1/C-4，
+    候选池被钉死为单一 POI+单一餐厅）不依赖软锚——两个候选各自唯一，
+    `build_route` 的锚点+涌现逻辑必然把两者都纳入，与 `duration_hours` 取值无关。
+    """
     return IntentExtraction(
         start_time="today_afternoon",
-        duration_hours=[3, 5],
+        duration_hours=list(duration_hours),
         distance_max_km=distance_max_km,
         companions=list(companions),
         physical_constraints=list(physical),
@@ -430,87 +443,15 @@ class _MockLLMClient:
         return _MockLLMResponse(content=self._weights_json)
 
 
-def _rule_assembler(intent, candidate, tracer):
-    """plan_hybrid 的 rule_assembler 回调：真按 ILS 选中的 candidate 组装（ADR-0009 C-1）。
-
-    镜像 graph/nodes/replan.py:_RULE_ASSEMBLER_ADAPTER——两处必须行为一致。
-
-    历史 bug（ADR-0009「背景·地基 A」）：旧实现收 candidate 却不用，直接
-    `plan_itinerary(intent)` 重跑规则地板，让 ILS 的 utility 选点 / 黑名单 / 重搜
-    对最终产物零影响。现改为镜像 rule_planner.plan_itinerary 对
-    `_assemble_itinerary` 的参数推导（segments / depart_time / 时长分配 /
-    party_size），但主活动 POI / 餐厅 / 用餐时段直接取 candidate 的选择，
-    不再重新搜索。
-    """
-    from data.loader import load_user_profile
-
-    from agent.planning.blueprint.node_decider import decide_segments
-    from agent.planning.commute.lookup_hop import lookup_hop
-    from agent.planning.planners.rule_planner import _assemble_itinerary, _resolve_time_window
-
-    try:
-        main_poi = getattr(candidate, "main_poi", None)
-        chosen_restaurant = getattr(candidate, "restaurant", None)
-        chosen_time = getattr(candidate, "dining_time", "") or None
-
-        # segments 只由 intent 推导（与 ils_planner.plan_hybrid 步骤 0 的
-        # decide_nodes(intent) 同源），candidate 里 main_poi/restaurant 的
-        # None 与否本应与之一致（ILS 按同一 decide_nodes 决定要不要搜那一维）。
-        segments = decide_segments(intent)
-        depart_time, _dining_slots, main_minutes, dining_minutes = _resolve_time_window(
-            intent, segments=segments
-        )
-        party_size = sum(c.count for c in intent.companions) or 1
-
-        user_profile = load_user_profile()
-        transport_pref = (
-            user_profile.transport_preference
-            if user_profile.transport_preference in {"walking", "taxi", "bus"}
-            else "taxi"
-        )
-
-        def _hop_minutes(from_id: str, to_id: str) -> int:
-            # home_to_poi/poi_to_rest/rest_to_home 只喂给 _assemble_itinerary 内部
-            # chosen_time 的补偿算术；真实 hop 由 assemble_from_blueprint 内部同一个
-            # lookup_hop 重算一遍，两处用同一个函数保证数值一致。
-            minutes, _mode, _path = lookup_hop(from_id, to_id, transport_pref, user_profile)
-            return minutes
-
-        home_to_poi = _hop_minutes("home", main_poi.id) if main_poi is not None else 0
-        poi_to_rest = (
-            _hop_minutes(main_poi.id, chosen_restaurant.id)
-            if (main_poi is not None and chosen_restaurant is not None)
-            else 0
-        )
-        if chosen_restaurant is not None:
-            rest_to_home = _hop_minutes(chosen_restaurant.id, "home")
-        elif main_poi is not None:
-            rest_to_home = _hop_minutes(main_poi.id, "home")
-        else:
-            rest_to_home = 0
-
-        return _assemble_itinerary(
-            main_poi=main_poi,
-            chosen_restaurant=chosen_restaurant,
-            chosen_time=chosen_time,
-            home_to_poi=home_to_poi,
-            poi_to_rest=poi_to_rest,
-            rest_to_home=rest_to_home,
-            party_size=party_size,
-            depart_time=depart_time,
-            main_activity_minutes=main_minutes,
-            dining_minutes=dining_minutes,
-            segments=segments,
-            intent=intent,
-            user_profile=user_profile,
-        )
-    except Exception:  # noqa: BLE001
-        return None
-
-
 def test_hybrid_end_to_end_with_mock_client():
-    """hybrid 路径整链路：mock LLM → 权重 → ILS → Critic → 出方案（edge_v1 节点）。"""
-    intent = _intent()
+    """hybrid 路径整链路：mock LLM → 权重 → build_route → Critic → 出方案（ADR-0010 D-5）。
+
+    `duration_hours=(3, 6)`（见 `_intent` docstring）：让出行窗恰好覆盖晚餐惯例窗
+    （17:00-20:00），触发 `dining_soft_anchored` 条件②——真实（非 monkeypatch）
+    全量召回下，"家庭场景应同时含主活动与用餐"这条断言在涌现组成的新架构下才
+    有稳定依据，而不是撞运气。
+    """
+    intent = _intent(duration_hours=(3, 6))
     client = _MockLLMClient(
         weights_json=(
             '{"comfort": 0.5, "time": 0.2, "cost": 0.15, "smoothness": 0.15, '
@@ -518,9 +459,7 @@ def test_hybrid_end_to_end_with_mock_client():
         ),
     )
     tracer = Tracer()
-    result = plan_hybrid(
-        intent, client=client, tracer=tracer, rule_assembler=_rule_assembler,
-    )
+    result = plan_hybrid(intent, client=client, tracer=tracer)
     assert result.success, (
         f"hybrid 应成功；失败原因：{result.failure_detail}"
     )
@@ -528,7 +467,7 @@ def test_hybrid_end_to_end_with_mock_client():
     # mock LLM（provider != stub）出权重 → 走真 LLM 权重分支
     assert result.weights is not None and result.weights.source == "llm"
 
-    # 必备 mid node kinds 都在（家庭场景应含主活动 + 用餐）
+    # 必备 mid node kinds 都在（家庭场景应含主活动 + 用餐；软锚保证，见上）
     mid_nodes = [n for n in result.itinerary.nodes if n.target_kind != "home"]
     mid_kinds = {n.kind for n in mid_nodes}
     assert "主活动" in mid_kinds, f"缺主活动 mid node：{mid_kinds}"
@@ -543,12 +482,10 @@ def test_hybrid_end_to_end_with_mock_client():
 
 def test_hybrid_falls_back_to_rule_when_llm_returns_garbage():
     """LLM 返回非法 JSON → weights_llm 兜底启发式 → hybrid 仍能跑通。"""
-    intent = _intent()
+    intent = _intent(duration_hours=(3, 6))
     client = _MockLLMClient(weights_json="<<<这不是 JSON>>>")
     tracer = Tracer()
-    result = plan_hybrid(
-        intent, client=client, tracer=tracer, rule_assembler=_rule_assembler,
-    )
+    result = plan_hybrid(intent, client=client, tracer=tracer)
     assert result.success
     # 非法 JSON → 权重降级到启发式（source=fallback），hybrid 仍出方案
     assert result.weights is not None and result.weights.source == "fallback"
@@ -563,19 +500,18 @@ def test_hybrid_falls_back_to_rule_when_llm_returns_garbage():
 
 
 def test_hybrid_uses_stub_client_falls_back_to_rule():
-    """stub client 无 LLM 决策能力 → 权重走启发式（source=stub）→ 仍由 rule_assembler 出方案。
+    """stub client 无 LLM 决策能力 → 权重走启发式（source=stub）→ 仍出有效方案。
 
     原 V1 双范式 dispatcher 在 stub 下短路推「已切回规则规划」thought；
     dispatcher 已删。直调 survivor 入口 plan_hybrid 时，stub 经 get_planning_weights
-    走启发式权重（source=stub，无主观 LLM 决策），ILS + rule_assembler 仍产出有效方案。
+    走启发式权重（source=stub，无主观 LLM 决策），build_route 仍产出有效方案
+    （ADR-0010 D-5：不再需要外部 rule_assembler 注入，组装是模块内部直调）。
     """
     from agent.core.llm_client_stub import StubLLMClient
 
-    intent = _intent()
+    intent = _intent(duration_hours=(3, 6))
     tracer = Tracer()
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_rule_assembler,
-    )
+    result = plan_hybrid(intent, client=StubLLMClient(), tracer=tracer)
     assert result.success
     assert result.itinerary is not None
     # stub 无主观决策能力 → 权重来自启发式（非 LLM），等价旧 rule 兼容路径
@@ -583,33 +519,38 @@ def test_hybrid_uses_stub_client_falls_back_to_rule():
 
 
 # ============================================================
-# 5. C-1（ADR-0009 决策 1）：ILS 选中的 candidate 必须真落进产物
+# 5. C-1（ADR-0009 决策 1）：选中的候选必须真落进产物
 #
-# 地基 A 的回归测试：旧 _rule_assembler / _RULE_ASSEMBLER_ADAPTER 收 candidate
-# 却不用，直接 plan_itinerary(intent) 重跑规则地板——ILS 的选点/黑名单/重搜
-# 对最终产物零影响。本节把 ILS 的候选池钉死成唯一一个 POI + 一家餐厅（P001 /
-# R003，均已验证不是 plan_itinerary(intent) 独立搜索会选中的结果——见
-# docstring 下方 _run_single_candidate_ils_scenario），让「ILS 选中谁」变得
-# 可预期，再断言它（而不是规则地板独立搜出来的东西）真出现在产物里。
+# 地基 A 的回归测试（历史 bug 背景，ADR-0009）：旧版 rule_assembler 收 candidate
+# 却不用，直接重跑规则地板独立搜索，让 ILS 的选点/黑名单/重搜对最终产物零影响。
+# 本节把候选池钉死成唯一一个 POI + 一家餐厅（P001 / R003，均已验证不是
+# rule_planner.plan_itinerary(intent) 独立搜索会选中的结果——见下方 docstring），
+# 让"谁被选中"变得可预期，再断言它真出现在产物里。
+#
+# ADR-0010 D-5（连带决策 4：rule_assembler 参数退役）：原两条测试（"本文件的
+# test assembler" vs "生产 _RULE_ASSEMBLER_ADAPTER"）验证的是同一件事在两处
+# 独立实现上都成立——这正是「两处镜像可能各自漂移」的风险点。新架构下
+# `build_route → route_to_blueprint → assemble_from_blueprint` 是 `plan_hybrid`
+# 内部唯一、无从注入的直调路径，不再存在"测试用一份、生产用另一份"的分叉——
+# 两条测试因此合并为一条（consolidate，非删测：原本验证的"选中的必须真落进
+# 产物、不会被静默丢弃改道"这条保证现在由架构本身消除了分叉的可能，单条测试
+# 即可完整覆盖，不留检测缺口）。
 # ============================================================
 
-def _run_single_candidate_ils_scenario(rule_assembler_fn, monkeypatch):
-    """跑一次 plan_hybrid，候选池被钉死为单一 POI（P001）+ 单一餐厅（R003）。
+
+def test_ils_candidate_lands_in_itinerary(monkeypatch):
+    """候选池钉死为单一 POI（P001）+ 单一餐厅（R003）→ 两者必须真出现在产物 nodes 里。
 
     P001 / R003 是刻意选的：对同一 `_intent()`，rule_planner.plan_itinerary(intent)
-    独立搜索会选中 P033 / R023（已用脚本核实），与 P001 / R003 明确不同——
-    如果 rule_assembler_fn 丢弃 candidate 改跑 plan_itinerary(intent)，
-    产物就会是 P033/R023 而非 P001/R003，暴露地基 A 的 bug。
+    独立搜索会选中 P033 / R023（已用脚本核实），与 P001 / R003 明确不同——如果
+    plan_hybrid 内部组装环节丢弃了 build_route 的选择、误绕到了别的搜索路径，
+    产物就会是 P033/R023 而非 P001/R003，暴露地基 A 类型的 bug。
 
     用 monkeypatch 直接替换 ils_planner._query_pois / _query_restaurants（而非走
-    真实 search_pois/search_restaurants Tool + grounding filter），把 ILS 的候选池
-    钉死成恰好 1 个 POI + 1 家餐厅——不管 utility 怎么算、扰动怎么走，
-    `_greedy_init`/`_local_search` 都只能选中这一个，让「ILS 会选谁」完全确定性，
-    不依赖 ILS_SEED 或候选池排序的脆弱假设。
-
-    返回 (HybridResult, captured_candidates)；captured_candidates 是
-    rule_assembler_fn 每次被调用时收到的 CandidatePlan 列表（初次 + critic
-    retry 各一次，视 critic 是否命中硬违规而定）。
+    真实 search_pois/search_restaurants Tool + grounding filter），把候选池钉死成
+    恰好 1 个 POI + 1 家餐厅——不管路线怎么排、utility 怎么算，`build_route` 的
+    锚定+涌现逻辑都只能选中这一个（没有其它候选可挑，二者也天然都在预算内），
+    让「选中谁」完全确定性，不依赖候选池排序或打分细节的脆弱假设。
     """
     from agent.core.llm_client_stub import StubLLMClient
     from agent.planning.planners import ils_planner
@@ -622,83 +563,49 @@ def _run_single_candidate_ils_scenario(rule_assembler_fn, monkeypatch):
     monkeypatch.setattr(ils_planner, "_query_pois", lambda intent, tracer: [poi])
     monkeypatch.setattr(ils_planner, "_query_restaurants", lambda intent, tracer: [rest])
 
-    captured: list = []
-
-    def _spy(intent_, candidate, tracer_):
-        captured.append(candidate)
-        return rule_assembler_fn(intent_, candidate, tracer_)
-
     tracer = Tracer()
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), tracer=tracer, rule_assembler=_spy,
-    )
-    return result, captured
+    result = plan_hybrid(intent, client=StubLLMClient(), tracer=tracer)
 
-
-def _assert_ils_candidate_landed_in_itinerary(result, captured) -> None:
-    """断言：captured 里最后一次 candidate（plan_hybrid 最终采纳的那个）真出现在产物里。"""
     assert result.success, f"应成功；失败原因：{result.failure_detail}"
-    assert captured, "rule_assembler 应至少被调用一次"
-    final_candidate = captured[-1]
-    assert final_candidate.main_poi is not None and final_candidate.main_poi.id == "P001", (
-        "候选池被钉死为 P001，ILS 传给 assembler 的 candidate 应仍是 P001"
-    )
-    assert final_candidate.restaurant is not None and final_candidate.restaurant.id == "R003"
-
     itinerary = result.itinerary
     assert itinerary is not None
     poi_node = next((n for n in itinerary.nodes if n.target_kind == "poi"), None)
     rest_node = next((n for n in itinerary.nodes if n.target_kind == "restaurant"), None)
     assert poi_node is not None and poi_node.target_id == "P001", (
-        f"ILS 选中的 P001 应真出现在产物 nodes 里；实际 "
+        f"候选池被钉死为 P001，应真出现在产物 nodes 里；实际 "
         f"{poi_node.target_id if poi_node else None}"
-        "（若不是，说明 assembler 丢弃了 candidate，重跑了 rule planner 的独立搜索）"
     )
     assert rest_node is not None and rest_node.target_id == "R003", (
-        f"ILS 选中的 R003 应真出现在产物 nodes 里；实际 "
+        f"候选池被钉死为 R003，应真出现在产物 nodes 里；实际 "
         f"{rest_node.target_id if rest_node else None}"
     )
-    assert rest_node.note and final_candidate.dining_time in rest_node.note, (
-        f"assembler 应把 ILS 选中的 dining_time={final_candidate.dining_time!r} "
-        f"写进餐厅节点 note；实际 note={rest_node.note!r}"
+    # 新文案（route_builder.route_to_blueprint）：「已为你预留 HH:MM（N 人）」——
+    # 旧版断言的是「note 含 ILS candidate.dining_time」，新架构下时刻直接来自
+    # 排定后的 node.start_time（同一个值，来源从"候选层标签"变成"排定结果"）。
+    assert rest_node.note and rest_node.note.startswith("已为你预留"), (
+        f"assembler 应把排定的用餐时刻写进餐厅节点 note；实际 note={rest_node.note!r}"
     )
-
-
-def test_ils_candidate_lands_in_itinerary_test_assembler(monkeypatch):
-    """C-1：本文件的 _rule_assembler 必须真按 plan_hybrid 选中的 candidate 组装。"""
-    result, captured = _run_single_candidate_ils_scenario(_rule_assembler, monkeypatch)
-    _assert_ils_candidate_landed_in_itinerary(result, captured)
-
-
-def test_ils_candidate_lands_in_itinerary_production_adapter(monkeypatch):
-    """C-1：生产 _RULE_ASSEMBLER_ADAPTER（graph/nodes/replan.py）必须同样真按
-    candidate 组装——两处镜像修复，行为一致。
-    """
-    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
-
-    result, captured = _run_single_candidate_ils_scenario(
-        _RULE_ASSEMBLER_ADAPTER, monkeypatch
+    assert rest_node.start_time in rest_node.note, (
+        f"note 应含排定时刻 {rest_node.start_time!r}；实际 note={rest_node.note!r}"
     )
-    _assert_ils_candidate_landed_in_itinerary(result, captured)
 
 
 # ============================================================
 # C-4（ADR-0009 决策 5）：retry 重校验 + gate —— plan_hybrid 绝不返回带 HARD 违规的方案
+#
+# ADR-0010 D-5：候选池钉死为「P001 + R001」（monkeypatch _query_pois/_query_
+# restaurants，手法同上方 C-1 测试）——判断点说明见下方 `_flagship_intent` /
+# `_pin_p001_r001` docstring：真实（全量）搜索下，`_intent()` 的 3-5h 家庭场景
+# 是否会自然选中餐厅是涌现结果、不保证（`decide_nodes` 已对 ILS 路径作废，
+# 组成随候选打分变化——这本身是 ADR-0010 的设计意图，但会让"必然触发满座→
+# 改期"这条 demo 亮点断言失去可预期性）；钉死候选池后，唯一 POI/餐厅必然都被
+# `build_route` 纳入（没有其它候选可挑），让旗舰链路可确定性复现。
 # ============================================================
 
 
-def test_plan_hybrid_never_returns_plan_with_hard_violation():
-    """C-4 gate 不变量（最重要）：plan_hybrid 若 success=True，产物必无 HARD 违规。
-
-    现状 bug（ADR-0009 决策 5）：retry 修好一个 hard 却引入另一个（实测：ILS 选
-    16:30 → MEAL_TIME_UNREASONABLE → 移到 17:00 撞 RESTAURANT_FULL），不重新 gate
-    就当 success 返回 → 先红。用真实 5 岁家庭 intent + 生产 adapter 复现该链。
-    """
-    from agent.core.llm_client_stub import StubLLMClient
-    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
-    from agent.planning.critic.critics_v2 import validate_itinerary
-
-    intent = IntentExtraction(
+def _flagship_intent() -> IntentExtraction:
+    """C-4 三条守卫共用的 intent：5 岁家庭，与 D-5 之前完全一致（未改动）。"""
+    return IntentExtraction(
         start_time="today_afternoon",
         duration_hours=[3, 5],
         distance_max_km=5,
@@ -713,9 +620,41 @@ def test_plan_hybrid_never_returns_plan_with_hard_violation():
         raw_input="和老婆 5 岁孩子出去玩",
         parse_confidence=0.9,
     )
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
-    )
+
+
+def _pin_p001_r001(monkeypatch) -> None:
+    """把候选池钉死为单一 POI（P001）+ 单一餐厅（R001）。
+
+    R001（轻语沙拉·西溪店）是刻意选的：mock `reservation_slots` 标记其 17:00
+    档 `available=False`（旗舰「满座→改期」demo 埋点，`check_demo_restaurant_full`
+    消费的正是这个字段）——`build_route` 的窗感知调度器对无其它候选竞争的单一
+    餐厅会取「窗内最早可行开始时刻」，14:00 出发 + P001 停留后自然到达时刻早于
+    17:00（晚餐惯例窗起点）→ 排定恰好落在 17:00 这个 mock 满座槽，确定性触发
+    `RESTAURANT_FULL_UNRESOLVED`，让修复闭环（挖窗封 (R001,17:00) → 重排到
+    17:30）被真正演示到，而不是靠真实全量搜索"运气好"才撞上。
+    """
+    from agent.planning.planners import ils_planner
+    from data.loader import load_pois, load_restaurants
+
+    poi = next(p for p in load_pois() if p.id == "P001")
+    rest = next(r for r in load_restaurants() if r.id == "R001")
+    monkeypatch.setattr(ils_planner, "_query_pois", lambda intent, tracer: [poi])
+    monkeypatch.setattr(ils_planner, "_query_restaurants", lambda intent, tracer: [rest])
+
+
+def test_plan_hybrid_never_returns_plan_with_hard_violation(monkeypatch):
+    """C-4 gate 不变量（最重要）：plan_hybrid 若 success=True，产物必无 HARD 违规。
+
+    候选池钉死为 P001+R001（见上）：round 0 必然撞见 R001 17:00 满座（HARD），
+    使这条不变量测试真正**走到** success=True 分支去验证（而非某个从未触发的
+    if 分支永远真空通过）——修复闭环把 (R001,17:00) 挖窗重排后应收敛到干净方案。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.planning.critic.critics_v2 import validate_itinerary
+
+    _pin_p001_r001(monkeypatch)
+    intent = _flagship_intent()
+    result = plan_hybrid(intent, client=StubLLMClient())
     if result.success:
         hard = [
             v
@@ -728,78 +667,64 @@ def test_plan_hybrid_never_returns_plan_with_hard_violation():
         )
 
 
-def test_plan_hybrid_converges_via_iterative_repair():
-    """C-4 收敛：需多轮修复的链（实测 R001：16:30 MEAL_TIME → 17:00 RESTAURANT_FULL
-    → 17:30 干净）——plan_hybrid 应**迭代**收敛到干净的 ILS 方案（success=True），
-    而非单轮修一个引另一个后就放弃甩 rule 地板。
+def test_plan_hybrid_converges_via_iterative_repair(monkeypatch):
+    """C-4 收敛：旗舰「满座→改期」链（实测 R001：17:00 RESTAURANT_FULL → 17:30
+    干净）——plan_hybrid 应收敛到干净方案（success=True），而非放弃甩 rule 地板。
 
-    这是 critic-to-solver 闭环的展示核心：单调 tabu 黑名单逐轮累积，避免 16:30↔17:00
-    震荡，直到落到 available 且 meal-valid 的 17:30。
+    ADR-0010 D-5：迁移到路线模型后，R001 的候选开始时刻窗（`activity_pool.
+    build_restaurant_time_windows`）本就只落在饭点惯例窗内（不像旧三元组模型
+    靠离散候选时段偶尔踩中非饭点），链条从旧版「16:30 MEAL_TIME → 17:00
+    RESTAURANT_FULL → 17:30 干净」两轮自然缩为一轮「17:00 RESTAURANT_FULL →
+    17:30 干净」——这正是 D-1 时间窗构建（营业时间∩饭点惯例）比旧版更贴近现实
+    的直接体现（intentional，非弱化：MEAL_TIME_UNREASONABLE 这条违规路径在新
+    架构下对餐厅候选结构性地更难触发，`_classify_violation` 仍保留其路由，只是
+    这条 demo 链恰好不再经过它）。断言的是终态（成功 + 干净），不是轮数。
     """
     from agent.core.llm_client_stub import StubLLMClient
-    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
     from agent.planning.critic.critics_v2 import validate_itinerary
 
-    intent = IntentExtraction(
-        start_time="today_afternoon",
-        duration_hours=[3, 5],
-        distance_max_km=5,
-        companions=[
-            Companion(role="妻子", count=1),
-            Companion(role="孩子", age=5, count=1),
-        ],
-        physical_constraints=["亲子友好"],
-        dietary_constraints=["健康轻食"],
-        experience_tags=[],
-        social_context="家庭日常",
-        raw_input="和老婆 5 岁孩子出去玩",
-        parse_confidence=0.9,
-    )
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
-    )
+    _pin_p001_r001(monkeypatch)
+    intent = _flagship_intent()
+    result = plan_hybrid(intent, client=StubLLMClient())
     assert result.success, (
-        f"应迭代收敛到干净 ILS 方案，而非单轮放弃甩地板：{result.failure_detail}"
+        f"应收敛到干净方案，而非放弃甩地板：{result.failure_detail}"
     )
     hard = [
         v
         for v in validate_itinerary(result.itinerary, intent)
         if v.severity == Severity.HARD
     ]
-    assert not hard, f"迭代收敛后不应残留 HARD：{[v.code.value for v in hard]}"
+    assert not hard, f"收敛后不应残留 HARD：{[v.code.value for v in hard]}"
+
+    # 旗舰链本身：R001 应仍在产物里（挖窗只封 17:00，不牵连整店），且不再是
+    # 满座的 17:00（真正验证"移到了别的时段"，不是巧合通过）。
+    rest_node = next(
+        (n for n in result.itinerary.nodes if n.target_kind == "restaurant"), None
+    )
+    assert rest_node is not None and rest_node.target_id == "R001", (
+        f"挖窗重排不应把 R001 整体拉黑换成别的餐厅；实际 "
+        f"{rest_node.target_id if rest_node else None}"
+    )
+    assert rest_node.start_time != "17:00", (
+        "R001 应已从满座的 17:00 移到别的可行时段（旗舰链核心断言）"
+    )
 
 
 def test_plan_hybrid_gives_up_when_repair_budget_exhausted(monkeypatch):
     """C-4 有界放弃：修复预算耗尽仍有 HARD → success=False（上层落 rule 地板 D2），
     绝不返回带 HARD 的脏方案、绝不无限循环。
 
-    把 MAX_REPAIR_ROUNDS 压成 0 强制「初轮有 HARD 即放弃」，用已知初轮必有 HARD 的
-    5 岁场景（16:30 meal_time）验证有界性 + 放弃语义。
+    把 MAX_REPAIR_ROUNDS 压成 0 强制「初轮有 HARD 即放弃」，候选池钉死为
+    P001+R001（round 0 必然撞见 17:00 满座 HARD）验证有界性 + 放弃语义。
     """
     from agent.core.llm_client_stub import StubLLMClient
-    from agent.graph.nodes.replan import _RULE_ASSEMBLER_ADAPTER
     from agent.planning.planners import ils_planner
 
     monkeypatch.setattr(ils_planner, "MAX_REPAIR_ROUNDS", 0)
+    _pin_p001_r001(monkeypatch)
 
-    intent = IntentExtraction(
-        start_time="today_afternoon",
-        duration_hours=[3, 5],
-        distance_max_km=5,
-        companions=[
-            Companion(role="妻子", count=1),
-            Companion(role="孩子", age=5, count=1),
-        ],
-        physical_constraints=["亲子友好"],
-        dietary_constraints=["健康轻食"],
-        experience_tags=[],
-        social_context="家庭日常",
-        raw_input="和老婆 5 岁孩子出去玩",
-        parse_confidence=0.9,
-    )
-    result = plan_hybrid(
-        intent, client=StubLLMClient(), rule_assembler=_RULE_ASSEMBLER_ADAPTER
-    )
+    intent = _flagship_intent()
+    result = plan_hybrid(intent, client=StubLLMClient())
     assert result.success is False, (
         "预算=0 且初轮有 HARD → 应放弃（success=False）落地板，不返回脏方案"
     )
