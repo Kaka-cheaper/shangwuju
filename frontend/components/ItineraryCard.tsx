@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
@@ -322,70 +322,77 @@ export default function ItineraryCard() {
           // R1: stagger 控制——idx 超出 visibleCount 时不渲染
           if (idx >= visibleCount) return null;
 
+          // 空档检测：与上一条 entry 的 [end, start] 之间若有 ≥ FREE_GAP_THRESHOLD_MIN
+          // 分钟的真实空闲，插入一行「自由休息」。gap 用 (本条 start − 上一条 end)
+          // 计算——通勤段自己的分钟数已经被通勤行自己的 [start, end] 吃掉，
+          // 这里天然不会把通勤时间重复计入休息时长（不是 "下一站 start − 上一站 start"）。
+          const prevEntry = idx > 0 ? visibleEntries[idx - 1] : null;
+          const gapNode = renderFreeGap(prevEntry, entry, idx);
+
           // hop 行（细长条）：mode!=="virtual" 才渲染（virtual=in_place 已在
           // visibleEntries 过滤阶段被 hidden=true 屏蔽，此处再保险一道）
           if (entry.entry_kind === "hop") {
-            if (!entry.mode || entry.mode === "virtual") return null;
+            if (!entry.mode || entry.mode === "virtual") return gapNode;
             return (
-              <li
-                key={entry.ref_id || `hop-${idx}`}
-                className="relative flex items-center gap-3 animate-fade-in-up"
-              >
-                <div className="min-w-[44px]" aria-hidden />
-                <div
-                  className={cn(
-                    "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
-                    "text-sm text-ink-500 tracking-tight leading-tight",
-                  )}
-                  title={`${entry.start} → ${entry.end}`}
-                >
-                  通勤 {entry.minutes} 分钟（{translateHopMode(entry.mode)}）
-                </div>
-              </li>
+              <Fragment key={entry.ref_id || `hop-${idx}`}>
+                {gapNode}
+                <li className="relative flex items-center gap-3 animate-fade-in-up">
+                  <div className="min-w-[44px]" aria-hidden />
+                  <div
+                    className={cn(
+                      "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
+                      "text-sm text-ink-500 tracking-tight leading-tight",
+                    )}
+                    title={`${entry.start} → ${entry.end}`}
+                  >
+                    通勤 {entry.minutes} 分钟（{translateHopMode(entry.mode)}）
+                  </div>
+                </li>
+              </Fragment>
             );
           }
 
           // node 行（与原 stage 渲染等价）
           return (
-            <li
-              key={entry.ref_id || `node-${idx}`}
-              className="relative flex items-start gap-3 animate-fade-in-up"
-            >
-              {/* 左侧：时间 + 黄点（竖排，黄点居中） */}
-              <div className="flex flex-col items-center min-w-[52px] z-10">
-                <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
-                {/* 黄色时间点 */}
-                <div
-                  className="my-1 w-3 h-3 rounded-full ring-[3px] ring-white"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
-                    boxShadow:
-                      "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
-                  }}
-                />
-                <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
-              </div>
-              {/* 右侧内容：用 pt 让标题行对准黄点 */}
-              <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="chip px-2 py-0.5 text-sm">
-                    {nodeKindLabel(itinerary, entry.ref_id)}
-                  </span>
-                  <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
-                    {entry.title}
-                  </span>
-                  {(() => {
-                    const note = nodeNote(itinerary, entry.ref_id);
-                    return note ? (
-                      <span className="ml-2 text-sm text-ink-600">
-                        {note}
-                      </span>
-                    ) : null;
-                  })()}
+            <Fragment key={entry.ref_id || `node-${idx}`}>
+              {gapNode}
+              <li className="relative flex items-start gap-3 animate-fade-in-up">
+                {/* 左侧：时间 + 黄点（竖排，黄点居中） */}
+                <div className="flex flex-col items-center min-w-[52px] z-10">
+                  <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
+                  {/* 黄色时间点 */}
+                  <div
+                    className="my-1 w-3 h-3 rounded-full ring-[3px] ring-white"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
+                      boxShadow:
+                        "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
+                    }}
+                  />
+                  <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
                 </div>
-              </div>
-            </li>
+                {/* 右侧内容：用 pt 让标题行对准黄点 */}
+                <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="chip px-2 py-0.5 text-sm">
+                      {nodeKindLabel(itinerary, entry.ref_id)}
+                    </span>
+                    <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
+                      {entry.title}
+                    </span>
+                    {(() => {
+                      const note = nodeNote(itinerary, entry.ref_id);
+                      return note ? (
+                        <span className="ml-2 text-sm text-ink-600">
+                          {note}
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+              </li>
+            </Fragment>
           );
         })}
 
@@ -677,8 +684,9 @@ function ConfirmPreviewCard({
   intent: IntentExtraction | null;
   itinerary: Itinerary;
 }) {
-  // 找首段用餐节点，用作"锁餐厅时段"预览
-  const firstRestaurant = itinerary.nodes.find(
+  // 找全部用餐节点，用作"锁餐厅时段"预览——方案含多顿饭（如下午茶+晚饭）时
+  // 不能只提第一家，否则第二顿会被误读成"漏排"。
+  const restaurants = itinerary.nodes.filter(
     (n) => n.target_kind === "restaurant",
   );
   const partySize =
@@ -694,9 +702,17 @@ function ConfirmPreviewCard({
       : "";
 
   // 三件事的简短描述（按"动词 + 名词"模式，避免 + 堆叠）
-  const restaurantLine = firstRestaurant
-    ? `Agent 会先到 ${firstRestaurant.title} 锁定 ${firstRestaurant.start_time} 的 ${partySizeText}`
-    : "Agent 会按行程方案锁定预约";
+  const restaurantLine = (() => {
+    if (restaurants.length === 0) return "Agent 会按行程方案锁定预约";
+    if (restaurants.length === 1) {
+      return `Agent 会先到 ${restaurants[0].title} 锁定 ${restaurants[0].start_time} 的 ${partySizeText}`;
+    }
+    if (restaurants.length === 2) {
+      return `Agent 会依次到 ${restaurants[0].title} 和 ${restaurants[1].title} 锁定各自时段的${partySizeText}`;
+    }
+    // 3 家及以上：只点名前两家，其余截断为"等 N 家"，避免句子被地点名堆满
+    return `Agent 会依次到 ${restaurants[0].title}、${restaurants[1].title} 等 ${restaurants.length} 家锁定各自时段的${partySizeText}`;
+  })();
 
   const memoryLine = socialCtx
     ? `把这次「${socialCtx}」场景的偏好写进 user_profile.json，让下次重启后还能想起来`
@@ -940,6 +956,57 @@ function addMinutes(start: string, minutes: number): string {
   const oh = Math.floor(wrap / 60);
   const om = wrap % 60;
   return `${String(oh).padStart(2, "0")}:${String(om).padStart(2, "0")}`;
+}
+
+/** "HH:MM" → 当日分钟数（非法格式返回 NaN，调用方按"不足阈值"处理）。 */
+function parseHHMM(t: string): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(t);
+  if (!m) return NaN;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/**
+ * 空档阈值：assemble_blueprint.py 里非首跳 hop 固定留 5 分钟 buffer_min（结构性
+ * 过渡，不算"等待"）；真正的等待（如 not_before_start 把餐厅节点开始时刻顶到
+ * 预约时刻）通常是十几到几十分钟。阈值取 10 分钟——是结构性 buffer 的 2 倍，
+ * 保证不会给每一段正常通勤都点亮一行「自由休息」，只标出确有实质等待的间隙。
+ */
+const FREE_GAP_THRESHOLD_MIN = 10;
+
+/**
+ * 计算 prev.end → curr.start 之间的空档并渲染「自由休息」行（不足阈值/无上一条时
+ * 返回 null）。
+ *
+ * 口径：gap = 本条 entry.start − 上一条 entry.end。因为 schedule 里通勤本身是独立
+ * 的 hop entry（有自己的 [start, end]），这里的「上一条」既可能是 node 也可能是
+ * hop —— gap 算的是"上一条结束"到"这一条开始"之间没有被任何 entry 占用的时间，
+ * 通勤分钟数已经被通勤行自己的区间吃掉，不会被二次计入「休息」时长。
+ */
+function renderFreeGap(
+  prev: ScheduleEntry | null,
+  curr: ScheduleEntry,
+  idx: number,
+): ReactNode {
+  if (!prev) return null;
+  const gap = parseHHMM(curr.start) - parseHHMM(prev.end);
+  if (!Number.isFinite(gap) || gap < FREE_GAP_THRESHOLD_MIN) return null;
+  return (
+    <li
+      key={`gap-${idx}`}
+      className="relative flex items-center gap-3 animate-fade-in-up"
+    >
+      <div className="min-w-[44px]" aria-hidden />
+      <div
+        className={cn(
+          "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
+          "text-sm text-ink-500 tracking-tight leading-tight",
+        )}
+        title={`${prev.end} → ${curr.start}`}
+      >
+        自由休息 · {gap} 分钟
+      </div>
+    </li>
+  );
 }
 
 /** Hop mode 中文化展示。 */
