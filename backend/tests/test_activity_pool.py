@@ -358,18 +358,45 @@ def test_build_visit_from_poi_basic_fields():
     )
 
 
-def test_build_visit_from_poi_duration_projects_by_companions_no_age_cap_clamp():
-    """自然时长 = get_duration_for_companions 投影；D-1 不夹年龄 cap（归 D-3）。
+def test_build_visit_from_poi_duration_projects_by_companions_then_clamped_to_age_cap():
+    """ADR-0010 D-3（intentional 行为改变，取代 D-1 的"不夹"版本）：
 
-    5 岁孩子按 cap_for_age 应该拿 75min cap，但这里 suggested 投影出 150min
-    （故意设置成远超 cap），Visit.duration_min 必须原样是 150，不能被夹到 75——
-    否则就是抢了 D-3 的活。
+    自然时长 = `get_duration_for_companions` 投影，**再夹年龄 cap**。5 岁孩子按
+    `cap_for_age` 拿 75min cap；这里 suggested 投影出 150min（故意设置成远超
+    cap），`Visit.duration_min` 必须被夹到 75，不能原样 150——D-3 落地后夹紧
+    真正生效，不再是"记账但不执行"。
     """
     sd = SuggestedDuration(default=200, kid_3_6=150)
     poi = _poi(suggested=sd)
     intent = _intent(companions=(Companion(role="孩子", age=5, count=1),))
     visit = ap.build_visit_from_poi(poi, intent, _weights())
-    assert visit.duration_min == 150  # 投影值，未夹 75 的年龄 cap
+    assert visit.duration_min == 75  # 150 投影值被夹到 75 的年龄 cap
+
+
+def test_build_visit_from_poi_duration_no_cap_when_no_companions_trigger_a_tier():
+    """无同行人触发任何 cap 分桶时，duration 原样是自然投影值（不误夹）。"""
+    sd = SuggestedDuration(default=200, kid_3_6=150)
+    poi = _poi(suggested=sd)
+    intent = _intent()  # 无 companions
+    visit = ap.build_visit_from_poi(poi, intent, _weights())
+    assert visit.duration_min == 200  # 无孩子同行，走 default 投影，不夹
+
+
+def test_build_visit_from_poi_toddler_cap_clamps_duration_and_widens_window_tail():
+    """ADR-0010 D-3 验收例句：3 岁娃 + suggested 120min → duration 45（婴幼儿 cap）
+    ——且窗构建吃的是**夹紧后**的 duration，窗尾应是「打烊 − 45」而非「打烊 − 120」。
+
+    这条测试同时钉住"夹紧必须发生在建窗之前"这一 D-3 铁律的联动效果：如果实现
+    误把未夹紧的 120 传给 `build_poi_time_windows`，窗尾会是打烊前 120 分钟，
+    比正确值早得多，本测试会先炸。
+    """
+    poi = _poi(suggested=120, opening_hours="10:00-18:00")
+    intent = _intent(companions=(Companion(role="孩子", age=3, count=1),))
+    visit = ap.build_visit_from_poi(poi, intent, _weights())
+
+    assert visit.duration_min == 45  # ≤3 岁 婴幼儿 cap（age_caps.TODDLER_CAP_MIN）
+    # 打烊 18:00 − 45min = 17:15；若误传未夹紧的 120min 会得到 16:00
+    assert visit.windows == [ap.TimeWindow(10 * 60, 17 * 60 + 15)]
 
 
 def test_build_visit_from_poi_duration_int_form_passthrough():
@@ -389,12 +416,13 @@ def test_build_visit_from_restaurant_duration_uses_typical_dining_min():
     assert visit.cost == rest.avg_price
 
 
-def test_build_visit_from_poi_base_score_matches_utility_minus_overload_penalty():
-    """base_score 应等于 `_utility(poi, None, ...)` 的分值，且不含 overload_penalty。
+def test_build_visit_from_poi_base_score_equals_raw_utility_including_overload_penalty():
+    """ADR-0010 D-3（intentional 行为改变，取代 D-1 的"抵消"版本）：
 
-    验证方式：手动算 `_utility` 原始分 + 手动加回 0.5*_overload_penalty 抵消项，
-    与 `build_visit_from_poi` 的 base_score 比对——证明"刻意不搬 overload_penalty"
-    这条 ADR-0010 D-1/D-3 边界被精确执行，而不是大概齐。
+    D-1 曾手动加回 `0.5 * _overload_penalty(...)` 精确抵消 `_utility` 内嵌的
+    `-0.5 * _overload_penalty` 项；D-3 落地后撤销这个抵消——`base_score` 现在
+    就是 `_utility(poi, None, ...)` 的原始返回值，overload 惩罚原样生效在
+    base_score 里（"suggested 超 cap"重新体现为选择阶段的扣分）。
     """
     sd = SuggestedDuration(default=180, kid_3_6=90)
     poi = _poi(poi_id="P_OVL", suggested=sd)
@@ -406,14 +434,16 @@ def test_build_visit_from_poi_base_score_matches_utility_minus_overload_penalty(
     assert overload == pytest.approx(0.3)  # 90 > cap 75 → 确实触发了惩罚
 
     visit = ap.build_visit_from_poi(poi, intent, weights)
-    assert visit.base_score == pytest.approx(raw_score + 0.5 * overload)
+    assert visit.base_score == pytest.approx(raw_score)  # 不再加回抵消
 
 
-def test_build_visit_from_poi_base_score_excludes_overload_penalty_leak():
-    """交叉证据：只有 age cap 触发 overload 不同的两个 intent，base_score 应完全一致。
+def test_build_visit_from_poi_base_score_reflects_overload_penalty_after_d3():
+    """ADR-0010 D-3（intentional 行为改变，取代 D-1 的"两个 intent 打平分"版本）：
 
-    如果 overload_penalty 意外泄漏进 base_score，这条测试会先炸——比对着公式验证
-    更能抓住"复用时手滑忘记抵消"的回归。
+    D-1 版本要求"只有 age cap 触发 overload 不同的两个 intent，base_score 应
+    完全一致"（证明抵消精确生效）。D-3 撤销抵消后，这个断言反过来——触发 overload
+    的 kid intent 的 base_score 应该**低于**不触发的 adult intent，差值正好是
+    `0.5 * overload_penalty`。这是本步"选择阶段该为体验残缺扣分"的直接验证。
     """
     sd = SuggestedDuration(default=180, kid_3_6=90)
     poi = _poi(poi_id="P_OVL2", suggested=sd)
@@ -422,12 +452,16 @@ def test_build_visit_from_poi_base_score_excludes_overload_penalty_leak():
     intent_kid = _intent(companions=(Companion(role="孩子", age=5, count=1),))
     intent_adult = _intent(companions=(Companion(role="伴侣", age=30, count=1),))
 
-    assert _overload_penalty(poi, intent_kid) == pytest.approx(0.3)
-    assert _overload_penalty(poi, intent_adult) == pytest.approx(0.0)
+    overload_kid = _overload_penalty(poi, intent_kid)
+    overload_adult = _overload_penalty(poi, intent_adult)
+    assert overload_kid == pytest.approx(0.3)
+    assert overload_adult == pytest.approx(0.0)
 
     visit_kid = ap.build_visit_from_poi(poi, intent_kid, weights)
     visit_adult = ap.build_visit_from_poi(poi, intent_adult, weights)
-    assert visit_kid.base_score == pytest.approx(visit_adult.base_score)
+    assert visit_adult.base_score - visit_kid.base_score == pytest.approx(
+        0.5 * (overload_kid - overload_adult)
+    )
 
 
 def test_build_visit_from_restaurant_base_score_matches_utility():

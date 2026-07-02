@@ -258,7 +258,20 @@ def check_duration(
     *,
     ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
-    """验 total_minutes 是否落在 intent.duration_hours±30min 容差。"""
+    """验 total_minutes 是否落在 intent.duration_hours±30min 容差。
+
+    ADR-0010 决策 10（修订 ADR-0008 tier 表，intentional 行为改变）：**拆向**——
+    - 超长（actual > hi+30min）保持 **HARD**：挤爆用户时间是硬伤，必须 gate 修复。
+    - 不足（actual < lo-30min）降为 **SOFT**：ADR-0010"稀缺兜底"——候选池稀薄时
+      宁可给一个短而好的方案，也不该硬塞次优活动凑时长；若仍判 HARD，"短而好"
+      的方案永远过不了 hard gate、必然被打到 rule 1+1 地板（ADR-0010 原话"本条
+      即死条款"）。SOFT 只建议不 gate：`HybridCriticReport.passed` 只看 HARD
+      （见 `ils_planner.py`），此处降级后"总时长偏短"不再挡方案通过；
+      `_classify_violation`（`ils_planner.py`）对非 HARD 一律不产生重搜动作，
+      SOFT 档的不足违规自然只走 narration，不会误触发 ILS 重搜——两处消费方
+      均已按 severity 分派，无需改动（本 check 是单 check 双 severity，注册
+      模式与 `check_social_context` 相同，见 `validate.py` REGISTRY 注释）。
+    """
     if intent is None and ctx is not None:
         intent = ctx.intent
     if intent is None:
@@ -272,23 +285,35 @@ def check_duration(
     hi_tol = hi * 60 + DURATION_TOLERANCE_MIN
 
     actual = int(itinerary.total_minutes)
-    if actual < lo_tol or actual > hi_tol:
-        if actual < lo_tol:
-            advice = f"请扩展节点停留或增加候选活动，将总时长拉到 {lo}-{hi}h 区间"
-        else:
-            advice = f"请压缩节点停留或减少候选活动，将总时长压到 {lo}-{hi}h 区间"
 
+    if actual > hi_tol:
         return [
             Violation(
                 code=ViolationCode.DURATION_OUT_OF_RANGE,
                 severity=Severity.HARD,
                 message=(
                     f"行程总时长 {actual} 分钟（约 {actual / 60:.1f}h）"
-                    f"不在用户期望的 {lo}-{hi}h（含 ±30min 容差）内。{advice}"
+                    f"超出用户期望的 {lo}-{hi}h（含 ±30min 容差）。"
+                    f"请压缩节点停留或减少候选活动，将总时长压到 {lo}-{hi}h 区间"
                 ),
                 field_path="total_minutes",
             )
         ]
+
+    if actual < lo_tol:
+        return [
+            Violation(
+                code=ViolationCode.DURATION_OUT_OF_RANGE,
+                severity=Severity.SOFT,
+                message=(
+                    f"行程总时长 {actual} 分钟（约 {actual / 60:.1f}h）"
+                    f"比你期望的 {lo}-{hi}h 短了一些——附近符合条件的候选比较有限，"
+                    "先按这个方案呈现给你；如果想延长，可以放宽筛选范围或告诉我想加什么活动。"
+                ),
+                field_path="total_minutes",
+            )
+        ]
+
     return []
 
 

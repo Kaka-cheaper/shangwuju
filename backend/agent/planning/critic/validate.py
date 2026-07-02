@@ -36,10 +36,22 @@ Stage 0 无违规时，Stage 1 + Stage 2 **collect-all 跨两阶段**（soft 建
 node.start_time，含 hop 通勤耗时），注册在 Stage 1 hard——填补 ADR-0008 背景诊断
 指出的「营业时间校验生产无任何实现」漏检。
 
+【ADR-0010 D-3：check_duration 拆向（修订 ADR-0008 tier 表，intentional 行为改变）】
+
+`check_duration` 从"越界一律 HARD"改为"超长 HARD / 不足 SOFT"——单 check 同时
+产两种 severity，注册模式与 `check_social_context` 相同（tier 标签取其 gating
+能力，仍标 "hard"，因为它仍能产出 HARD）。**本次改动不需要动 REGISTRY 的这一行
+注册**，也不需要动 `ils_planner._classify_violation`——两处消费方都已经按
+`Violation.severity` 分派（`HybridCriticReport.passed` 只看 HARD；
+`_classify_violation` 对非 HARD 一律先返回空集合，不看 code），severity 降级
+后行为自动跟着对；具体推理见 `_rules/checks.py:check_duration` docstring。
+
 【tier 与 stage 的关系】
 
 - dietary / meal_time：B-2a 升 hard，归 Stage 1（gate 修复）。
 - social_context：单 check 同时产 HARD（BLOCKING）与 SOFT（POOR），stage=1（取其 gating 能力）。
+- duration（ADR-0010 D-3）：单 check 同时产 HARD（超长）与 SOFT（不足），stage=1，
+  与 social_context 同一注册模式。
 - temporal_feasibility (G2 拆位)：可解析 → Stage 0 check_time_parseable；
   hop/buffer 对齐 → Stage 1 check_temporal_alignment。
 - nodes_incomplete (B1 修订)：改按 decide_nodes→target_kind 判，不按自由文本 kind。

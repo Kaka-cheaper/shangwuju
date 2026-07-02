@@ -10,7 +10,7 @@
 | 3  | test_invariants_critic_catches_non_home_first_node    | 首节点非 home → INVARIANT_BROKEN     |
 | 4  | test_invariants_critic_catches_home_with_duration     | home duration!=0 → INVARIANT_BROKEN  |
 | 5  | test_nodes_incomplete_when_only_home_nodes            | 仅 [home,home] → NODES_INCOMPLETE    |
-| 6  | test_duration_too_long / too_short                    | 总时长越界 → DURATION_OUT_OF_RANGE   |
+| 6  | test_duration_too_long(HARD) / too_short(SOFT，ADR-0010) | 总时长越界 → DURATION_OUT_OF_RANGE |
 | 7  | test_temporal_inconsistent_to_node_too_early           | to_node 早于 hop+buffer → TIMELINE   |
 | 8  | test_format_violations_only_critical / no_dot_path    | 人话化 + 不暴露 dot-path             |
 | 9  | test_dietary_violation / demo_full_check              | warning + demo-aware                 |
@@ -337,16 +337,24 @@ def test_duration_too_long_triggers_critical():
     )
 
 
-def test_duration_too_short_triggers_critical():
-    """total_minutes=60 < 4*60-30=210 → critical。"""
+def test_duration_too_short_triggers_soft_advisory():
+    """total_minutes=60 < 4*60-30=210 → SOFT（ADR-0010 D-3 拆向，intentional 行为改变）。
+
+    修订前（ADR-0008）：越界一律 HARD。ADR-0010 决策 10"稀缺兜底"改判：时长
+    不足降为 SOFT——候选稀薄时"短而好"的方案不该被硬性挡在 gate 外，只建议不
+    拦截。本测试断言更新为：DURATION_OUT_OF_RANGE 触发但 severity=SOFT，且
+    不出现在 HARD 违规里（不再挡 report.passed）。
+    """
     intent = _make_intent(duration_hours=[4, 6])
     itinerary = _make_legal_itinerary()
     object.__setattr__(itinerary, "total_minutes", 60)
 
     violations = validate_itinerary(itinerary, intent)
-    codes = [v.code for v in violations if v.severity == Severity.HARD]
+    hard_codes = [v.code for v in violations if v.severity == Severity.HARD]
+    soft_codes = [v.code for v in violations if v.severity == Severity.SOFT]
 
-    assert ViolationCode.DURATION_OUT_OF_RANGE in codes
+    assert ViolationCode.DURATION_OUT_OF_RANGE not in hard_codes
+    assert ViolationCode.DURATION_OUT_OF_RANGE in soft_codes
 
 
 # ============================================================

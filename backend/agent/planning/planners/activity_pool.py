@@ -1,4 +1,4 @@
-"""agent.planning.planners.activity_pool —— ADR-0010 D-1：约束 + utility 构建层。
+"""agent.planning.planners.activity_pool —— ADR-0010 D-1/D-3：约束 + utility 构建层。
 
 【定位（ADR-0010「三层解耦架构」的①层）】
 
@@ -11,6 +11,21 @@ critic 兜底（D-4/既有 critic）。
 本模块是 D-1 子步的产出，**纯新增，不接线**：不改 `ils_planner.py` 的
 `plan_hybrid`/`_greedy_init`/`_utility`/`CandidatePlan` 等现有流程（那是 D-4
 "big-bang" 步的事）——只读它的 `_utility`/`_overload_penalty` 做纵向复用。
+
+【D-3 补丁（时长/预算/节奏"心脏"，ADR-0010 决策 4/10）】
+
+D-1 把"时长 vs 年龄 cap 的耦合"整段记在 D-3 名下不做；本步落地：
+`build_visit_from_poi` 的 `duration_min` 现在**夹年龄 cap**（`min(自然投影,
+strictest_cap_for_companions(...))`），且**必须在建窗之前夹**——窗构建吃
+`duration_min`（打烊时刻 − duration 换算成开始时刻窗尾），夹短的时长会让窗尾
+正确变宽，这是联动而非巧合。**餐厅不夹**（age cap 语义只对"停留在同一地点"的
+POI 有意义；`check_age_aware_duration` 也只查 `target_kind=="poi"` 的节点，
+餐厅时长由 `typical_dining_min` 自身决定，无年龄 cap 概念）。
+同批判断：D-1 原判断点 6 记的 `+0.5*_overload_penalty` 精确抵消行**已删除**
+（见下方更新后的判断点 6）——D-3 到位后，"suggested 超 cap" 应重新体现在
+base_score 里，不再被抵消。
+节奏/slack 模型（`pace`/`slack_fraction`/`interval_fill_targets`）**没有**放在
+本模块——见 `pace_budget.py` 模块docstring 的选址说明。
 
 【公开接口】
 
@@ -57,12 +72,24 @@ critic 兜底（D-4/既有 critic）。
    "用户明确需求在这层覆盖默认"）。两侧都不在本层判断"pin 与物理冲突"是否要
    报错/告知用户——那是 D-2 调度器 + D-7 advisory 通道的职责，本层只如实收窄，
    collapse 到空列表也不报错（表示"这一时段物理不可行"）。
-6. **每活动基分与 `_overload_penalty` 的边界**：`build_visit_from_poi` 复用
-   `ils_planner._utility(poi, None, ...)` 取六项分量（rating/标签命中/age_range
-   惩罚/语义分/social 匹配/cost），但手动加回 `0.5 * _overload_penalty(poi, intent)`
-   精确抵消——ADR-0010 把"时长 vs 年龄 cap"的耦合记在 D-3（"年龄 cap 夹紧归 D-3，
-   本步不做"），提前带进 base_score 会让 D-1 偷跑 D-3 的语义。`Visit.duration_min`
-   同理是**未夹年龄 cap** 的自然投影值。
+6. **【D-3 已改判】每活动基分与 `_overload_penalty` 的边界**：D-1 原实现里
+   `build_visit_from_poi` 复用 `ils_planner._utility(poi, None, ...)`（该函数内部
+   已含 `score -= 0.5 * _overload_penalty(poi, intent)` 一项），但手动加回
+   `+0.5 * _overload_penalty(poi, intent)` **精确抵消**掉这一项——当时的理由是
+   "时长 vs 年龄 cap 的耦合归 D-3，D-1 不该提前偷跑"。
+   **D-3 落地后撤销此抵消**（删掉那一行加法）：`duration_min` 现在真的会被夹到
+   cap，"suggested 时长超 cap" 不再只是执行层面被砍短，选择层面也该重新扣分——
+   体验残缺应该在挑选阶段就被算进去，不能让"天然 45min 恰好落在 cap 内"的活动
+   与"天然 180min、被砍成 45min 残缺"的活动打平分（两者砍完时长一样，但后者的
+   45 分钟是被腰斩的展览、体验大概率更差）。删除抵消行后，`base_score` 就是
+   `_utility(...)` 的原始返回值（该函数自己的 `-0.5*overload_penalty` 项保留生效，
+   不再需要 D-1 那行"补偿"）。**测试连带**：D-1 两条断言"抵消生效"的测试
+   （`test_build_visit_from_poi_base_score_matches_utility_minus_overload_penalty`
+   / `test_build_visit_from_poi_base_score_excludes_overload_penalty_leak`）随本次
+   改判更新为断言"base_score 就是 `_utility` 原始值，且含 overload 惩罚"（intentional
+   行为改变，非回归）。
+   `duration_min` 本身：POI 侧现在**会**夹 cap（`min(自然投影, strictest_cap_for_
+   companions(companions))`，无 cap 时不夹）；餐厅侧仍不夹（理由见上方"D-3 补丁"节）。
 
 不负责：
 - 可行性判定 / 排程（在 D-2 窗感知调度器；ADR-0010 决策 5："可行性从 _utility
@@ -82,6 +109,7 @@ from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
 
 from ..critic._rules.helpers import _BUSINESS_HOURS_RE
+from ..critic.age_caps import strictest_cap_for_companions
 from ..critic.meal_windows import (
     DINNER_END_MIN,
     DINNER_START_MIN,
@@ -93,7 +121,7 @@ from ..critic.meal_windows import (
 )
 from ..weights_llm import PlanningWeights
 from utils.duration_helpers import get_duration_for_companions
-from .ils_planner import _env_float, _env_int, _overload_penalty, _utility
+from .ils_planner import _env_float, _env_int, _utility
 
 T = TypeVar("T")
 
@@ -298,8 +326,11 @@ class Visit:
     - kind: "poi" | "restaurant"
     - target_id: 对应 `Poi.id` / `Restaurant.id`
     - duration_min: 自然时长（分钟）。POI 经 `get_duration_for_companions` 投影
-      `SuggestedDuration`；餐厅直接用 `typical_dining_min`。**未夹年龄 cap**——
-      ADR-0010 D-3 才做 `min(suggested, cap)` 的夹紧（本字段是"夹紧前"的输入）。
+      `SuggestedDuration` 后，再夹年龄 cap（`min(投影值, strictest_cap_for_
+      companions(companions))`，无 cap 时不夹——ADR-0010 D-3 落地）；餐厅直接用
+      `typical_dining_min`，**不夹年龄 cap**（age cap 语义只约束"在同一地点停留"
+      的 POI，餐厅时长由菜系/用餐惯例决定，`check_age_aware_duration` 也只查
+      `target_kind=="poi"` 的节点）。
     - windows: 候选**开始时刻**窗列表（可能不止一个——餐厅天然有午/晚/夜宵三个
       不相交窗）。语义契约见「4. 候选时间窗构建」节头注释：start ∈ 窗 ⇒ 从
       start 呆满 duration_min 不违营业时间、开始时刻在饭点内——D-2 直接消费，
@@ -333,6 +364,18 @@ def _poi_natural_duration(poi: Poi, intent: IntentExtraction) -> int:
     return projected if projected is not None else _DEFAULT_DURATION_FALLBACK_MIN
 
 
+def _clamp_duration_to_age_cap(duration_min: int, companions) -> int:
+    """把自然时长夹到同行人里最严的年龄 cap（ADR-0010 D-3 "心脏"）。
+
+    `strictest_cap_for_companions` 无同行人/无人落任何分桶 → 返回 None（不夹，
+    原样返回）。只在这一个函数里做夹紧——`build_visit_from_poi` 调用方必须在
+    构建候选窗**之前**拿到夹紧后的值（见调用点注释：窗构建吃 duration，先夹后
+    建窗是正确联动，不是巧合）。
+    """
+    cap = strictest_cap_for_companions(companions)
+    return duration_min if cap is None else min(duration_min, cap)
+
+
 def _restaurant_natural_duration(rest: Restaurant) -> int:
     return (
         rest.typical_dining_min
@@ -349,26 +392,32 @@ def build_visit_from_poi(
     semantic_scores: dict[str, float] | None = None,
     pin: Optional[TimeWindow] = None,
 ) -> Visit:
-    """由候选 POI 构造一个 `Visit`（ADR-0010 D-1）。
+    """由候选 POI 构造一个 `Visit`（ADR-0010 D-1 构建 + D-3 年龄 cap 夹紧）。
 
     base_score 复用 `ils_planner._utility(poi, None, "", intent, weights,
     semantic_scores)` 的既有分量（rating/标签命中/age_range 惩罚/POI 语义分/
     social 匹配/cost——ADR 决策 6 列出的全部六项，`_utility` 的 poi-only 分支
-    恰好逐项覆盖，不用重新推导公式、不会有转写误差）。
+    恰好逐项覆盖，不用重新推导公式、不会有转写误差）。**不再抵消**其内嵌的
+    `-0.5 * _overload_penalty(poi, intent)` 项（D-1 时曾手动加回抵消，D-3 落地
+    后撤销——见模块 docstring 判断点 6："suggested 超 cap"应重新体现在
+    base_score 里，不能让选择阶段对"天然时长贴合 cap"与"天然超长被砍短"的
+    活动打平分）。
 
-    唯一手动剔除的一项：`_utility` 内嵌的 `-0.5 * _overload_penalty(poi, intent)`
-    （suggested_duration 是否超年龄 cap 的强惩罚）——这是"时长 vs 年龄 cap"的
-    耦合，ADR-0010 把它记在 D-3（"年龄 cap 夹紧归 D-3，本步不做"），提前带进来
-    会让 D-1 的 base_score 偷跑 D-3 才该管的语义。加回
-    `0.5 * _overload_penalty(...)` 精确抵消这一项，不影响其余分量。
+    duration_min = `min(自然投影, strictest_cap_for_companions(companions))`
+    （无 cap 时不夹，即 D-1 行为）——**必须在建窗之前完成夹紧**：
+    `build_poi_time_windows` 用 `duration_min` 把营业时间（停留窗）换算成开始
+    时刻窗（`打烊 - duration`），夹短的时长会让这个窗尾正确变宽（能更晚开始
+    还是呆得满），这是本函数刻意的求值顺序，不是可以调换的实现细节。
 
     fail_detail（`_utility` 第二个返回值）不使用——ADR 决策 5：可行性归 D-2
     调度器，D-1 的 utility 是纯打分。
     """
     score, _fail = _utility(poi, None, "", intent, weights, semantic_scores=semantic_scores)
-    score += 0.5 * _overload_penalty(poi, intent)
 
-    duration = _poi_natural_duration(poi, intent)
+    natural_duration = _poi_natural_duration(poi, intent)
+    duration = _clamp_duration_to_age_cap(
+        natural_duration, intent.companions if intent else None
+    )
     return Visit(
         kind="poi",
         target_id=poi.id,
