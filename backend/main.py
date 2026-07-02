@@ -4,7 +4,7 @@
 
 1. 加载 .env（双重保险）
 2. 初始化 FastAPI app 实例（含 description / openapi_tags / middleware）
-3. 接入 11 个 router 子模块
+3. 接入 12 个 router 子模块
 4. 通过 init_observability 启用 Logfire 探针（失败降级，不阻塞启动）
 
 端点实现位置（spec code-modularization-refactor）：
@@ -20,6 +20,7 @@
 | GET  /auth/*                     | api/oauth.py                  |
 | POST /room/* + WS /ws/{room_id}  | api/collab.py                 |
 | POST /chat/{stream,confirm,refine,turn} | api/chat.py            |
+| POST /chat/adjust（节点级换菜/调整，ADR-0013 F-4） | api/adjust.py |
 ```
 
 `api/_streams/` package 容纳 chat 端点共用的 SSE 流实现（_stub_stream 等）；
@@ -44,7 +45,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api import amap, chat, collab, health, legal, oauth, preferences, scenarios
+from api import adjust, amap, chat, collab, health, legal, oauth, preferences, scenarios
 from api.health import VERSION
 
 
@@ -181,4 +182,5 @@ app.include_router(oauth.router)
 
 # 业务核心：对话 / 协作
 app.include_router(chat.router)
+app.include_router(adjust.router)
 app.include_router(collab.router)

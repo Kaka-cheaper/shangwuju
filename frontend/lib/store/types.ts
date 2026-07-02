@@ -6,9 +6,12 @@
  */
 
 import type {
+  AdjustAction,
   ChitchatReplyPayload,
+  DemandLedgerEntry,
   Itinerary,
   IntentExtraction,
+  NodeActionsMap,
   PlannerMode,
   Persona,
   Scenario,
@@ -129,6 +132,15 @@ export interface ChatState {
   previousItinerary: Itinerary | null;
   /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
   narration: { text: string; stage: "stream" | "confirm" } | null;
+  /** ADR-0013 F-3/F-4：节点行的「调整按钮 + 具名备选」，随每次
+   * itinerary_ready/换菜成功的 agent_narration 整体刷新（"无内容不加字段"，
+   * 缺省时保留上一版直到下一次真正刷新——同 narration 字段的持久语义）。 */
+  nodeActions: NodeActionsMap | null;
+  /** ADR-0013 F-4：诉求台账展示投影（单人 ConstraintFeed 面板消费）。 */
+  demandLedger: DemandLedgerEntry[] | null;
+  /** ADR-0013 F-4：正在处理换菜请求的节点 id（ActivityNode.target_id）；
+   * 非 null 时该节点整行 Shimmer + 按钮禁用，done/error 时解锁。 */
+  lockedNodeId: string | null;
   /** 用户已主动取消（和 reset 不同：不清空 trace，仅冻结按钮）。 */
   cancelled: boolean;
   /** 上一次 refinement_done 摘要，用于「我已为你调整」面板。 */
@@ -155,6 +167,8 @@ export interface ChatState {
   sendScenario: (input: string, scenarioId?: string) => Promise<void>;
   confirm: () => Promise<void>;
   refine: (feedbackText: string) => Promise<void>;
+  /** ADR-0013 F-4：节点行调整入口——POST /chat/adjust，期间 lockedNodeId=nodeId。 */
+  sendAdjust: (nodeId: string, action: AdjustAction) => Promise<void>;
   cancel: () => void;
   reset: () => void;
   startNewSession: () => void;
@@ -178,6 +192,7 @@ export type InitialChatState = Omit<
   | "sendScenario"
   | "confirm"
   | "refine"
+  | "sendAdjust"
   | "cancel"
   | "reset"
   | "startNewSession"

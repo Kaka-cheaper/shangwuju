@@ -18,7 +18,7 @@ from schemas import (
     resolve_planner_mode,
 )
 
-from ._session_store import SESSION_STORE, resolve_user_id
+from ._session_store import SESSION_STORE, resolve_user_id, sync_snapshot
 from ._sse_helpers import safe_stream
 from ._streams.models import ChatConfirmRequest, ChatStreamRequest
 from ._streams.graph_confirm import _graph_confirm
@@ -117,12 +117,16 @@ async def chat_turn(req: ChatStreamRequest, request: Request) -> EventSourceResp
             if ev.type == SseEventType.INTENT_PARSED:
                 intent_data = ev.payload
             elif ev.type == SseEventType.ITINERARY_READY:
-                SESSION_STORE[req.session_id] = {
-                    "intent": intent_data,
-                    "itinerary": ev.payload,
-                    "user_id": user_id,
-                    "planning_events": events_history,
-                }
+                # 单一合并入口（ADR-0013 F-4 新增第二个写点后抽出，见
+                # api/_session_store.py::sync_snapshot docstring）；本调用点
+                # 传全部四键，行为与抽出前的整体赋值完全等价。
+                sync_snapshot(
+                    req.session_id,
+                    intent=intent_data,
+                    itinerary=ev.payload,
+                    user_id=user_id,
+                    planning_events=events_history,
+                )
             yield ev
         # 流结束后确保 session 有事件历史(即使没有 itinerary_ready)
         if req.session_id in SESSION_STORE:

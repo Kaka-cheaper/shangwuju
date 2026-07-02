@@ -6,9 +6,11 @@ import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type {
+  AlternativeOption,
   HopMode,
   IntentExtraction,
   Itinerary,
+  NodeChip,
   ScheduleEntry,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -18,6 +20,7 @@ import RefinementDialog from "./RefinementDialog";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
 import MapOverlay from "./MapOverlay";
+import VoteButtons from "./VoteButtons";
 
 /** 行程卡片：聚焦方案摘要、时间轴、地图、预订结果和主执行动作。 */
 export default function ItineraryCard() {
@@ -27,6 +30,11 @@ export default function ItineraryCard() {
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
+
+  // ADR-0013 F-4：节点行调整入口（右侧具名备选 / 下方定向调整 chips）
+  const nodeActions = useChatStore((s) => s.nodeActions);
+  const lockedNodeId = useChatStore((s) => s.lockedNodeId);
+  const sendAdjust = useChatStore((s) => s.sendAdjust);
 
   // 协作模式
   const collabMode = useCollabStore((s) => s.collabMode);
@@ -318,7 +326,16 @@ export default function ItineraryCard() {
           <span className="text-base font-semibold text-emerald-600">出发咯 🚀</span>
         </li>
 
-        {visibleEntries.map((entry, idx) => {
+        {(() => {
+          // ADR-0013 F-4：room.py 的 vote 协议 stage_index = "mid nodes 顺序"
+          // （跳过首尾 home 之后的第几个节点，0-based，见 collab/room.py:850-881
+          // `_get_stage_title` docstring）。schedule 派生视图里 home 节点的
+          // entry 恒 hidden=True（assemble_blueprint.py::_derive_schedule），
+          // 已被 visibleEntries 在源头过滤——故 entry_kind==="node" 的这些条目
+          // 天然就是 mid nodes、且顺序一致，用一个跨 map 迭代的计数器即可还原
+          // stage_index，不需要另建一套节点定位。
+          let midNodeIndex = -1;
+          return visibleEntries.map((entry, idx) => {
           // R1: stagger 控制——idx 超出 visibleCount 时不渲染
           if (idx >= visibleCount) return null;
 
@@ -352,7 +369,16 @@ export default function ItineraryCard() {
             );
           }
 
-          // node 行（与原 stage 渲染等价）
+          // node 行（与原 stage 渲染等价 + ADR-0013 F-4 节点行调整入口）
+          midNodeIndex += 1;
+          const stageIndex = midNodeIndex;
+          const targetId = nodeTargetId(itinerary, entry.ref_id);
+          const actions = targetId ? nodeActions?.[targetId] : undefined;
+          const chips = actions?.chips ?? [];
+          const alternatives = (actions?.alternatives ?? []).slice(0, 2);
+          const isLocked = targetId != null && lockedNodeId === targetId;
+          const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
+
           return (
             <Fragment key={entry.ref_id || `node-${idx}`}>
               {gapNode}
@@ -373,28 +399,74 @@ export default function ItineraryCard() {
                   <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
                 </div>
                 {/* 右侧内容：用 pt 让标题行对准黄点 */}
-                <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className="chip px-2 py-0.5 text-sm">
-                      {nodeKindLabel(itinerary, entry.ref_id)}
-                    </span>
-                    <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
-                      {entry.title}
-                    </span>
-                    {(() => {
-                      const note = nodeNote(itinerary, entry.ref_id);
-                      return note ? (
-                        <span className="ml-2 text-sm text-ink-600">
-                          {note}
-                        </span>
-                      ) : null;
-                    })()}
+                <div className="flex-1 min-w-0" style={{ paddingTop: "1.1rem" }}>
+                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
+                    {/* 左：kind chip + 标题 + note */}
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                      <span className="chip px-2 py-0.5 text-sm">
+                        {nodeKindLabel(itinerary, entry.ref_id)}
+                      </span>
+                      <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
+                        {entry.title}
+                      </span>
+                      {(() => {
+                        const note = nodeNote(itinerary, entry.ref_id);
+                        return note ? (
+                          <span className="ml-2 text-sm text-ink-600">
+                            {note}
+                          </span>
+                        ) : null;
+                      })()}
+                    </div>
+
+                    {/* 右：具名备选（ADR-0013 决策 4「右侧=具名备选」，≤2 个） */}
+                    {alternatives.length > 0 && targetId && (
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        {alternatives.map((alt) => (
+                          <AlternativeButton
+                            key={alt.target_id}
+                            alt={alt}
+                            disabled={!canAdjust}
+                            onClick={() =>
+                              sendAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
+
+                  {/* 下方：定向调整 chips + 赞/踩并排（ADR-0013 决策 4「下方=定向
+                      调整按钮 + 赞踩并排」；VoteButtons 自身按 collabMode 隐藏，
+                      故这一行即便没有 chips 也要渲染，让协作模式下赞踩仍可见） */}
+                  {targetId && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {chips.map((chip) => (
+                        <AdjustChipButton
+                          key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
+                          chip={chip}
+                          disabled={!canAdjust}
+                          onClick={() =>
+                            sendAdjust(targetId, {
+                              type: "adjust",
+                              adjustment: chip.adjustment,
+                              label: chip.label,
+                            })
+                          }
+                        />
+                      ))}
+                      <VoteButtons stageIndex={stageIndex} />
+                    </div>
+                  )}
+
+                  {/* 换菜进行中：整行 Shimmer（ADR-0013 决策 6 锁定态视觉语言复用） */}
+                  {isLocked && <ShimmerStripe rows={1} className="mt-2" />}
                 </div>
               </li>
             </Fragment>
           );
-        })}
+          });
+        })()}
 
         {/* 终点红点：结束行程 */}
         <li className="flex items-center gap-3">
@@ -1037,6 +1109,81 @@ function nodeKindLabel(itinerary: Itinerary, ref_id: string): string {
 function nodeNote(itinerary: Itinerary, ref_id: string): string | null {
   const n = itinerary.nodes?.find((x) => x.node_id === ref_id);
   return n?.note ?? null;
+}
+
+/**
+ * node ref_id（ActivityNode.node_id，如 "n_1"）→ ActivityNode.target_id（POI/
+ * Restaurant 实体 id）。ADR-0013 的 node_actions/NodeChip/AlternativeOption
+ * 全部按 target_id 分组/寻址（同 resolve_node_swap(target_node_id=...) 口径，
+ * 见 schemas/node_chip.py 模块 docstring「为什么是 target_id 不是 node_id」），
+ * 与 ScheduleEntry.ref_id 是两套不同的定位轴，这里做一次反查桥接。
+ */
+function nodeTargetId(itinerary: Itinerary, ref_id: string): string | null {
+  const n = itinerary.nodes?.find((x) => x.node_id === ref_id);
+  return n?.target_id ?? null;
+}
+
+// ============================================================
+// ADR-0013 F-4：节点行调整入口——具名备选按钮 / 定向调整 chip
+// 药丸视觉语言沿用 IntentChips（同一套 pill 配色，见本文件 IntentChips 组件）。
+// ============================================================
+
+function AlternativeButton({
+  alt,
+  disabled,
+  onClick,
+}: {
+  alt: AlternativeOption;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={`换成「${alt.name}」（${alt.category} · ${alt.rating.toFixed(1)} 分 · ${alt.distance_km.toFixed(1)}km）`}
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border transition-colors",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "hover:bg-[#FFD100]/16",
+      )}
+      style={{
+        background: "rgba(255, 209, 0, 0.08)",
+        borderColor: "rgba(255, 209, 0, 0.22)",
+        color: "rgb(146 64 14)",
+      }}
+    >
+      <Icons.spark className="w-3 h-3" strokeWidth={2} />
+      <span className="max-w-[9rem] truncate">换成{alt.name}</span>
+    </button>
+  );
+}
+
+function AdjustChipButton({
+  chip,
+  disabled,
+  onClick,
+}: {
+  chip: NodeChip;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={chip.label}
+      className={cn(
+        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border transition-colors",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "bg-black/[0.03] border-black/[0.08] text-ink-700 hover:bg-black/[0.06] hover:text-ink-900",
+      )}
+    >
+      {chip.label}
+    </button>
+  );
 }
 
 

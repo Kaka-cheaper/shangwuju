@@ -16,7 +16,7 @@
 import { create } from "zustand";
 
 import { streamSse } from "./sse";
-import type { PersonasResponse, UserPreferenceView } from "./types";
+import type { AdjustAction, PersonasResponse, UserPreferenceView } from "./types";
 import {
   API_BASE,
   formatStreamError,
@@ -48,6 +48,10 @@ export type {
 } from "./store/types";
 
 let abortController: AbortController | null = null;
+// ADR-0013 F-4：节点调整走独立的 abort 生命周期，不与主规划/确认流共用同一个
+// controller——节点行的换菜是轻量局部操作，不该被"取消当前主流程"的既有逻辑
+// 意外牵连，也不该反过来打断一个真正在跑的主流程。
+let adjustAbortController: AbortController | null = null;
 
 let toastSeq = 0;
 function nextToastId(): string {
@@ -355,6 +359,30 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       undefined,
       { headers: { ...plannerHeader(get().plannerMode), ...userHeader(get().currentUserId) } },
+    );
+  },
+
+  sendAdjust: async (nodeId, action: AdjustAction) => {
+    // 全局 streaming（主规划/确认流）进行中，或已有另一个节点在处理换菜 →
+    // 不重入（ADR-0013 F-4：lockedNodeId 全局只允许一个节点同时在途）。
+    if (get().streaming || get().lockedNodeId) return;
+
+    adjustAbortController?.abort();
+    adjustAbortController = new AbortController();
+    set({ lockedNodeId: nodeId, streamError: null });
+
+    await streamSse(
+      `${API_BASE}/chat/adjust`,
+      { session_id: get().sessionId, node_id: nodeId, action },
+      adjustAbortController.signal,
+      {
+        onEvent: (ev) => handleEvent(set as Setter, get as Getter, ev),
+        onError: (err) =>
+          set({ streamError: formatStreamError(err.reason, err.detail) }),
+        onDone: () => {
+          set({ lockedNodeId: null });
+        },
+      },
     );
   },
 

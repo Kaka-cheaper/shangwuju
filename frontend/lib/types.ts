@@ -161,11 +161,102 @@ export interface RouterDecision {
 
 export type ChitchatReplyPayload = RouterDecision;
 
+/** D-7（ADR-0010 决策 11 / ADR-0011 决策 5「统一 agent 消息面」）：advisory
+ * 结构化条目——narrate_node 把 state.advisories 转成这个形状挂在
+ * agent_narration payload 的 messages 兄弟字段。 */
+export interface AgentNarrationMessage {
+  kind: string; // 目前恒为 "advisory"，预留未来澄清消息复用同一形状
+  code: string | null;
+  text: string;
+}
+
 export interface AgentNarrationPayload {
   /** 暖心开场白文案（80-200 字，2-3 句），替代套话 summary。 */
   text: string;
   /** "stream"=行程刚出炉时；"confirm"=用户确认下单后。 */
   stage: "stream" | "confirm";
+  /** D-7：advisory 结构化条目（"无内容不加字段"，可能缺省）。 */
+  messages?: AgentNarrationMessage[];
+  /** ADR-0013 F-3/F-4：节点调整按钮 + 具名备选，按 ActivityNode.target_id 分组。 */
+  node_actions?: NodeActionsMap;
+  /** ADR-0013 F-4：诉求台账展示投影（仅 /chat/adjust 换菜成功时携带）。 */
+  demand_ledger?: DemandLedgerEntry[];
+}
+
+// ============================================================
+// 节点级调整（schemas/node_adjustment.py · node_chip.py · demand_ledger.py，
+// ADR-0013 F-1~F-4）
+// ============================================================
+
+/** 定向调整的 6 个受控维度（schemas.node_adjustment.NodeAdjustmentDimension）。 */
+export type NodeAdjustmentDimension =
+  | "price"
+  | "distance"
+  | "cuisine_or_type"
+  | "dietary"
+  | "ambience"
+  | "crowd_fit";
+
+/** 一条节点级定向调整——维度 + 取值，按钮展示 / 点击换菜 / 诉求台账三方同一形状。 */
+export interface NodeAdjustment {
+  dimension: NodeAdjustmentDimension;
+  value: string;
+}
+
+/** 「定向调整按钮」的下发/回传载荷（schemas.node_chip.NodeChip）。 */
+export interface NodeChip {
+  node_id: string; // ActivityNode.target_id
+  label: string; // ≤8 字
+  adjustment: NodeAdjustment;
+}
+
+/** 「具名备选」展示要素（agent.planning.planners.node_swap.AlternativeOption）。 */
+export interface AlternativeOption {
+  kind: "poi" | "restaurant";
+  target_id: string;
+  name: string;
+  rating: number;
+  distance_km: number;
+  price: number;
+  category: string;
+}
+
+/** narrate 阶段为一个节点算好的按钮 + 备选（agent.graph.nodes.narrate._build_node_actions）。 */
+export interface NodeActionsEntry {
+  chips: NodeChip[];
+  alternatives: AlternativeOption[];
+}
+
+/** `{ActivityNode.target_id: NodeActionsEntry}`——挂 agent_narration payload 兄弟字段。 */
+export type NodeActionsMap = Record<string, NodeActionsEntry>;
+
+export type DemandLedgerStatus = "active" | "superseded" | "satisfied";
+
+/** 诉求台账展示投影一条（schemas.demand_ledger.ledger_for_display）。 */
+export interface DemandLedgerEntry {
+  member_id: string | null;
+  nickname: string | null;
+  node_ref: { kind: "poi" | "restaurant"; target_id: string } | null;
+  dimension: NodeAdjustmentDimension;
+  value: string;
+  status: DemandLedgerStatus;
+  source_text: string;
+  created_at: number;
+}
+
+// ============================================================
+// POST /chat/adjust（ADR-0013 F-4：单人节点调整入口）
+// ============================================================
+
+export type AdjustAction =
+  | { type: "adjust"; adjustment: NodeAdjustment; label?: string }
+  | { type: "alternative"; target_id: string }
+  | { type: "dislike" };
+
+export interface ChatAdjustRequest {
+  session_id: string;
+  node_id: string;
+  action: AdjustAction;
 }
 
 export interface StreamErrorPayload {

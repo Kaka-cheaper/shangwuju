@@ -184,6 +184,29 @@ class _SessionSnapshotStore:
 SESSION_STORE: _SessionSnapshotStore = _SessionSnapshotStore()
 
 
+def sync_snapshot(session_id: str, **fields: Any) -> None:
+    """局部合并写入 `SESSION_STORE[session_id]`——保留未传字段的既有值。
+
+    【这是什么问题】`SESSION_STORE` 是 `/chat/confirm` 读取方案的唯一投影端口
+    （不读图状态，见 `api/_streams/graph_confirm.py`）。原本只有一个写点：
+    `api/chat.py::_graph_stream_with_session_sync` 在 `ITINERARY_READY` 到达时
+    整体重建 `{"intent", "itinerary", "user_id", "planning_events"}` 四键字典。
+    ADR-0013 F-4 新增第二个写点（换菜成功后必须让 confirm 也能读到新方案，
+    否则「换菜后确认」会悄悄拿到换菜前的旧版本）——但换菜只改了 `itinerary`
+    一个键，`intent`/`user_id`/`planning_events` 应原样保留，不能照抄第一个
+    写点"四键整体重建"的写法（那样会把换菜场景不掌握的三个字段用 `None`/空
+    值覆盖掉，产生连带回归）。
+
+    抽出这个单一合并入口，两个写点各自只传自己关心的字段：`chat.py` 每次都
+    传全部四键（行为与抽出前的整体赋值完全等价）；换菜端点只传
+    `itinerary=...`，其余字段沿用已有快照——避免"整体覆盖"与"局部 patch"
+    两份重复的 dict 合并逻辑（"绝不复制粘贴第二份"）。
+    """
+    existing = dict(SESSION_STORE.get(session_id) or {})
+    existing.update(fields)
+    SESSION_STORE[session_id] = existing
+
+
 def resolve_user_id(
     body_user_id: Optional[str],
     header_user_id: Optional[str],

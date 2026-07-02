@@ -43,6 +43,10 @@ function clearForReplanIfPending(set: Setter, get: Getter): void {
     itinerary: null,
     narration: null,
     lastRefinement: null,
+    // ADR-0013：node_actions 绑定"这一版方案"，换方案即失效——同 itinerary 一起
+    // 清空，等新一轮 narrate 产出前不展示指向已作废节点的按钮。demandLedger 是
+    // SESSION_SCOPED（诉求跨规划事件存活），不随重跑清空。
+    nodeActions: null,
   });
 }
 
@@ -178,7 +182,13 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
 
     case "agent_narration": {
       const p = ev.payload as unknown as AgentNarrationPayload;
-      set({ narration: { text: p.text, stage: p.stage } });
+      // ADR-0013 F-3/F-4："无内容不加字段"——node_actions/demand_ledger 缺省时
+      // 保留上一版（同 narration 本身"绑定这一版方案"的持久语义），不是清空。
+      set((s) => ({
+        narration: { text: p.text, stage: p.stage },
+        nodeActions: p.node_actions ?? s.nodeActions,
+        demandLedger: p.demand_ledger ?? s.demandLedger,
+      }));
       break;
     }
 

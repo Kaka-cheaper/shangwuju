@@ -25,6 +25,7 @@ from schemas.demand_ledger import (
     NodeRef,
     active_adjustments,
     ledger_for_display,
+    mark_satisfied,
     record_demand,
 )
 from schemas.node_adjustment import NodeAdjustment, NodeAdjustmentDimension
@@ -281,6 +282,66 @@ def test_node_ref_equality_by_value():
     assert NodeRef(kind="restaurant", target_id="R1") == NodeRef(kind="restaurant", target_id="R1")
     assert NodeRef(kind="restaurant", target_id="R1") != NodeRef(kind="restaurant", target_id="R2")
     assert NodeRef(kind="restaurant", target_id="R1") != NodeRef(kind="poi", target_id="R1")
+
+
+# ============================================================
+# 8b) mark_satisfied（ADR-0013 F-4：换菜成功回写）
+# ============================================================
+
+
+def test_mark_satisfied_flips_exact_matching_active_entry():
+    entry = _entry(member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY, value="不辣")
+    ledger = [entry]
+
+    result = mark_satisfied(
+        ledger, member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY
+    )
+
+    assert result[0].status == LedgerEntryStatus.SATISFIED
+    assert result[0] is not entry, "纯函数：应返回新对象，不改写入参"
+    assert entry.status == LedgerEntryStatus.ACTIVE, "入参条目本身不应被就地修改"
+
+
+def test_mark_satisfied_does_not_touch_other_dimension_on_same_node():
+    """同节点上另一维度的独立生效诉求不应被这次满足回写误伤——不能因为满足了
+    「不辣」就顺手把「更便宜」也标成已满足（那是它没提出过的诉求）。"""
+    dietary_entry = _entry(member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY, value="不辣")
+    price_entry = _entry(member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.PRICE, value="cheaper")
+    ledger = [dietary_entry, price_entry]
+
+    result = mark_satisfied(
+        ledger, member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY
+    )
+
+    assert result[0].status == LedgerEntryStatus.SATISFIED
+    assert result[1].status == LedgerEntryStatus.ACTIVE, "不同维度的诉求不受影响"
+
+
+def test_mark_satisfied_ignores_other_node_and_other_member():
+    entry_other_node = _entry(member_id=None, node_ref=NODE_R2, dimension=NodeAdjustmentDimension.DIETARY, value="不辣")
+    entry_other_member = _entry(member_id="u9", node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY, value="不辣")
+    ledger = [entry_other_node, entry_other_member]
+
+    result = mark_satisfied(
+        ledger, member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY
+    )
+
+    assert result[0].status == LedgerEntryStatus.ACTIVE
+    assert result[1].status == LedgerEntryStatus.ACTIVE
+
+
+def test_mark_satisfied_does_not_touch_already_inactive_entries():
+    superseded = _entry(
+        member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY,
+        value="不辣", status=LedgerEntryStatus.SUPERSEDED,
+    )
+    ledger = [superseded]
+
+    result = mark_satisfied(
+        ledger, member_id=None, node_ref=NODE_R1, dimension=NodeAdjustmentDimension.DIETARY
+    )
+
+    assert result[0].status == LedgerEntryStatus.SUPERSEDED, "已失效条目不应被'复活'成已满足"
 
 
 # ============================================================

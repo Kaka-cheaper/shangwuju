@@ -125,6 +125,29 @@ def _build_checkpoint_serde():
         Violation,
         ViolationCode,
     )
+    # ADR-0013 F-4：demand_ledger（SESSION_SCOPED，跨 turn 存活）第一次被真实
+    # 图状态写回 + 读回（aupdate_state/aget_state，见 api/_streams/graph_adjust.py）
+    # 实测出的两个新顶层类型——`LedgerEntry.model_dump()`（默认 python mode）
+    # 不把嵌套 Enum 字段转成 plain str（与 Pydantic 默认行为一致，`mode="json"`
+    # 才会转换），`dimension`/`status` 两个字段在 dict 里仍是活的 Enum 实例，
+    # 会被 msgpack 当成"顶层"类型单独 ext 编码（不是「Pydantic 模型整体一个
+    # ext」那条免检路径——demand_ledger 类型标注是 `list[dict]`，从不出现
+    # `LedgerEntry`/`NodeRef`/`NodeAdjustment` 的活实例，只有这两个 Enum 会
+    # 触发未注册告警）。补齐即可，同文件顶部注释"新增 state 业务类型时需
+    # 同步补此清单"的既定维护纪律。
+    from schemas.demand_ledger import LedgerEntryStatus
+    from schemas.node_adjustment import NodeAdjustmentDimension
+
+    # 深审顺带发现的 D-7 既有缺口（不是 F-4 新引入，但 F-4 是第一个真实踩中它
+    # 的调用方）：`state.advisories`（`Advisory.model_dump()` 列表）自 D-7 起就
+    # 是 EPISODE_SCOPED 字段，`ils_replan_node` 在图内正常执行时就会把非空
+    # advisories 写进 diff，随每个节点后的自动 checkpoint 落盘——同样嵌了活的
+    # `AdvisoryCode` 枚举实例，同一条"未注册顶层类型"告警路径。此前无人实测
+    # 到是因为凑巧没有现有测试在"advisories 非空的那一轮"之后又去
+    # `aget_state` 读一次；F-4 的 `_graph_adjust` 在换菜命中 tier 3
+    # （`SWAP_DEGRADED`）时会真实产出非空 advisories 并显式 aupdate_state，
+    # 顺手补齐，不留一个"已知但没人修"的告警在日志里。
+    from schemas.advisory import AdvisoryCode
 
     allowlist = [
         Poi,
@@ -143,6 +166,11 @@ def _build_checkpoint_serde():
         PlanBlueprint,
         BlueprintNode,
         BlueprintTargetKind,
+        # ADR-0013 F-4：demand_ledger 跨 turn 回写读取（见上方本段注释）。
+        NodeAdjustmentDimension,
+        LedgerEntryStatus,
+        # D-7 既有缺口，F-4 顺手补齐（见上方本段注释）。
+        AdvisoryCode,
     ]
     return JsonPlusSerializer(allowed_msgpack_modules=allowlist)
 

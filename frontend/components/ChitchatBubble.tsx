@@ -6,6 +6,7 @@
 
 import { Check, Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
 
+import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -74,6 +75,44 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
   const theme = TONE_THEMES[payload.tone] ?? TONE_THEMES.warm;
   const Icon = theme.Icon;
 
+  // ADR-0013 F-4 范围追加（协作模式缺口修复）：气泡 chip 点击原先硬连单人主
+  // store，房间里点击会打到单人 /chat/turn 接口而非房间 WS 通道，全无效果。
+  // 照 ChatDock.tsx:258-260 先例判 collabMode：协作模式下普通 chip 走
+  // sendConstraint（同 ChatDock 输入框一样，本地也要乐观追加一条用户消息——
+  // 自己发的不会经 WS constraint_added 广播回显，见 collab-store.ts 对应注释）；
+  // 确认 chip 走 collab 的 sendConfirm（内部已自带"只有房间发起人可确认"守卫）。
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const sendConstraint = useCollabStore((s) => s.sendConstraint);
+  const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
+
+  const handleChipClick = (chip: ChitchatReplyPayload["cta_chips"][number]) => {
+    const isConfirm = chip.action === "confirm";
+    if (collabMode) {
+      if (isConfirm) {
+        sendCollabConfirm();
+        return;
+      }
+      sendConstraint(chip.send);
+      useChatStore.setState((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: `u-${Date.now()}`,
+            role: "user" as const,
+            text: chip.send,
+            createdAt: Date.now(),
+          },
+        ],
+      }));
+      return;
+    }
+    if (isConfirm) {
+      confirm();
+    } else {
+      sendMessage(chip.send);
+    }
+  };
+
   return (
     <div className="flex justify-start animate-fade-in-up">
       <div
@@ -111,9 +150,7 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                 <button
                   key={`${chip.send}-${idx}`}
                   disabled={streaming || isBooked}
-                  onClick={() =>
-                    isConfirm ? confirm() : sendMessage(chip.send)
-                  }
+                  onClick={() => handleChipClick(chip)}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md text-xs tracking-tight",
                     "transition-colors duration-150 active:scale-[0.98]",

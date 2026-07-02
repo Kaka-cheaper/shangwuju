@@ -33,4 +33,7 @@ export const initialState: InitialChatState = {
   commandPaletteOpen: false,
   narration: null,
   memoryPersisted: null,
+  nodeActions: null,
+  demandLedger: null,
+  lockedNodeId: null,
 };
