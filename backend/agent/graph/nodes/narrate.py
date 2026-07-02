@@ -22,6 +22,8 @@ from typing import Any
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
 from agent.intent.narrator import generate_title_and_narration
+from agent.planning.critic.critics_v2 import Severity, ViolationCode
+from schemas.advisory import AdvisoryCode
 
 
 def _build_critic_summary(critic_attempts: list[Any]) -> str:
@@ -91,6 +93,112 @@ def _extract_advisories(state: AgentState) -> list[dict]:
     """
     advisories = state.get("advisories") or []
     return [a for a in advisories if isinstance(a, dict) and a.get("message")]
+
+
+# 主 LLM 蓝图路径 SOFT 违规 → advisory code 映射（补 D-7 的路径缺口，见
+# `_extract_soft_violation_advisories` docstring）。
+#
+# 只有 DURATION_OUT_OF_RANGE 有天然对应的 AdvisoryCode：`SHORTER_THAN_REQUESTED`
+# ——这条映射不是本改动新造的，是照抄 `ils_planner._build_success_advisories`
+# 已有的同一条映射（该函数原文："复用 check_duration 已经写好的用户向文案…
+# 同一纪律，不重写第二份措辞"）。两条路径（ILS / 主 LLM 蓝图）用同一个 code
+# 描述同一种情况，是两路都产出时能靠 message 去重合并成一句话的前提。
+#
+# DISTANCE_EXCEEDED / SOCIAL_CONTEXT_MISMATCH（POOR 档）目前没有对应
+# AdvisoryCode——`schemas/advisory.py` 的 5 个码是 D-7 立项时按 ils_planner
+# 已知的告知场景枚举的，未预留这两个 critic 维度。候选方案 a）扩
+# `AdvisoryCode` 枚举；b）直接把 `ViolationCode` 字符串值当 code 用。选 b：
+# 1) 范围纪律——本改动只许动 narrate.py，扩枚举要改 schemas/advisory.py；
+# 2) 核实过 `agent/graph/_emit_handlers.py:emit_narrate` 对 advisory dict 的
+#    "code" 字段只做原样透传（`"code": a.get("code")`），不做任何枚举校验/
+#    白名单检查；前端消费同一形状的 `messages[].code` 目前也只是文本渲染，
+#    未见枚举强校验（若未来前端要枚举校验，再补 AdvisoryCode 扩员，成本仍是
+#    加成员而非破坏性变更）——选 b 侵入面最小，且不引入"胖枚举"
+#    （为一次性 3 码新增就扩一个跨层共享的 public API）。
+_SOFT_VIOLATION_CODE_TO_ADVISORY_CODE: dict[str, str] = {
+    ViolationCode.DURATION_OUT_OF_RANGE.value: AdvisoryCode.SHORTER_THAN_REQUESTED.value,
+}
+
+
+def _violation_field(v: Any, key: str) -> Any:
+    """兼容 `state.violations` 条目的两种可能形态取字段。
+
+    `critic_node`（`agent/graph/nodes/critic.py`）当前实际写入的是
+    `validate_itinerary` 直接返回的 `list[Violation]`（Pydantic 对象，未
+    `.model_dump()`）。这里仍防御性兼容 dict 形态（未来实现变化 / 测试直接
+    喂 dict），两态取同一份逻辑处理，不重复写两套。
+    """
+    if isinstance(v, dict):
+        return v.get(key)
+    return getattr(v, key, None)
+
+
+def _enum_value(x: Any) -> Any:
+    """str Enum 取裸值；已经是字符串（dict 形态）原样返回。"""
+    return getattr(x, "value", x)
+
+
+def _extract_soft_violation_advisories(state: AgentState) -> list[dict]:
+    """把主 LLM 蓝图路径 critic 放行后残留的 SOFT 违规转成 advisory dict。
+
+    【这是什么问题】ADR-0010 决策 11「绝不默默忽略」的 advisory 通道（D-7）
+    目前只在 ILS 兜底路径（`ils_planner._build_success_advisories` →
+    `ils_replan_node` 写 `state.advisories`）兑现。主 LLM 蓝图路径
+    （`planner_node` → `assemble_node` → `critic_node` → `narrate_node`）
+    critic 放行（无 HARD 违规，`route_after_critic` 直接走 narrate）后，
+    SOFT 违规只写进 `state.violations` 供 trace / SSE `critic_violations`
+    展示——narrate 从不读它，"方案比你要的短了些"这句话在主路径永远说不出口。
+    本函数补上这段路径缺口。
+
+    【不挑 code，全部转】覆盖 `state.violations` 里所有 `severity == SOFT`
+    的条目（决策 11 原文「任何没完全如你所愿都要告知」，不是只挑时长）。
+    当前产 SOFT 的 3 个 check（`agent/planning/critic/_rules/checks.py`）：
+    `check_duration`（时长不足，`DURATION_OUT_OF_RANGE`）、`check_distance`
+    （`DISTANCE_EXCEEDED`）、`check_social_context`（POOR 档，
+    `SOCIAL_CONTEXT_MISMATCH`）。`Violation.message` 本就是自包含中文人话
+    （同 D-7 纪律），直接复用，不重写文案。
+
+    【为什么读 state.violations 不会带出"已作废方案"的旧告知】
+    `violations` 是 EPISODE_SCOPED 字段且无自定义 reducer（默认整体覆盖，
+    见 `agent/graph/state.py`）；`critic_node` 每次跑都整份重写它。当
+    itinerary 因 replan 换掉时（`ils_replan_node` 成功分支），该节点显式把
+    `violations` 重置为 `[]`（见 `agent/graph/nodes/replan.py`）——所以本函数
+    读到的 SOFT 违规，要么是本轮 `critic_node` 对**当前** itinerary 的真实
+    评估结果，要么是 `[]`，不存在"itinerary 已被 ILS 换掉、violations 却还
+    是旧方案的评语"这种错配。
+    """
+    violations = state.get("violations") or []
+    out: list[dict] = []
+    for v in violations:
+        severity = _enum_value(_violation_field(v, "severity"))
+        if severity != Severity.SOFT.value:
+            continue
+        message = _violation_field(v, "message")
+        if not message:
+            continue
+        code = str(_enum_value(_violation_field(v, "code")))
+        advisory_code = _SOFT_VIOLATION_CODE_TO_ADVISORY_CODE.get(code, code)
+        out.append({"code": advisory_code, "message": str(message)})
+    return out
+
+
+def _merge_advisories(existing: list[dict], additional: list[dict]) -> list[dict]:
+    """按 message 去重合并两路 advisory（D-7 ILS 路径 + 本次新增的主路径转换）。
+
+    同一条 `check_duration` SOFT message 理论上可能同时出现在两路（ILS 路径的
+    `_build_success_advisories` 与本文件的 `_extract_soft_violation_advisories`
+    都复用同一句 `Violation.message`），必须只保留一份——`existing` 在前保序
+    保留（先出现者留），`additional` 里同 message 的条目跳过。
+    """
+    seen = {a.get("message") for a in existing if isinstance(a, dict)}
+    merged = list(existing)
+    for a in additional:
+        msg = a.get("message")
+        if msg in seen:
+            continue
+        seen.add(msg)
+        merged.append(a)
+    return merged
 
 
 def _dedupe_unmet_desires_against_advisories(
@@ -192,9 +300,14 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     critic_summary = _build_critic_summary(state.get("critic_attempts") or [])
     quality_warnings = _extract_quality_warnings(state)
 
-    # D-7：state.advisories（planner「绝不默默忽略」的结构化告知）→ narrator 的
-    # 完整句子列表。
-    advisories = _extract_advisories(state)
+    # D-7：state.advisories（ILS 兜底路径 planner「绝不默默忽略」的结构化告知）
+    # + 本次新增：主 LLM 蓝图路径 critic 放行后残留的 SOFT 违规转换（见
+    # `_extract_soft_violation_advisories` docstring）→ 合并去重（同 message
+    # 不重复）→ narrator 的完整句子列表。
+    advisories = _merge_advisories(
+        _extract_advisories(state),
+        _extract_soft_violation_advisories(state),
+    )
     advisory_messages = [a["message"] for a in advisories]
 
     # 诚实告知（用户观察的 bug）：用户明示诉求但因超距/无候选/重排仍未选上而未排进行程
