@@ -10,18 +10,19 @@
 后续：refiner 节点不接 planner —— 由 build.py 把 refiner 接到 execute（重新搜候选）。
 这是 Plan-and-Execute 的标准做法：约束变了 → 重 plan，但 plan 仍要看新候选。
 
-【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P1-H3）】
-- return dict 重置 critic_attempts / fallback_chain / alternatives / quality_issues /
-  advisories（D-7 补）5 字段；反馈合并意味着重新走一遍 plan-critic-narrate，
-  不能让上一轮的 trace 痕迹混入新轮次。
-- 同步删除已死的 routes 字段（state.py 已删，refiner 不再写）。
+【ADR-0012 决策 4：字段生命周期表】反馈 = 新规划事件的一种触发方式，和
+intent_node（新需求触发）共用 agent.graph.state.reset_for_new_episode() 生成
+的同一份 EPISODE_SCOPED 重置 diff——itinerary/blueprint/critic 状态/advisories/
+候选池等全部清零，让流程从 execute 重新搜候选 → plan → critic 走一遍干净的。
+合并顺序：reset diff 先铺底，refiner 自己的业务输出（intent）后覆盖，
+绝不能让 reset 把刚精炼出的 intent 冲掉。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agent.graph.state import AgentState
+from agent.graph.state import AgentState, reset_for_new_episode
 from agent.core.llm_client import get_llm_client
 from agent.intent.refiner import refine_intent, summarize_itinerary
 
@@ -42,30 +43,8 @@ def refiner_node(state: AgentState) -> dict[str, Any]:
         itinerary_summary=summarize_itinerary(state.get("itinerary")),
     )
 
-    # 重置 plan / critic 状态：让流程从 execute 重新搜候选 → plan → critic
+    # 重置部分（EPISODE_SCOPED 全集）先铺底，业务输出（intent）后覆盖——见模块 docstring。
     return {
+        **reset_for_new_episode(),
         "intent": output.refined_intent,
-        "blueprint": None,
-        "itinerary": None,
-        "violations": [],
-        "has_critical": False,
-        "critic_feedback_text": None,
-        "retry_count": 0,
-        "plan_attempt": 0,
-        "user_decision": None,
-        "refine_feedback": feedback_text,
-        # 候选数据失效，让 execute 重新搜
-        "pois": [],
-        "restaurants": [],
-        # spec R6+R7（Agent H P1-H3）：trace 4 字段同步重置，避免上一轮残留
-        "critic_attempts": [],
-        "fallback_chain": [],
-        "alternatives": [],
-        "quality_issues": [],
-        # D-7：advisory 同理重置——防上一轮的「点名排不进/超预算」告知漏进新一轮
-        # （反馈已经改变了约束，旧告知很可能已经不适用）。
-        "advisories": [],
-        # 同步重置策略指针，避免 replan_router 拿旧 strategy 跑空 turn
-        "replan_strategy": None,
-        "decision_trace": None,
     }

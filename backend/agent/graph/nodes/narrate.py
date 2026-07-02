@@ -66,8 +66,9 @@ def _extract_quality_warnings(state: AgentState) -> list[str]:
     """把 state.quality_issues 转成 list[str] 喂给 narrator。
 
     quality_issues 由上游节点写入（`intent_node` 的词典外社交意图检测——见
-    `agent/graph/nodes/intent.py` R1；`refiner_node` 在反馈合并时重置为空，
-    防上一轮残留漏进新一轮）。
+    `agent/graph/nodes/intent.py` R1）；`intent_node` / `refiner_node` 两条新
+    规划事件入口都在事件开始时经 `agent.graph.state.reset_for_new_episode()`
+    清零，防上一事件残留漏进新一轮（ADR-0012 决策 4）。
     """
     issues = state.get("quality_issues") or []
     out: list[str] = []
@@ -82,7 +83,8 @@ def _extract_quality_warnings(state: AgentState) -> list[str]:
 def _extract_advisories(state: AgentState) -> list[dict]:
     """把 state.advisories（`Advisory.model_dump()` 列表，D-7）原样取出。
 
-    由 `ils_replan_node` 写入（hybrid 成功时），`refiner_node` 在反馈合并时重置。
+    由 `ils_replan_node` 写入（hybrid 成功时），`intent_node` / `refiner_node`
+    两条新规划事件入口都经 `reset_for_new_episode()` 重置（ADR-0012 决策 4）。
     本函数只做防御性过滤（非法条目跳过，宁缺毋崩），不改写内容——`narrate_node`
     既用它拼 narrator 文案，也原样回填进返回 diff 供 `emit_narrate` 取用
     （见 `agent/graph/_emit_handlers.py`）。

@@ -17,8 +17,9 @@ schema，不发明新结构。
 【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P2-H8）】
 - 删除已死的 routes: list[Any] 字段（execute.py 未填、其他节点未消费；
   routes.json 真值 lookup_hop / assemble 内部直接调，state 层不做缓存）
-- 新增 quality_issues: list[Any] 字段，承载 narrator 主动质疑信号
-  （目前由 narrate_node 内部计算，refiner_node 在反馈合并时重置）
+- 新增 quality_issues: list[Any] 字段，承载 narrator 主动质疑信号（由 intent_node
+  的词典外社交意图检测写入，narrate_node 只读取消费；ADR-0012 决策 4 起随
+  reset_for_new_episode() 在每次规划事件开始时清零，见字段生命周期表）
 """
 
 from __future__ import annotations
@@ -68,84 +69,224 @@ class AgentState(TypedDict, total=False):
     """LangGraph 全局 State。
 
     所有字段都是可选的（total=False）；节点按需读写自己关心的字段。
+
+    【字段生命周期表（ADR-0012 决策 4）】每个字段的行尾标了它属于下面三档生命周期
+    之一（模块级 frozenset TURN_SCOPED / EPISODE_SCOPED / SESSION_SCOPED 是真值，
+    下面的行尾注释只是人读的索引）；完备性由 tests/test_state_lifecycle.py 强制
+    ——三个 frozenset 的并集必须等于 AgentState 全部字段、两两交集必须为空。
+
+    - TURN_SCOPED   每个 turn 开始清零（make_initial_state 显式给初值）。
+    - EPISODE_SCOPED「规划事件」边界重置（新需求进 intent_node / 反馈进 refiner_node
+      时，两者共用 reset_for_new_episode() 生成的同一份 diff）——这批字段在两次
+      规划事件之间的 turn（如 chitchat）里保留原值，靠 make_initial_state 不碰它们
+      实现「persistence by omission」，但重置本身是显式的，不是隐式漏掉。
+    - SESSION_SCOPED 跨轮持久，从不被上面两种重置动到。
     """
 
     # ---- 输入与会话身份 ----
-    user_input: str
-    user_id: str
-    session_id: str
+    user_input: str  # TURN_SCOPED：本轮用户原话，每轮由调用方全新给出
+    user_id: str  # SESSION_SCOPED：会话身份；调用方每轮透传同一值（非"重置"）
+    session_id: str  # SESSION_SCOPED：同上，thread_id 取自它
+    # SESSION_SCOPED：E-2 RoutingContext 打包器的画像素材（ADR-0011 决策 3）；
+    # 当前传入即止，图内无读者——接线归 E-2（ADR-0012 决策 6）。
     scenario_id: Optional[str]
 
     # ---- 双范式切换（spec interaction-experience-review）----
     # "rule" 走纯规则路径（不调 LLM，毫秒级出方案，断网也能跑）
     # "llm" 走 LLM-First Planner（默认；让大模型自己拿主意）
     # None  默认行为（保留向后兼容；当前等同 "llm"）
-    planner_mode: Optional[Literal["rule", "llm"]]
+    planner_mode: Optional[Literal["rule", "llm"]]  # SESSION_SCOPED：会话级范式开关
 
     # ---- 跨 turn 消息历史（Pydantic AI / LangGraph 标准） ----
-    messages: Annotated[list[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], add_messages]  # SESSION_SCOPED：add_messages 累积通道，天然跨轮
 
     # ---- 路由结果 ----
-    router_decision: Optional[RouterDecision]
-    route_kind: Optional[RouteKind]
+    router_decision: Optional[RouterDecision]  # TURN_SCOPED：router_node 本轮无条件重算
+    route_kind: Optional[RouteKind]  # TURN_SCOPED：同上
 
     # ---- 意图层 ----
-    intent: Optional[IntentExtraction]
-    intent_overrides: Optional[dict[str, Any]]  # refiner 增量覆盖
+    intent: Optional[IntentExtraction]  # EPISODE_SCOPED：新规划事件的意图，reset 后立即被 intent/refiner 自己的输出覆盖
 
     # ---- 候选数据（execute 阶段并行写入）----
-    pois: list[Any]            # list[Poi] —— 用 Any 避开 TypedDict 泛型限制
-    restaurants: list[Any]      # list[Restaurant]
-    user_profile: Optional[Any]  # GetUserProfileOutput
+    pois: list[Any]            # EPISODE_SCOPED：execute 阶段候选池，随新规划事件失效重搜（list[Poi]，用 Any 避开 TypedDict 泛型限制）
+    restaurants: list[Any]      # EPISODE_SCOPED：同上（list[Restaurant]）
+    user_profile: Optional[Any]  # EPISODE_SCOPED：GetUserProfileOutput，execute 阶段随事件重取
     # Step 6：tag relaxation 路径（split per worker 避免 reduce 冲突）
-    pois_relaxed_tags: list[str]
-    restaurants_relaxed_tags: list[str]
+    pois_relaxed_tags: list[str]  # EPISODE_SCOPED：同 pois 生命周期
+    restaurants_relaxed_tags: list[str]  # EPISODE_SCOPED：同 restaurants 生命周期
 
     # ---- Plan 层（LLM-First） ----
-    weights: Optional[PlanningWeights]
-    blueprint: Optional[PlanBlueprint]
-    plan_attempt: int           # planner 跑的次数（含重试）
+    weights: Optional[PlanningWeights]  # EPISODE_SCOPED：本次规划事件的偏好权重
+    blueprint: Optional[PlanBlueprint]  # EPISODE_SCOPED：本次规划事件的蓝图
+    plan_attempt: int           # EPISODE_SCOPED：本次规划事件内 planner 跑的次数（含重试）
 
     # ---- Itinerary（assemble 阶段产出） ----
-    itinerary: Optional[Itinerary]
+    itinerary: Optional[Itinerary]  # EPISODE_SCOPED：核心方案；新事件必须先清空再重搜/重排，否则 router 之后的节点会看到上一版方案
 
     # ---- Critic 反馈 ----
-    violations: list[CriticViolation]
-    has_critical: bool
-    critic_feedback_text: Optional[str]  # backprompt 用的格式化文本
+    violations: list[CriticViolation]  # EPISODE_SCOPED：critic 状态，随事件重置
+    has_critical: bool  # EPISODE_SCOPED：同上
+    critic_feedback_text: Optional[str]  # EPISODE_SCOPED：backprompt 用的格式化文本；planner.py 直读，不清会把上一事件的违规反馈喂进全新规划（ADR-0012 背景 5 的定时炸弹）
 
     # ---- Replan ----
-    retry_count: int
-    replan_strategy: Optional[ReplanStrategy]
+    retry_count: int  # EPISODE_SCOPED：本次规划事件的重排计数，替换/backprompt 循环全程在同一事件内完成，从不跨事件累积
+    replan_strategy: Optional[ReplanStrategy]  # EPISODE_SCOPED：同上
 
     # ---- Decision trace（Step 4+7：决策可解释性） ----
-    decision_trace: Optional[Any]  # DecisionTrace；用 Any 避循环 import
-    fallback_chain: list[Any]      # list[FallbackHop]
-    critic_attempts: list[Any]     # list[CriticAttempt]
-    alternatives: list[Any]        # list[AlternativeCandidate]
-    quality_issues: list[Any]      # list[str]：narrator 主动质疑信号（spec R6）
-    advisories: list[Any]          # list[dict]（Advisory.model_dump()）：D-7「绝不默默
+    decision_trace: Optional[Any]  # EPISODE_SCOPED：DecisionTrace（用 Any 避循环 import）；顶层键本身只被 reset_for_new_episode() 清零过，真正的 trace 挂在 itinerary.decision_trace 上（assemble/narrate 写的是嵌套字段，不是这个顶层键——顶层字段疑似已死，但删除属死字段清查范畴，不在本次 E-0-b 任务书内，先按其设计意图归档生命周期）
+    fallback_chain: list[Any]      # EPISODE_SCOPED：list[FallbackHop]，随事件重置
+    critic_attempts: list[Any]     # EPISODE_SCOPED：list[CriticAttempt]，随事件重置
+    alternatives: list[Any]        # EPISODE_SCOPED：list[AlternativeCandidate]，随事件重置
+    quality_issues: list[Any]      # EPISODE_SCOPED：list[str]，narrator 主动质疑信号（spec R6）；intent_node 每次规划事件唯一写手，不应跨事件累积
+    advisories: list[Any]          # EPISODE_SCOPED：list[dict]（Advisory.model_dump()）：D-7「绝不默默
     # 忽略」的结构化告知——ils_replan_node 在 hybrid 成功时写入（见 replan.py），
     # narrate_node 消费并透传进 SSE（见 _emit_handlers.emit_narrate）。
 
     # ---- 暖语气 ----
-    narration: Optional[str]
+    narration: Optional[str]  # EPISODE_SCOPED：本次规划事件的方案文案（narrate_node 每事件必写一次；提前清零防御未来新增的"narrate 前读者"）
 
     # ---- spec algorithm-redesign R5：memory_writer 副作用结果（用于 SSE memory_persisted 推送）----
-    memory_status: Optional[dict[str, Any]]
+    memory_status: Optional[dict[str, Any]]  # EPISODE_SCOPED：confirm 侧效果快照，绑定"当前这版方案"，换方案即失效
 
     # ---- 确认态字段（不是图内 interrupt——HITL 三按钮里只有 confirm 会写这里，
     # 经 /chat/confirm 的 HTTP 旁路 aupdate_state 回写；ADR-0012 决策 2）----
+    # EPISODE_SCOPED（ADR-0012 决策 4 原文）。已知丢失标注：user_decision / orders
+    # 归事件级是正确语义（订单跟着"这一版被确认的方案"走，反馈换方案后旧订单状态
+    # 不该继续冒充"当前方案已确认"）；代价是"用户下过单"这一事实，在下一次反馈
+    # 触发新规划事件时会被 reset_for_new_episode() 清空——E-2 方案版本志出生前，
+    # 这段窗口是已知取舍，不是本次疏漏，也不是后人可以顺手"修复"的 bug（ADR-0012 /
+    # ADR-0011）。
     user_decision: Optional[Literal["confirm", "refine", "cancel"]]
-    refine_feedback: Optional[str]
-    orders: list[Any]           # list[Order]
-    share_message: Optional[str]
-    execution_tool_results: list[Any]  # confirm 阶段执行类 Tool 调用结果（SSE 适配用）
+    orders: list[Any]           # EPISODE_SCOPED：list[Order]，同上已知丢失标注
+    share_message: Optional[str]  # EPISODE_SCOPED：confirm 阶段生成的转发文案，绑定当前方案
+    execution_tool_results: list[Any]  # EPISODE_SCOPED：confirm 阶段执行类 Tool 调用结果（SSE 适配用），绑定当前方案
 
     # ---- chitchat 输出（非 planning 路径用）----
-    chitchat_reply_text: Optional[str]
-    chitchat_tone: Optional[str]
-    chitchat_chips: list[Any]    # list[CtaChip]
+    chitchat_reply_text: Optional[str]  # TURN_SCOPED：chitchat_node 本轮无条件重算
+    chitchat_tone: Optional[str]  # TURN_SCOPED：同上
+    chitchat_chips: list[Any]    # TURN_SCOPED：同上（list[CtaChip]）
+
+
+# ============================================================
+# 字段生命周期表（ADR-0012 决策 4）—— 真值来源
+# ============================================================
+# 完备性由 tests/test_state_lifecycle.py 强制执行：走查 AgentState.__annotations__
+# 全部字段，断言每个字段在下面三个 frozenset 里恰好出现一次（并集=全字段、两两
+# 交集=空）。新增 state 字段时必须同步登记到其中一个，否则该测试会红。
+
+TURN_SCOPED: frozenset[str] = frozenset({
+    "user_input",
+    "route_kind",
+    "router_decision",
+    "chitchat_reply_text",
+    "chitchat_tone",
+    "chitchat_chips",
+})
+"""每个 turn 开始清零：make_initial_state 显式给这批字段赋初值。
+
+route_kind/router_decision/chitchat_* 的清零其实是"表=代码"的精确性而非防护
+——它们各自唯一的写手（router_node / chitchat_node）本轮必定无条件重跑并整体
+覆盖，就算 make_initial_state 不清零也不会有陈旧值被读到。"""
+
+SESSION_SCOPED: frozenset[str] = frozenset({
+    "user_id",
+    "session_id",
+    "scenario_id",
+    "planner_mode",
+    "messages",
+})
+"""跨轮持久，从不被 make_initial_state 的"清零"语义覆盖：
+messages 靠 add_messages reducer 自身跨轮累积；user_id/session_id/scenario_id/
+planner_mode 由调用方（sse_adapter）每轮传入同一值透传进 state——是"确认"不是
+"重置"，多数轮次这一步是 no-op（值和上一轮相同）。"""
+
+EPISODE_SCOPED: frozenset[str] = frozenset({
+    "intent",
+    "pois",
+    "restaurants",
+    "user_profile",
+    "pois_relaxed_tags",
+    "restaurants_relaxed_tags",
+    "weights",
+    "blueprint",
+    "plan_attempt",
+    "itinerary",
+    "violations",
+    "has_critical",
+    "critic_feedback_text",
+    "retry_count",
+    "replan_strategy",
+    "decision_trace",
+    "fallback_chain",
+    "critic_attempts",
+    "alternatives",
+    "quality_issues",
+    "advisories",
+    "narration",
+    "memory_status",
+    "user_decision",
+    "orders",
+    "share_message",
+    "execution_tool_results",
+})
+"""「规划事件」边界重置：新需求进 intent_node / 反馈进 refiner_node 时，两者共用
+reset_for_new_episode() 生成的同一份 diff。make_initial_state 完全不碰这批字段
+——它们跨 turn 默认保留（persistence by omission），直到下一次规划事件把它们
+清零。已知丢失标注见 user_decision / orders 声明处注释（ADR-0012 决策 4）。"""
+
+
+# ============================================================
+# Helper：事件级重置 diff（ADR-0012 决策 4）
+# ============================================================
+
+def reset_for_new_episode() -> dict[str, Any]:
+    """新规划事件开始时的重置 diff，供 intent_node / refiner_node 共用。
+
+    调用纪律（两个调用点一致）：返回值必须铺在调用方自己的业务输出**之前**
+    展开——`{**reset_for_new_episode(), **own_output}`——否则会把本轮刚解析/
+    刚精炼出的 intent 等业务输出冲掉。EPISODE_SCOPED 里的 "intent" 也在本
+    diff 内清零，只是因为两个调用点都保证自己的业务输出会立即覆盖它；这样
+    reset_for_new_episode() 才能对 EPISODE_SCOPED 全集生成完整 diff，不必
+    每个调用点各自记一份"该重置哪些、不该重置哪些"的手工清单。
+
+    首轮 no-op：turn 1 时 make_initial_state 根本没写这批键，intent_node /
+    refiner_node 读到的是"键缺失"（.get 等价于取到 None/空），reset diff 给出的
+    同款零值不改变任何可观察行为——见 test_state_lifecycle.py 的首轮 no-op 测试。
+    """
+    diff: dict[str, Any] = {
+        "intent": None,
+        "pois": [],
+        "restaurants": [],
+        "user_profile": None,
+        "pois_relaxed_tags": [],
+        "restaurants_relaxed_tags": [],
+        "weights": None,
+        "blueprint": None,
+        "plan_attempt": 0,
+        "itinerary": None,
+        "violations": [],
+        "has_critical": False,
+        "critic_feedback_text": None,
+        "retry_count": 0,
+        "replan_strategy": None,
+        "decision_trace": None,
+        "fallback_chain": [],
+        "critic_attempts": [],
+        "alternatives": [],
+        "quality_issues": [],
+        "advisories": [],
+        "narration": None,
+        "memory_status": None,
+        "user_decision": None,
+        "orders": [],
+        "share_message": None,
+        "execution_tool_results": [],
+    }
+    assert set(diff.keys()) == EPISODE_SCOPED, (
+        "reset_for_new_episode() 的 key 集合必须与 EPISODE_SCOPED 完全一致"
+        "——新增/删除 EPISODE_SCOPED 字段时两处要同步改"
+    )
+    return diff
 
 
 # ============================================================
@@ -160,28 +301,32 @@ def make_initial_state(
     scenario_id: Optional[str] = None,
     planner_mode: Optional[str] = None,
 ) -> AgentState:
-    """构造干净的 AgentState（list 字段都给空数组，避免 None 报错）。"""
-    return AgentState(
+    """构造本轮图调用的输入 diff（每轮调用；ADR-0012 决策 4）。
+
+    只覆盖 TURN_SCOPED ∪ SESSION_SCOPED 两类字段（断言强制），完全不碰
+    EPISODE_SCOPED——那批字段的清零职责在 reset_for_new_episode()，由
+    intent_node / refiner_node 在"新规划事件开始"那一刻才触发。这样
+    itinerary/critic_feedback_text 等字段才能真正跨 turn 存活到下一次
+    router 读取（router_node 需要上一版 itinerary 判断新需求 vs 反馈），
+    而不是被本函数在 router 跑之前就提前清空。
+    """
+    state = AgentState(
+        # ---- TURN_SCOPED：清零成本轮初值 ----
         user_input=user_input,
+        route_kind=None,
+        router_decision=None,
+        chitchat_reply_text=None,
+        chitchat_tone=None,
+        chitchat_chips=[],
+        # ---- SESSION_SCOPED：调用方透传（非"重置"）----
         user_id=user_id,
         session_id=session_id,
         scenario_id=scenario_id,
         planner_mode=planner_mode if planner_mode in ("rule", "llm") else None,
         messages=[],
-        pois=[],
-        restaurants=[],
-        violations=[],
-        has_critical=False,
-        plan_attempt=0,
-        retry_count=0,
-        orders=[],
-        execution_tool_results=[],
-        chitchat_chips=[],
-        fallback_chain=[],
-        critic_attempts=[],
-        alternatives=[],
-        quality_issues=[],
-        advisories=[],
-        pois_relaxed_tags=[],
-        restaurants_relaxed_tags=[],
     )
+    assert set(state.keys()) == (TURN_SCOPED | SESSION_SCOPED), (
+        "make_initial_state 只应覆盖 TURN_SCOPED ∪ SESSION_SCOPED"
+        "——EPISODE_SCOPED 字段的清零职责在 reset_for_new_episode()"
+    )
+    return state

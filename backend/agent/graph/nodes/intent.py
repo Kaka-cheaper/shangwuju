@@ -9,13 +9,23 @@
   当 raw_input 含明确社交关键词（老师 / 客户 / 宠物 / 同事 / 网友 等不在 9 词典内）
   但 social_context 已被 LLM 强行映射成 9 选 1 时，写入降级文案让 narrator 主动质疑。
   设计纪律：仅在「关键词命中且与 social_context 语义偏差大」时触发，避免误伤。
+
+【ADR-0012 决策 4：字段生命周期表】新需求 = 新规划事件的一种触发方式（另一种是
+refiner_node 的反馈路径），两者共用 agent.graph.state.reset_for_new_episode() 生成
+的同一份 EPISODE_SCOPED 重置 diff——防止会话中期新需求（intent 路径）把上一次规划
+事件残留的 itinerary/critic_feedback_text/advisories 等漏进这一次全新规划（ADR-0012
+背景 5：今天靠 route_turn.py 的兜底归并把这条路径掩护成"会话中期不可达"，归并删除后
+必须由这里的重置接住）。合并顺序：reset diff 先铺底，本节点自己的业务输出
+（intent / quality_issues）后覆盖，绝不能让 reset 把本轮刚解析的 intent 冲掉。
+quality_issues 因此必须是"本轮从零开始算"，不能从 incoming state 的旧值累加
+（旧值可能是上一次规划事件留下的，若从它累加会让 reset 铺的干净底失去意义）。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from agent.graph.state import AgentState
+from agent.graph.state import AgentState, reset_for_new_episode
 from agent.intent.parser import IntentParseError, parse_intent
 from agent.core.llm_client import get_llm_client
 from schemas.intent import IntentExtraction
@@ -117,8 +127,12 @@ def intent_node(state: AgentState) -> dict[str, Any]:
         fallback_used = True
 
     # spec execution-quality-review R1：词典外社交意图降级文案
+    # 本轮从零开始算（ADR-0012 决策 4）：intent_node 是 quality_issues 每个规划事件
+    # 唯一的写手，不从 incoming state 的旧值累加——旧值可能是上一次规划事件（甚至
+    # 更早、中间隔了几轮 chitchat）留下的，累加会让下面 reset_for_new_episode() 铺
+    # 的干净底失去意义。
     out: dict[str, Any] = {"intent": intent}
-    issues: list[str] = list(state.get("quality_issues") or [])
+    issues: list[str] = []
 
     if fallback_used:
         issues.append(
@@ -134,4 +148,8 @@ def intent_node(state: AgentState) -> dict[str, Any]:
 
     if issues:
         out["quality_issues"] = issues
-    return out
+
+    # 重置部分（EPISODE_SCOPED 全集）先铺底，业务输出（intent / quality_issues）
+    # 后覆盖——见模块 docstring。首轮（make_initial_state 从没写过这批键）时这一步
+    # 等价 no-op，见 test_state_lifecycle.py。
+    return {**reset_for_new_episode(), **out}
