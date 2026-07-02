@@ -56,15 +56,17 @@ from agent.planning.blueprint.prompts.blueprint_prompt import (  # noqa: E402
 
 
 def test_system_prompt_length_under_hard_cap() -> None:
-    """渲染后 prompt 总字符数 ≤ 2200（spec planning-quality-deep-review R3 提升 cap）。
+    """渲染后 prompt 总字符数 ≤ 2800（ADR-0010 对齐后提升 cap）。
 
-    历史：1500 → 2200（spec R3 加按 age 分级表 + 候选预览消费规则后必要扩容）。
-    旧版 ~3500 → 新版 < 2200 仍是巨大压缩，仅放宽必要业务规则空间。
+    历史：1500 → 2200（spec R3 加按 age 分级表 + 候选预览消费规则）→ 2800
+    （ADR-0010 决策 4/6/10：数量软上限 / 节奏留白 / 饭的条件性主角 / 顺序 flow——
+    `check_duration` 拆向后 LLM prompt 是这些 UX 规格唯一的约束面，必要扩容）。
+    旧版 ~3500 → 新版 < 2800 仍是巨大压缩，仅放宽必要业务规则空间。
     """
     length = len(BLUEPRINT_SYSTEM_PROMPT)
-    assert length <= 2200, (
-        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 2200，"
-        f"需精简（spec R3 cap 2200，进一步放宽需修订 spec）"
+    assert length <= 2800, (
+        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 2800，"
+        f"需精简（ADR-0010 对齐后 cap 2800，进一步放宽需修订 ADR）"
     )
 
 
@@ -292,3 +294,51 @@ def test_system_prompt_clarifies_kind_is_node_role() -> None:
     assert "看展" in text and "猫咖" in text
     # 输出示例不应再用 "kind": "看展" 误导（示例 kind 应是节点角色词）
     assert '"kind": "看展"' not in text, "输出示例仍用『看展』当 kind，会误导 LLM"
+
+
+# ---- Test 7：ADR-0010 对齐（数量/节奏/留白/饭的中心性/顺序 flow）--------
+#
+# 背景：ADR-0010 决策 10 把 check_duration「不足」由 HARD 降为 SOFT，LLM
+# 短方案不再被 critic 打回——prompt 因此成为这些 UX 规格唯一的约束面。
+# stub 模式不调 LLM，行为不可测，这里退而求其次做 prompt 内容断言（对齐
+# test_system_prompt_contains_spec_r3_keywords 的既有风格）。
+
+
+@pytest.mark.parametrize(
+    "keyword",
+    [
+        "2-4 个活动",  # 决策 4：半天软上限（数量）
+        "取最受限",  # 决策 10：混合同行取最受限（节奏聚合）
+        "留白",  # 决策 4：slack 是一等公民
+        "宁短勿凑",  # 决策 4/10：稀缺兜底，宁短不塞次优
+        "条件性主角",  # 决策 3/6：饭的中心性由语境涌现，非硬编码
+        "商务接待",  # 决策 10：_DINING_FOCUSED_CONTEXTS 复用词
+        "纪念日仪式感",  # 决策 10：_DINING_FOCUSED_CONTEXTS 复用词
+        "flow",  # 决策 10：顺序软偏好
+        "活跃活动靠前",  # 决策 10：flow 具体措辞
+    ],
+)
+def test_system_prompt_contains_adr0010_keywords(keyword: str) -> None:
+    """prompt 必须显式编入 ADR-0010 决策 4/6/10 的数量/节奏/饭/顺序规格。"""
+    assert keyword in BLUEPRINT_SYSTEM_PROMPT, (
+        f"prompt 缺少 ADR-0010 对齐关键词 '{keyword}'（决策 4/6/10 未落地）"
+    )
+
+
+def test_system_prompt_meal_is_conditional_not_hardcoded() -> None:
+    """饭的中心性必须是条件性的（语境触发），不能读成「必须有饭」的硬编码。
+
+    校验方式：条件性主角段落须同时出现触发条件（social_context/dietary）
+    与「随需求涌现」的兜底措辞，证明不是无条件强制。
+    """
+    text = BLUEPRINT_SYSTEM_PROMPT
+    assert "仅当" in text, "饭的中心性应有『仅当...』的条件触发表述"
+    assert "随需求涌现" in text or "涌现" in text, "非触发场景应明确『饭随需求涌现』"
+
+
+def test_system_prompt_duration_leans_toward_expectation_not_padding() -> None:
+    """时长应向用户期望靠拢，但不可为凑时长塞不合适活动（决策 4，check_duration 拆向背景）。"""
+    text = BLUEPRINT_SYSTEM_PROMPT
+    assert "duration_hours 区间靠拢" in text
+    assert "不足不会被打回" in text, "prompt 应说明短方案不再被 critic 拦下（决策 10 背景）"
+    assert "塞不合适的活动" in text or "塞次优" in text

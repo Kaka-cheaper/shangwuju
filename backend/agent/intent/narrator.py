@@ -314,6 +314,86 @@ def _template_title(intent: IntentExtraction, itinerary: Itinerary) -> str:
     )
 
 
+_MULTI_ACTIVITY_RATIONALE_MIN_NODES = 3
+"""触发"选择与顺序理由"一句话的活动数阈值（ADR-0010 边界节："3 个活动要讲清
+为什么这几个、为什么这个顺序"）。少于该阈值时没什么好解释的，硬加理由是做作。"""
+
+_SLACK_FRACTION_ROOMY = 0.22
+"""slack（留白）占总时长比例 ≥ 此值 → 措辞为"特意多留了走停时间"（对齐 ADR-0010
+决策 4 的 pace_budget 留白档位量级：relaxed 档 slack_fraction=0.30，本处取比它
+略低的阈值，让"留白明显"的判定不必卡在最松的一档才触发）。"""
+
+_SLACK_FRACTION_PACKED = 0.08
+"""slack 占比 ≤ 此值 → 措辞为"排得比较紧凑"（对齐 pace_budget 的 energetic 档
+slack_fraction=0.05 量级）。"""
+
+
+def _multi_activity_rationale(
+    itinerary: Itinerary,
+    nodes_dump: list[dict],
+) -> str:
+    """活动数 ≥3 时补一句"为什么选这几个、为什么这样排"（ADR-0010 边界节遗留：
+    "3 个活动要讲清...否则多活动反而更让人困惑"）。
+
+    材料全部从 itinerary 本身现算，不读 planner 内部字段（节奏档/route 元数据等）
+    ——保持 narrator 与 planning 层解耦，模板路径可确定性单测，LLM 路径走对应
+    prompt 指令自行生成（见 narrator_prompt.py）：
+
+    - **留白/节奏**：total_minutes 减去活动 duration_min 之和、再减去 hop 通勤
+      分钟之和 = slack；slack 占比高 → "特意多留了走停时间"，占比低 → "排得
+      比较紧凑"，居中 → "松紧刚好"。呼应 ADR-0010 决策 4"slack 是一等公民"。
+    - **顺序（flow）**：用餐/夜宵节点若落在活动序列的中后段 → 点名"饭放在
+      后段垫肚子"（呼应决策 10"饭点窗把饭推中后段"）；否则退化比较首尾活动
+      时长——首段更长 → "精力多的排前面，后面轻松收尾"（呼应"活跃靠前、
+      舒缓靠后"）。两者都不成立时该子句留空，不硬凑。
+
+    同行人适配（幼童/老人/朋友等）已由调用方的 opener（`_template_narration`
+    的 social_context 分支）承担，这里不重复提，避免同一信号被讲两遍。
+
+    Returns:
+        自成一句的中文短句（含句号）；活动数 <3 或无法得出任何子句时返回空串。
+    """
+    activity_nodes = [n for n in nodes_dump if (n.get("target_kind") or "") != "home"]
+    n = len(activity_nodes)
+    if n < _MULTI_ACTIVITY_RATIONALE_MIN_NODES:
+        return ""
+
+    total_minutes = itinerary.total_minutes or 0
+    activity_minutes = sum(nd.get("duration_min") or 0 for nd in activity_nodes)
+    hop_minutes = sum(h.minutes for h in itinerary.hops)
+    slack = max(0, total_minutes - activity_minutes - hop_minutes)
+    slack_fraction = (slack / total_minutes) if total_minutes else 0.0
+
+    if slack_fraction >= _SLACK_FRACTION_ROOMY:
+        pace_clause = f"{n} 个选得不算多，特意多留了些走停的时间"
+    elif slack_fraction <= _SLACK_FRACTION_PACKED:
+        pace_clause = f"{n} 个排得比较紧凑，路上不空等"
+    else:
+        pace_clause = f"{n} 个活动松紧刚好"
+
+    meal_idx = next(
+        (
+            i
+            for i, nd in enumerate(activity_nodes)
+            if (nd.get("target_kind") == "restaurant")
+            or ("用餐" in (nd.get("kind") or ""))
+            or ("夜宵" in (nd.get("kind") or ""))
+        ),
+        None,
+    )
+    order_clause = ""
+    if meal_idx is not None and meal_idx >= (n - 1) / 2:
+        order_clause = "饭放在后段垫肚子"
+    else:
+        first_dur = activity_nodes[0].get("duration_min") or 0
+        last_dur = activity_nodes[-1].get("duration_min") or 0
+        if first_dur > last_dur:
+            order_clause = "精力多的排前面，后面轻松收尾"
+
+    clause = pace_clause if not order_clause else f"{pace_clause}；{order_clause}"
+    return f"{clause}。"
+
+
 def _template_narration(
     intent: IntentExtraction,
     itinerary: Itinerary,
@@ -335,6 +415,10 @@ def _template_narration(
     ADR-0010 D-7：`advisories`（planner 产出的「绝不默默忽略」告知，每条已是
     自包含中文完整句）并入 honest_text 段（"说明一下，……"）——与 unmet_cuisines
     同属"诚实告知"语义，共用同一个开场词，不新起一段（见函数体 honest_text 拼接）。
+
+    ADR-0010 边界节（narration 覆盖多活动）：活动数 ≥3 时在活动复述之后、诚实
+    告知段之前插入 `_multi_activity_rationale` 产出的"选择与顺序理由"一句话
+    （见该函数 docstring）。
     """
     total_h = itinerary.total_minutes / 60
     companions_phrase = _format_companions(
@@ -436,7 +520,11 @@ def _template_narration(
         honest_segments.extend(advisories)
     honest_text = ("说明一下，" + "".join(honest_segments)) if honest_segments else ""
 
-    return f"{opener}{body}。{honest_text}{challenge_text}{ending}"
+    # ADR-0010 边界节：活动数 ≥3 时追加"为什么选这几个、为什么这样排"一句话
+    # （见 _multi_activity_rationale docstring）；<3 个活动返回空串，不硬加。
+    rationale_text = _multi_activity_rationale(itinerary, nodes_dump)
+
+    return f"{opener}{body}。{rationale_text}{honest_text}{challenge_text}{ending}"
 
 
 # ============================================================
