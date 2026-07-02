@@ -54,7 +54,8 @@
 1. 新累积字段**必须带 reducer**(如 `Annotated[list, operator.add]`)——照抄现有 last-value 字段的写法必错,每轮被 `make_initial_state` 的空值清零;条目用纯 dict/str,否则要同步补 `build.py` 的 serde allowlist;
 2. confirm 轮次靠 ADR-0012 决策 2 的「确认后回写图状态」补全,否则日志天然缺确认轮;
 3. 协作房间轮次**明示不进会话日志**(房间每次重规划用一次性 session_id,维持现状);
-4. 消毒在**写入时**做(壳1 verdict 当时已知);持久化等级 = checkpointer 等级(memory 模式重启即失;redis saver 未配 TTL,随本砖补齐)。
+4. 消毒在**写入时**做(壳1 verdict 当时已知);持久化等级 = checkpointer 等级(memory 模式重启即失;redis saver 未配 TTL,随本砖补齐);
+5. 会话日志按 session(thread_id)键控,而 `resolve_user_id` 每请求可变——**用户中途换 persona 不换 session 时日志跨人**的语义(旧 ConversationRepository 有"换人清史",checkpointer 无此概念)在 E-2 spec 里显式定,不许靠默认行为。
 
 **② RouteKind 7→6 塌缩迁移面。** 图内小(3 处):`route_after_router` 三分支、`build.py` 条件边表、`emit_router` 的 SSE 事件三分支。图外是大头:`schemas/router.py` 的 `InputKind` 经 CHITCHAT_REPLY payload **直达前端**(`frontend/lib/types.ts:135-141` 硬编码同值枚举)——标签闭集改名 = 前后端契约同步改;归并删除点 `route_turn.py:300-302`。stub 测试迁移清单(E-1 动手时的 intentional 清单,按四类):
 - **A 翻转断言**:`test_router.py` 的「fallback 恒 planning」测试(反转对象本身);
