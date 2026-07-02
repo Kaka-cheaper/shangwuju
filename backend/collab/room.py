@@ -3,8 +3,10 @@
 核心流程：
 1. 发起人 POST /room/create → RoomManager.create_room() → 返回 room_id
 2. 任何人 WS /ws/{room_id} → RoomManager.join() → 广播 member_joined
-3. 任何人发 constraint → Room.add_constraint() → 广播 → 中断当前规划 → 合并约束 → 重新规划
-4. 任何人发 vote → Room.update_vote() → 广播 → 踩触发重规划
+3. 任何人发 constraint（自由打字）→ Room.add_constraint() → 先过统一路由脑子
+   route_turn 判义务（ADR-0013 决策 7，"房间路由同权"）→ 归名广播给全员 + 按义务
+   分流：feedback→合并约束重新规划 / planning→全新规划 / 其余→气泡广播，不动方案
+4. 任何人发 vote → Room.update_vote() → 广播 → 踩触发重规划（暂未接路由，见 F-5）
 5. owner 发 confirm → Room.confirm() → 广播确认结果
 
 设计取舍：
@@ -200,21 +202,68 @@ class RoomManager:
     async def add_constraint(
         self, room: Room, user_id: str, text: str, source: str = "text"
     ) -> None:
-        """添加约束 → 广播 → 中断当前规划 → 合并约束 → 重新规划。"""
-        async with room.lock:
-            constraint = Constraint(
-                user_id=user_id, text=text, source=source
-            )
-            room.constraints.append(constraint)
+        """成员自由打字入口——先过统一路由脑子判义务,再房内分发（ADR-0013 决策 7）。
 
-            # 广播约束
-            nickname = room.members.get(user_id, Member(user_id=user_id, nickname=user_id, role="participant")).nickname
+        病灶（治的是这个）：改造前，任何自由打字都被当成"约束"无条件塞进
+        `room.constraints` 并触发全量重排——成员打"哈哈好期待"也会硬改方案。
+        主聊天在 ADR-0011（一脑三壳）后已是"任何输入先过路由脑子，判出义务再分发"，
+        房间此前是唯一还在裸接文本、不经判定直连重排的入口，本函数补上这层薄壳。
+
+        义务分发表（route_turn 的 RouteKind → 房内动作）：
+        - feedback              → 现有约束池 + 重排路径（原样保留；诉求台账是 F-2/F-5
+                                   的事，本步不建，`room.constraints` 仍是唯一台账）
+        - planning               → 全新规划（`_trigger_fresh_plan`，与单人 `_plan_fresh`
+                                   同款一次性 session_id；**不**进约束池、不经 refiner
+                                   合并——这是一句完整规划请求，不是"追加约束"）
+        - 其余（chitchat/emotional/meta/off_topic/ambiguous，decision 必然非空）
+                                 → 气泡广播：把 RouterDecision 原样以 `chitchat_reply`
+                                   事件推给全员（复用主聊天已有的事件形状，前端
+                                   `handleEvent` 的 `chitchat_reply` case 零改动即可渲染）；
+                                   不碰方案、不碰约束池、不中断在跑的规划任务。
+                                   安全婉拒（off_topic + 注入防御）与澄清引导（ambiguous +
+                                   地板 chips）走的是同一条分支——它们只是 decision 内容
+                                   不同，不需要单独判支。
+
+        归名：无论义务判成什么，成员的原始发言都无条件走既有归名机制（nickname 前缀
+        + `constraint_added` 事件广播 + 追加进 `room.chat_messages`）——"大家在同一个
+        房间里，看得见彼此说了什么"是纯展示语义，与"这句话算不算一条可执行约束"是两回事；
+        只有后者（是否写进 `room.constraints`，从而参与未来 `_merge_constraints_text`
+        合并进 refiner）才按义务分流。这正是本函数要治的病：以前两者被绑死在同一段代码
+        里无条件一起发生，现在拆开——展示照旧全量，约束池只收真正的 feedback。
+
+        user_id 判断点（拍板）：route_turn 拿到的 `user_id` 是**发话成员自己的 id**
+        （WS 连接携带的临时 id，owner 或 participant 皆然），不是 `room.owner_id`。
+        room.py 里唯一按 user_id 查久层状态的是 confirm() 的记忆写入——那是"这趟行程
+        记在谁头上"的语义，只有 owner 能触发，锚定 owner_id 合理。但这里 user_id 唯一
+        的消费者是 route_turn 内部的 persona_qa（Layer 1.7，"我是谁/我的偏好"类问题）：
+        它是**问话人自己是谁**的问答，不是"这个房间归谁"。若锚定 owner_id，会让
+        participant 问"我的偏好是什么"时读到 owner 的画像/偏好数据答回去——这是身份
+        误配（把 B 当成 A 回答）、还捎带泄漏 owner 的偏好给陌生参与者，不是"保连续性"，
+        是真错误。而锚定发话者自己的 id：owner 问跟单人模式行为一致（同一个 id，画像
+        自然连续，不需要特判）；participant 问则诚实降级为"默认画像，多用几次会记住你"
+        —— ADR-0013 决策 6 边界本就明写"持久成员画像"不在本弧范围，这个诚实降级正是
+        该边界的自然结果，不是缺陷。
+        """
+        async with room.lock:
+            from agent.core.llm_client import get_llm_client
+            from agent.routing.route_turn import route_turn
+
+            outcome = route_turn(
+                text, room.current_itinerary_dict, user_id, client=get_llm_client()
+            )
+
+            timestamp = time.time()
+            nickname = room.members.get(
+                user_id, Member(user_id=user_id, nickname=user_id, role="participant")
+            ).nickname
+
+            # 归名（既有机制维持，对三类义务一视同仁）
             room.chat_messages.append(
                 {
-                    "id": f"collab-{int(constraint.timestamp * 1000)}",
+                    "id": f"collab-{int(timestamp * 1000)}",
                     "role": "user",
                     "text": f"{nickname}：{text}",
-                    "createdAt": int(constraint.timestamp * 1000),
+                    "createdAt": int(timestamp * 1000),
                 }
             )
             await self.broadcast(room, {
@@ -223,24 +272,59 @@ class RoomManager:
                 "nickname": nickname,
                 "text": text,
                 "source": source,
-                "timestamp": constraint.timestamp,
+                "timestamp": timestamp,
             })
 
-            # 中断当前规划
-            if room.planning_task and not room.planning_task.done():
-                room.planning_task.cancel()
-                try:
-                    await room.planning_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-                await self.broadcast(room, {
-                    "type": "planning_aborted",
-                    "reason": "new_constraint",
-                    "by_user": user_id,
-                })
+            if outcome.kind == "feedback":
+                constraint = Constraint(
+                    user_id=user_id, text=text, source=source, timestamp=timestamp
+                )
+                room.constraints.append(constraint)
 
-            # 触发重规划
-            await self._trigger_replan(room, trigger_user=user_id, trigger_reason="constraint_added")
+                # 中断当前规划
+                if room.planning_task and not room.planning_task.done():
+                    room.planning_task.cancel()
+                    try:
+                        await room.planning_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    await self.broadcast(room, {
+                        "type": "planning_aborted",
+                        "reason": "new_constraint",
+                        "by_user": user_id,
+                    })
+
+                # 触发重规划（原样：合并约束池 → refiner）
+                await self._trigger_replan(room, trigger_user=user_id, trigger_reason="constraint_added")
+
+            elif outcome.kind == "planning":
+                # 全新规划请求（如 canonical 场景文本 / "重新规划一个"）——不进约束池，
+                # 不经 refiner 合并，直接同单人 `_plan_fresh` 路径重开一局。
+                if room.planning_task and not room.planning_task.done():
+                    room.planning_task.cancel()
+                    try:
+                        await room.planning_task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+                    await self.broadcast(room, {
+                        "type": "planning_aborted",
+                        "reason": "planning_request",
+                        "by_user": user_id,
+                    })
+
+                await self._trigger_fresh_plan(room, trigger_user=user_id, user_input=text)
+
+            elif outcome.decision is not None:
+                # chitchat / emotional / meta / off_topic / ambiguous → 气泡广播，
+                # 不动方案、不动约束池、不中断在跑的规划任务。
+                await self._broadcast_planning_event(room, {
+                    "type": "chitchat_reply",
+                    "seq": 0,
+                    "payload": outcome.decision.model_dump(),
+                    "timestamp_ms": int(timestamp * 1000),
+                })
+            # outcome.decision is None 且非 feedback/planning：route_turn 契约下不会
+            # 发生（防御性兜底，不广播、不报错，避免未来级联变化时静默崩溃）。
 
     async def update_vote(
         self, room: Room, user_id: str, stage_index: int, action: str
@@ -429,6 +513,31 @@ class RoomManager:
         room.planning_task = asyncio.create_task(
             self._run_planning(room)
         )
+
+    async def _trigger_fresh_plan(
+        self, room: Room, *, trigger_user: str, user_input: str
+    ) -> None:
+        """route_turn 判定 planning → 全新规划（ADR-0013 决策 7）。
+
+        与 `_trigger_replan` 的区别：`_trigger_replan` 走 `_run_planning`，那里按
+        `room.current_intent_dict is not None` 二选一（有基线→refiner 合并约束；
+        无基线→`_plan_fresh`）——这条分支服务的是"反馈"语义。而 route_turn 判定
+        "planning" 时（如成员打出完整 canonical 场景文本、或点击"重新规划一个"）
+        本身就是一句独立、完整的规划请求，语义上与"是否已有基线方案"无关，必须
+        无条件走 `_plan_fresh`，不能被 `_run_planning` 的分支逻辑误判成"有基线就走
+        refiner 合并"（那会把一句新规划请求硬揉成对旧方案的增量调整）。
+        """
+        room.previous_itinerary_dict = room.current_itinerary_dict
+        room.planning_events_history.clear()
+        room.chat_state_snapshot = None
+
+        await self.broadcast(room, {
+            "type": "planning_started",
+            "trigger": "planning",
+            "trigger_user": trigger_user,
+        })
+
+        room.planning_task = asyncio.create_task(self._plan_fresh(room, user_input))
 
     async def _run_planning(self, room: Room) -> None:
         """执行规划并广播事件。
