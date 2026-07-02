@@ -9,7 +9,7 @@
 | ADR | 标题 | 范围 | 决策状态 | 落地状态 | 证据 / 备注 |
 |---|---|---|---|---|---|
 | [0001](0001-routing-one-deep-module.md) | 路由层收口为一个 deep module(route_turn) | 路由 | Accepted | ✅ 已落地 | `routing/route_turn.py` + 三 adapter 委托(586b846) |
-| [0002](0002-dialogue-act-sealed-collaborator.md) | 对话行为判定保留为密封协作者 | 路由 | Accepted | ✅ 已落地 | `core/dialogue_acts.py` 返回 DialogueAct(586b846/ac8e58f);backlog:候选3 互斥表 |
+| [0002](0002-dialogue-act-sealed-collaborator.md) | 对话行为判定保留为密封协作者 | 路由 | Accepted | ✅ 已落地 | `core/dialogue_acts.py` 返回 DialogueAct(586b846/ac8e58f);**ADR-0011 决策 2 已议定吸收进统一路由,E-2 落地时标 Superseded** |
 | [0003](0003-route-turn-interface.md) | route_turn 接口(显式参数 + RouteOutcome) | 路由 | Accepted | ✅ 已落地 | 签名 + `routing/outcome.py`;backlog:去 `classify_fn` |
 | [0004](0004-collapse-entrypoints-shared-route-turn.md) | 三入口收口共享 route_turn + 薄 adapter | 路由 | Accepted | ✅ 已落地 | 三 adapter 委托(586b846);V1/V2 adapter 已随 0007 删除 |
 | [0005](0005-routing-package-and-routekind-relocation.md) | route_turn 住 routing/ 包;RouteKind 挪位断环 | 路由 | Accepted | ✅ 已落地 | `routing/` 包 + `kinds.py`,graph 反向 import |
@@ -17,7 +17,8 @@
 | [0007](0007-collapse-planning-to-langgraph-stack.md) | 规划层三栈收口为单一 LangGraph 栈 + rule 地板 | 规划 | Accepted | ✅ 已落地 | 5 簇 test-first（commit 4cbc09e→50a9709）;910 passed/0 failed |
 | [0008](0008-critic-staged-single-registry.md) | critic 校验层重设计：分阶段 hard/soft 单注册表 | 规划 | Accepted | 🔁 部分落地 | Phase A/B-1/B-2a/B-2b 已落地（commit 2535d94/f7f7ad2/7977097/963b39a，936 passed）；Phase C（接 ILS + 删死 blueprint 层）转由 ADR-0009 承接（已落地）|
 | [0009](0009-ils-real-rung-and-critic-repair-loop.md) | ILS 升为真实 replan 梯级 + critic-to-solver 闭环修复 | 规划 | Accepted | ✅ 已落地 | C-1→C-5 全落地（f35fccb→fb29dcf，950 passed）；ILS 真组装候选 + 年龄进组装器(α) + critic-to-solver 有界修复闭环 + 删死 blueprint critics/ils_score_critic |
-| [0010](0010-multi-activity-toptw-planning.md) | 规划升为按需求涌现的多活动 TOPTW | 规划 | Accepted | ⏳ 待实现 | #8 根因=问题被削成 1+1；均质活动池 + 锚定/涌现 + slack 节奏 + 窗感知调度 + 修复闭环迁移；shake 存废实测定；UX 验收=S1-S8 结构差异+不静默；按 D-1→D-8 TDD |
+| [0010](0010-multi-activity-toptw-planning.md) | 规划升为按需求涌现的多活动 TOPTW | 规划 | Accepted | 🔁 部分落地 | D-1..D-6+D-8a 已落地（e0eb0c1→71f47d4，1063 passed；shake 实测砍除=#8 终局）；余 D-7(pinning+advisory)+D-8 清尾 |
+| [0011](0011-llm-first-routing-obligations.md) | 路由层重设计：一脑三壳（LLM-first + 义务闭集 + 上下文打包器） | 路由 | Accepted | ⏳ 待实现 | 6 标签闭集=[L0 契约](../L0-响应义务契约.md)投影；吸收 dialogue_acts；地板反转（绝不默认规划）；澄清状态机；按 E-1→E-4，先收官 D-7/D-8 |
 
 ## 图例
 
