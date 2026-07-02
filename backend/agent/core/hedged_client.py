@@ -81,6 +81,7 @@ class HedgedLLMClient:
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMChatResponse:
         """主备双发 chat；主 hedge_after_s 秒不返回则启动备援。"""
         kwargs = {
@@ -88,6 +89,7 @@ class HedgedLLMClient:
             "temperature": temperature,
             "response_format": response_format,
             "max_tokens": max_tokens,
+            "extra_body": extra_body,
         }
 
         primary_future = self._executor.submit(self._primary.chat, **kwargs)
@@ -157,12 +159,14 @@ class HedgedLLMClient:
         *,
         temperature: float = 0.3,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[str]:
         """流式不 hedge（流式响应难以可靠 race），直接走主路径。"""
         return self._primary.stream_chat(
             messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_body=extra_body,
         )
 
     def chat_with_tools(

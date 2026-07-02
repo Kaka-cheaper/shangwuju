@@ -84,7 +84,18 @@ def _known_restaurant_cuisines() -> set[str]:
 
 
 def _cuisine_match(pref: str, cuisine: str) -> bool:
-    """双向 substring 宽松匹配（与 search_adapter._rerank_by_preferred_cuisine 同源）。"""
+    """双向 substring 宽松匹配（与 search_adapter._rerank_by_preferred_cuisine 同源）。
+
+    未接入 `schemas.category_vocab`（POI 侧 `poi_desire_match` 已接入的
+    canonical 等价表）：系统扫描 DIETARY_TAGS/`_CUISINE_HINT_TOKENS` 与
+    mock 餐厅 cuisine 值后，未发现同类"标准词与实际值零字面重合但指同一
+    品类"的失配（KTV/看展 那种 bug）——已有词典词（日料/粤菜/下午茶/甜品
+    等）与 mock cuisine 值均已字面命中；没有词典词的 cuisine（东南亚菜/
+    本帮菜/杭帮菜/法餐/湘菜/西餐/面食）靠 LLM 原样保留用户原词直接
+    substring 命中即可，不是失配。故 cuisine 侧暂不引入词汇表，保持纯
+    substring；若未来出现类似失配证据，按 `category_vocab.py` docstring
+    的来源纪律补充，而不是就地加同义词特判。
+    """
     if not pref or not cuisine:
         return False
     return (pref in cuisine) or (cuisine in pref)
@@ -866,6 +877,62 @@ def _sanitize_title(title: Optional[str]) -> Optional[str]:
     return t or None
 
 
+# ============================================================
+# 深度思考模式关闭（真 LLM 冒烟发现：叙事 LLM 静默全灭根因之一）
+# ============================================================
+#
+# 根因链：LLM_MODEL=mimo-v2.5-pro 是深度思考模型，思考过程的 token 计入
+# max_tokens 预算；narrator 原先只给 180-400 max_tokens，思考阶段就把预算
+# 耗尽，正文被截成空字符串，_call_llm_narrator 静默 return None（无日志），
+# 上层无感知地退化到模板兜底——"LLM 路径叙事静默全灭"。
+#
+# 双保险（用户拍板"皮带加背带"）：
+# 1. 皮带：显式关闭深度思考（MiMo 官方文档 mimo.mi.com/docs "Deep Thinking
+#    Mode"：`extra_body={"thinking": {"type": "disabled"}}`，OpenAI SDK
+#    无该字段，须走 extra_body 透传——已联网核实，无 `enable_thinking` 这个
+#    别名，backend/scripts/smoke_langgraph_mimo.py 里的 `enable_thinking`
+#    实为误用，未在本次改动范围内处理）。关闭后思考模型退化为普通模型，
+#    不产生 reasoning token，也顺带恢复 temperature/top_p 自定义生效
+#    （文档：深度思考开启时 temperature/top_p 会被强制改为 1.0/0.95，
+#    与 spec R6 "温度 0.5 让质疑指令更稳定" 的前提冲突）。
+# 2. 背带：即使 provider 拒绝/忽略 thinking 参数（透传失败、模型版本不识别
+#    该字段等），也把 max_tokens 同时拉高（want_title 400→2400 / 纯
+#    narration 180→1200），让思考 token 吃掉一部分预算后仍有余量吐正文，
+#    不完全依赖关思考成功。
+_MIMO_THINKING_DISABLED_EXTRA_BODY: dict = {"thinking": {"type": "disabled"}}
+
+
+def _diagnose_empty_llm_response(resp, client) -> str:
+    """空 content 时拼一句可诊断的日志摘要（model / finish_reason / 是否有
+    思考输出 / reasoning token 用量），不再静默 return None。
+
+    resp.raw 是 `chat.completions.create()` 响应的 model_dump()；MiMo 思考
+    模型的 reasoning 内容/token 用量按官方文档挂在
+    `choices[0].message.reasoning_content` 与
+    `usage.completion_tokens_details.reasoning_tokens`——两者都是 SDK 未建
+    模的 provider 特有字段，只能从 raw dict 里挖，挖不到就老实说"未知"。
+    """
+    model = getattr(client, "model", "?")
+    finish_reason = getattr(resp, "finish_reason", "?")
+    raw = getattr(resp, "raw", None) or {}
+    reasoning_len = None
+    reasoning_tokens = None
+    try:
+        message = ((raw.get("choices") or [{}])[0] or {}).get("message") or {}
+        reasoning_content = message.get("reasoning_content")
+        if isinstance(reasoning_content, str):
+            reasoning_len = len(reasoning_content)
+        usage = raw.get("usage") or {}
+        details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = details.get("reasoning_tokens")
+    except Exception:  # noqa: BLE001
+        pass
+    return (
+        f"model={model} finish_reason={finish_reason} "
+        f"reasoning_content_len={reasoning_len} reasoning_tokens={reasoning_tokens}"
+    )
+
+
 def _call_llm_narrator(
     *,
     intent: IntentExtraction,
@@ -929,9 +996,17 @@ def _call_llm_narrator(
             # spec R6：温度从 0.7 降到 0.5，让"主动质疑"指令更稳定被遵守
             # （0.7 偶发跳过 critic_summary 段直接给暖文案）
             temperature=0.5,
-            # 优化 2：限制输出长度（中文每字 ≈ 2 token；80 字 ≈ 160 token + 余量）
-            # want_title 多产一个标题字段 + JSON 包裹 + node_chips 数组 → 放宽到 400
-            max_tokens=400 if want_title else 180,
+            # 优化 2 + 冒烟修复"皮带加背带"背带半：限制输出长度（中文每字
+            # ≈ 2 token）。原 400/180 是按"不思考"预算给的；深度思考模型的
+            # 思考 token 也计入这个预算，原值被思考过程吃空导致正文截空
+            # （见 _MIMO_THINKING_DISABLED_EXTRA_BODY 注释的根因链）。拉高
+            # 到 2400/1200：即使皮带（关思考）失效，背带（更大预算）也兜得住。
+            max_tokens=2400 if want_title else 1200,
+            # 皮带半：显式关闭 MiMo 深度思考模式（见上方
+            # _MIMO_THINKING_DISABLED_EXTRA_BODY 注释）。对非思考模型/不认识
+            # 该字段的 provider 是无害的多余字段（OpenAI 兼容服务通常忽略
+            # 未知字段），不需要按 provider 分支。
+            extra_body=_MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] LLM chat 失败：%s", e)
@@ -939,6 +1014,13 @@ def _call_llm_narrator(
 
     raw = (resp.content or "").strip()
     if not raw:
+        # 曾经静默 return None，评委/开发者完全看不出 LLM 路径已经失效、
+        # 静默退化到模板兜底——冒烟修复要求"绝不静默"，补一条可诊断日志
+        # （model / finish_reason / 思考输出痕迹），见 _diagnose_empty_llm_response。
+        logger.warning(
+            "[narrator] LLM 返回空 content，回退模板兜底：%s",
+            _diagnose_empty_llm_response(resp, client),
+        )
         return None
 
     if want_title:
@@ -972,7 +1054,10 @@ def stream_llm_narrator(
 
     与 _call_llm_narrator 区别：
     - 流式：第 1 个 chunk 来后立刻 yield；首字延迟 ~500ms vs 一次性 20s
-    - max_tokens=180：限制总长度（中文每字 ~2 token；80 字 ≈ 160 token + 余量）
+    - max_tokens=1200：限制总长度（中文每字 ~2 token；同 _call_llm_narrator
+      纯 narration 分支一样"皮带加背带"拉高——原 180 只够"不思考"预算，
+      深度思考模型的思考 token 计入同一预算会把正文截空，见
+      `_MIMO_THINKING_DISABLED_EXTRA_BODY` 注释的根因链）
 
     设计纪律：
     - 前缀「```」/ 引号清理在调用方（流式过程中无法可靠剥）
@@ -994,16 +1079,28 @@ def stream_llm_narrator(
     )
 
     try:
+        chunk_count = 0
         for chunk in client.stream_chat(
             messages=[
                 LLMMessage(role="system", content=NARRATOR_SYSTEM_PROMPT),
                 LLMMessage(role="user", content=user_msg),
             ],
             temperature=0.5,
-            max_tokens=180,
+            max_tokens=1200,
+            extra_body=_MIMO_THINKING_DISABLED_EXTRA_BODY,
         ):
             if chunk:
+                chunk_count += 1
                 yield chunk
+        if chunk_count == 0:
+            # 曾经的静默失败点：流式 0 chunk 时调用方只会看到"没有输出"，
+            # 看不出是 LLM 真吐了空串还是链路本身没问题——冒烟修复要求
+            # 补可诊断日志（stream_chat 没有 resp 对象可挖，只能记录"0 chunk"
+            # 这个事实本身 + model 名）。
+            logger.warning(
+                "[narrator] stream_chat 0 chunk（model=%s），回退模板兜底",
+                getattr(client, "model", "?"),
+            )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] stream_chat 失败：%s", e)
         return

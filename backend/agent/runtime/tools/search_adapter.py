@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from schemas.category_vocab import canonical_equivalent
 from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
 from schemas.tools import (
@@ -156,10 +157,21 @@ def poi_desire_match(
 ) -> bool:
     """判断单个明示诉求词是否与 POI 词法相关（R3 重排 + R4 检测共用 SoT）。
 
-    匹配规则（宽松双向 substring，不维护任何映射字典/白名单）：
-    desire 与 poi.type / poi.name / 任一 poi.tags 双向 substring 命中即算相关。
-    例：desire="看展" 命中 P002（tags 含「看展」）；desire="展览" 命中 type="展览"；
-        desire="攀岩" 命中 name="Vertical 攀岩馆"。
+    匹配规则（先查词汇表 canonical 等价，再退回双向 substring）：
+    1. desire 与 poi.type / poi.name / 任一 poi.tags 若属于
+       `schemas.category_vocab` 同一 canonical 等价类（如 desire="K歌"
+       与 poi.type="KTV"）→ 直接判相关。
+    2. 否则退回宽松双向 substring：desire 与字段互相包含即算相关。
+       例：desire="看展" 命中 P002（tags 含「看展」）；desire="展览" 命中
+       type="展览"；desire="攀岩" 命中 name="Vertical 攀岩馆"。
+
+    **设计变更说明**（原声明"不维护任何映射字典/白名单"已废弃）：纯双向
+    substring 曾是刻意的极简设计，但真 LLM 冒烟测试证明它撑不住——LLM
+    抽取诉求词时会用同义表达（把「KTV」说成「K歌」/「唱K」），与 mock
+    数据字面值没有公共子串，靠子串永远修不完这类失配（一个 bug 只堵一个
+    词，下一个同义词换个说法又破）。canonical 等价表把"哪些词说的是同一件
+    事"钉成单一真相源（`schemas/category_vocab.py`），子串匹配仍保留作为
+    宽松兜底——本次改动只增不减命中面，不影响任何已通过的既有匹配。
 
     desire 为空或所有字段为空 → False。
     """
@@ -168,7 +180,11 @@ def poi_desire_match(
         return False
     fields = [poi_type or "", poi_name or "", *(poi_tags or [])]
     for f in fields:
-        if f and ((d in f) or (f in d)):
+        if not f:
+            continue
+        if canonical_equivalent(d, f):
+            return True
+        if (d in f) or (f in d):
             return True
     return False
 

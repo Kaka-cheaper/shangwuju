@@ -195,9 +195,13 @@ def emit_critic(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
                         "field_path": getattr(v, "field_path", ""),
                     }
                 )
-        # 仅推 critical（warning 不进 SSE，避免噪声）
+        # 仅推 hard（soft 不进 SSE，避免噪声）
+        # ADR-0008 B-1 把 severity 枚举从 CRITICAL/WARNING 改名为 HARD/SOFT，
+        # 序列化后的字面值是 Severity.HARD.value == "hard"（不是 "critical"）；
+        # 此处曾漏改导致 critical_only 恒为空、CRITIC_VIOLATIONS 恒空 payload
+        # （评委看板空白的根因）。
         critical_only = [
-            d for d in violation_dicts if d.get("severity") == "critical"
+            d for d in violation_dicts if d.get("severity") == "hard"
         ]
         attempt = diff.get("plan_attempt") or 1
         return [

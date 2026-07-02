@@ -27,7 +27,12 @@ class StubLLMClient:
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMChatResponse:
+        # extra_body（如 MiMo 的 thinking 开关）对 stub 无意义，接住即可——
+        # 不接会导致真实调用路径（narrator.py 传 extra_body）在 stub 模式
+        # 下抛 TypeError，破坏 LLM_PROVIDER=stub 的单测/演示兜底路径。
+        del extra_body
         # 简单的家庭主场景兜底
         sample_intent = {
             "start_time": "today_afternoon",
@@ -56,7 +61,9 @@ class StubLLMClient:
         *,
         temperature: float = 0.3,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[str]:
+        del extra_body  # 同 chat()：stub 接住不用
         text = "已为你规划好下午行程：森林儿童探索乐园 → 轻语沙拉..."
         for ch in text:
             yield ch

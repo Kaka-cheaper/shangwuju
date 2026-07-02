@@ -104,6 +104,7 @@ class LLMClient(Protocol):
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMChatResponse: ...
 
     def stream_chat(
@@ -112,6 +113,7 @@ class LLMClient(Protocol):
         *,
         temperature: float = 0.3,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[str]: ...
 
 
@@ -261,6 +263,7 @@ class OpenAICompatibleClient:
         tool_choice: str | None = None,
         stream: bool = False,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ):
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -275,6 +278,13 @@ class OpenAICompatibleClient:
             kwargs["tool_choice"] = tool_choice or "auto"
         if max_tokens is not None and max_tokens > 0:
             kwargs["max_tokens"] = max_tokens
+        if extra_body:
+            # OpenAI Python SDK 的标准挂点：extra_body 里的键会原样并入请求体，
+            # 用来透传 provider 特有、SDK 未建模的字段（如 MiMo 的
+            # `thinking: {"type": "disabled"}` 关闭深度思考——见 narrator.py
+            # 调用点注释 + docs.md "Deep Thinking Mode"）。任何 OpenAI 兼容
+            # provider 通用，不 provider-specific 写死在这里。
+            kwargs["extra_body"] = extra_body
         return self._client.chat.completions.create(**kwargs)
 
     # ---- 公共接口 ----
@@ -286,6 +296,7 @@ class OpenAICompatibleClient:
         temperature: float = 0.3,
         response_format: dict[str, Any] | None = None,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> LLMChatResponse:
         def _do():
             return self._create_completion(
@@ -294,6 +305,7 @@ class OpenAICompatibleClient:
                 response_format=response_format,
                 stream=False,
                 max_tokens=max_tokens,
+                extra_body=extra_body,
             )
 
         resp = _retry(_do, max_retries=self._max_retries)
@@ -318,10 +330,15 @@ class OpenAICompatibleClient:
         *,
         temperature: float = 0.3,
         max_tokens: int | None = None,
+        extra_body: dict[str, Any] | None = None,
     ) -> Iterator[str]:
         # 流式不重试；简单返
         stream = self._create_completion(
-            messages, temperature=temperature, stream=True, max_tokens=max_tokens
+            messages,
+            temperature=temperature,
+            stream=True,
+            max_tokens=max_tokens,
+            extra_body=extra_body,
         )
         for chunk in stream:
             if not chunk.choices:
