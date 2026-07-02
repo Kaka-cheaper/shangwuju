@@ -39,7 +39,7 @@
 
 ## 实施拆步(F 系列;TDD,每片独立 commit 可回滚)
 
-- **F-1 局部重解引擎**:纯函数 `resolve_node_swap(itinerary, pools, ledger_slice, target_node, adjustment) → (new_itinerary, advisories)`;复用 pins/黑名单/贪心构造/critic;**具名备选的预验证候选生成同在此层**(展示与点击同一真相源)。
+- **F-1 局部重解引擎**:纯函数 `resolve_node_swap(itinerary, pools, ledger_slice, target_node, adjustment) → (new_itinerary, advisories)`;复用 pins/黑名单/critic;**具名备选的预验证候选生成同在此层**(展示与点击同一真相源)。**机制修正(2026-07-03 实施前设计核查,主代理裁决)**:重解不走 `build_route`(其涌现填充循环在替换品更短时会加塞额外活动,破坏「只动这一格」承诺),改基于修复闭环的 `_repair_route` 语义(腾格→只补该格→不加塞),将其从 ils_planner 模块私有提升为共享 seam;已知取舍:替换候选无本会话 LLM 语义分,utility 走中性默认,与保留节点存在打分基准漂移——引擎免 LLM 的必然代价,docstring 记录。
 - **F-2 诉求台账**:schema + 状态机(生效/被顶替/已满足)+ 单一写入 helper(同 diff 写台账+轮次指针);单人=图状态 SESSION_SCOPED 字段(完备性测试强制登记),房间=Room 状态;全局语义诉求同步揉 intent。
 - **F-3 按钮与备选生成**:narrate LLM 搭车(JSON 增列)+ 按 kind 模板兜底;SSE payload 形状按统一 agent 消息面家族设计;前端具名备选/定向按钮数据落节点行。
 - **F-4 单人入口 + 前端节点行**:结构化调整端点(实现时定:独立轻端点 vs /chat/turn 结构化 payload,倾向前者);节点行改造(右备选/下按钮+赞踩挪位/Shimmer 锁定态/归名小字);台账面板=升级 ConstraintFeed(单人模式也显示,加状态徽标+节点指向)。
