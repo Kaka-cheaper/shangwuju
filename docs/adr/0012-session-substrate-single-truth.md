@@ -15,16 +15,19 @@
 
 ## 决策
 
-1. **会话跨轮唯一真相源 = LangGraph 图状态(checkpointer)**。一切跨轮会话事实——当前方案、确认态、未来的轮次日志/方案版本志/澄清态(ADR-0011)——以图状态为准。SESSION_STORE **正名为「确认与建房的读侧投影端口」**:两种会话底座(图会话/房间会话)都往这里投影当前方案,确认流只认这个端口取数——这正是一条确认流能同时服务两种底座的结构前提(见决策 5);它不承载图状态没有的真相,真相源写侧仍在图状态。**刻意不让确认流读 checkpointer**:房间会话没有图存档,读侧绑死 checkpointer 会把房间永远锁死在岔路上(2026-07-02 复审修订,推翻"读写都走真相源更纯粹"的初版直觉)。
+1. **会话跨轮唯一真相源 = LangGraph 图状态(checkpointer)**。一切跨轮会话事实——当前方案、确认态、未来的轮次日志/方案版本志/澄清态(ADR-0011)——以图状态为准。SESSION_STORE **正名为「确认与建房的读侧投影端口」**:两种会话底座(图会话/房间会话)都往这里投影当前方案,确认流只认这个端口取数——这正是一条确认流能同时服务两种底座的结构前提(见决策 5);它不承载图状态没有的真相,真相源写侧仍在图状态。**刻意不让确认流读 checkpointer**:房间会话没有图存档,读侧绑死 checkpointer 会把房间永远锁死在岔路上(2026-07-02 复审修订,推翻"读写都走真相源更纯粹"的初版直觉)。**运维连带**(维度审查):真相源=进程内 checkpointer,使「内存模式单 worker」从部署习惯升级为**硬约束**——`.env.example`/compose 注释写明:memory 模式禁多 worker,多实例必须 `SESSION_STORE=redis`(E-0-a 顺手落)。
 2. **确认不进图,完成后回写;"不进图"做成结构事实**:保持 HTTP 旁路(真 interrupt/Command 是大手术,SSE 适配层已承担三按钮语义,对 demo 无新增可见价值——拒);confirm 成功后用 checkpointer 的 `aupdate_state(thread_id, {"itinerary": 含 orders 的终版, "user_decision": "confirm"})` **回写一笔**(仅图会话;房间会话无 checkpoint,跳过)。三条纪律:
    - **结构诚实**:`execute_finalize` 从图里**退注册**(它是无入边的永达不到节点),`sse_adapter` 只为它准备的 `emit_execute_finalize` 死分支同删;函数本体保留供确认流直调。只改注释不够。
    - **失败策略**:确认成功**不依赖**回写——回写失败(如 redis 抖动)记日志降级,不回滚已完成的下单;投影端口里仍有终版方案兜底。
+   - **时序纪律(维度审查·并发)**:回写必须在确认流内、DONE 事件推出**之前**同步完成——回写若晚于 DONE,用户在确认动画期间立刻发新消息时,新一轮图运行可能先落盘、迟到的回写再把"确认时的旧方案"盖到新状态上。压窗后的残余竞态(确认执行中用户抢发消息)记为**已接受的 demo 级风险**,不装作不存在。
    - **防"写而无读"**(refine_feedback 同款病):回写字段的第一个真实消费者是 E-2 打包器(过渡供体;长期真相在 E-2 方案版本志——"v3 已确认下单"天然是历史记录)。E-0 验收必须带最小真实读者:图级测试断言确认后下一轮 turn 的图状态含 orders 与 `user_decision="confirm"`。
 3. **ConversationState/repo 全删(葬礼)**:两处 confirm 流的 `record_confirm_result` 喂血删除;`collab.py` 「路径 1」删除(实证全靠路径 2 活着);`agent/runtime/conversation.py` 模块退役删除(`verify_repository.py` 同退)。连带清掉消息词汇债——pydantic_ai `ModelMessage` 退场,E-2 轮次日志唯一词汇 = langchain `BaseMessage`(AgentState.messages 既有声明)。
-4. **重置纪律收口 = 「字段生命周期表」**,不止是"一个函数":今天方案能跨轮存活,靠的是 `make_initial_state` "没写这个字段=保留旧值"的**隐式机制**(persistence-by-omission)。收口做法:`state.py` 里显式声明三档生命周期——**轮级**(每 turn 清零:user_input/路由结果/trace 四件套…)/**事件级**(新需求或反馈时重置:itinerary/blueprint/critic 状态/advisories/user_decision…)/**会话级**(跨轮持久:messages、未来的版本志/pending_clarification、user_id…)——初始化与重置函数都对表走,refiner 与 intent 路径共用同一张表。E-2 的新字段一律先登记生命周期再上车。这是 E-1/E-2 动路由的前置硬门(背景 5 的定时炸弹)。
+4. **重置纪律收口 = 「字段生命周期表」**,不止是"一个函数":今天方案能跨轮存活,靠的是 `make_initial_state` "没写这个字段=保留旧值"的**隐式机制**(persistence-by-omission)。收口做法:`state.py` 里显式声明三档生命周期——**轮级**(每 turn 清零:user_input/路由结果/trace 四件套…)/**事件级**(新需求或反馈时重置:itinerary/blueprint/critic 状态/advisories/user_decision…)/**会话级**(跨轮持久:messages、未来的版本志/pending_clarification、user_id…)——初始化与重置函数都对表走,refiner 与 intent 路径共用同一张表。E-2 的新字段一律先登记生命周期再上车。这是 E-1/E-2 动路由的前置硬门(背景 5 的定时炸弹)。两条加固(维度审查):
+   - **完备性测试**:一条测试走查 `AgentState` 全部字段,断言每字段在表里恰登记一档——新字段不登记生命周期就进不了主干,把表从文档升级为可执行约束;
+   - **已知丢失显式标注**:`user_decision`/orders 归事件级(订单跟旧方案走,反馈后重置语义正确),代价是「用户下过单」这一事实在 E-2 方案版本志出生前存在丢失窗口(反馈一次即忘)——表内注释明示并指向版本志,防止后人当 bug 修或当特性依赖。
 5. **确认流合一(2026-07-02 复审升级,原"保留 stub 给房间"作废)**:核实 `_graph_confirm` 不跑图、不需要 checkpoint,只读投影端口+直调下单函数;房间确认前本就自己把方案写进投影端口再让 stub 读回(room.py:373-380)——**分叉没有承重理由**。定案:协作房间切到同一条确认流,`_stub_confirm` 整体删除,`USE_LANGGRAPH` 连带自然死亡(它唯一残余语义就是切 confirm 实现)。两条硬门:
    - **统一后的确认流必须同时执行两种记忆副作用**——`memory_writer`(recent_trips→user_profile.json)**和** `memory_store` 标签累积(UserMemory,背景 7)。两库存不同数据、各有活读者,**不是二选一**;这一步顺带修复背景 7 的真 bug(主路径确认从不累积偏好标签)。两库长期是否合并为单一画像存储,另立议题。
-   - **特征化测试先行**:迁移房间确认前,先对房间 WS 确认的事件序列写特征化测试钉住现状,再切流,断言不变。
+   - **特征化测试先行**:迁移房间确认前,先对房间 WS 确认的事件序列写特征化测试钉住现状,再切流,断言不变。**身份语义一并钉住**(维度审查·隐私):房间内任何参与者点确认,记忆写的是**房主**画像——这是已知简化,测试固化现状、边界节备案,不在本 ADR 改。
 6. **死字段处置**:删 `intent_overrides`/`refine_feedback`;`scenario_id` 保留、声明为 E-2 RoutingContext 打包器的画像素材(接线归 E-2);`messages` 保留——E-2 第一块砖接水(见 ADR-0011 修订「前置核实」节)。
 
 ## 边界(不在本 ADR)
