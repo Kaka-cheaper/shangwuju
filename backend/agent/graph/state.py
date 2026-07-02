@@ -156,6 +156,10 @@ class AgentState(TypedDict, total=False):
     advisories: list[Any]          # EPISODE_SCOPED：list[dict]（Advisory.model_dump()）：D-7「绝不默默
     # 忽略」的结构化告知——ils_replan_node 在 hybrid 成功时写入（见 replan.py），
     # narrate_node 消费并透传进 SSE（见 _emit_handlers.emit_narrate）。
+    node_actions: dict[str, Any]   # EPISODE_SCOPED：{target_id: {chips, alternatives}}
+    # (ADR-0013 F-3):narrate_node 唯一写手,emit_narrate 装进 ITINERARY_READY
+    # payload 兄弟字段;绑定"这一版方案",换方案即失效。F-3 实测:LangGraph 1.2
+    # 会静默丢弃节点返回的未声明字段——本行不声明,narrate 算得再对也到不了 SSE。
 
     # ---- 暖语气 ----
     narration: Optional[str]  # EPISODE_SCOPED：本次规划事件的方案文案（narrate_node 每事件必写一次；提前清零防御未来新增的"narrate 前读者"）
@@ -253,6 +257,7 @@ EPISODE_SCOPED: frozenset[str] = frozenset({
     "alternatives",
     "quality_issues",
     "advisories",
+    "node_actions",
     "narration",
     "memory_status",
     "user_decision",
@@ -306,6 +311,7 @@ def reset_for_new_episode() -> dict[str, Any]:
         "alternatives": [],
         "quality_issues": [],
         "advisories": [],
+        "node_actions": {},
         "narration": None,
         "memory_status": None,
         "user_decision": None,

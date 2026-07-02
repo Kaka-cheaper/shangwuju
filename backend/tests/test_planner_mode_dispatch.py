@@ -231,7 +231,7 @@ def test_narrate_node_rule_mode_uses_template_not_llm():
     with patch(
         "agent.graph.nodes.narrate.generate_title_and_narration"
     ) as mock_narration:
-        mock_narration.return_value = ("（mock 标题）", "（mock 模板文案）")
+        mock_narration.return_value = ("（mock 标题）", "（mock 模板文案）", [])
         result = narrate_node(state)
         assert mock_narration.call_count == 1
         # use_llm 是 keyword 参数，从 kwargs 取

@@ -76,7 +76,15 @@ class SseEvent(BaseModel):
     - CRITIC_FIX_ATTEMPT payload = {"attempt": int, "feedback_text": str}
     - PLAN_FALLBACK    payload = {"from": str, "to": str, "reason": str}
     - AGENT_THOUGHT   payload = {"text": str}
-    - ITINERARY_READY payload = Itinerary.model_dump()
+    - ITINERARY_READY payload = Itinerary.model_dump()，可选再加一个兄弟字段
+      "node_actions": {node_id: {"chips": [NodeChip.model_dump(), ...],
+      "alternatives": [AlternativeOption(dataclass) 的字段字典, ...]}}
+      （ADR-0013 F-3「节点调整按钮 + 具名备选」；node_id = ActivityNode.
+      target_id。"node_actions" 只在至少一个节点有 chips 或 alternatives 时
+      才出现——同 "messages" 字段"无内容不加字段"的先例，见下方 AGENT_
+      NARRATION 说明。不进 Itinerary schema 本体，是 ITINERARY_READY 顶层
+      payload 的兄弟键，由 `agent.graph._emit_handlers.emit_narrate` 组装，
+      业务逻辑（chips 生成/备选预验证）在 `agent.graph.nodes.narrate` 完成）
     - REFINEMENT_START payload = {"feedback_text": str}
     - REFINEMENT_DONE  payload = RefinementOutput.model_dump()
     - CHITCHAT_REPLY   payload = RouterDecision.model_dump()

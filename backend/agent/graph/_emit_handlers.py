@@ -335,6 +335,17 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     """narrate 节点是流程的真正终点：critic 通过 → narrate / replan give_up → narrate。
 
     只在这里推一次 ITINERARY_READY，让前端拿到的就是定稿（含完整 trace）。
+
+    ADR-0013 F-3：`node_actions`（narrate_node 算好的「节点调整按钮 + 具名
+    备选」，见 `agent.graph.nodes.narrate._build_node_actions`）挂在
+    **AGENT_NARRATION** payload 的兄弟字段（与 D-7 的 messages 同一"附加通道"
+    先例）。【深审改址(主代理),原挂 ITINERARY_READY 兄弟字段——集成实测炸雷:
+    该 payload 存在隐含契约"整体=Itinerary dump"——chat.py 会话同步把它整体
+    镜像进 SESSION_STORE 投影端口,确认流(graph_confirm)/房间快照拿它
+    `Itinerary.model_validate`(extra_forbidden)反序列化,兄弟字段直接
+    ValidationError 炸掉确认。ITINERARY_READY 保持纯 Itinerary dump;一切
+    附加通道走 AGENT_NARRATION,那里的 payload 无人反序列化成模型。】
+    本函数只做"有内容才加字段"的组装,不重算业务逻辑。
     """
     text = diff.get("narration")
     # 从最新 state 取 itinerary 推前端（narrate 自己不改 itinerary）
@@ -343,14 +354,10 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     )
     out: list[SseEvent] = []
     if final_itin is not None and not ctx.itinerary_emitted:
-        out.append(
-            ctx.emit(
-                SseEventType.ITINERARY_READY,
-                final_itin.model_dump()
-                if hasattr(final_itin, "model_dump")
-                else final_itin,
-            )
+        payload: dict[str, Any] = (
+            final_itin.model_dump() if hasattr(final_itin, "model_dump") else final_itin
         )
+        out.append(ctx.emit(SseEventType.ITINERARY_READY, payload))
         ctx.itinerary_emitted = True
     if text:
         narration_payload: dict[str, Any] = {"text": text, "stage": "stream"}
@@ -365,6 +372,10 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
                 for a in advisories
                 if a.get("message")
             ]
+        # ADR-0013 F-3:节点调整按钮+具名备选(改址说明见本函数 docstring)
+        node_actions = diff.get("node_actions")
+        if node_actions:
+            narration_payload["node_actions"] = node_actions
         out.append(ctx.emit(SseEventType.AGENT_NARRATION, narration_payload))
     # 注：MEMORY_PERSISTED 推送已迁到确认流（2026-05-25）——execute_finalize_node
     # 产出 memory_status，由 api/_streams/graph_confirm.py 直接拼 SSE 推送，不再

@@ -13,17 +13,39 @@
   字段，副作用泄漏到上游 state，违背 LangGraph "节点返回 diff 不改输入" 原则）
 - 把 state.critic_attempts 拼接成 critic_summary 字符串，喂给 narrator 触发
   「主动质疑规则」（R6 核心：让评委看到"AI 主动质疑方案"）
+
+【ADR-0013 F-3：节点调整按钮 + 具名备选（node_actions）】
+narrate 是"节点交互三元素"里"具名备选"与"定向调整按钮"两者共同的生产时机
+（决策 5："narrate 的既有 LLM 调用搭车产出"）：
+- chips：`generate_title_and_narration` 第三项返回值（同次 LLM JSON 增列 /
+  按 kind 模板兜底，见 `agent.intent.narrator`）。
+- alternatives：现场调 `agent.planning.planners.node_swap.feasible_
+  alternatives`（k=2），与 F-1 点击换菜同一条候选池/预验证真相源。
+- 两者由 `_build_node_actions` 组装成 `{node_id: {chips, alternatives}}`，
+  原样放进返回 diff 的 `node_actions` 字段，供 `emit_narrate` 挂
+  `ITINERARY_READY` payload 的兄弟字段（不进 `Itinerary` schema 本体）。
 """
 
 from __future__ import annotations
 
+import logging
+from dataclasses import asdict
 from typing import Any
 
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
 from agent.intent.narrator import generate_title_and_narration
 from agent.planning.critic.critics_v2 import Severity, ViolationCode
+from agent.planning.planners.node_swap import feasible_alternatives
 from schemas.advisory import AdvisoryCode
+from schemas.node_chip import NodeChip
+
+logger = logging.getLogger(__name__)
+
+# ADR-0013 F-3：具名备选数量（与调整按钮 narrate 同一时机产出，同一真相源
+# ——feasible_alternatives 就是 F-1 点击换菜实际会用的候选池预验证结果，
+# 展示与点击不割裂）。k=2 是任务书拍定的展示密度（右侧栏两个备选，不喧宾夺主）。
+_NODE_ALTERNATIVES_K = 2
 
 
 def _build_critic_summary(critic_attempts: list[Any]) -> str:
@@ -279,6 +301,66 @@ def _detect_unmet_poi(intent: Any, itinerary: Any) -> list[str]:
         return []
 
 
+def _build_node_actions(
+    itinerary: Any,
+    intent: Any,
+    pois: list[Any],
+    restaurants: list[Any],
+    node_chips: list[NodeChip],
+) -> dict[str, dict[str, Any]]:
+    """组装 ADR-0013 F-3 的 node_actions：`{node_id: {"chips": [...],
+    "alternatives": [...]}}`——挂 `ITINERARY_READY` payload 的兄弟字段（见
+    `agent.graph._emit_handlers.emit_narrate`），不进 `Itinerary` schema 本体。
+
+    chips 来自 `generate_title_and_narration` 第三项返回值（LLM 搭车产出或
+    模板兜底，narrate_node 调用处已经决出）；alternatives 现场调
+    `node_swap.feasible_alternatives`（k=`_NODE_ALTERNATIVES_K`）——与 F-1
+    "点击换菜"实际消费的候选池/降级序列/`try_insert` 预验证同一条真相源，
+    不是另算一套"看起来差不多"的展示用备选（ADR-0013 决策 4 原文："必须由
+    引擎预验证可行——试插通过才展示，拒绝拿未验证的 alternatives 充数"）。
+
+    单节点异常兜底：`feasible_alternatives` 对某个节点抛异常（候选池覆盖
+    缺口等调用方契约问题，见该函数 docstring「前置条件」）不应连累其它节点
+    的按钮/备选一起消失——按节点独立捕获，该节点的 alternatives 降级为空
+    （宁缺毋崩，与 `agent.graph._resilience.drain_on_error` 同一纪律，但这里
+    是函数内部的节点级隔离，比图级兜底更细粒度）。
+
+    没有 chips 也没有 alternatives 的节点不进返回字典（emit_narrate 那层
+    "无内容不加字段" 的同一纪律在这里先做一次节点粒度的体现）。
+    """
+    chips_by_node: dict[str, list[NodeChip]] = {}
+    for chip in node_chips:
+        chips_by_node.setdefault(chip.node_id, []).append(chip)
+
+    result: dict[str, dict[str, Any]] = {}
+    for node in itinerary.nodes:
+        if node.target_kind == "home":
+            continue
+        node_id = node.target_id
+        chips = chips_by_node.get(node_id, [])
+
+        alternatives: list[dict[str, Any]] = []
+        try:
+            options = feasible_alternatives(
+                itinerary, intent, pois, restaurants,
+                target_node_id=node_id, k=_NODE_ALTERNATIVES_K,
+            )
+            alternatives = [asdict(opt) for opt in options]
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "[narrate] feasible_alternatives 对节点 %s 失败，该节点降级为空备选",
+                node_id, exc_info=True,
+            )
+
+        if not chips and not alternatives:
+            continue
+        result[node_id] = {
+            "chips": [c.model_dump() for c in chips],
+            "alternatives": alternatives,
+        }
+    return result
+
+
 def narrate_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     itinerary = state.get("itinerary")
@@ -323,9 +405,17 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # D-7 决策 G：advisory 已经提过的名词不在 unmet_desires 里重复说。
     unmet_desires = _dedupe_unmet_desires_against_advisories(unmet_desires, advisory_messages)
 
+    # ADR-0013 F-3：execute 阶段召回的候选池（EPISODE_SCOPED，与本次 itinerary
+    # 出自同一批候选，覆盖前置条件天然满足——见 node_swap 模块 docstring「前置
+    # 条件」2）；同时喂给 generate_title_and_narration（node_chips 的 LLM 上下文/
+    # 模板兜底）与 _build_node_actions（feasible_alternatives 的候选池）。
+    pois = state.get("pois") or []
+    restaurants = state.get("restaurants") or []
+
     # 同次产出：title（小红书风格大标题，写回 itinerary.summary）+ narration（开场白）
+    # + node_chips（ADR-0013 F-3：节点定向调整按钮，LLM 搭车或模板兜底）。
     # title 必须覆盖所有主要站点（旧 bug：只取停留最久的单站）。
-    title, text = generate_title_and_narration(
+    title, text, node_chips = generate_title_and_narration(
         intent=intent,
         itinerary=itinerary,
         stage="stream",
@@ -334,6 +424,8 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         quality_warnings=quality_warnings,
         unmet_cuisines=unmet_desires,
         advisories=advisory_messages,
+        pois=pois,
+        restaurants=restaurants,
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
@@ -397,9 +489,19 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # D-7：advisories 原样透传进返回 diff（不是本节点新算的，只是让 emit_narrate
     # 能直接从 diff 里拿到，不必依赖 EmitContext.last_state 的时序假设——见
     # agent/graph/_emit_handlers.py:emit_narrate）。
+    #
+    # ADR-0013 F-3：node_actions 同一纪律——本节点算好（chips 来自同次 LLM/
+    # 模板，alternatives 现场调 feasible_alternatives），原样透传进返回 diff，
+    # emit_narrate 只管组装 SSE payload、不重新计算业务逻辑。用 new_itinerary
+    # （而非入参 itinerary）算，保证 node_id 集合与最终推给前端的方案完全一致
+    # （两者节点集合当前恒等——narrate 只改 summary/decision_trace/pending_
+    # actions，不改 nodes——但显式用 new_itinerary 是"不假设两者恒等"的防御）。
+    node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
+
     result: dict[str, Any] = {
         "narration": text,
         "itinerary": new_itinerary,
         "advisories": advisories,
+        "node_actions": node_actions,
     }
     return result

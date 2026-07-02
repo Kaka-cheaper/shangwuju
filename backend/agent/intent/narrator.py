@@ -32,12 +32,19 @@
   追加质疑短语（"宝贝可能会累" / "可以中途休息"），让 LLM 失败时模板路径
   也能让用户感知"AI 在为我考虑"
 - generate_narration 透传 critic_summary / quality_warnings 给 LLM 与模板兜底
+
+【ADR-0013 F-3：节点调整按钮（node_chips）】
+- `generate_title_and_narration` 同次产出第三项 node_chips（`schemas.node_chip.
+  NodeChip` 列表）：LLM 路径搭车 narrator 既有调用（JSON 增列，零额外延迟）；
+  stub/rule 模式或 LLM 校验失败/缺字段时整体回落 `generate_template_node_chips`
+  （按节点 kind + 实体字段/tags 的确定性模板，见该函数 docstring 规则表）。
+- `generate_narration`（不产 title 的旧入口）不受影响，仍是 2 元素调用约定。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from agent.core.llm_client import LLMMessage, get_llm_client
 from agent.intent.prompts.narrator_prompt import (
@@ -49,8 +56,11 @@ from agent.intent.title_builder import (
     companions_to_title_phrase,
     node_to_title_phrase,
 )
+from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
+from schemas.node_adjustment import AMBIENCE_VALUES, NodeAdjustment, NodeAdjustmentDimension
+from schemas.node_chip import NodeChip
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +215,241 @@ def detect_unmet_poi_preference(
             unmet.append(p)
             seen.add(p)
     return unmet
+
+
+# ============================================================
+# ADR-0013 F-3：节点调整按钮（模板确定性生成器 + LLM 输出校验）
+# ============================================================
+#
+# 【为什么模板生成器落在 narrator.py，不是 node_swap.py】
+# node_swap.py（F-1）只关心"给定 dimension+value，怎么找替代候选"——它不决定
+# "该给用户看哪几个按钮"。按钮生成是叙事/展示层的决策（同一节点，不同产品会
+# 挑不同的"典型分歧点"当按钮），与 narrator 已经在做的"title/narration 同次
+# LLM 产出"是同一件事的延伸（ADR-0013 决策 5："narrate 的既有 LLM 调用搭车产
+# 出"）；stub/rule 模式的确定性兜底也自然放在同一模块，两条路径（LLM/模板）
+# 产出同一个 NodeChip 形状，调用方（agent.graph.nodes.narrate）不用关心走的
+# 是哪条路。
+#
+# 【每 kind 的模板规则表（ADR-0013 决策 5 "按 kind 走模板兜底" 的具体化）】
+# restaurant：price(cheaper) 恒生成；ambience 取当前 tags 里"安静聊天/热闹"
+#   的反向（无信号则不生成，不瞎猜）；dietary 仅当 intent.dietary_constraints
+#   有信号时，取其第一项作为目标值。
+# poi：distance(closer) 恒生成；ambience 同上取反向；crowd_fit 仅当
+#   intent.physical_constraints 有信号时，取其第一项作为目标值。
+# 两个 kind 都恒 ≤3 个（每类最多 3 条候选规则，天然满足 ADR 上限）；
+# dimension 全部来自 `NodeAdjustmentDimension`——该枚举只有 6 个节点级维度，
+# 没有"路线级"维度可选，"路线级按钮禁入节点下方"（ADR 决策 5）在 schema 层
+# 就是不可达状态，不需要本模块额外过滤。
+
+
+def _reverse_ambience(tags: list[str]) -> Optional[str]:
+    """氛围反向：当前 tags 命中 `AMBIENCE_VALUES`（"安静聊天"/"热闹"）两极之一
+    → 建议另一极；两者都没有时返回 None（没有锚点可反，不瞎猜——ADR-0013
+    决策 5 只说"取反向"，没说"没有原值也要编一个"）。直接从
+    `schemas.node_adjustment.AMBIENCE_VALUES` 取值，不在本模块重复硬编码这
+    两个字符串，避免两处拼写漂移。"""
+    for value in AMBIENCE_VALUES:
+        if value in tags:
+            return next(v for v in AMBIENCE_VALUES if v != value)
+    return None
+
+
+def _compact_chip_label(text: str, max_len: int = 8) -> str:
+    """去内部空格 + 硬截断，保证 chip label 永远满足 `NodeChip.label` 的
+    ≤8 字校验。
+
+    `PHYSICAL_TAGS` 词典里"适合 5-10 岁"带内部空格（去空格后 7 字，"…的"
+    后缀恰好 8 字）；截断是防未来词典扩容时静默超限导致 `NodeChip(...)`
+    构造抛 ValidationError——防御性兜底，不是当前词典表已知会触发。"""
+    return text.replace(" ", "")[:max_len]
+
+
+def _template_chips_for_restaurant(
+    node_id: str, entity: Restaurant, intent: IntentExtraction
+) -> list[NodeChip]:
+    chips = [
+        NodeChip(
+            node_id=node_id,
+            label="更便宜的",
+            adjustment=NodeAdjustment(dimension=NodeAdjustmentDimension.PRICE, value="cheaper"),
+        )
+    ]
+    ambience_value = _reverse_ambience(list(entity.tags or []))
+    if ambience_value is not None:
+        chips.append(
+            NodeChip(
+                node_id=node_id,
+                label=_compact_chip_label(f"更{ambience_value}"),
+                adjustment=NodeAdjustment(
+                    dimension=NodeAdjustmentDimension.AMBIENCE, value=ambience_value
+                ),
+            )
+        )
+    if intent.dietary_constraints:
+        value = intent.dietary_constraints[0]
+        chips.append(
+            NodeChip(
+                node_id=node_id,
+                label=_compact_chip_label(f"{value}的"),
+                adjustment=NodeAdjustment(dimension=NodeAdjustmentDimension.DIETARY, value=value),
+            )
+        )
+    return chips[:3]
+
+
+def _template_chips_for_poi(
+    node_id: str, entity: Poi, intent: IntentExtraction
+) -> list[NodeChip]:
+    chips = [
+        NodeChip(
+            node_id=node_id,
+            label="更近的",
+            adjustment=NodeAdjustment(dimension=NodeAdjustmentDimension.DISTANCE, value="closer"),
+        )
+    ]
+    ambience_value = _reverse_ambience(list(entity.tags or []))
+    if ambience_value is not None:
+        chips.append(
+            NodeChip(
+                node_id=node_id,
+                label=_compact_chip_label(f"更{ambience_value}"),
+                adjustment=NodeAdjustment(
+                    dimension=NodeAdjustmentDimension.AMBIENCE, value=ambience_value
+                ),
+            )
+        )
+    if intent.physical_constraints:
+        value = intent.physical_constraints[0]
+        chips.append(
+            NodeChip(
+                node_id=node_id,
+                label=_compact_chip_label(f"{value}的"),
+                adjustment=NodeAdjustment(dimension=NodeAdjustmentDimension.CROWD_FIT, value=value),
+            )
+        )
+    return chips[:3]
+
+
+def generate_template_node_chips(
+    itinerary: Itinerary,
+    intent: IntentExtraction,
+    pois: Sequence[Poi],
+    restaurants: Sequence[Restaurant],
+) -> list[NodeChip]:
+    """确定性模板路径生成器——stub/rule 模式的地板，也是 LLM 搭车解析失败时
+    的整体回落目标（`generate_title_and_narration` 里 "LLM chips 为空 → 走
+    这里" 的唯一兜底，不半信半用）。
+
+    按方案里每个非 home 节点的 `target_kind` + 对应实体的字段/tags 生成
+    ≤3 个 chip（规则表见模块顶部注释）。候选池（`pois`/`restaurants`）里查
+    不到对应实体的节点静默跳过（不影响其它节点的按钮——与 `node_swap.py`
+    "候选池须覆盖全部已选节点"是不同层面的契约：那是"能不能执行换菜"的硬
+    前置条件，这里只是"能不能生成按钮"的展示层，查不到就不生成，不报错）。
+    """
+    poi_by_id = {p.id: p for p in pois}
+    rest_by_id = {r.id: r for r in restaurants}
+    chips: list[NodeChip] = []
+    for node in itinerary.nodes:
+        if node.target_kind == "restaurant":
+            entity = rest_by_id.get(node.target_id)
+            if entity is not None:
+                chips.extend(_template_chips_for_restaurant(node.target_id, entity, intent))
+        elif node.target_kind == "poi":
+            entity = poi_by_id.get(node.target_id)
+            if entity is not None:
+                chips.extend(_template_chips_for_poi(node.target_id, entity, intent))
+    return chips
+
+
+_MAX_CHIPS_PER_NODE = 3
+"""每节点最多展示的 chip 数（ADR-0013 决策 5 硬上限），LLM 搭车路径的裁剪
+阈值——模板路径因规则表本身 ≤3 条不需要裁剪，只有 LLM 路径可能"太热情"。"""
+
+
+def _validate_llm_node_chips(
+    raw_chips: Any, valid_node_ids: set[str]
+) -> list[NodeChip]:
+    """校验 LLM 搭车产出的 `node_chips` 原始 JSON——"不半信半用"：结构不对 /
+    字段缺失 / `dimension`+`value` 不在受控枚举组合 / `label` 超 8 字 /
+    `node_id` 不是当前方案里的真实节点，任何一条不满足 → 返回空列表，调用方
+    据此整体回落模板生成器（不是"挑出合法的那几条凑合用"——半信半用等于告诉
+    用户"这个按钮我们验证过"，其实只验证了一部分，比全部不信更危险）。
+
+    全部合法时按 `node_id` 分组、每组截断到 `_MAX_CHIPS_PER_NODE`（数量超标
+    是"太热情"不是"不合法"，只裁剪不弃权——LLM 其它判断仍然可信）。
+    """
+    if not isinstance(raw_chips, list):
+        return []
+
+    parsed: list[NodeChip] = []
+    for item in raw_chips:
+        if not isinstance(item, dict):
+            return []
+        node_id = item.get("node_id")
+        if node_id not in valid_node_ids:
+            return []
+        try:
+            chip = NodeChip(
+                node_id=node_id,
+                label=item.get("label"),
+                adjustment=NodeAdjustment(
+                    dimension=item.get("dimension"), value=item.get("value")
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        parsed.append(chip)
+
+    per_node_count: dict[str, int] = {}
+    capped: list[NodeChip] = []
+    for chip in parsed:
+        n = per_node_count.get(chip.node_id, 0)
+        if n >= _MAX_CHIPS_PER_NODE:
+            continue
+        per_node_count[chip.node_id] = n + 1
+        capped.append(chip)
+    return capped
+
+
+def _node_chip_context(
+    itinerary: Itinerary, pois: Sequence[Poi], restaurants: Sequence[Restaurant]
+) -> list[dict]:
+    """给 LLM 的每节点上下文（node_id + 关键字段），喂进 prompt 让它"按活动的
+    典型分歧点起 label"（而不是瞎编）。查不到对应实体的节点跳过（同
+    `generate_template_node_chips` 的静默跳过纪律）。"""
+    poi_by_id = {p.id: p for p in pois}
+    rest_by_id = {r.id: r for r in restaurants}
+    out: list[dict] = []
+    for n in itinerary.nodes:
+        if n.target_kind == "poi":
+            e = poi_by_id.get(n.target_id)
+            if e is None:
+                continue
+            out.append(
+                {
+                    "node_id": n.target_id,
+                    "kind": "poi",
+                    "title": n.title,
+                    "type": e.type,
+                    "tags": list(e.tags or []),
+                    "distance_km": e.distance_km,
+                }
+            )
+        elif n.target_kind == "restaurant":
+            e = rest_by_id.get(n.target_id)
+            if e is None:
+                continue
+            out.append(
+                {
+                    "node_id": n.target_id,
+                    "kind": "restaurant",
+                    "title": n.title,
+                    "cuisine": e.cuisine,
+                    "tags": list(e.tags or []),
+                    "avg_price": e.avg_price,
+                }
+            )
+    return out
 
 
 # ============================================================
@@ -552,14 +797,20 @@ def _clean_narration_text(text: str) -> str:
     return text
 
 
-def _parse_title_narration(raw: str) -> tuple[Optional[str], str]:
-    """从 LLM 原始输出解析 (title, narration)。
+def _parse_title_narration(raw: str) -> tuple[Optional[str], str, Optional[list]]:
+    """从 LLM 原始输出解析 (title, narration, node_chips_raw)。
 
-    want_title=True 时 LLM 被要求输出 JSON {"title":..., "narration":...}。
+    want_title=True 时 LLM 被要求输出 JSON {"title":..., "narration":...,
+    "node_chips":...}（node_chips 见 `NODE_CHIPS_OUTPUT_INSTRUCTION`，ADR-0013
+    F-3 搭车产出，非必然存在——旧版 prompt/未提供 node_chip_context 时不会有）。
     解析策略（层层兜底，保证永远拿得到 narration）：
-    1. 剥 markdown 围栏后 json.loads；取 title / narration 字段。
+    1. 剥 markdown 围栏后 json.loads；取 title / narration / node_chips 字段。
     2. JSON 解析失败 / 缺 narration → 整段当 narration（title=None，让上层走规则兜底标题）。
     title 做小红书规格清理：去前缀「半日方案·」、去「（约X小时）」括号、去引号、长度裁剪。
+
+    node_chips_raw 只做"提取"，不做 schema 校验（校验在 `_validate_llm_node_chips`，
+    需要 valid_node_ids 这个额外上下文，本函数不关心）——返回 None 表示 JSON 里
+    压根没有这个字段（调用方据此直接判定"缺字段"，走模板回落，见 `_call_llm_narrator`）。
     """
     import json
 
@@ -567,11 +818,12 @@ def _parse_title_narration(raw: str) -> tuple[Optional[str], str]:
 
     raw = (raw or "").strip()
     if not raw:
-        return None, ""
+        return None, "", None
 
     candidate = strip_json_fence(raw) or raw
     title: Optional[str] = None
     narration_raw: Optional[str] = None
+    node_chips_raw: Optional[list] = None
     try:
         obj = json.loads(candidate)
         if isinstance(obj, dict):
@@ -581,12 +833,15 @@ def _parse_title_narration(raw: str) -> tuple[Optional[str], str]:
                 title = t.strip()
             if isinstance(n, str) and n.strip():
                 narration_raw = n.strip()
+            raw_chips = obj.get("node_chips")
+            if isinstance(raw_chips, list):
+                node_chips_raw = raw_chips
     except (ValueError, TypeError):
         pass
 
     # JSON 不可解析 / 缺 narration → 整段原文当 narration（title 让规则兜底补）
     narration = _clean_narration_text(narration_raw if narration_raw is not None else raw)
-    return _sanitize_title(title), narration
+    return _sanitize_title(title), narration, node_chips_raw
 
 
 def _sanitize_title(title: Optional[str]) -> Optional[str]:
@@ -621,8 +876,10 @@ def _call_llm_narrator(
     unmet_cuisines: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
     want_title: bool = False,
-) -> Optional[tuple[Optional[str], str]]:
-    """调 LLM 生成开场白（want_title=True 时同次产出 title + narration）。
+    pois: Sequence[Poi] = (),
+    restaurants: Sequence[Restaurant] = (),
+) -> Optional[tuple[Optional[str], str, list[NodeChip]]]:
+    """调 LLM 生成开场白（want_title=True 时同次产出 title + narration + node_chips）。
 
     任何异常 / 空输出返 None 让上层走 fallback。
 
@@ -632,12 +889,17 @@ def _call_llm_narrator(
     advisories（ADR-0010 D-7）：planner「绝不默默忽略」的结构化告知（完整句子），
     进 prompt 的诚实告知区，与 unmet_cuisines 同一纪律——先坦白、不假装满足。
 
-    want_title：True 时要求 LLM 用同一次调用输出 JSON {"title","narration"}——
-    title 写回 itinerary.summary（小红书风格大标题），narration 作开场白。
-    不新增独立 LLM 调用；解析失败时 title=None（上层用规则兜底标题），narration 用整段原文。
+    want_title：True 时要求 LLM 用同一次调用输出 JSON {"title","narration",
+    "node_chips"}——title 写回 itinerary.summary（小红书风格大标题），
+    narration 作开场白，node_chips 是 ADR-0013 F-3 的节点调整按钮搭车产出
+    （pois/restaurants 给 prompt 提供每节点上下文，见 `_node_chip_context`）。
+    不新增独立 LLM 调用；解析失败时 title=None（上层用规则兜底标题），
+    narration 用整段原文，node_chips 校验失败/缺字段时返回空列表（调用方
+    `generate_title_and_narration` 据此整体回落模板生成器，不半信半用）。
 
     Returns:
-        (title 或 None, narration)；narration 永远非空（除非 LLM 完全没返回 → None）。
+        (title 或 None, narration, node_chips)；narration 永远非空
+        （除非 LLM 完全没返回 → None）；node_chips 校验失败/未产出时为 []。
     """
     try:
         client = get_llm_client(task="narration")
@@ -645,6 +907,7 @@ def _call_llm_narrator(
         logger.warning("[narrator] get_llm_client 失败：%s", e)
         return None
 
+    node_chip_context = _node_chip_context(itinerary, pois, restaurants) if want_title else []
     user_msg = build_narrator_user_message(
         intent_dict=intent.model_dump(),
         itinerary_dict=itinerary.model_dump(),
@@ -654,6 +917,7 @@ def _call_llm_narrator(
         unmet_cuisines=list(unmet_cuisines or []),
         advisories=list(advisories or []),
         want_title=want_title,
+        node_chip_context=node_chip_context,
     )
 
     try:
@@ -666,8 +930,8 @@ def _call_llm_narrator(
             # （0.7 偶发跳过 critic_summary 段直接给暖文案）
             temperature=0.5,
             # 优化 2：限制输出长度（中文每字 ≈ 2 token；80 字 ≈ 160 token + 余量）
-            # want_title 多产一个标题字段 + JSON 包裹 → 放宽到 260
-            max_tokens=260 if want_title else 180,
+            # want_title 多产一个标题字段 + JSON 包裹 + node_chips 数组 → 放宽到 400
+            max_tokens=400 if want_title else 180,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("[narrator] LLM chat 失败：%s", e)
@@ -678,9 +942,12 @@ def _call_llm_narrator(
         return None
 
     if want_title:
-        return _parse_title_narration(raw)
+        title, narration, raw_chips = _parse_title_narration(raw)
+        valid_node_ids = {n.target_id for n in itinerary.nodes if n.target_kind != "home"}
+        node_chips = _validate_llm_node_chips(raw_chips, valid_node_ids) if raw_chips is not None else []
+        return title, narration, node_chips
     # 不要 title：保持旧行为——整段当 narration
-    return None, _clean_narration_text(raw)
+    return None, _clean_narration_text(raw), []
 
 
 # ============================================================
@@ -757,24 +1024,36 @@ def generate_title_and_narration(
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
-) -> tuple[str, str]:
-    """同次产出 (title, narration)。
+    pois: Sequence[Poi] = (),
+    restaurants: Sequence[Restaurant] = (),
+) -> tuple[str, str, list[NodeChip]]:
+    """同次产出 (title, narration, node_chips)。
 
     title：小红书风格行程卡片大标题（写回 itinerary.summary 用），覆盖**所有主要站点**。
     narration：暖语气开场白（与单独 generate_narration 行为/质量一致）。
+    node_chips（ADR-0013 F-3）：每个非 home 节点的定向调整按钮（≤3/节点）。
 
-    LLM 路径：复用同一次 LLM 调用（want_title=True，JSON 输出）拿到两者；
-    解析不出 title 时只兜 title（用规则模板），narration 仍用 LLM 原文。
-    规则 / stub 路径：title 走 _template_title，narration 走 _template_narration。
+    LLM 路径：复用同一次 LLM 调用（want_title=True，JSON 输出）拿到三者，
+    零额外延迟（ADR-0013 决策 5"搭车产出"）；解析不出 title 时只兜 title
+    （用规则模板），narration 仍用 LLM 原文；node_chips 校验失败/缺字段/
+    LLM 判定 0 个都会得到空列表——**只要是空列表就整体回落模板生成器**
+    （`generate_template_node_chips`），不区分"LLM 主动说不需要"与"LLM 没
+    产出/产出非法"这两种情况：前者从产品角度也不该让用户看不到任何按钮
+    （模板兜底永远能给出至少 1-3 个确定性建议），不是信任问题，是"按钮
+    这个交互面永远该有地板"的产品决策。
+    规则 / stub 路径（use_llm=False）：title 走 _template_title，
+    narration 走 _template_narration，node_chips 直接走模板生成器。
 
     advisories（ADR-0010 D-7）：planner「绝不默默忽略」的结构化告知（完整句子
     列表），并入 narration 的诚实告知段——见 `_template_narration`/prompt。
 
     Returns:
-        (title, narration)，两者永远非空。
+        (title, narration, node_chips)；title/narration 永远非空，
+        node_chips 可能是空列表（itinerary 没有非 home 节点这种边界情况）。
     """
     llm_title: Optional[str] = None
     llm_narration: Optional[str] = None
+    llm_node_chips: list[NodeChip] = []
     if use_llm:
         out = _call_llm_narrator(
             intent=intent,
@@ -785,9 +1064,11 @@ def generate_title_and_narration(
             unmet_cuisines=unmet_cuisines,
             advisories=advisories,
             want_title=True,
+            pois=pois,
+            restaurants=restaurants,
         )
         if out is not None:
-            llm_title, llm_narration = out
+            llm_title, llm_narration, llm_node_chips = out
 
     # narration：LLM 有就用 LLM；否则规则模板兜底
     narration = llm_narration or _template_narration(
@@ -795,7 +1076,10 @@ def generate_title_and_narration(
     )
     # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
     title = llm_title or _template_title(intent, itinerary)
-    return title, narration
+    # node_chips：LLM 产出非空就用（已通过 _validate_llm_node_chips 校验）；
+    # 否则（LLM 未用 / 解析失败 / 校验不通过 / LLM 判定 0 个）整体回落模板生成器。
+    node_chips = llm_node_chips or generate_template_node_chips(itinerary, intent, pois, restaurants)
+    return title, narration, node_chips
 
 
 def generate_narration(
@@ -845,7 +1129,7 @@ def generate_narration(
             want_title=False,
         )
         if out is not None:
-            _title, narration = out
+            _title, narration, _node_chips = out
             if narration:
                 return narration
 
@@ -859,6 +1143,7 @@ __all__ = [
     "generate_narration",
     "generate_title_and_narration",
     "build_template_title",
+    "generate_template_node_chips",
 ]
 
 

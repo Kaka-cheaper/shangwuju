@@ -24,6 +24,15 @@
 system prompt 新增「多活动的选择与顺序理由」段 + 对应 few-shot，材料从留白/
 活跃靠前舒缓靠后/饭点落位/同行人适配里现挑（与 narrator.py 模板路径的
 `_multi_activity_rationale` 同一套材料来源，两条路径各自生成，不共享实现）。
+
+【ADR-0013 F-3：节点调整按钮（node_chips）搭车产出】
+`build_narrator_user_message` 新增 `node_chip_context` 形参：非空时在
+title JSON 指令后追加 `NODE_CHIPS_OUTPUT_INSTRUCTION_TEMPLATE`（dimension/
+value 枚举表 + 按 kind 的典型分歧点选择指引 + few-shot 风格的 label 规格），
+要求 LLM 在同一次 JSON 输出里追加 `node_chips` 数组。枚举表逐字对齐
+`schemas/node_adjustment.py` 的受控词典——LLM 自创值会在
+`agent.intent.narrator._validate_llm_node_chips` 校验失败，整体回落
+`generate_template_node_chips` 模板生成器（不半信半用）。
 """
 
 from __future__ import annotations
@@ -185,10 +194,66 @@ TITLE_OUTPUT_INSTRUCTION = """\
 - 参考例（室友 4 人 · 烧烤 + KTV · 4.5h）：「室友夜局｜撸串配K歌🎤」「和室友的快乐4.5h：烧烤+唱K」。
 
 【输出格式（严格 JSON，无 markdown 围栏）】
-只输出一个 JSON 对象，两个字段：
-{"title": "小红书风格大标题", "narration": "上面要求的暖语气开场白全文"}
+只输出一个 JSON 对象：
+{"title": "小红书风格大标题", "narration": "上面要求的暖语气开场白全文", "node_chips": [...]}
 narration 字段就是上面【你的目标】【风格规范】要求的那段开场白，质量与单独输出时完全一致，不要因为套了 JSON 就写短写差。
+node_chips 字段的规格见下方【额外产出：节点调整按钮 node_chips】——如果本条消息没有附带
+【node_chip_context】小节，就输出 "node_chips": []。
 """
+
+
+# ============================================================
+# 节点调整按钮 node_chips（ADR-0013 F-3）—— 与 title/narration 同次产出
+# ============================================================
+
+# dimension/value 枚举表——必须与 schemas/node_adjustment.py 的受控词典逐字一致，
+# 任何值 LLM 自创都会在 `_validate_llm_node_chips` 校验失败，整体回落模板生成器。
+NODE_CHIPS_OUTPUT_INSTRUCTION_TEMPLATE = """
+
+【额外产出：节点调整按钮 node_chips（ADR-0013 · F-3 搭车）】
+针对下面【node_chip_context】列出的**每一个**活动节点（用其中的 node_id 精确
+对应，不要自己编造 node_id，也不要给 context 里没列出的节点生成），生成
+0-3 个"换一下试试"的按钮建议——每个建议是一次**定向调整**，用户点一下就能让
+系统换成满足这个方向的候选。
+
+**dimension 与 value 必须严格从下表选，不得自创、不得混用错误的 kind**：
+| dimension        | 合法 value                                                | 适用节点 kind  |
+|------------------|-------------------------------------------------------------|----------------|
+| price            | "cheaper" 或 "pricier"（方向词，不是具体价格数字）            | restaurant     |
+| distance         | "closer" 或 "farther"（方向词）                              | poi            |
+| ambience         | "安静聊天" 或 "热闹"（只能这两个值之一，不能是其它词）        | poi / restaurant |
+| dietary          | 低脂/健康轻食/高蛋白/日料/粤菜/不辣/无牛肉/有儿童餐/高人均/有包间/软烂/下午茶/甜品 中的一个 | restaurant |
+| crowd_fit        | 亲子友好/适合 5-10 岁/适合青少年/适合老人/无台阶/可休息/无障碍/高强度/低强度 中的一个 | poi |
+| cuisine_or_type  | 目标菜系/类型原文（如"粤菜"），自由文本                       | poi / restaurant |
+
+**按活动的典型分歧点选，不要每个节点都套同一套模板**：
+- 餐厅节点最常见的分歧是"贵不贵 / 氛围 / 忌口"——优先给 price(cheaper)；
+  这家如果 tags 里有明显的"安静聊天"或"热闹"标签，就给反方向的 ambience；
+  如果 intent 里能看出饮食约束信号，就给对应的 dietary。
+- 活动节点最常见的分歧是"太远 / 氛围 / 人群适配"——优先给 distance(closer)；
+  同上给反方向 ambience；如果 intent 里能看出物理/人群约束信号，就给对应的
+  crowd_fit。
+
+label 要求：口语化按钮文案，**最多 8 个字**，如「更便宜的」「安静点的」——
+不要写"调整为…"这种说明书口吻，也不要用 dimension/value 的英文原词。
+
+没有合适的分歧点就给 0 个，不要为了凑数瞎编——每个节点 0-3 个都合法。
+
+【node_chip_context】（每项是一个活动节点，node_id 必须原样使用）
+{context_json}
+"""
+
+
+def build_node_chips_instruction(node_chip_context: list[dict]) -> str:
+    """把 node_chip_context 填进指令模板；context 为空时返回空串（不索要
+    node_chips，prompt 也不必额外解释"为什么没给"）。"""
+    if not node_chip_context:
+        return ""
+    import json
+
+    return NODE_CHIPS_OUTPUT_INSTRUCTION_TEMPLATE.format(
+        context_json=json.dumps(node_chip_context, ensure_ascii=False, indent=2)
+    )
 
 
 def build_narrator_user_message(
@@ -201,6 +266,7 @@ def build_narrator_user_message(
     unmet_cuisines: list[str] | None = None,
     advisories: list[str] | None = None,
     want_title: bool = False,
+    node_chip_context: list[dict] | None = None,
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
 
@@ -216,9 +282,15 @@ def build_narrator_user_message(
         advisories: ADR-0010 D-7 新增。planner「绝不默默忽略」的结构化告知
             （每条已是自包含中文完整句），进诚实告知区，与 unmet_cuisines 同一
             纪律（先坦白、不假装满足）。None / 空列表 = 不触发。
-        want_title: True 时要求 LLM 用 JSON 同次产出 title（小红书大标题）+ narration。
-            narrate 节点的非流式路径用 True（要写回 itinerary.summary）；
-            流式打字路径用 False（保持逐字 narration 的 UX，summary 走规则兜底）。
+        want_title: True 时要求 LLM 用 JSON 同次产出 title（小红书大标题）+ narration
+            （+ node_chip_context 非空时再加 node_chips）。narrate 节点的非流式路径
+            用 True（要写回 itinerary.summary）；流式打字路径用 False（保持逐字
+            narration 的 UX，summary 走规则兜底）。
+        node_chip_context: ADR-0013 F-3 新增。每个非 home 节点的 node_id + kind +
+            关键字段/tags（见 `agent.intent.narrator._node_chip_context`），喂给
+            LLM 让它"按活动的典型分歧点起 label"而不是瞎编。None / 空列表 = 不
+            索要 node_chips（该字段本条消息里也就不会出现指令，模型应输出
+            "node_chips": []）。仅在 want_title=True 时才会被使用。
 
     Returns:
         给 LLM 的 user message 文本。
@@ -292,7 +364,11 @@ def build_narrator_user_message(
         )
     extras_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 
-    title_block = TITLE_OUTPUT_INSTRUCTION if want_title else ""
+    title_block = ""
+    if want_title:
+        title_block = TITLE_OUTPUT_INSTRUCTION + build_node_chips_instruction(
+            node_chip_context or []
+        )
     tail = "直接输出 JSON。" if want_title else "直接输出文案。"
 
     return f"""{framing}

@@ -137,7 +137,7 @@ def test_template_title_includes_both_stations() -> None:
 
 def test_generate_title_and_narration_rule_mode() -> None:
     """use_llm=False：title 走规则兜底（信息全），narration 仍是暖语气开场白。"""
-    title, narration = generate_title_and_narration(
+    title, narration, _chips = generate_title_and_narration(
         intent=_intent(), itinerary=_bbq_ktv_itinerary(), use_llm=False
     )
     assert "撸串" in title and "唱K" in title
@@ -167,7 +167,7 @@ def test_llm_json_produces_title_and_narration(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(narrator_mod, "get_llm_client", lambda *a, **k: JsonClient())
-    title, narration = generate_title_and_narration(
+    title, narration, _chips = generate_title_and_narration(
         intent=_intent(), itinerary=_bbq_ktv_itinerary(), use_llm=True
     )
     assert title == "室友夜局｜撸串配K歌"
@@ -188,7 +188,7 @@ def test_llm_plaintext_falls_back_title_keeps_narration(monkeypatch) -> None:
             return Resp("和室友下午撸串唱K，玩得很开心。哪里不合适跟我说一声。")
 
     monkeypatch.setattr(narrator_mod, "get_llm_client", lambda *a, **k: PlainClient())
-    title, narration = generate_title_and_narration(
+    title, narration, _chips = generate_title_and_narration(
         intent=_intent(), itinerary=_bbq_ktv_itinerary(), use_llm=True
     )
     # 解析不出 title → 规则兜底，仍信息全
@@ -214,7 +214,7 @@ def test_llm_dirty_title_sanitized(monkeypatch) -> None:
             )
 
     monkeypatch.setattr(narrator_mod, "get_llm_client", lambda *a, **k: DirtyClient())
-    title, _ = generate_title_and_narration(
+    title, _narration, _chips = generate_title_and_narration(
         intent=_intent(), itinerary=_bbq_ktv_itinerary(), use_llm=True
     )
     assert "半日方案" not in title
