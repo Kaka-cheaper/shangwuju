@@ -205,24 +205,23 @@ def test_room_floor_clarify_chip_roundtrip_routes_correctly():
     asyncio.run(_add_constraint_and_drain(manager, room, owner_id, "调整一下方案"))
     assert len(room.constraints) == 1
 
-    # 5b. "重新规划一个" → route_turn（房间层）判 planning，不进约束池、正确触发
-    # `_trigger_fresh_plan`——但这里只断言分发层面的契约（不进约束池 + 规划任务跑到
-    # 终态），不断言"必然产出新 itinerary_ready"。
-    #
-    # 深审留痕（真实发现，非缺陷但值得记录）：`_trigger_fresh_plan` 遵照任务要求的
-    # "_plan_fresh 同款、一次性 session_id" 惯例——每次都开全新、零上下文的
-    # session。这对 canonical 场景文本（如 5a 用的 DEMO_SCENARIOS，见测试 3）天然
-    # 成立，因为那些文案本身自带完整出行要素。但"重新规划一个"这句字面本身**不**
-    # 自带任何要素，它的含义依赖"相对于当前方案"这个上下文——一旦被扔进零上下文
-    # 的全新 session，新会话自己的 router_node（同一个 route_turn，但这次
-    # has_itinerary=False）无法识别出这是规划请求，优雅退化为陪聊气泡兜底，
-    # 而不是拼出新方案。不是崩溃，只是没能把"换一个"这句省略句还原成完整需求——
-    # 已在任务报告中作为已知限制/未来决策点单独标出，不在本步展开修（会牵涉是否
-    # 要给全新规划携带上一轮 raw_input 上下文，这是需要单独拍板的设计问题）。
+    # 5b. "重新规划一个" → route_turn（房间层）判 planning，不进约束池，且
+    # 【E-1 缺口修复后】_trigger_fresh_plan 识别到这个 canonical 字面时替换为
+    # 基线 intent 的 raw_input 再开新局(这五个字本身不含需求要素,语义=重做我的
+    # 需求;修复前它被扔进零上下文新 session 退化成陪聊,旧断言曾钉住该行为)。
+    # 基线种 canonical 场景文本:stub 模式下新 session 的 router 靠壳2 识别它
+    # (真 LLM 模式任何完整需求文本都行,canonical 只是 stub 可测的选择)。
+    from agent.routing.canonical_shortcut import DEMO_SCENARIOS
+
     manager2, room2 = _seed_room(owner_id)
+    room2.current_intent_dict["raw_input"] = DEMO_SCENARIOS[1]["input"]
     asyncio.run(_add_constraint_and_drain(manager2, room2, owner_id, "重新规划一个"))
-    assert room2.constraints == []
-    assert _event_types(room2)[-1] == "done", "全新规划任务应跑到终态（即便退化为陪聊兜底）"
+    assert room2.constraints == [], "「重新规划一个」不该进约束池"
+    types2 = _event_types(room2)
+    assert "itinerary_ready" in types2, (
+        f"复用原始需求后应真的重开出新方案,而非退化陪聊,events={types2}"
+    )
+    assert types2[-1] == "done"
 
     # 5c. "就这样挺好" → chitchat（确认气泡，不触发重排）
     manager3, room3 = _seed_room(owner_id)

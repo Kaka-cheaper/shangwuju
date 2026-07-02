@@ -69,9 +69,17 @@ PRIMARY_CTAS = [
 # 用户点击后原样回传，字面精确匹配即可确定性路由，不依赖 LLM/关键词猜测。
 # 不进 PRIMARY_CTAS/_WHITELIST_SENDS——这三个 chip 由 fallback_decision 直接构造，
 # 不经 classify_input 的 LLM 白名单校验，两套白名单职责不同不可混用。
+FLOOR_REPLAN_SEND = "重新规划一个"
+"""地板澄清 chip「重新规划一个」的 canonical send 文本(单一真相源)。
+
+这五个字本身不含任何出行要素,语义是「重做**我的**需求」——消费点(主聊天
+intent 路径 / 房间 _trigger_fresh_plan)识别到这个字面时必须复用上一事件的
+raw_input 重解,否则会把它当新需求解析出空泛意图(E-1 已知缺口修复,
+ADR-0011 落地状态节有案)。"""
+
 FLOOR_CLARIFY_CTAS = [
     {"label": "调整一下方案", "send": "调整一下方案", "icon": "🛠️"},
-    {"label": "重新规划一个", "send": "重新规划一个", "icon": "🔄"},
+    {"label": "重新规划一个", "send": FLOOR_REPLAN_SEND, "icon": "🔄"},
     {"label": "就这样挺好", "send": "就这样挺好", "icon": "👍"},
 ]
 

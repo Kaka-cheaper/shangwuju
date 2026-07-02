@@ -27,6 +27,7 @@ from typing import Any
 
 from agent.graph.state import AgentState, reset_for_new_episode
 from agent.intent.parser import IntentParseError, parse_intent
+from agent.intent.prompts.router_prompt import FLOOR_REPLAN_SEND
 from agent.core.llm_client import get_llm_client
 from schemas.intent import IntentExtraction
 
@@ -95,6 +96,16 @@ def intent_node(state: AgentState) -> dict[str, Any]:
     client = get_llm_client()
     user_input = state.get("user_input") or ""
     user_id = state.get("user_id") or "demo_user"
+
+    # E-1 缺口修复(ADR-0011 落地状态节有案):canonical「重新规划一个」这五个字
+    # 不含任何需求要素,语义=「重做我的需求」——复用上一事件 intent 的 raw_input
+    # 重解。读旧 intent 发生在本函数尾部 reset_for_new_episode() 铺底之前,此刻
+    # 仍可读;无上一事件时原样解析(该 chip 只在有方案时由地板发出,防御分支)。
+    if user_input == FLOOR_REPLAN_SEND:
+        prev_intent = state.get("intent")
+        prev_raw = getattr(prev_intent, "raw_input", "") if prev_intent else ""
+        if prev_raw:
+            user_input = prev_raw
 
     # 韧性修复：LLM 偶发返回非法 JSON → parse_intent 重试耗尽抛 IntentParseError。
     # 旧行为：异常冒泡到 graph 流 → stream_error → demo 崩（评委看到红色错误）。

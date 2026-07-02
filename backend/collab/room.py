@@ -526,7 +526,19 @@ class RoomManager:
         本身就是一句独立、完整的规划请求，语义上与"是否已有基线方案"无关，必须
         无条件走 `_plan_fresh`，不能被 `_run_planning` 的分支逻辑误判成"有基线就走
         refiner 合并"（那会把一句新规划请求硬揉成对旧方案的增量调整）。
+
+        E-1 缺口修复(ADR-0011 落地状态节有案):canonical「重新规划一个」这五个字
+        不含任何需求要素,语义=「重做我的需求」——有基线 intent 时替换为其
+        raw_input 再开新局,否则零上下文新 session 的 router 会把这句判成陪聊
+        (本文件测试 5b 曾钉住该退化行为,修复后断言已翻转)。
         """
+        from agent.intent.prompts.router_prompt import FLOOR_REPLAN_SEND
+
+        if user_input == FLOOR_REPLAN_SEND:
+            original_raw = (room.current_intent_dict or {}).get("raw_input") or ""
+            if original_raw:
+                user_input = original_raw
+
         room.previous_itinerary_dict = room.current_itinerary_dict
         room.planning_events_history.clear()
         room.chat_state_snapshot = None
