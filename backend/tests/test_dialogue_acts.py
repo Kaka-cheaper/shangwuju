@@ -146,11 +146,25 @@ def test_router_confirm_not_replan(monkeypatch):
     assert out["route_kind"] == "chitchat", f"确认不该重规划，实际 {out['route_kind']}"
 
 
-def test_router_add_goes_feedback(monkeypatch):
+def test_router_add_goes_ambiguous_when_llm_unclassified(monkeypatch):
+    """ADR-0011 决策 2（E-1）行为反转：本用例原名 test_router_add_goes_feedback，
+
+    旧断言依赖 route_turn.py:300-302 的"有方案 + planning/ambiguous → 强制
+    feedback"兜底归并——该归并已被 E-1 删除（ADR-0011 决策 2：没有任何下游会
+    "问"，实测"我不想玩这个了"被硬猜重规划，违反 L0 禁令 1）。classify_dialogue_act
+    本身识别不出"还想加个喝咖啡的地方"是哪种对话行为（不是提问/预约/确认/软约束，
+    见 test_classify_none_for_add），归并删除后不再有下游把裸 ambiguous 强行
+    掰成 feedback——变成走 chitchat 气泡通道询问，而不是默默重规划，这正是
+    ADR-0011 意图的行为（该"追加"场景真正的解法在 E-2：LLM 一次调用应该能
+    直接识别出这是"加一项"而不是笼统的 ambiguous；E-1 阶段先如实反映"识别不出
+    就问，不默默动手"）。
+    """
     from agent.graph.state import make_initial_state
 
     router_mod = _patch_ambiguous(monkeypatch)
     st = make_initial_state(user_input="还想加个喝咖啡的地方", session_id="s2")
     st["itinerary"] = _itin()
     out = router_mod.router_node(st)
-    assert out["route_kind"] == "feedback", "追加应走 feedback→refiner 增量合并"
+    assert out["route_kind"] == "ambiguous", (
+        "归并已删：识别不出具体对话行为时，裸 ambiguous 不再被强行掰成 feedback"
+    )

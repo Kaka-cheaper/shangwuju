@@ -225,7 +225,17 @@ def test_router_l3_ambiguous_soft_constraint_becomes_bubble(monkeypatch):
     assert any("适合老人" in c.label for c in out["router_decision"].cta_chips)
 
 
-def test_router_l3_ambiguous_real_feedback_still_feedback(monkeypatch):
+def test_router_l3_ambiguous_without_soft_constraint_asks_not_guesses(monkeypatch):
+    """ADR-0011 决策 2（E-1）行为反转：本用例原名
+    test_router_l3_ambiguous_real_feedback_still_feedback，原断言"认不出软约束的
+    真反馈，仍兜成 feedback"正是靠 route_turn.py:300-302 的兜底归并做到的——该
+    归并已被 E-1 删除（没有任何下游会"问"，实测硬猜重规划违反 L0 禁令 1）。
+
+    "这版方案不太好"本身也是 ADR-0011 词表清洗删除的纯评价词（不指向任何可调
+    参数），Layer 1 强信号 / 壳2 canonical / Layer 3 软约束嗅探都识别不出来，
+    归并删除后不再有兜底把它硬掰成 feedback——正确行为是澄清（问"具体想改哪
+    里"），而不是猜一个方向就动手重规划。
+    """
     from agent.graph.state import make_initial_state
 
     router_mod = _patch_classify_ambiguous(monkeypatch)
@@ -233,5 +243,5 @@ def test_router_l3_ambiguous_real_feedback_still_feedback(monkeypatch):
     st["itinerary"] = {"summary": "上一轮方案"}
 
     out = router_mod.router_node(st)
-    # 红线：认不出软约束的真反馈，仍兜成 feedback
-    assert out["route_kind"] == "feedback", "真反馈（无软约束）必须仍兜成 feedback"
+    # 归并已删：认不出软约束/具体方向时，问一句而不是猜
+    assert out["route_kind"] == "ambiguous", "识别不出具体方向时应澄清，不应默默重规划"

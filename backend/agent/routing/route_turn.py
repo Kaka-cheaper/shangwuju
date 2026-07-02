@@ -1,29 +1,37 @@
-"""agent.routing.route_turn —— 纯函数路由主干（V3 抽取，T2）。
+"""agent.routing.route_turn —— 纯函数路由主干（V3 抽取，T2；ADR-0011 决策 2 / E-1 精修）。
 
 把 router_node 的整条级联从 graph 层抽到 routing bounded context。
 graph/nodes/router.py 退薄为 adapter，体内只剩"调 route_turn → 展平为 dict"。
 
 禁止：本模块不得 import agent/graph/*（否则 routing→graph 成环）。
 
-级联层次（行为原样搬，逐字保持）：
-    Layer 0  注入检测（不调 LLM）→ RouteOutcome(off_topic, SafeRefusalDecision)
+级联层次（ADR-0011「一脑三壳」E-1 收口后）：
+    Layer 0  壳1·注入检测（不调 LLM）→ RouteOutcome(off_topic, SafeRefusalDecision)
+    壳2      canonical 字面短路（不调 LLM）→ RouteOutcome(planning|feedback|chitchat, ...)
+             取代旧 Layer 1.5 的规划信号表 fast path（词表已删，见 ADR-0011 决策 2）；
+             先于 Layer 1——系统发出的精确全串确定性高于启发式信号（深审修正）。
     Layer 1  强信号反馈（不调 LLM）→ RouteOutcome(feedback, None)
-    Layer 1.5 正向规划 fast path（不调 LLM）→ RouteOutcome(planning|feedback, ...)
     Layer 1.7 用户画像问答（规则，不调 LLM）→ RouteOutcome(chitchat, PersonaDecision)
-    Layer 2  LLM 分类（带 has_itinerary 上下文）
+    Layer 2  LLM 分类（带 has_itinerary 上下文）；异常/失败 → 壳3 保守地板
+             （fallback_decision：无方案→陪聊引导，有方案→澄清引导，绝不 PLANNING）
     Layer 3  会话内对话行为统一判定（classify_dialogue_act → act→RouteKind 映射）
-    兜底归并  has_itinerary + planning/ambiguous → feedback
+
+    旧"兜底归并"（has_itinerary + planning/ambiguous → 强制 feedback）已删除
+    （ADR-0011 决策 2：没有任何下游会"问"，实测「我不想玩这个了」被硬猜重规划）。
+    删除后 ambiguous 走 chitchat 气泡通道（emit_router 对非 planning/feedback kind
+    一律推 CHITCHAT_REPLY），planning 在会话中期也能触达 intent 路径（ADR-0012
+    背景 5 描述的"会话中期新需求"场景，intent_node 已收口 episode 字段重置）。
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 # ── 路由基础设施（routing 包内，无环）
 from agent.routing.kinds import RouteKind
 from agent.routing.outcome import RouteOutcome
+from agent.routing.canonical_shortcut import canonical_shortcut_decision
 
 # ── core 层（routing 依赖 core，不依赖 graph）
 from agent.core.feedback_detector import looks_like_feedback_strong
@@ -45,87 +53,6 @@ from agent.core.dialogue_acts import DialogueAct, classify_dialogue_act
 from agent.intent.prompts.router_prompt import PRIMARY_CTAS
 
 logger = logging.getLogger("agent.routing.route_turn")
-
-
-# ============================================================
-# 信号表（canonical，从 router.py 原样搬入）
-# ============================================================
-
-_PLANNING_TIME_SIGNALS = (
-    "今天下午",
-    "明天下午",
-    "周末",
-    "周日",
-    "周六",
-    "周五晚",
-    "周五晚上",
-    "今晚",
-    "今天晚上",
-    "明天晚上",
-    "下午",
-    "晚上",
-)
-
-_PLANNING_ACTION_SIGNALS = (
-    "出去玩",
-    "出去走",
-    "散步",
-    "出门",
-    "去玩",
-    "找个地方",
-    "看展",
-    "k 歌",
-    "k歌",
-    "ktv",
-    "唱歌",
-    "撸串",
-    "夜宵",
-    "下午茶",
-    "聚会",
-    "约会",
-    "见面",
-    "接待",
-    "安排",
-)
-
-_PLANNING_COMPANION_SIGNALS = (
-    "老婆",
-    "孩子",
-    "宝宝",
-    "娃",
-    "外公",
-    "外婆",
-    "爷爷",
-    "奶奶",
-    "父母",
-    "妈妈",
-    "爸爸",
-    "客户",
-    "闺蜜",
-    "女朋友",
-    "男朋友",
-    "朋友",
-    "兄弟",
-    "同事",
-    "同学",
-    "室友",
-)
-
-_PLANNING_CONSTRAINT_SIGNALS = (
-    "公里以内",
-    "公里内",
-    "km以内",
-    "km内",
-    "公里",
-    "千米",
-    "几个小时",
-    "几小时",
-    "半天",
-    "预算",
-    "人均",
-    "别太贵",
-    "别离家太远",
-)
 
 
 # ============================================================
@@ -167,27 +94,6 @@ def _looks_like_feedback_strong_from_state(utterance: str, itinerary: Any) -> bo
         return False
     txt = (utterance or "").strip()
     return looks_like_feedback_strong(txt)
-
-
-def _looks_like_new_planning(user_input: str) -> bool:
-    """Detect clear planning requests before asking the LLM router."""
-    text = (user_input or "").lower().strip()
-    if len(text) < 6:
-        return False
-
-    has_time = any(s in text for s in _PLANNING_TIME_SIGNALS)
-    has_action = any(s in text for s in _PLANNING_ACTION_SIGNALS)
-    has_companion = any(s in text for s in _PLANNING_COMPANION_SIGNALS)
-    has_constraint = any(s in text for s in _PLANNING_CONSTRAINT_SIGNALS)
-    has_group_size = bool(re.search(r"\b\d+\s*(?:个)?人\b", text))
-
-    if has_time and (has_action or has_companion or has_group_size):
-        return True
-    if has_action and (has_companion or has_constraint or has_group_size):
-        return True
-    if has_companion and has_constraint:
-        return True
-    return False
 
 
 # ============================================================
@@ -263,30 +169,29 @@ def route_turn(
         )
         return RouteOutcome(kind="off_topic", decision=_safe_refusal_decision())
 
+    # ---- 壳2：canonical 字面短路（替代旧 Layer 1.5 规划信号表 fast path）----
+    # 深审修正(E-1):壳2 必须先于 Layer 1——canonical 是系统自己发出的精确全串
+    # (FP≈0 的确定性),优先级高于启发式强信号。否则场景文案里恰好含保留词
+    # (如 S1「预算别太贵」的「贵」)时,会话中期点场景卡会被 Layer 1 吞成
+    # feedback 去改旧方案,而不是按语义开新规划。
+    shortcut = canonical_shortcut_decision(utterance, has_itinerary=has_itinerary)
+    if shortcut is not None:
+        return shortcut
+
     # ---- Layer 1：强信号启发式（has_itinerary + 强信号子集） ----
     if _looks_like_feedback_strong_from_state(utterance, itinerary):
         return RouteOutcome(kind="feedback", decision=None)
-
-    # ---- Layer 1.5：正向规划 fast path（无场景枚举，仅看通用规划信号）----
-    if _looks_like_new_planning(utterance):
-        if has_itinerary:
-            # 会话内没有"全新需求"：读着像新规划的话，也当带上下文的反馈，交 refiner
-            return RouteOutcome(kind="feedback", decision=None)
-        return RouteOutcome(
-            kind="planning",
-            decision=fallback_decision(utterance, reason="planning_fast_path"),
-        )
 
     # ---- Layer 1.7：用户画像问答（规则识别，不调 LLM）----
     persona_decision = build_persona_decision(utterance, user_id)
     if persona_decision is not None:
         return RouteOutcome(kind="chitchat", decision=persona_decision)
 
-    # ---- Layer 2：LLM 分类（带 has_itinerary 上下文） ----
+    # ---- Layer 2：LLM 分类（带 has_itinerary 上下文）；失败 → 壳3 保守地板 ----
     try:
         decision = _classify(utterance, client=client, has_itinerary=has_itinerary)
     except Exception:  # noqa: BLE001
-        decision = fallback_decision(utterance)
+        decision = fallback_decision(utterance, has_itinerary=has_itinerary)
 
     route_kind: RouteKind = decision.input_kind  # type: ignore[assignment]
 
@@ -296,9 +201,5 @@ def route_turn(
         outcome = _act_outcome_to_route_outcome(act_result)
         if outcome is not None:
             return outcome
-
-    # 兜底归并：已有方案 + planning/ambiguous → feedback
-    if has_itinerary and route_kind in ("planning", "ambiguous"):
-        return RouteOutcome(kind="feedback", decision=None)
 
     return RouteOutcome(kind=route_kind, decision=decision)

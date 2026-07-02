@@ -77,7 +77,15 @@ async def _collect_confirm(req: ChatConfirmRequest) -> list[SseEvent]:
     return [ev async for ev in _graph_confirm(req)]
 
 
-_USER_INPUT = "今天下午想带孩子出去玩"
+# ADR-0011 决策 2（E-1）：原文案"今天下午想带孩子出去玩"曾靠已删除的规划信号表
+# fast path 确定性落进 planning；词表删除后同样文本要走到 Layer 2 LLM 分类才能
+# 判 planning，而 stub 模式下 classify_input 对任何输入都必然抛异常（会落到新的
+# 保守地板 chitchat 引导，连 intent 节点都进不去）。本文件只关心确认回写 wiring，
+# 不关心路由本身，改用壳2 canonical 字面短路文本（/scenarios S2）确定性直达
+# planning，不依赖 LLM。
+from agent.routing.canonical_shortcut import DEMO_SCENARIOS  # noqa: E402
+
+_USER_INPUT = DEMO_SCENARIOS[1]["input"]  # S2："今晚和兄弟出来撸串喝点酒，人均 50 左右就行"
 
 
 def test_confirm_writes_back_graph_state_and_next_turn_continues():

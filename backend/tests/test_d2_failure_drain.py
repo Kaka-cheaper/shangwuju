@@ -37,12 +37,41 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
 
 
 from agent.graph import sse_adapter as sse  # noqa: E402
+from agent.graph.nodes import router as router_mod  # noqa: E402
 from agent.planning.blueprint.blueprint import (  # noqa: E402
     BlueprintNode,
     BlueprintTargetKind,
     PlanBlueprint,
 )
 from schemas.intent import Companion, IntentExtraction  # noqa: E402
+from schemas.router import InputKind, RouterDecision  # noqa: E402
+
+
+# ============================================================
+# ADR-0011 决策 2（E-1）垫桩：本文件所有用例走的 _USER_INPUT 曾靠已删除的规划
+# 信号表 fast path（Layer 1.5）确定性落进 planning。词表删除后，同样的文本要
+# 走到 Layer 2 LLM 分类才能判 planning——但 stub 模式下 classify_input 对任何
+# 输入都必然抛异常（StubLLMClient.chat 恒返 intent 形状 JSON，RouterDecision
+# 校验必失败），会落到新的保守地板（无方案 → chitchat 引导），导致这批"测规划链
+# 降级阶梯"的用例连 intent 节点都进不去。这批用例测的是 planner/assemble/critic/
+# narrate/intent/search worker 的异常降级，不是路由本身，故 monkeypatch 钉住
+# classify_input 恒返 planning（ADR-0011 前置核实②-B 类：垫桩而非改期望值）。
+# ============================================================
+
+
+@pytest.fixture(autouse=True)
+def _pin_router_to_planning(monkeypatch):
+    def _always_planning(*args, **kwargs):
+        return RouterDecision(
+            input_kind=InputKind.PLANNING,
+            confidence=0.9,
+            reply_text="正在为你规划下午行程……",
+            tone="warm",
+            cta_chips=[],
+            rationale="test_d2_failure_drain 垫桩：钉住 planning，测降级阶梯不测路由",
+        )
+
+    monkeypatch.setattr(router_mod, "classify_input", _always_planning)
 
 
 # ============================================================

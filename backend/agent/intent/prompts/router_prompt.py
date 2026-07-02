@@ -64,6 +64,18 @@ PRIMARY_CTAS = [
 ]
 
 
+# 保守地板（ADR-0011 决策 2 / E-1）"有方案"分支的三个澄清 chip。
+# 送出文本是**壳2 canonical 短路**的常量表来源之一（agent/routing/canonical_shortcut.py）：
+# 用户点击后原样回传，字面精确匹配即可确定性路由，不依赖 LLM/关键词猜测。
+# 不进 PRIMARY_CTAS/_WHITELIST_SENDS——这三个 chip 由 fallback_decision 直接构造，
+# 不经 classify_input 的 LLM 白名单校验，两套白名单职责不同不可混用。
+FLOOR_CLARIFY_CTAS = [
+    {"label": "调整一下方案", "send": "调整一下方案", "icon": "🛠️"},
+    {"label": "重新规划一个", "send": "重新规划一个", "icon": "🔄"},
+    {"label": "就这样挺好", "send": "就这样挺好", "icon": "👍"},
+]
+
+
 def _format_white_list() -> str:
     """把白名单序列化进 prompt，供 LLM 精确复制。"""
     lines: list[str] = []

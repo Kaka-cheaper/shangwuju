@@ -2,10 +2,27 @@
 """verify_router —— Phase 0.8 输入域路由端到端验证。
 
 跑两组用例：
-- stub 模式：关键词 fast path 命中 5 类 + 主路径透传
-- 真链路兜底验证：真 LLM 失败时仍能落到 fast path / fallback
+- stub 模式：5 类非规划输入 + 主路径透传
+- 真链路兜底验证：真 LLM 失败时仍能落到保守地板
 
 不依赖真 LLM API key（默认 stub 模式）。
+
+ADR-0011 决策 2（E-1）行为更新：
+- StubLLMClient 对任何 prompt 都固定返回"意图抽取"形状的 JSON（不含
+  input_kind），classify_input 在 stub 模式下**恒抛异常**——这在 E-1 之前
+  就已是事实，不是本次改动引入的。旧地板"LLM 不可用→PLANNING"因此让 stub
+  模式下的 meta/chitchat/emotional/off_topic/ambiguous 5 类全部被误判成
+  planning（ADR-0011 背景 2 实测钉死的病灶）。新地板保守退让：无方案 →
+  一律 chitchat 陪聊引导（不再冒充精确的 6 类分类结果）。这 5 个 case 的
+  expected_kind 因此统一改为 "chitchat"（不再是各自的类别名）——是"落到
+  保守地板"这件事本身的验证，不是"LLM 精确分类出 5 个不同类别"的验证
+  （那需要真 LLM 或更细的 mock，不在本脚本 stub-only 范围内）。
+
+已知无关缺陷（未修复，超出 ADR-0011 范围）：
+    /chat/stream 端点已在更早的重构中随 V1 legacy 一并退役（现为 /chat/turn，
+    见 api/chat.py），本脚本调用它会得到 HTTP 404——这是本脚本自身的 bit-rot，
+    与路由行为无关，不在本次 E-1 修复范围内（需要单独校对 /chat/turn 的
+    request/response 契约才能安全重写，留给触碰该端点的改动去修）。
 
 运行：
     cd backend
@@ -72,12 +89,15 @@ def _chitchat_payload(events: list[dict[str, Any]]) -> dict[str, Any]:
 def main() -> int:
     client = TestClient(app)
 
+    # ADR-0011 决策 2（E-1）：stub 模式下 classify_input 恒抛异常（见模块
+    # docstring），5 类都会落到保守地板——无方案时地板恒返 chitchat，不再冒充
+    # 精确的 6 类分类结果。
     cases: list[tuple[str, str, str]] = [
-        ("S-meta",      "你是谁",        "meta"),
+        ("S-meta",      "你是谁",        "chitchat"),
         ("S-chitchat",  "你好",          "chitchat"),
-        ("S-emotional", "我累死了",       "emotional"),
-        ("S-off_topic", "1+1=?",         "off_topic"),
-        ("S-ambiguous", "出去玩",         "ambiguous"),
+        ("S-emotional", "我累死了",       "chitchat"),
+        ("S-off_topic", "1+1=?",         "chitchat"),
+        ("S-ambiguous", "出去玩",         "chitchat"),
     ]
 
     failures: list[str] = []

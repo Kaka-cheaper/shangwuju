@@ -49,6 +49,7 @@ from agent.graph.state import (  # noqa: E402
     reset_for_new_episode,
 )
 from agent.graph.nodes.intent import intent_node  # noqa: E402
+from agent.routing.canonical_shortcut import DEMO_SCENARIOS  # noqa: E402
 from agent.routing.outcome import RouteOutcome  # noqa: E402
 
 
@@ -166,7 +167,10 @@ def test_intent_path_resets_episode_state_mid_session(monkeypatch):
     session_id = "e0b_intent_midsession_reset"
 
     # ---- 第一轮：正常出方案（首轮走 intent 路径，has_itinerary=False 不会被兜底归并）----
-    events1 = _drive_turn(user_input="今天下午想带孩子出去玩", session_id=session_id)
+    # ADR-0011 决策 2（E-1）：原文案"今天下午想带孩子出去玩"曾靠已删除的规划信号表
+    # fast path 落进 planning；词表删除后改用壳2 canonical 字面短路文本
+    # （/scenarios S2）确定性直达 planning，不依赖 stub LLM。
+    events1 = _drive_turn(user_input=DEMO_SCENARIOS[1]["input"], session_id=session_id)
     assert any(e.type.value == "itinerary_ready" for e in events1), (
         f"第一轮应产出方案，events={[e.type.value for e in events1]}"
     )

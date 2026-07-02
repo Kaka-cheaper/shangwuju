@@ -18,10 +18,8 @@ _SEMANTIC_FEEDBACK = [
     "太赶了",
     "节奏太快",
     "想轻松点",
-    "再优雅一点",
     "行程太满了",
     "能不能轻松些",
-    "这个不太好",
 ]
 
 
@@ -29,6 +27,25 @@ _SEMANTIC_FEEDBACK = [
 def test_semantic_feedback_detected(text: str) -> None:
     """R2.2：语义类反馈措辞应被识别为 feedback。"""
     assert looks_like_feedback(text) is True, f"{text!r} 应被识别为反馈"
+
+
+# ADR-0011 决策 2（E-1）：纯品味/评价词清洗——"优雅/不太好"等不指向任何可调参数
+# （距离/价格/时长/节奏/时间），且codebase 里没有任何模块（如 refiner 的
+# pace_profile 调整）依赖这两个词做具体动作，纯语义品评，误吞新需求面大
+# （"想要精致优雅一点的下午"这类新需求也会含"优雅"），职责移交 LLM（脑子）。
+# 与仍保留的 SESSION_TOO_LONG 词族（太久/太长/盯不住/无聊/扛不住/腻了，见
+# test_refiner_session_too_long.py 的同步契约）不同——那组词有 refiner.py 的
+# 具体调参逻辑撑腰，这两个词没有，故删除而非保留。
+_PURGED_TASTE_WORDS = [
+    "再优雅一点",
+    "这个不太好",
+]
+
+
+@pytest.mark.parametrize("text", _PURGED_TASTE_WORDS)
+def test_purged_taste_words_not_feedback(text: str) -> None:
+    """ADR-0011 E-1：纯品味/评价词已从词表删除，不应再被识别为 feedback。"""
+    assert looks_like_feedback(text) is False, f"{text!r} 应已随词表清洗不被识别为反馈"
 
 
 # R2.3：明确的新规划需求（不能被误判为反馈）

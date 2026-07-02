@@ -339,11 +339,22 @@ def test_router_missing_required_field_raises():
     assert ei.value.reason == "schema_validation_failed"
 
 
-def test_router_fallback_decision_is_planning():
-    """fallback_decision 总是返 planning，让原 planner 兜底。"""
-    decision = fallback_decision("你是谁")
-    assert decision.input_kind == InputKind.PLANNING
-    assert decision.cta_chips == []
+def test_router_fallback_decision_is_conservative_floor():
+    """ADR-0011 决策 2：fallback_decision 是保守地板，绝不返回 PLANNING。
+
+    旧断言"fallback_decision 总是返 planning"正是 ADR-0011 背景 2 实测钉死的
+    病灶（stub/断网时「你好」「asdfgh」全部被当规划硬跑）——本测试翻转为断言
+    新的保守行为：无方案 → CHITCHAT 陪聊引导；有方案 → AMBIGUOUS 澄清引导。
+    """
+    no_plan = fallback_decision("你是谁")
+    assert no_plan.input_kind == InputKind.CHITCHAT
+    assert no_plan.input_kind != InputKind.PLANNING
+    assert len(no_plan.cta_chips) >= 1
+
+    with_plan = fallback_decision("你是谁", has_itinerary=True)
+    assert with_plan.input_kind == InputKind.AMBIGUOUS
+    assert with_plan.input_kind != InputKind.PLANNING
+    assert len(with_plan.cta_chips) == 3
 
 
 def test_router_invalid_input_kind_raises():
