@@ -1,4 +1,4 @@
-﻿"""agent.planner —— ReAct 规划主循环（Planning）。
+﻿"""agent.planning.planners.rule_planner —— 规则化 ReAct 规划主循环（rule 地板）。
 
 ⚠️ 冻结声明（2026-05-22）：
     本文件是 hackathon 早期的 rule-based ReAct 主路径，自 LangGraph 主架构上线后
@@ -213,12 +213,17 @@ def plan_itinerary(
         return _abort(tracer, FailureReason.NOT_FOUND, "用户画像为空")
 
     # ---- 1.5. 决定本次行程要哪些中间节点（edge_v1：节点=intent 的函数）----
-    # 旧版用 decide_segments 返「段集合」frozenset；edge_v1 起改为 decide_nodes 返「中间节点 kind 列表」。
-    # 此处仍保留 segments 内部命名（兼容下游 _resolve_time_window / _assemble_itinerary 实现细节），
-    # 但语义已等同于 ALWAYS_INCLUDED ∪ {主活动?} ∪ {用餐?} ∪ {转场?}。
-    from ..blueprint.node_decider import decide_segments, explain_segments
-    segments = decide_segments(intent)
-    tracer.emit("agent_thought", {"text": explain_segments(intent, segments)})
+    # ADR-0010 D-8：直调 decide_nodes（正名），不再经「段集合」兼容别名 decide_segments
+    # 中转——那层转换只是把 decide_nodes 的 list 包一层 frozenset 再塞两个从不被
+    # 下游查询的过程段占位符（「出发/返回/转场」，见 node_decider.py 已删除的
+    # decide_segments 历史实现），对 needs_main/needs_dining 的判定结果无差别。
+    # 此处仍保留 segments 这个内部命名（下游 _resolve_time_window / _assemble_itinerary
+    # 沿用 frozenset[str] 形参签名），但其内容现在就是 decide_nodes 的 list 直接转
+    # frozenset，不再掺入「出发/转场/返回」这类 edge_v1 已用 hop 表达的过程段名。
+    from ..blueprint.node_decider import decide_nodes, explain_nodes
+    mid_nodes_kinds = decide_nodes(intent)
+    tracer.emit("agent_thought", {"text": explain_nodes(intent, mid_nodes_kinds)})
+    segments = frozenset(mid_nodes_kinds)
 
     needs_main = "主活动" in segments
     needs_dining = "用餐" in segments

@@ -68,22 +68,6 @@ KIND_MAIN: Final[str] = "主活动"
 KIND_DINING: Final[str] = "用餐"
 """用餐节点（target_kind=restaurant）。"""
 
-# 完整中等场景的中间节点（新模型不再含「出发 / 转场 / 返回」过程段）
-FULL_MID_NODES: Final[tuple[str, ...]] = (KIND_MAIN, KIND_DINING)
-"""5 段时代的「3 段中间节点」≡ edge_v1 的 (主活动, 用餐) 二节点。"""
-
-# 兼容别名：旧 FULL_SEGMENTS / ALWAYS_INCLUDED 仍被部分代码 import；
-# Wave 5 期间保留以避免一次性大改。删除时机：Task 14 测试同步完成后。
-ALWAYS_INCLUDED: Final[frozenset[str]] = frozenset({"出发", "返回"})
-"""旧版「永远包含的过程段」语义；edge_v1 等同于「首尾 home 节点 + 路上 hop 自动补」。
-保留仅供兼容引用；新代码请直接基于 nodes/hops 模型推理。"""
-
-FULL_SEGMENTS: Final[frozenset[str]] = frozenset(
-    {"出发", "主活动", "转场", "用餐", "返回"}
-)
-"""旧版 5 段集合；edge_v1 已弃用，仅作过渡 alias 保留以免外部 import 损坏。"""
-
-
 # ============================================================
 # 用餐 / 沉浸场景词典
 # ============================================================
@@ -165,33 +149,6 @@ def decide_nodes(intent: IntentExtraction) -> list[str]:
 
 
 # ============================================================
-# 兼容 alias：旧函数 decide_segments
-# ============================================================
-
-
-def decide_segments(intent: IntentExtraction) -> frozenset[str]:
-    """兼容 alias —— 把 decide_nodes 的中间节点列表转回旧「段集合」语义。
-
-    转换规则（仅供过渡期 hybrid ILS / 旧 critic 使用）：
-    - 永远含「出发 / 返回」（home 起讫的 hop 概念，旧代码仍按 stage 名查找）
-    - 含 KIND_MAIN → 加「主活动」
-    - 含 KIND_DINING → 加「用餐」
-    - 含 主活动 + 用餐 → 加「转场」（新模型由 hop 表达，旧代码仍判段名）
-
-    Wave 5 完结后，所有调用方应迁移到 decide_nodes，本函数与 alias 同步删除。
-    """
-    nodes = decide_nodes(intent)
-    out: set[str] = set(ALWAYS_INCLUDED)  # {"出发", "返回"}
-    if KIND_MAIN in nodes:
-        out.add(KIND_MAIN)
-    if KIND_DINING in nodes:
-        out.add(KIND_DINING)
-    if KIND_MAIN in nodes and KIND_DINING in nodes:
-        out.add("转场")
-    return frozenset(out)
-
-
-# ============================================================
 # 辅助：诊断标签（给 trace agent_thought 用）
 # ============================================================
 
@@ -212,10 +169,3 @@ def explain_nodes(intent: IntentExtraction, nodes: Iterable[str]) -> str:
         f"，dietary={'有' if intent.dietary_constraints else '无'}"
         f" → 中间节点 [{kept}]"
     )
-
-
-def explain_segments(intent: IntentExtraction, segments: Iterable[str]) -> str:
-    """旧 explain_segments 别名（兼容期保留；内部转发给 explain_nodes）。"""
-    # 把段集合中的 mid kind 抽出来重述（"出发"/"返回"/"转场" 是过程段，不进 explain_nodes 输入）
-    mid_kinds = [s for s in segments if s in {KIND_MAIN, KIND_DINING}]
-    return explain_nodes(intent, mid_kinds)

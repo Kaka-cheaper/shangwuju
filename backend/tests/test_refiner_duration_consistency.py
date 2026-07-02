@@ -225,7 +225,8 @@ def test_screenshot_bug_one_hour_feedback_caps_total_minutes():
     - refiner 真 LLM 路径输出 [1,1] 一致性（_enforce_duration_consistency）
     - refiner 把反馈拼到 raw_input
     - planner 入口 _enforce_intent_duration_from_raw 兜底
-    - segment_decider 决定削段
+    - node_decider.decide_nodes 决定削段（ADR-0010 D-8 起 rule_planner 直调正名，
+      不再经已删除的 segment_decider/decide_segments 兼容别名）
     - _resolve_time_window 接受 segments 不再 30min 下限拉爆
     - 二次裁段在 duration ≤ 2h 时启用
     """

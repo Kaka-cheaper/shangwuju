@@ -69,15 +69,17 @@ def test_runtime_imports() -> None:
 
 
 def test_planning_planners_imports() -> None:
-    """spec D v3：原 legacy/ 下的 7 个非死代码 + 1 prompt 全部解冻迁回 planning/。"""
+    """spec D v3：原 legacy/ 下的 7 个非死代码 + 1 prompt 全部解冻迁回 planning/。
+
+    ADR-0010 D-8：`segment_decider` 兼容 alias 模块已删除（生产侧唯一调用方
+    `rule_planner.py` 迁移到 `node_decider.decide_nodes` 正名后，该 shim 归零
+    调用方）——不再在这里断言其可 import，见下方 `test_old_paths_no_longer_
+    importable` 已把它移进「必须 ImportError」清单。
+    """
     from agent.planning.planners.rule_planner import (  # noqa: F401
         plan_itinerary,
     )
     from agent.planning.planners.ils_planner import plan_hybrid  # noqa: F401
-    from agent.planning.planners.segment_decider import (  # noqa: F401
-        FULL_SEGMENTS,
-        decide_segments,
-    )
 
 
 # ============================================================
@@ -145,6 +147,9 @@ def test_planning_planners_imports() -> None:
         "agent.planning.planners.llm_first_planner",
         # ADR-0009 C-3：ils_score_critic（4 维打分 critic）删除，plan_hybrid 改吃统一 critic
         "agent.planning.critic.ils_score_critic",
+        # ADR-0010 D-8：segment_decider 兼容 alias 删除（decide_segments/FULL_SEGMENTS/
+        # ALWAYS_INCLUDED/explain_segments 随之删除，rule_planner 已迁移到 decide_nodes 正名）
+        "agent.planning.planners.segment_decider",
     ],
 )
 def test_old_paths_no_longer_importable(old_path: str) -> None:

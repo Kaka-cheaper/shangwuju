@@ -54,7 +54,7 @@ node.start_time，含 hop 通勤耗时），注册在 Stage 1 hard——填补 A
   与 social_context 同一注册模式。
 - temporal_feasibility (G2 拆位)：可解析 → Stage 0 check_time_parseable；
   hop/buffer 对齐 → Stage 1 check_temporal_alignment。
-- nodes_incomplete (B1 修订)：改按 decide_nodes→target_kind 判，不按自由文本 kind。
+- nodes_incomplete (D-8a 再修订)：改为「≥1 个非 home 活动节点」结构底线——多活动模型下组成由搜索层决定，B-2a 时代「对照 decide_nodes 逐种要求 kind」已废（见 _rules/checks.py:check_nodes_incomplete docstring）。
 - opening_hours (B-2b 新增)：Stage 1 hard，None-guard 防重蹈 O4 的 TypeError。
 """
 
@@ -108,7 +108,7 @@ class CheckSpec:
 REGISTRY: list[CheckSpec] = [
     # ── Stage 0: 结构门（命中任一 → 短路，不运行 Stage 1/2） ──────────────
     CheckSpec(ViolationCode.INVARIANT_BROKEN, 0, "hard", check_invariants),
-    # B-2a: check_nodes_incomplete 改按 decide_nodes→target_kind 判（非自由文本 kind）
+    # D-8a: check_nodes_incomplete = 「≥1 个非 home 活动节点」结构底线（ADR-0010 决策 9）
     CheckSpec(ViolationCode.NODES_INCOMPLETE, 0, "hard", check_nodes_incomplete),
     # B-2a G2 拆位：时间可解析 → Stage 0 结构门（原 check_temporal_feasibility 拆出）
     CheckSpec(ViolationCode.TIMELINE_INCONSISTENT, 0, "hard", check_time_parseable),

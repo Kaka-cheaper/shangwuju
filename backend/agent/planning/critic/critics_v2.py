@@ -137,7 +137,7 @@ def validate_itinerary(
     顺序约定（ADR-0008 B-2b 分阶段）：
     Stage 0（结构门，命中短路）：
       1. INVARIANT_BROKEN（防御性兜底）
-      2. NODES_INCOMPLETE（按 decide_nodes→target_kind 判，B-2a B1 修订）
+      2. NODES_INCOMPLETE（≥1 个非 home 活动节点，ADR-0010 决策 9 · D-8a）
       3. TIMELINE_INCONSISTENT / check_time_parseable（时间可解析性，G2 拆位）
       4. TOOL_RESPONSE_INCONSISTENCY（hallucination 防护）
     Stage 1（hard 语义，gate 修复）：
