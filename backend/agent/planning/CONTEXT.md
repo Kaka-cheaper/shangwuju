@@ -33,3 +33,6 @@
 - **age_caps（年龄上限单一真相源）** — 一张「年龄 → 单段时长 cap」表（`critic/age_caps.py`），由**组装器（执行）/ critic（兜底）/ grounding（质量）/ ILS penalty（偏置）四方共读**。历史上 critic / blueprint / grounding 各存一份且相互漂移；收口为单表。见 ADR-0008 / ADR-0009。
 - **修复算子（repair operator）** — 一条 hard `Violation` 触发的、ILS 在 `(main_poi, restaurant, dining_time)` 候选空间上的重搜响应：拉黑肇事实体 /（餐厅,时段）对 + 过滤后重解。soft 违规**不**产生修复算子（只叙事）。见 ADR-0009。
 - **闭环修复 backprompt（critic-to-solver）** — critic 把 hard 违规反馈给 **ILS 算法**（不是 LLM）驱动的一次有向重搜（min-conflicts 的 directed perturbation）。区别于 `llm_backprompt`（反馈给 LLM 重生成）。ILS 由此成为 replan 阶梯里「产出被真正采用」的一条梯级（非装饰），区别于同产品的 rule 地板。见 ADR-0009。
+- **活动 / visit（均质访问）** — 搜索层里 POI 和餐厅统一为「一次访问」，各带 (类型、自然时长、时间窗、utility)；**没有「主活动/用餐」特权划分**。规划 = 在时间预算内选一个访问子集 + 顺序 + 时刻（TOPTW）。见 ADR-0010。
+- **锚点（anchor）** — 访问的三级谱：**pinned**（用户明说，必进方案）/ **soft-anchored**（语境强信号、近乎必有，如商务局的饭）/ **emergent**（可有可无，utility 定）。构造两段：先放锚点、再围着它们涌现填充。「饭要不要」由此**随语境涌现，非硬编码必到**。见 ADR-0010。
+- **节奏留白（slack）** — 行程 = 活动 + 通勤 + **slack**；slack 由客群（companions/age/social_context）决定，是一等公民（休息/悠闲），不是浪费。幼童/高龄/独处 → 多 slack、活动更少；朋友热闹 → 少 slack、活动更多。见 ADR-0010。

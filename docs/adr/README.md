@@ -17,6 +17,7 @@
 | [0007](0007-collapse-planning-to-langgraph-stack.md) | 规划层三栈收口为单一 LangGraph 栈 + rule 地板 | 规划 | Accepted | ✅ 已落地 | 5 簇 test-first（commit 4cbc09e→50a9709）;910 passed/0 failed |
 | [0008](0008-critic-staged-single-registry.md) | critic 校验层重设计：分阶段 hard/soft 单注册表 | 规划 | Accepted | 🔁 部分落地 | Phase A/B-1/B-2a/B-2b 已落地（commit 2535d94/f7f7ad2/7977097/963b39a，936 passed）；Phase C（接 ILS + 删死 blueprint 层）转由 ADR-0009 承接（已落地）|
 | [0009](0009-ils-real-rung-and-critic-repair-loop.md) | ILS 升为真实 replan 梯级 + critic-to-solver 闭环修复 | 规划 | Accepted | ✅ 已落地 | C-1→C-5 全落地（f35fccb→fb29dcf，950 passed）；ILS 真组装候选 + 年龄进组装器(α) + critic-to-solver 有界修复闭环 + 删死 blueprint critics/ils_score_critic |
+| [0010](0010-multi-activity-toptw-planning.md) | 规划升为按需求涌现的多活动 TOPTW | 规划 | Accepted | ⏳ 待实现 | #8 根因=问题被削成 1+1；均质活动池 + 锚定/涌现 + slack 节奏 + 窗感知调度 + 修复闭环迁移；shake 存废实测定；UX 验收=S1-S8 结构差异+不静默；按 D-1→D-8 TDD |
 
 ## 图例
 
