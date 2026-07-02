@@ -176,7 +176,12 @@ def pace(intent: IntentExtraction) -> str:
 SLACK_FRACTION_RELAXED = _env_float("PLANNER_SLACK_FRACTION_RELAXED", 0.30)
 SLACK_FRACTION_MEDIUM = _env_float("PLANNER_SLACK_FRACTION_MEDIUM", 0.15)
 SLACK_FRACTION_ENERGETIC = _env_float("PLANNER_SLACK_FRACTION_ENERGETIC", 0.05)
-"""初值来源与"每档翻倍"设计见模块 docstring 判断点 2；env 可调，供 D-5 实测校准。"""
+"""初值来源与"每档翻倍"设计见模块 docstring 判断点 2；env 可调供 D-5 实测校准——
+**注意绑定时机**（code-review finding #8）：`_env_float` 在模块 import 时求值一次，
+env 必须在**进程启动前**设置；import 后 setenv/monkeypatch.setenv 不生效（与
+`ils_planner.ILS_ITERATIONS` 等既有 env 常量同一约定）。测试要改这些值请直接
+monkeypatch 模块属性（如 `monkeypatch.setattr(pace_budget, "SLACK_FRACTION_RELAXED", ...)`
+并注意 `_SLACK_FRACTION_BY_PACE` 字典也在 import 期绑定）。"""
 
 _SLACK_FRACTION_BY_PACE: dict[str, float] = {
     PACE_RELAXED: SLACK_FRACTION_RELAXED,

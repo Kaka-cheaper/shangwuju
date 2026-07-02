@@ -588,7 +588,10 @@ def route_commute_compactness(visits: Sequence[Visit]) -> float:
 
 
 DIVERSITY_REPEAT_PENALTY = _env_float("PLANNER_DIVERSITY_REPEAT_PENALTY", 0.15)
-"""同类别第二次起，每次扣这么多（轻量，非硬约束）。ADR-0010 决策 6"轻量多样性罚"。"""
+"""同类别第二次起，每次扣这么多（轻量，非硬约束）。ADR-0010 决策 6"轻量多样性罚"。
+绑定时机：import 期求值一次，env 须在进程启动前设置（code-review finding #8）。
+已知校准欠账（finding #6）：0.15 相对 base_score ~1.0 量级只能破平局，挡不住
+「同类第二家但分略高」——待 D-5/D-6 以 S1-S8 结构断言实测后调。"""
 
 
 def route_diversity_penalty(visits: Sequence[Visit]) -> float:

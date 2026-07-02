@@ -1,0 +1,571 @@
+"""agent.planning.planners.route_builder —— ADR-0010 D-4：锚定两段贪心插入构造。
+
+【定位（ADR-0010「三层解耦架构」的④——D-2/D-3 之上的构造层，暂不接线）】
+
+D-1（`activity_pool.py`）给出候选池 + `Visit` + utility；D-2（`route_scheduler.py`）
+给出「一组活动能否排开、怎么排」；D-3（`pace_budget.py`）给出「这一路线该填多满、
+留多少白」。三者都只回答各自的子问题，**没有一处决定「选哪些活动」**——这正是
+本模块的职责：**贪心插入构造**，把 D-1/D-2/D-3 的产出串成「选子集 + 排定」的
+完整答案（ADR 决策 3「锚定两段」+ 决策 7「先只做贪心插入构造」）。
+
+本模块是 D-4 子步产出，**纯新增，不接线**：不改 `ils_planner.py` 的
+`plan_hybrid`/`_greedy_init`/`CandidatePlan`，也不改 `rule_planner.py`/
+`replan.py`——接线是 D-5 的事（ADR 原文点名 D-4/D-5 拆开是为了不让 C-4 已上库
+的收敛守卫测试因大改动一次性变红）。
+
+【构造两段（ADR 决策 3）】
+
+1. **锚点段**：`pinned`（D-7 才有真实来源，本步只留列表接口）逐个 `try_insert`；
+   插不进——不静默丢弃，记入 `unmet_pinned`（advisory 数据，D-7 消费）。
+   **软锚饭**（`dining_soft_anchored`，规则见该函数 docstring）命中且尚无餐厅
+   入选时，从餐厅候选池挑 `base_score` 最高且 `try_insert` 可行的一家先放——
+   防止后续被高分 POI 挤成配角（ADR 决策 3 原话）。
+2. **涌现段**：循环对候选池剩余活动逐个 `try_insert` 试可行性、算 `marginal_score`，
+   选边际分最高者插入；四条停止条件按「先做能立刻判的，后做需要先跑一轮候选搜索
+   才能判的」顺序实现——细节见 `_greedy_fill_emergent` 的函数体注释与本文件
+   模块级判断点 2。
+
+【公开接口】
+
+- `dining_soft_anchored(intent) -> bool`：判"饭是否被软锚"（ADR 决策 10）。
+- `RouteBuildResult`：`build_route` 的产出值对象（排程 + 选中 visits + 未满足
+  清单 + 诊断用 pace/targets）。
+- `build_route(pois, restaurants, intent, weights, *, depart_min, commute_fn,
+  semantic_scores=None, pinned=None) -> RouteBuildResult`：核心构造入口。
+- `route_to_blueprint(schedule, intent, depart_min) -> PlanBlueprint`：
+  `RouteSchedule` → `PlanBlueprint`（下游 `assemble_from_blueprint` 消费）。
+- `make_commute_fn(user_profile) -> CommuteFn`：生产环境 `commute_fn` 的
+  生产包装（绑定 transport_pref + `functools.lru_cache`）。
+
+【调研留痕：本步自行拍板、值得读者知道的判断点】
+
+1. **`build_route` 签名不含 money `budget` 参数——D-4 内部取，不新增形参**：
+   `activity_pool.route_budget_penalty`/`route_score`/`marginal_score` 都需要一个
+   花费预算，但 `IntentExtraction` 无预算字段；`activity_pool.py` 模块 docstring
+   已把"从哪取"这个判断点显式留给 D-4。本模块选择在 `build_route` 内部调
+   `data.loader.load_user_profile().default_budget`（`_default_budget()`），**不**
+   把 `budget` 加进 `build_route` 的公开签名——ADR 任务原文给出的签名本就没有
+   这个形参，且 `_RULE_ASSEMBLER_ADAPTER`（`agent/graph/nodes/replan.py`）已有
+   先例：这一层（构造/装配层，区别于 D-1/D-2/D-3 的纯函数子层）本就直接调
+   `load_user_profile()` 取 `transport_preference`/`party_size` 这类"运行时环境"
+   数据，本函数取 `default_budget` 是同一性质的操作，不引入新的耦合方向。
+2. **涌现段循环的停止条件实现顺序，与 ADR 任务原文「①②③④」的编号顺序不同，
+   是刻意的，不是遗漏**：原文四条——① 无可行候选；② 活动数达上限；③ 总时长
+   ≥ 下限且已超软目标；④ 最高边际分 ≤0 且下限已满足。这四条共同决定"是否停"，
+   逻辑上是**析取**（任一为真就停）——按什么顺序检查不影响"停或不停"这个最终
+   结果，只影响**效率**（先做便宜的检查，避免做一次完整的候选搜索又扔掉）与
+   **哪个检查被最先短路**。① 和 ④ 都依赖"先跑一轮候选搜索"（① 是"搜索结果为
+   空"，④ 是"搜索结果里最高边际分 ≤0"），② 和 ③ 只看"已选活动的当前状态"、
+   完全不需要搜索。本实现因此按**先②后③，再做搜索，再①后④**的顺序求值——
+   累计效果与原文顺序完全等价（同样的输入下"停"与"继续"的判断结果不变），
+   只是把可以提前短路的检查提到搜索之前，避免"明知已经该停了，还要先扫一遍
+   候选池才发现"的浪费。
+3. **软锚饭：若 pinned 已经选中一家餐厅，跳过软锚挑选**：ADR 决策 3 说软锚是
+   为了"防止饭被高分 POI 挤成配角"——如果锚点段已经通过 pinned 钉入了一家
+   餐厅，"饭有没有"这件事已经被满足，再挑一家would 是画蛇添足（且会不当占用
+   活动数上限）。故软锚只在 `not any(v.kind == "restaurant" for v in selected)`
+   时触发，`selected` 取锚点段结束时**真正插入成功**的集合（pinned 插不进的
+   不算"已满足"，仍应触发软锚兜底）。
+4. **`RouteBuildResult.visits` 是构造（插入）顺序，不是排定（时间）顺序**：
+   `schedule.scheduled` 已经是**时间序**（`route_scheduler.schedule_route` 的
+   契约），`visits` 额外暴露**插入序**（pinned → 软锚 → 涌现依次插入的顺序）——
+   两者服务不同的断言："软锚饭先于涌现活动被放"这类"构造决策顺序"的断言要
+   看插入序（时间序上饭可能被排在中后段，那是 D-2 flow tie-break 的事，与
+   "构造时先确定要不要饭"是两回事，混用会让测试意图含混）。
+5. **餐厅/POI 去重按 `(kind, target_id)`，不按对象身份**：涌现候选池在锚点段
+   结束后会剔除已经出现在 `selected` 里的 `(kind, target_id)`——防止"同一个
+   实际地点"被 pinned 钉入后又在涌现段被当成不同候选重复插入第二次（pinned
+   来自 D-7 的结构化输入，candidate pool 来自搜索结果，两者引用的可能是不同
+   `Visit` 对象但指向同一实体）。
+6. **`route_to_blueprint` 的 `kind` 标签复用 `node_decider.KIND_MAIN`/
+   `KIND_DINING`（"主活动"/"用餐"），不按菜系/时段细分"早茶"/"夜宵"**：
+   `BlueprintNode.kind` 允许任意自由文本（"早茶"/"夜宵"/"自由" 等），但现有
+   `rule_planner._assemble_itinerary` 对所有餐厅节点统一打"用餐"标签（不管
+   茶点类/正餐类/夜宵），本模块延续这一既有词汇口径而非自创一套更细的标签——
+   细分是叙事层的活（ADR「边界」节点名"精细叙事弧归 LLM"），本步只负责
+   `target_kind` 对不对、时长对不对、时刻对不对。
+7. **`not_before_start` 施加于所有 `slack_min > 0` 的节点，不限餐厅**：
+   `assemble_from_blueprint` 的 `not_before_start` 钉窗机制（ADR-0009 决策 2·乙）
+   本就是通用节点级机制，不是餐厅专属——只要调度器把某节点排定晚于其自然
+   到达时刻（`ScheduledVisit.slack_min > 0`，可能是 POI 也可能是餐厅），把
+   这个"排定时刻"钉成 `not_before_start` 就能让 assemble 重算出同一个时刻
+   （证明见下条判断点 8）。
+8. **`fmt` 选 `critic._rules.helpers.fmt_hhmm`（clamp 版），不选
+   `blueprint.assemble_blueprint._fmt_hhmm`（mod-24 版）**：两者在 D-2 保证的
+   定义域内（一切排定分钟数 ≤ `route_scheduler.MAX_DAY_MIN` = 23*60+59）
+   **数值上完全等价**（`min(x, 1439) == x % 1440` 当 `0 <= x <= 1439`），选谁
+   不影响任何已算出的正确排程被格式化后的字符串。选 `fmt_hhmm` 而非
+   `_fmt_hhmm` 出于两点：① 其 clamp 上界字面就是 `MAX_DAY_MIN` 同一个"当日
+   上限 23:59"概念，与 D-2 的防跨日纪律同源，出现算错（万一未来有 bug 让
+   超界分钟数流入）时**饱和到边界而非静默 wrap 到次日同一钟点**，更容易在
+   人工核对时被发现是"顶到头了"而非误读成合法时刻；②
+   `activity_pool.py`（D-1，本模块的姊妹层）已有先例直接从 `critic._rules.
+   helpers` 取用（`_BUSINESS_HOURS_RE`），本模块保持同一耦合方向（`planners`
+   → `critic._rules.helpers` 的工具函数），而非反向引用 `blueprint` 层的
+   私有名 `_fmt_hhmm`（本就带下划线，非公开接口，也是更下游的兄弟层）。
+9. **`route_to_blueprint` 要求 `schedule.scheduled` 非空**：`PlanBlueprint.nodes`
+   的 Pydantic 约束是 `min_length=1`，零活动路线（理论上"候选池整体为空/全部
+   不可行"时才会发生）无法表示成合法蓝图——这属于 ADR 决策 11"无匹配候选"
+   的 advisory 出口（D-7 范围），本步不吞掉这个边界，直接让 `route_to_
+   blueprint` 对空排程抛 `ValueError`，调用方（D-5/D-7）负责在喂给它之前
+   先检查 `schedule.scheduled` 是否非空、走 advisory 通道告知用户。
+
+不负责：
+- 候选池/utility 构建（D-1 `activity_pool.py`，本模块只 import 消费）。
+- 排程可行性算法本身（D-2 `route_scheduler.py`，本模块只调 `schedule_route`/
+  `try_insert`，不重实现窗内判定/槽网格 snap/全排列枚举）。
+- 节奏/区间填充参数的推导（D-3 `pace_budget.py`，本模块只消费 `pace()`/
+  `interval_fill_targets()` 的输出）。
+- 接入 `plan_hybrid`/`rule_planner`/`replan`（D-5）。
+- pinned 的实际抽取（intent 层解析，D-7）；本模块只接受已经是 `Visit` 形态
+  的 pinned 列表。
+- critic 复检兜底（既有 `agent.planning.critic`，本模块产出的 blueprint 仍要
+  过 `assemble_from_blueprint` + `validate_itinerary` 这两道既有工序）。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Optional, Sequence
+
+from data.loader import load_user_profile
+from schemas.domain import Poi, Restaurant, UserProfile
+from schemas.intent import IntentExtraction
+
+from ..blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from ..blueprint.node_decider import KIND_DINING, KIND_MAIN, _DINING_FOCUSED_CONTEXTS
+from ..commute.lookup_hop import lookup_hop
+from ..critic._rules.helpers import fmt_hhmm
+from ..critic.meal_windows import (
+    DINNER_END_MIN,
+    DINNER_START_MIN,
+    LUNCH_END_MIN,
+    LUNCH_START_MIN,
+    SUPPER_END_MIN,
+    SUPPER_START_MIN,
+)
+from ..weights_llm import PlanningWeights
+from .activity_pool import (
+    Visit,
+    build_poi_route_pool,
+    build_restaurant_route_pool,
+    build_visit_from_poi,
+    build_visit_from_restaurant,
+    route_score,
+)
+from .pace_budget import IntervalFillTargets, interval_fill_targets, pace
+from .rule_planner import DEFAULT_DEPART_TIME, _parse_start_time_hour
+from .route_scheduler import CommuteFn, RouteSchedule, schedule_route, try_insert
+
+# ============================================================
+# 1. 软锚判定（ADR-0010 决策 10，规则定死）
+# ============================================================
+
+_MEAL_CONVENTION_WINDOWS_MIN: tuple[tuple[int, int], ...] = (
+    (LUNCH_START_MIN, LUNCH_END_MIN),
+    (DINNER_START_MIN, DINNER_END_MIN),
+    (SUPPER_START_MIN, SUPPER_END_MIN),
+)
+"""午/晚/夜宵三个饭点惯例窗（分钟坐标），与 `activity_pool._meal_convention_windows`
+共读同一组 `critic.meal_windows` 常量——判"出行窗是否完整跨过某饭点窗"只需要
+端点，不需要 `TimeWindow` 的交集/包含方法，故这里直接用 `(start, end)` 元组，
+不为这一处引入 `TimeWindow` 依赖。"""
+
+_DEFAULT_DEPART_HOUR: int = int(DEFAULT_DEPART_TIME.split(":")[0])
+"""`intent.start_time` 解析失败时的出发小时兜底——与 `rule_planner.
+DEFAULT_DEPART_TIME`（"14:00"）取同一个值，不新发明一套默认时间。"""
+
+
+def _resolve_depart_min(start_time: str) -> int:
+    """把 `intent.start_time`（ISO-like / "today_afternoon" 等口语标签）解析成
+    出发分钟数，复用 `rule_planner._parse_start_time_hour`（ADR-0010 D-4 任务
+    原文点名的既有机制），不新造一套标签→时刻映射。解析不出 → 14:00 兜底
+    （与 `rule_planner._resolve_time_window` 的兜底行为一致）。
+    """
+    hour = _parse_start_time_hour(start_time)
+    return (hour if hour is not None else _DEFAULT_DEPART_HOUR) * 60
+
+
+def dining_soft_anchored(
+    intent: IntentExtraction, *, depart_min: Optional[int] = None
+) -> bool:
+    """判断"饭是否被软锚"（ADR-0010 决策 10，规则定死，不可扩大解释）。
+
+    饭被软锚 **iff**：
+    ① `intent.social_context` 落在 `_DINING_FOCUSED_CONTEXTS`（商务接待/
+       纪念日仪式感——复用 `node_decider` 的既有集合，不重复定义一份）；
+    **或**
+    ② 出行窗 `[depart_min, depart_min + hi_min]`（`hi_min` = `duration_hours`
+       上限换算的分钟数）**完整跨过**某个饭点惯例窗（午/晚/夜宵三选一即可，
+       "完整跨过"= 该饭点窗整段落在出行窗内，不是有交集就算）**且**
+       `intent.dietary_constraints` 非空。
+
+    否则涌现（utility 说了算，是否有饭由贪心插入段自然决定）。
+
+    `depart_min`：出行窗起点。**调用方已有真实出发时刻时必须传入**（code-review
+    finding #9：`build_route` 的 depart_min 可能是协商/修正过的，与
+    `intent.start_time` 的天真解析分叉——软锚判定必须和真实排程用同一个窗）；
+    不传（None）时才回退到自行解析 `intent.start_time`（独立调用/测试便利）。
+    """
+    if intent.social_context in _DINING_FOCUSED_CONTEXTS:
+        return True
+    if not intent.dietary_constraints:
+        return False
+
+    if depart_min is None:
+        depart_min = _resolve_depart_min(intent.start_time)
+    hi_min = int(intent.duration_hours[1] * 60)
+    window_end = depart_min + hi_min
+
+    return any(
+        depart_min <= w_start and window_end >= w_end
+        for w_start, w_end in _MEAL_CONVENTION_WINDOWS_MIN
+    )
+
+
+# ============================================================
+# 2. 贪心插入构造（核心）
+# ============================================================
+
+MAX_ACTIVITIES: int = 5
+"""路线规模的"延迟安全上限"（ADR-0010 决策 11 层③）。与 `route_scheduler.
+MAX_DAY_MIN`/`RESERVATION_SLOT_GRID_MIN` 同类——结构性安全边界，不是可按
+UX 偏好调的权重，故不走 `_env_int`（那是给 comfort/time/cost/smoothness
+这类"值多少合适见仁见智"的量用的）。"""
+
+
+@dataclass(frozen=True)
+class RouteBuildResult:
+    """`build_route` 的产出：排程 + 选中活动 + 未满足清单 + 诊断留痕。
+
+    字段：
+    - `schedule`：最终 `RouteSchedule`（时间序，可直接喂 `route_to_blueprint`）。
+      `visits` 为空时仍是合法值（`schedule_route([])` 的平凡可行排程），不返回
+      `None`——"选不出任何活动"本身是一个有效结果（ADR"稀缺兜底"：宁可给一个
+      空/短的诚实结果，也不假装成功）。
+    - `visits`：选中活动，**插入序**（pinned → 软锚饭 → 涌现，依次插入的顺序），
+      与 `schedule.scheduled` 的**时间序**是两回事——见模块 docstring 判断点 4。
+    - `unmet_pinned`：锚点段里 `try_insert` 失败的 pinned 活动（ADR 决策 11
+      "绝不静默忽略"——不静默丢弃，留给 D-7 的 advisory 通道消费）。
+    - `pace_tier` / `fill_targets`：本次构造实际使用的节奏档与区间填充参数
+      （诊断留痕，便于测试/trace 核对"为什么停在这里"）。
+    """
+
+    schedule: RouteSchedule
+    visits: tuple[Visit, ...]
+    unmet_pinned: tuple[Visit, ...]
+    pace_tier: str
+    fill_targets: IntervalFillTargets
+
+
+def _default_budget() -> float:
+    """路线级预算(元)——判断点 1：为何是这个来源、为何不进公开签名，见模块
+    docstring。"""
+    return load_user_profile().default_budget
+
+
+def _try_insert_best_by_key(
+    candidates: Sequence[Visit],
+    selected: list[Visit],
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: CommuteFn,
+    key,
+) -> Optional[tuple[Visit, RouteSchedule, float]]:
+    """在 `candidates` 里找 `try_insert` 可行、且 `key(visit, 排程)` 最大的一个。
+
+    `key: (visit, candidate_schedule) -> float` 由调用方给：锚点段的软锚饭用
+    `base_score`（忽略排程），涌现段用**按时间序算的边际分**（code-review
+    finding #2：边际分必须在 candidate_schedule 的时间序上算，不能在插入序上算——
+    3+ 活动时两者相邻关系不同，compactness 会评错对象；candidate_schedule 恰好
+    就在手边，直接给 key）。两处"选最高分插入"的搜索骨架相同，只有打分函数不同，
+    故抽成一个私有 helper。返回 `None` 表示没有任何候选可行；否则返回
+    `(visit, schedule, score)`——分数一并带出，调用方（`_greedy_fill_emergent`
+    的④号停止条件要用它）不必再重算。
+    """
+    best: Optional[tuple[Visit, RouteSchedule, float]] = None
+    for v in candidates:
+        candidate_schedule = try_insert(
+            selected, v, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+        )
+        if candidate_schedule is None:
+            continue
+        score = key(v, candidate_schedule)
+        if best is None or score > best[2]:
+            best = (v, candidate_schedule, score)
+    return best
+
+
+def _greedy_fill_emergent(
+    selected: list[Visit],
+    schedule: RouteSchedule,
+    pool: list[Visit],
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: CommuteFn,
+    weights: PlanningWeights,
+    money_budget: float,
+    targets: IntervalFillTargets,
+) -> RouteSchedule:
+    """涌现段循环：反复挑边际分最高的可行候选插入，直至命中某条停止条件。
+
+    停止条件实现顺序与 ADR 任务原文编号顺序的差异、为何不影响最终结果，
+    见模块 docstring 判断点 2。本函数原地修改 `selected`/`pool`，返回最新
+    `RouteSchedule`。
+    """
+    while True:
+        # ② 活动数上限（不依赖候选搜索，最先短路）
+        if len(selected) >= MAX_ACTIVITIES:
+            break
+
+        current_total = schedule.total_minutes
+        # lo 判「在外时长」达没达下限 —— 用全量 total（含 slack；与 check_duration
+        # 的 total_minutes 口径一致）
+        lo_reached = current_total >= targets.lo_min
+        # ③ 已到下限之上、且「活动+通勤」已超软目标 —— "填够下限之后，按节奏该停就停"。
+        # code-review finding #1：软目标 activity_budget_min 的定义是「活动+通勤
+        # （不含 slack）」（pace_budget.py，= hi×(1−slack_fraction)）——这里必须
+        # 用 total − total_slack 比较；若用全量 total，窗逼出的等待（本身就是 slack）
+        # 会被双重计费，等待多的路线被系统性欠填。
+        if lo_reached and (current_total - schedule.total_slack_min) > targets.activity_budget_min:
+            break
+
+        # 基准分每轮只算一次（code-review finding #7：它是轮内循环不变量），
+        # 且按**当前排程的时间序**算（finding #2：打分对象=真实产出的路线）。
+        base_route_score = route_score(
+            [sv.visit for sv in schedule.scheduled], weights, money_budget
+        )
+        found = _try_insert_best_by_key(
+            pool,
+            selected,
+            depart_min=depart_min,
+            budget_min=budget_min,
+            commute_fn=commute_fn,
+            key=lambda v, cs: route_score(
+                [sv.visit for sv in cs.scheduled], weights, money_budget
+            )
+            - base_route_score,
+        )
+        # ① 无可行候选
+        if found is None:
+            break
+
+        visit, candidate_schedule, margin = found
+        # ④ 负收益且下限已满足 —— 下限未满足时即便边际分低也继续插（不硬凑
+        # 只体现在"塞不进就停"的①，不体现在这里的分数高低）
+        if margin <= 0 and lo_reached:
+            break
+
+        selected.append(visit)
+        schedule = candidate_schedule
+        pool.remove(visit)
+
+    return schedule
+
+
+def build_route(
+    pois: Sequence[Poi],
+    restaurants: Sequence[Restaurant],
+    intent: IntentExtraction,
+    weights: PlanningWeights,
+    *,
+    depart_min: int,
+    commute_fn: CommuteFn,
+    semantic_scores: Optional[dict[str, float]] = None,
+    pinned: Optional[Sequence[Visit]] = None,
+) -> RouteBuildResult:
+    """锚定两段贪心插入构造（ADR-0010 决策 3/7）：选子集 + 排定，一步到位。
+
+    Args:
+        pois / restaurants: 候选实体（调用方负责先按 intent 查询召回；本函数
+            内部做 D-1 的池扩容/分层取样，不重复调用方已做的召回过滤）。
+        intent / weights: 同 D-1/D-3 的既有消费方式。
+        depart_min: 出发时刻（分钟坐标），由调用方解析 `intent.start_time` 后
+            传入（`build_route` 本身不重复解析——`dining_soft_anchored` 内部
+            另需独立解析是因为它是一个可单独调用的纯判定函数，两处解析同一
+            机制但不共享同一次调用结果，因为调用方可能出于其它理由已经算出
+            了不同于"天真解析"的 `depart_min`，如 rule 地板的时段协商）。
+        commute_fn: 通勤查询，生产环境用 `make_commute_fn(user_profile)` 生成。
+        semantic_scores: 转发给 `build_visit_from_poi` 的语义分（可选）。
+        pinned: 用户明确需求对应的 `Visit` 列表（D-7 才有真实来源；本步接口
+            留空即可，传 `None` 等同于"无锚点"）。
+
+    Returns:
+        `RouteBuildResult`：见其 docstring。
+    """
+    pace_tier = pace(intent)
+    targets = interval_fill_targets(intent, pace_tier)
+    budget_min = targets.hi_min
+    money_budget = _default_budget()
+
+    poi_pool = build_poi_route_pool(list(pois))
+    rest_pool = build_restaurant_route_pool(list(restaurants))
+    poi_visits = [
+        build_visit_from_poi(p, intent, weights, semantic_scores=semantic_scores)
+        for p in poi_pool
+    ]
+    rest_visits = [build_visit_from_restaurant(r, intent, weights) for r in rest_pool]
+
+    selected: list[Visit] = []
+    unmet_pinned: list[Visit] = []
+
+    # ---- 锚点段·1：pinned ----
+    for anchor in pinned or []:
+        candidate = try_insert(
+            selected, anchor, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+        )
+        if candidate is None:
+            unmet_pinned.append(anchor)
+            continue
+        selected.append(anchor)
+
+    schedule = schedule_route(
+        selected, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+    )
+    if schedule is None:  # 防御性：逐个 try_insert 已验可行，重跑同一集合必可行；
+        # 不用 assert（-O 下会被剥离，None 会静默流向下游，code-review finding #10）
+        raise RuntimeError(
+            "build_route 内部不变量违反：锚点集合逐个 try_insert 可行，"
+            "但整体 schedule_route 返回 None——route_scheduler 语义变了？"
+        )
+
+    # ---- 锚点段·2：软锚饭（判断点 3：pinned 已含餐厅则跳过；finding #9：
+    # 软锚判定与真实排程共用同一个 depart_min，不各自解析）----
+    if dining_soft_anchored(intent, depart_min=depart_min) and not any(
+        v.kind == "restaurant" for v in selected
+    ):
+        found = _try_insert_best_by_key(
+            rest_visits,
+            selected,
+            depart_min=depart_min,
+            budget_min=budget_min,
+            commute_fn=commute_fn,
+            key=lambda v, _schedule: v.base_score,
+        )
+        if found is not None:
+            chosen_restaurant, schedule, _base_score = found
+            selected.append(chosen_restaurant)
+
+    # ---- 涌现段：从候选池剔除已选中的 (kind, target_id)，循环边际分插入 ----
+    selected_keys = {(v.kind, v.target_id) for v in selected}
+    emergent_pool = [
+        v for v in (poi_visits + rest_visits) if (v.kind, v.target_id) not in selected_keys
+    ]
+    schedule = _greedy_fill_emergent(
+        selected,
+        schedule,
+        emergent_pool,
+        depart_min=depart_min,
+        budget_min=budget_min,
+        commute_fn=commute_fn,
+        weights=weights,
+        money_budget=money_budget,
+        targets=targets,
+    )
+
+    return RouteBuildResult(
+        schedule=schedule,
+        visits=tuple(selected),
+        unmet_pinned=tuple(unmet_pinned),
+        pace_tier=pace_tier,
+        fill_targets=targets,
+    )
+
+
+# ============================================================
+# 3. RouteSchedule → PlanBlueprint
+# ============================================================
+
+
+def route_to_blueprint(
+    schedule: RouteSchedule, intent: IntentExtraction, depart_min: int
+) -> PlanBlueprint:
+    """把已排定的 `RouteSchedule` 转成 `PlanBlueprint`（下游 `assemble_from_
+    blueprint` 消费）。
+
+    Raises:
+        ValueError: `schedule.scheduled` 为空——`PlanBlueprint.nodes` 硬性
+            要求 `min_length=1`，零活动路线无法表示成合法蓝图（判断点 9，
+            这类"选不出任何活动"的情形属于 D-7 advisory 出口，调用方应在
+            调用本函数前先检查）。
+    """
+    if not schedule.scheduled:
+        raise ValueError(
+            "route_to_blueprint 收到空排程（0 个活动）——PlanBlueprint 无法表示"
+            "零节点方案；这是「无匹配候选」的 advisory 情形（ADR-0010 决策 11），"
+            "调用方应在此之前检测并走 advisory 通道，不应直接喂给本函数。"
+        )
+
+    party_size = sum(c.count for c in intent.companions) or 1
+
+    nodes: list[BlueprintNode] = []
+    for sv in schedule.scheduled:
+        v = sv.visit
+        not_before = fmt_hhmm(sv.start_min) if sv.slack_min > 0 else None
+
+        if v.kind == "restaurant":
+            chosen_time = fmt_hhmm(sv.start_min)
+            nodes.append(
+                BlueprintNode(
+                    kind=KIND_DINING,
+                    target_kind=BlueprintTargetKind.RESTAURANT,
+                    target_id=v.target_id,
+                    duration_min=v.duration_min,
+                    note=f"已为你预留 {chosen_time}（{party_size} 人）",
+                    not_before_start=not_before,
+                )
+            )
+        else:
+            nodes.append(
+                BlueprintNode(
+                    kind=KIND_MAIN,
+                    target_kind=BlueprintTargetKind.POI,
+                    target_id=v.target_id,
+                    duration_min=v.duration_min,
+                    note=None,
+                    not_before_start=not_before,
+                )
+            )
+
+    return PlanBlueprint(
+        nodes=nodes,
+        preferred_start_time=fmt_hhmm(depart_min),
+        rationale="ADR-0010 D-4：锚定两段贪心插入构造",
+    )
+
+
+# ============================================================
+# 4. commute_fn 生产包装
+# ============================================================
+
+
+def make_commute_fn(user_profile: UserProfile) -> CommuteFn:
+    """生产环境 `CommuteFn` 包装：绑定 transport_pref + `functools.lru_cache`。
+
+    transport_pref 归一化逻辑对齐 `replan._RULE_ASSEMBLER_ADAPTER`（"合法三选一
+    否则回退 taxi"），不新发明一套规则。`lru_cache` 是主代理点名要求——`build_
+    route` 内部 `schedule_route`/`try_insert` 对同一组活动做全排列枚举，加上
+    涌现段逐个候选试插入，同一 `(from_id, to_id)` 通勤对会被反复查询，缓存在
+    这层收益明显（`lookup_hop` 本身对同输入保证同输出，缓存不改变语义）。
+
+    `user_profile` 未必可哈希（Pydantic BaseModel 默认不 frozen），因此不能把
+    它当 `lru_cache` 函数的参数——本函数把它放进闭包，被缓存的内层函数只接受
+    `(from_id, to_id)` 两个 `str` 参数，天然可哈希。每次调用 `make_commute_fn`
+    都会创建一个新的闭包 + 新的独立缓存（不是跨调用共享的全局缓存）——这正是
+    "同一次路线构造内部反复查询"这个场景要的粒度，不多不少。
+    """
+    transport_pref = (
+        user_profile.transport_preference
+        if user_profile.transport_preference in {"walking", "taxi", "bus"}
+        else "taxi"
+    )
+
+    @lru_cache(maxsize=None)
+    def _commute(from_id: str, to_id: str) -> int:
+        minutes, _mode, _path_type = lookup_hop(from_id, to_id, transport_pref, user_profile)
+        return minutes
+
+    return _commute
