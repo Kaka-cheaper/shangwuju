@@ -1116,15 +1116,18 @@ def check_tool_consistency(
 # 用餐时段合理性（spec planning-pipeline-consolidation R1）
 # ============================================================
 
-# 茶点类 cuisine：可落午后非饭点时段（下午茶 / 咖啡 / 甜品）
-_TEAHOUSE_CUISINES: frozenset[str] = frozenset({"下午茶", "咖啡", "烘焙甜品"})
-
-# 午餐窗口 11:00-13:30；晚餐窗口 17:00-20:00；夜宵窗口 21:00-次日 2:00
-_LUNCH_START_MIN = 11 * 60        # 11:00
-_LUNCH_END_MIN = 13 * 60 + 30     # 13:30
-_DINNER_START_MIN = 17 * 60       # 17:00
-_DINNER_END_MIN = 20 * 60         # 20:00
-_SUPPER_START_MIN = 21 * 60       # 21:00（夜宵；含烧烤/火锅等夜宵正餐）
+# 饭点窗口常量单一真相源（ADR-0010 D-1）：搬到 `..meal_windows` 供本 check 与
+# `planners/activity_pool.py`（构建餐厅默认候选时间窗）共读，避免两处独立编码
+# 同一组"什么时候算饭点"域知识而漂移（重蹈 age_caps 45/90 分叉的教训）。
+# 搬家不改值——`test_meal_time_critic.py` 全绿即钉住行为逐字节不变。
+from ..meal_windows import (
+    DINNER_END_MIN as _DINNER_END_MIN,
+    DINNER_START_MIN as _DINNER_START_MIN,
+    LUNCH_END_MIN as _LUNCH_END_MIN,
+    LUNCH_START_MIN as _LUNCH_START_MIN,
+    SUPPER_START_MIN as _SUPPER_START_MIN,
+    TEAHOUSE_CUISINES as _TEAHOUSE_CUISINES,
+)
 
 
 def check_meal_time(
