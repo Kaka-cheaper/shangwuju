@@ -337,6 +337,45 @@ def test_restaurant_time_window_pin_still_bounded_by_physical_opening_hours():
     assert windows == []
 
 
+def test_restaurant_windows_collapse_to_real_reservation_slots():
+    """D-8a（ADR-0008 红队 R3 在①层的完成）：餐厅窗与真实预约槽单求交，坍缩成
+    离散槽点——调度器从源头只排「订得上」的时刻。
+
+    动机（实测）：连续窗让调度器排出 17:00 而店家槽单 17:30 起 → critic 无槽
+    HARD → 修复闭环一轮挪 30 分钟地磨；两家正餐挤同一晚餐窗时 ping-pong 耗尽
+    修复预算落地板。槽点化后该类违规从源头消失，critic 无槽检查退成纯兜底。
+
+    满座槽**保留**（available=False 不过滤——满座由 critic 抓、闭环演旗舰链）。
+    """
+    from schemas.domain import ReservationSlot
+
+    rest = _restaurant(cuisine="粤菜", opening_hours="10:00-22:00")
+    rest = rest.model_copy(
+        update={
+            "reservation_slots": [
+                ReservationSlot(time="12:00", available=True),
+                ReservationSlot(time="17:00", available=False),  # 满座槽也保留
+                ReservationSlot(time="17:30", available=True),
+                ReservationSlot(time="15:00", available=True),  # 非饭点 → 被饭点窗滤掉
+            ]
+        }
+    )
+    windows = ap.build_restaurant_time_windows(rest, duration_min=90)
+    points = sorted((w.start_min, w.end_min) for w in windows)
+    assert (12 * 60, 12 * 60) in points  # 午餐槽
+    assert (17 * 60, 17 * 60) in points  # 满座槽保留——旗舰链的原材料
+    assert (17 * 60 + 30, 17 * 60 + 30) in points
+    assert (15 * 60, 15 * 60) not in points  # 非饭点槽被饭点窗滤掉
+    assert all(w.start_min == w.end_min for w in windows), "全部应为零宽槽点"
+
+
+def test_restaurant_without_slots_keeps_continuous_windows():
+    """无预约体系的店（slots 空）：不做槽点化，保留连续窗（防御性向后兼容）。"""
+    rest = _restaurant(cuisine="粤菜", opening_hours="11:00-22:00")
+    windows = ap.build_restaurant_time_windows(rest, duration_min=90)
+    assert any(w.end_min > w.start_min for w in windows), "无槽单时窗应保持连续区间"
+
+
 # ============================================================
 # 5. Visit 构造
 # ============================================================

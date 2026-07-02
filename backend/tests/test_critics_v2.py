@@ -100,11 +100,14 @@ def _make_legal_itinerary(
     """构造 4 nodes / 3 hops 的标准合法 itinerary（与 design.md 示例时间轴一致）。
 
     路网真值（taxi）：home→P040 9 / P040→R001 5 / R001→home 7。
-    时间轴（POI 165min）：
+    时间轴（POI 165min；D-8a 修订——用餐钉在**真实预约槽** 17:30）：
         14:00 出发 → 14:09 抵 P040 → 停 165min → 16:54 离
-        16:54 hop 5min + 5buf → 17:04 抵 R001 → 停 60min → 18:04 离
-        18:04 hop 7min → 18:11 到家
-    total = 251min（落在 [4,6]h ±30min 即 [210,390] 容差内）。
+        16:54 hop 5min + 5buf → 17:04 自然抵 R001，**等到 17:30 开吃**（餐前等待，
+        生产同款 not_before_start 语义；ADR-0008 红队 R3 做实后，排定时刻必须是
+        店家真实提供的预约槽——旧 fixture 的 17:04 从来订不上、只是旧检查装看不见）
+        → 停 60min → 18:30 离 → hop 7min → 18:37 到家
+    total = 277min（落在 [4,6]h ±30min 即 [210,390] 容差内）。
+    R001/R002 的 17:30 槽均真实可订（mock reservation_slots）。
     """
     nodes = [
         ActivityNode(
@@ -130,7 +133,7 @@ def _make_legal_itinerary(
             kind="用餐",
             target_kind="restaurant",
             target_id=restaurant_id,
-            start_time="17:04",
+            start_time="17:30",
             duration_min=dining_duration,
             title=restaurant_id,
         ),
@@ -139,7 +142,7 @@ def _make_legal_itinerary(
             kind="终点",
             target_kind="home",
             target_id="home",
-            start_time="18:11",
+            start_time="18:37",
             duration_min=0,
             title="回家",
         ),
@@ -169,7 +172,7 @@ def _make_legal_itinerary(
             hop_id="h2",
             from_node_id="n2",
             to_node_id="n3",
-            start_time="18:04",
+            start_time="18:30",
             minutes=7,
             mode="taxi",
             path_type="real_route",
@@ -180,7 +183,7 @@ def _make_legal_itinerary(
         summary="家庭半日方案（测试）",
         nodes=nodes,
         hops=hops,
-        total_minutes=251,
+        total_minutes=277,
     )
 
 

@@ -299,21 +299,21 @@ def test_critic_catches_unavailable_slot():
     assert any("17:00" in m and "已满" in m for m in msgs), msgs
 
 
-def test_critic_catches_missing_node_kind():
-    """缺「用餐」节点 → 硬违规（NODES_INCOMPLETE，Stage 0 结构门）。
+def test_critic_accepts_dining_less_emergent_composition():
+    """【D-8a 改判·ADR-0010 决策 9】仅主活动、无用餐的组成**合法**，不触发 NODES_INCOMPLETE。
 
-    edge_v1：决定 mid_nodes 的依据是 decide_nodes(intent)；家庭场景应有 [主活动, 用餐]。
-    构造仅含主活动节点的行程，预期 critic 报「中间节点缺失」硬违规。
+    本测试原断言相反行为（decide_nodes 蓝本要求家庭场景必有 [主活动,用餐]，缺用餐
+    即 Stage 0 硬违规）。多活动 TOPTW 模型下组成由搜索层涌现决定——「要不要饭」不再
+    由 critic 按蓝本强制（否则合法的无饭涌现方案被 Stage 0 短路误杀到 rule 地板，
+    D-5 实测已确认这是承重级误伤）。critic 保留的结构底线（≥1 活动）由
+    test_critic_phase_a_characterization 的 degenerate 场景覆盖。
     """
     intent = _intent_no_age_cap()
     plan = _itinerary(poi_id="P001", restaurant_id=None, skip_restaurant=True)
     report = _run_unified_critic(plan, intent)
-    assert not report.passed
-    hard = report.hard_violations()
-    assert any(
-        v.code == ViolationCode.NODES_INCOMPLETE and "缺" in v.message
-        for v in hard
-    ), hard
+    assert not any(
+        v.code == ViolationCode.NODES_INCOMPLETE for v in report.violations
+    ), f"无饭涌现组成不得触发 NODES_INCOMPLETE：{[v.code for v in report.violations]}"
 
 
 def test_critic_style_soft_violation_for_mismatched_context():
@@ -728,3 +728,42 @@ def test_plan_hybrid_gives_up_when_repair_budget_exhausted(monkeypatch):
     assert result.success is False, (
         "预算=0 且初轮有 HARD → 应放弃（success=False）落地板，不返回脏方案"
     )
+
+
+# ============================================================
+# D-8a（ADR-0010 决策 9 + ADR-0008 红队 R3）承重回归
+# ============================================================
+
+
+def test_plan_hybrid_family_35h_succeeds_on_real_pools():
+    """【D-8a 承重回归】S1 家庭 (3,5h)——核心 demo 场景——真实召回池上必须成功。
+
+    D-5 落地后实测：涌现组成合法地不含饭（出行窗未完整跨晚餐窗 → 不软锚，
+    边际竞争饭也未必赢），旧 nodes_incomplete 按 decide_nodes 硬要「必须有饭」
+    → 整条 ILS 路径永落 rule 地板。D-8a 改判（组成涌现合法，critic 只守
+    「≥1 活动」底线）+ 餐厅窗槽点化（排定时刻必为真实预约槽）后，本场景
+    必须端到端成功且 critic 干净——这条测试钉死「兜底路径对核心场景可用」。
+    """
+    from agent.core.llm_client_stub import StubLLMClient
+    from agent.planning.planners.ils_planner import _run_unified_critic
+
+    intent = _intent()  # 默认即 S1 家庭 (3,5)：5 岁娃 + 健康轻食 + 亲子友好
+    result = plan_hybrid(intent, client=StubLLMClient())
+    assert result.success, (
+        f"S1 家庭 (3,5h) 在真实池上不得落地板（D-8a 前的承重回归）："
+        f"{result.failure_detail}"
+    )
+    assert result.itinerary is not None
+    report = _run_unified_critic(result.itinerary, intent)
+    assert report.passed, (
+        f"产物必须 critic 干净：{[(v.code.value, v.severity.value) for v in report.violations]}"
+    )
+    # 餐厅节点（若涌现出来）排定时刻必须是该店真实预约槽（R3 槽点化）
+    from data.loader import load_restaurants
+
+    slots = {r.id: {s.time for s in r.reservation_slots} for r in load_restaurants()}
+    for n in result.itinerary.nodes:
+        if n.target_kind == "restaurant" and slots.get(n.target_id):
+            assert n.start_time in slots[n.target_id], (
+                f"餐厅 {n.target_id} 排定 {n.start_time} 不在真实槽单 {slots[n.target_id]}"
+            )

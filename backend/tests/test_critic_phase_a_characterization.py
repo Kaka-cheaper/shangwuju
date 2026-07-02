@@ -74,19 +74,24 @@ def _mk_intent(**kw) -> IntentExtraction:
 
 
 def _legal(poi_id="P040", rest_id="R001", poi_dur=165, din=60) -> Itinerary:
-    """4 nodes / 3 hops 标准合法行程（hop 分钟与 P040/R001 真实路网一致）。"""
+    """4 nodes / 3 hops 标准合法行程（hop 分钟与 P040/R001 真实路网一致）。
+
+    D-8a 修订：用餐钉在**真实预约槽** 17:30（自然到达 17:04 → 餐前等待 26min，
+    生产 not_before_start 同款语义）。ADR-0008 红队 R3 做实后「排定时刻必须是
+    店家真实提供的槽」——旧 17:04 从来订不上，只是旧检查装看不见。
+    """
     nodes = [
         ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home", start_time="14:00", duration_min=0, title="出发"),
         ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id=poi_id, start_time="14:09", duration_min=poi_dur, title=poi_id),
-        ActivityNode(node_id="n2", kind="用餐", target_kind="restaurant", target_id=rest_id, start_time="17:04", duration_min=din, title=rest_id),
-        ActivityNode(node_id="n3", kind="终点", target_kind="home", target_id="home", start_time="18:11", duration_min=0, title="回家"),
+        ActivityNode(node_id="n2", kind="用餐", target_kind="restaurant", target_id=rest_id, start_time="17:30", duration_min=din, title=rest_id),
+        ActivityNode(node_id="n3", kind="终点", target_kind="home", target_id="home", start_time="18:37", duration_min=0, title="回家"),
     ]
     hops = [
         Hop(hop_id="h0", from_node_id="n0", to_node_id="n1", start_time="14:00", minutes=9, mode="taxi", path_type="real_route", buffer_min=0),
         Hop(hop_id="h1", from_node_id="n1", to_node_id="n2", start_time="16:54", minutes=5, mode="taxi", path_type="real_route", buffer_min=5),
-        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3", start_time="18:04", minutes=7, mode="taxi", path_type="real_route", buffer_min=0),
+        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3", start_time="18:30", minutes=7, mode="taxi", path_type="real_route", buffer_min=0),
     ]
-    return Itinerary(summary="characterization", nodes=nodes, hops=hops, total_minutes=251)
+    return Itinerary(summary="characterization", nodes=nodes, hops=hops, total_minutes=277)
 
 
 def _degenerate() -> Itinerary:
@@ -176,19 +181,20 @@ _BATTERY = [
     ("restaurant_full_unresolved", _single_restaurant("R001", "17:00"),
         _mk_intent(duration_hours=[1, 1], dietary_constraints=["低脂"]), "demo_user", None,
         [("restaurant_full_unresolved", "hard")]),
-    # B-2a: _single_restaurant("R046") [home,R046,home] + duration=[1,3] → decide_nodes returns
-    # ["主活动","用餐"]（medium-long，social=家庭日常）→ poi required but missing → Stage 0
-    # NODES_INCOMPLETE short-circuits; meal_time check never runs.
-    ("meal_time_unreasonable_now_nodes_incomplete",
+    # D-8a（ADR-0010 决策 9）改判：nodes_incomplete 不再按 decide_nodes 要求
+    # 「必须有 POI」——[home,R046,home] 有 1 个活动即过 Stage 0，Stage 1 语义
+    # 检查显形：R046（烧烤，非茶点）排 15:00 → meal_time hard；且 R046 槽单
+    # （18:30 起）无 15:00 → 无槽=hard（ADR-0008 红队 R3，D-8a 做实）。
+    ("meal_time_and_noslot_after_d8a",
         _single_restaurant("R046", "15:00"), _mk_intent(duration_hours=[1, 3]), "demo_user", None,
-        [("nodes_incomplete", "hard")]),
-    # B-2a: meal_time → HARD（gate 修复）。用 decide_nodes→["用餐"]-only 的 intent
-    # (duration=[1,2], social=商务接待) 让餐厅单节点通过 Stage 0，再由 meal_time 在 Stage 1 触发。
-    # R002（粤味轩）suitable_for 包含商务接待 → check_social_context 不触发。
+        [("meal_time_unreasonable", "hard"), ("restaurant_full_unresolved", "hard")]),
+    # B-2a: meal_time → HARD（gate 修复）。R002（粤菜）排 15:00 → meal_time hard；
+    # D-8a 后另displays 无槽=hard（R002 槽单 12:00/12:30/17:00/17:30/18:00 无 15:00，
+    # 红队 R3 语义）。
     ("meal_time_as_hard",
         _single_restaurant("R002", "15:00"), _mk_intent(duration_hours=[1, 2], social_context="商务接待"),
         "demo_user", None,
-        [("meal_time_unreasonable", "hard")]),
+        [("meal_time_unreasonable", "hard"), ("restaurant_full_unresolved", "hard")]),
 ]
 
 
@@ -236,12 +242,15 @@ def test_tool_consistency_reads_snapshot_not_full_mock():
 # ============================================================
 
 
-def test_missing_restaurant_node_fires_nodes_incomplete():
-    """dining-required plan（[home, poi, home]）缺少餐厅节点 → NODES_INCOMPLETE（Stage 0）。
+def test_missing_restaurant_is_legal_emergent_composition_after_d8a():
+    """【D-8a 改判·ADR-0010 决策 9】无饭的合法涌现组成**不再**触发 NODES_INCOMPLETE。
 
-    B-2a B1：decide_nodes(intent) 返回 ["主活动","用餐"]（duration=[4,6] 家庭日常）。
-    plan 只有 poi 节点，无 target_kind=="restaurant" → 触发 NODES_INCOMPLETE。
-    Stage 0 短路 → 不产出其他 Stage-1/2 违规。
+    本测试原断言相反行为（B-2a：decide_nodes 要求「主活动+用餐」，缺餐厅即 Stage 0
+    短路）——多活动 TOPTW 模型下组成由搜索层涌现决定，「[home, poi, home] 无饭」
+    是完全合法的方案（实测：家庭 3-5h 局的涌现组成常如此，旧检查把整条 ILS 路径
+    误杀到 rule 地板）。改判后本测试成为 D-8a 的守卫：
+    - 不得触发 NODES_INCOMPLETE（组成合法）；
+    - 不得有任何 HARD 违规（时长不足是 SOFT——D-3 拆向后的建议型告知）。
     """
     from agent.planning.commute.lookup_hop import lookup_hop
     from data.loader import load_user_profile
@@ -269,18 +278,19 @@ def test_missing_restaurant_node_fires_nodes_incomplete():
     ]
     plan = Itinerary(summary="poi_only", nodes=nodes, hops=hops, total_minutes=arr_min - dep_min)
 
-    # intent: duration=[4,6] 家庭日常 → decide_nodes=["主活动","用餐"] → 需要 restaurant
+    # intent: duration=[4,6] 家庭日常——旧 decide_nodes 蓝本会要求 restaurant，
+    # D-8a 后组成涌现、不再强制
     intent = _mk_intent(duration_hours=[4, 6])
     violations = validate_itinerary(plan, intent)
 
     codes = [v.code.value for v in violations]
-    assert "nodes_incomplete" in codes, (
-        "dining-required plan 缺 restaurant 节点 → 应触发 NODES_INCOMPLETE；"
+    assert "nodes_incomplete" not in codes, (
+        "D-8a（ADR-0010 决策 9）：无饭的涌现组成合法，不得触发 NODES_INCOMPLETE；"
         f"实际 codes={codes}"
     )
-    # Stage 0 短路：不应有 Stage-1/2 违规（DURATION 等不应出现）
-    assert all(v.code.value == "nodes_incomplete" for v in violations), (
-        f"Stage 0 应短路，不应有其他违规；实际 violations={codes}"
+    hard = [v for v in violations if v.severity.value == "hard"]
+    assert hard == [], (
+        f"无饭方案不应有任何 HARD 违规（时长不足应为 SOFT 建议）；实际 {codes}"
     )
 
 

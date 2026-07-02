@@ -182,62 +182,27 @@ def check_invariants(
 def check_nodes_incomplete(
     itinerary: Itinerary, *, ctx: "CriticContext | None" = None
 ) -> list[Violation]:
-    """验行程必要节点完整性（B-2a: 按 target_kind，非自由文本 kind）。
+    """验行程结构底线：≥1 个非 home 活动节点（ADR-0010 决策 9 · D-8a）。
 
-    ADR-0008 红队 B1 修订：节点完整性必须对照 `decide_nodes(intent)` 返回的
-    required kinds，并按 **target_kind** 判断，绝不比对自由文本 `node.kind`
-    （LLM 可能标 "夜宵" / "早茶" / "自由" 等任意标签）。
+    【为什么不再按 decide_nodes 要求「必须有哪几种 kind」】
 
-    规则：
-    - `ctx.intent` 可用时：
-        * `KIND_MAIN` (主活动) required ⇒ 需要 ≥1 个 `target_kind=="poi"` 节点
-        * `KIND_DINING` (用餐) required ⇒ 需要 ≥1 个 `target_kind=="restaurant"` 节点
-        * 缺任何一种 → 一条 HARD NODES_INCOMPLETE，消息列出所有缺失 kind
-    - `ctx` 为 None 或 intent 缺失（向后兼容直调）→ 回退到旧「len<3」结构检查
+    多活动 TOPTW 模型（ADR-0010 决策 1）下，行程组成（要不要饭、几个活动）由
+    搜索层决定——LLM 蓝图自由出节点、ILS 路径由 `build_route` 的锚定+涌现逻辑
+    决定，`decide_nodes` 的「中长局必须主活动+用餐」蓝本对两条路径都已作废。
+    旧检查（B-2a：对照 `decide_nodes(intent)` 的 required kinds 逐种要求）会把
+    **合法的涌现组成误杀**（实测：家庭 3-5h 局涌现出「多 POI 无饭」的合理方案，
+    被本检查判 HARD 短路 → 整条 ILS 路径永落 rule 地板——ADR-0010 D-5 落地后
+    该检查成为承重级误伤源，故按决策 9 原文「critic nodes_incomplete →
+    『≥1 活动（非空）』——涌现组成的逻辑必然」改写）。
 
+    保留的结构底线：行程至少要有一个真实活动（非 home 节点），否则整个方案
+    没有内容——这是与组成无关的不变量。
+
+    `ctx` 不消费（纯结构断言）；保留形参供注册表统一调用。
     Emit HARD，Stage 0（结构门：命中即短路）。
     """
-    intent = ctx.intent if ctx is not None else None
-
-    if intent is not None:
-        try:
-            from agent.planning.blueprint.node_decider import (  # 运行时 import 避免循环依赖
-                KIND_DINING,
-                KIND_MAIN,
-                decide_nodes,
-            )
-            required_kinds = decide_nodes(intent)
-        except ImportError:
-            required_kinds = []
-
-        if required_kinds:
-            mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
-            missing: list[str] = []
-            if KIND_MAIN in required_kinds and not any(
-                n.target_kind == "poi" for n in mid_nodes
-            ):
-                missing.append("主活动节点（POI）")
-            if KIND_DINING in required_kinds and not any(
-                n.target_kind == "restaurant" for n in mid_nodes
-            ):
-                missing.append("用餐节点（餐厅）")
-
-            if missing:
-                return [
-                    Violation(
-                        code=ViolationCode.NODES_INCOMPLETE,
-                        severity=Severity.HARD,
-                        message=(
-                            f"行程缺少必要节点：{'  /  '.join(missing)}。"
-                            "请在候选池中补充对应类型节点后重新规划。"
-                        ),
-                        field_path="nodes",
-                    )
-                ]
-            return []
-
-    # 向后兼容回退：ctx/intent 缺失 或 decide_nodes 返回空列表
-    if len(itinerary.nodes) < 3:
+    mid_nodes = [n for n in itinerary.nodes if n.target_kind != "home"]
+    if not mid_nodes:
         return [
             Violation(
                 code=ViolationCode.NODES_INCOMPLETE,
@@ -743,11 +708,34 @@ def check_demo_restaurant_full(
         rest = restaurants_by_id.get(node.target_id or "")
         if rest is None:
             continue
-        full_slot = next(
-            (s for s in rest.reservation_slots if s.time == node_time and not s.available),
-            None,
-        )
-        if full_slot is None:
+        if not rest.reservation_slots:
+            continue  # 无预约体系的店（mock 不存在，防御性）：不按槽约束
+
+        slot = next((s for s in rest.reservation_slots if s.time == node_time), None)
+
+        if slot is None:
+            # ADR-0008 红队 R3（D-8a 做实）：「该时段无 slot 配置 = HARD」——
+            # 排定时刻不在该店可预约时段列表里，等于根本订不上（比满座更糟）。
+            # 旧实现只判 available=False、静默放过无槽时刻；旧 ILS 的离散
+            # DINING_SLOTS 恰好全是真槽、掩盖了这个洞，D-5 起调度器按通用半点
+            # 网格排时刻（如 17:00），店家槽单若无此项（如只有 17:30 起）就会
+            # 漏到这里。同码 RESTAURANT_FULL_UNRESOLVED → 修复闭环同一条补救
+            # 路径（封 (店,时刻) → 挖窗 → 挪到真槽）。
+            out.append(
+                Violation(
+                    code=ViolationCode.RESTAURANT_FULL_UNRESOLVED,
+                    severity=Severity.HARD,
+                    message=(
+                        f"{humanize_node(idx, node)} 排定在 {node_time}，但该店"
+                        f"可预约时段列表中没有这个时刻（无法下订）。"
+                        "请换到该店真实提供的预约时段，或换其它餐厅。"
+                    ),
+                    field_path=f"nodes[{idx}].start_time",
+                )
+            )
+            continue
+
+        if slot.available:
             continue
 
         out.append(

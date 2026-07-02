@@ -108,7 +108,7 @@ from typing import Callable, Optional, Sequence, TypeVar, Union
 from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
 
-from ..critic._rules.helpers import _BUSINESS_HOURS_RE
+from ..critic._rules.helpers import _BUSINESS_HOURS_RE, parse_hhmm
 from ..critic.age_caps import strictest_cap_for_companions
 from ..critic.meal_windows import (
     DINNER_END_MIN,
@@ -302,12 +302,30 @@ def build_restaurant_time_windows(
     if start_w is None:
         return []
     if pin is not None:
-        return _intersect_many([start_w], [pin])
+        windows = _intersect_many([start_w], [pin])
+    else:
+        convention = _meal_convention_windows(rest.cuisine)
+        if convention is None:  # 茶点类：不受饭点约束，只受营业换算窗约束
+            windows = [start_w]
+        else:
+            windows = _intersect_many(convention, [start_w])
 
-    convention = _meal_convention_windows(rest.cuisine)
-    if convention is None:  # 茶点类：不受饭点约束，只受营业换算窗约束
-        return [start_w]
-    return _intersect_many(convention, [start_w])
+    # D-8a（ADR-0008 红队 R3 在①层的完成）：与**真实预约槽单**求交——
+    # 餐厅「订得上的时刻」是离散槽（reservation_slots），不是连续区间；给调度器
+    # 连续窗会让它排出订不上的时刻（如 17:00 而店家槽单 17:30 起），只能靠 critic
+    # 事后打 + 修复闭环一轮挪 30 分钟地磨（实测两家正餐挤同一晚餐窗时 ping-pong
+    # 耗尽修复预算落地板）。域约束在①层归位：窗坍缩成槽点（零宽窗，intersect
+    # 语义天然支持），调度器从源头只排可订时刻；critic 的无槽检查退成纯兜底。
+    # 注意**不**按 available 过滤——满座槽保留（grounding 设计刻意如此，满座由
+    # critic 抓、修复闭环演「满座→改期」旗舰链）。slots 为空（无预约体系）不约束。
+    slot_points = [
+        TimeWindow(m, m)
+        for s in rest.reservation_slots
+        if (m := parse_hhmm(s.time)) is not None
+    ]
+    if not slot_points:
+        return windows
+    return _intersect_many(windows, slot_points)
 
 
 # ============================================================
