@@ -287,7 +287,10 @@ async def _graph_adjust(
     updated_ledger = ledger
     satisfied_dimension: Optional[NodeAdjustmentDimension] = None
 
+    # swap_phrase：版本志 summary 的动作措辞（见下方成功分支的版本志追加）——
+    # 三个动作分支各自最清楚"用户做了什么"，在这里就地定措辞，不在事后反推。
     if isinstance(action, AdjustActionDislike):
+        swap_phrase = "点踩"
         result: SwapResult = resolve_node_swap(
             itinerary, intent, pois, restaurants,
             target_node_id=req.node_id,
@@ -297,6 +300,7 @@ async def _graph_adjust(
 
     elif isinstance(action, AdjustActionAdjust):
         source_text = (action.label or "").strip() or _synthesize_source_text(action.adjustment)
+        swap_phrase = f"按『{source_text}』"
         new_entry = LedgerEntry(
             member_id=None,
             nickname=None,
@@ -324,6 +328,7 @@ async def _graph_adjust(
 
     else:  # AdjustActionAlternative
         assert isinstance(action, AdjustActionAlternative)
+        swap_phrase = "指名"
         chosen_entity = _find_entity(kind, action.target_id, pois, restaurants)
         if chosen_entity is None:
             # 候选池陈旧（罕见竞态：展示时还在，点击时已从召回结果里消失）——
@@ -361,6 +366,21 @@ async def _graph_adjust(
     node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
     advisory_dicts = [a.model_dump() for a in result.advisories]
 
+    # ---- 版本志：换菜也是新版本（E-2-a 已知留待项，c′落地后补齐）----
+    # 常规写手是 finalize_plan（trigger=first/feedback），confirm 一笔在
+    # graph_confirm（trigger=confirm）；换菜不走图、方案却真的变了——不记这笔，
+    # 版本志的"方案史"承诺就有洞（E-2 打包器/refiner 读到的历史会缺换菜版本）。
+    # 条目形状与两位写手完全同款，version_n 续既有编号。trigger="adjust"。
+    existing_log: list = state.get("plan_version_log") or []
+    version_n = len(existing_log) + 1
+    new_title = _node_title(new_itinerary, result.swapped_to) if result.swapped_to else "新的一站"
+    version_entry = {
+        "version_n": version_n,
+        "summary": f"v{version_n}: {swap_phrase}把「{old_title}」换成「{new_title}」",
+        "trigger": "adjust",
+        "timestamp": _now_ms(),
+    }
+
     await graph.aupdate_state(
         config,
         {
@@ -368,6 +388,7 @@ async def _graph_adjust(
             "node_actions": node_actions,
             "demand_ledger": [e.model_dump() for e in updated_ledger],
             "advisories": advisory_dicts,
+            "plan_version_log": [version_entry],
         },
         as_node="narrate",
     )

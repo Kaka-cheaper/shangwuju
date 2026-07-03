@@ -424,6 +424,55 @@ def test_adjust_blocked_after_confirm_plan_unchanged_and_narrated(monkeypatch):
 
 
 # ============================================================
+# 4b) 换菜成功 → 方案版本志追加一条 trigger="adjust"（E-2-a 留待项补齐）
+# ============================================================
+
+
+def test_adjust_success_appends_plan_version_log_entry(monkeypatch):
+    """换菜不走图、方案却真的变了——不记版本志，"方案史"承诺就有洞（E-2
+    打包器/refiner 读到的历史会缺换菜版本）。条目形状与 finalize_plan/
+    graph_confirm 两位写手同款，version_n 续既有编号，trigger="adjust"。
+    """
+    session_id = "f4_adjust_version_log"
+    intent = _intent()
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+    rb_t1 = _rest(rest_id="RB_T1", cuisine="火锅", tags=["不辣"])
+    itinerary = _build_itinerary(intent, [poi_a, rb1], depart_min=14 * 60)
+
+    graph, config = _seed_thread_with_scenario(
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_t1],
+        monkeypatch=monkeypatch,
+    )
+    state = _current_state(graph, config)
+    pre_log = list(state.get("plan_version_log") or [])
+
+    req = ChatAdjustRequest(
+        session_id=session_id,
+        node_id="RB1",
+        action={
+            "type": "adjust",
+            "adjustment": {"dimension": "dietary", "value": "不辣"},
+            "label": "不辣的",
+        },
+    )
+    events = _collect_adjust(req, graph=graph, config=config, state=state)
+    assert any(e.type.value == "itinerary_ready" for e in events), "前置：换菜确实成功"
+
+    post_log = _current_state(graph, config)["plan_version_log"]
+    assert len(post_log) == len(pre_log) + 1  # 只追加一条，历史不动（operator.add）
+    entry = post_log[-1]
+    assert entry["trigger"] == "adjust"
+    assert entry["version_n"] == len(post_log)  # 续既有编号，不另起计数
+    assert set(entry) == {"version_n", "summary", "trigger", "timestamp"}  # 三写手同款形状
+    # summary 是人话：带用户点击的原话措辞与换入的新节点
+    assert "『不辣的』" in entry["summary"] and "换成" in entry["summary"]
+    post_itinerary = _current_state(graph, config)["itinerary"]
+    new_title = next(n.title for n in post_itinerary.nodes if n.target_id == "RB_T1")
+    assert new_title in entry["summary"]
+
+
+# ============================================================
 # 5) 无方案 / 无 checkpoint → 端点直接 4xx（不流到一半才报错）
 # ============================================================
 
