@@ -1,11 +1,17 @@
 "use client";
 
 /**
- * 约束流面板：协作模式下展示所有人提出的约束（类似聊天气泡但更紧凑）。
+ * 约束流面板：协作模式下展示所有人提出的约束（类似聊天气泡但更紧凑）+
+ * 诉求台账面板（状态徽标：生效/被顶替/已满足；节点指向；归名）。
  *
- * ADR-0013 F-4：单人模式升级为「诉求台账」面板——有 demandLedger 内容即显示
- * （状态徽标：生效/被顶替/已满足；节点指向）。协作模式下维持现状不变（房间
- * 约束流；房间侧的记名台账接线是 F-5 范围，本文件不动 collabMode 分支）。
+ * ADR-0013 F-4：单人模式的台账数据源是 `useChatStore.demandLedger`（随
+ * `/chat/adjust` 的 `agent_narration.demand_ledger` 逐步刷新）。
+ * ADR-0013 F-5：房间模式的台账**换成同一个字段**——`collab-store.ts` 在收到
+ * `room_state` 快照（`room.demand_ledger` 的 `ledger_for_display` 投影）与
+ * 每次房间内 `agent_narration`（走同一套 `handleEvent`）时都写回
+ * `useChatStore.demandLedger`，两种模式因此天然复用同一份渲染逻辑——不必
+ * 为房间模式单独接一遍台账面板。约束流（自由打字/义务分发广播）与诉求台账
+ * （节点级调整历史）是两种独立信号，各自按有无内容独立渲染，不互斥。
  */
 
 import { useRef, useEffect } from "react";
@@ -22,65 +28,67 @@ export default function ConstraintFeed() {
   const itinerary = useChatStore((s) => s.itinerary);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 自动滚动到底部（两种模式共用同一个 ref/effect；依赖两个长度里非本模式的那个
-  // 恒为 0，不会互相触发多余的滚动）
+  // 自动滚动到底部（两个面板共用同一个 ref/effect；不适用的一侧长度恒为 0，
+  // 不会互相触发多余的滚动）
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [constraints.length, demandLedger?.length]);
 
-  if (collabMode) {
-    if (constraints.length === 0) return null;
+  const showConstraints = collabMode && constraints.length > 0;
+  const showLedger = !!demandLedger && demandLedger.length > 0;
+  if (!showConstraints && !showLedger) return null;
 
-    const getNickname = (userId: string): string => {
-      const member = members.find((m) => m.user_id === userId);
-      return member?.nickname || userId;
-    };
-
-    return (
-      <div className="card p-3 mb-3">
-        <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-          约束流（{constraints.length} 条）
-        </h4>
-        <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">
-          {constraints.map((c, i) => (
-            <div
-              key={`${c.user_id}-${c.timestamp}-${i}`}
-              className={cn(
-                "flex items-start gap-2 text-xs",
-                c.source === "vote_dislike" && "opacity-70",
-              )}
-            >
-              <span className="shrink-0 font-medium text-ink-600">
-                {getNickname(c.user_id)}：
-              </span>
-              <span className="text-ink-400 break-all">
-                {c.source === "vote_dislike" ? `👎 ${c.text}` : c.text}
-              </span>
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-      </div>
-    );
-  }
-
-  // ---- 单人模式：诉求台账面板（ADR-0013 F-4）----
-  if (!demandLedger || demandLedger.length === 0) return null;
+  const getNickname = (userId: string): string => {
+    const member = members.find((m) => m.user_id === userId);
+    return member?.nickname || userId;
+  };
 
   return (
-    <div className="card p-3 mb-3">
-      <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
-        <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-        诉求台账（{demandLedger.length} 条）
-      </h4>
-      <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">
-        {demandLedger.map((entry, i) => (
-          <DemandLedgerRow key={`${entry.created_at}-${i}`} entry={entry} itinerary={itinerary} />
-        ))}
-        <div ref={bottomRef} />
-      </div>
-    </div>
+    <>
+      {showConstraints && (
+        <div className="card p-3 mb-3">
+          <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            约束流（{constraints.length} 条）
+          </h4>
+          <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">
+            {constraints.map((c, i) => (
+              <div
+                key={`${c.user_id}-${c.timestamp}-${i}`}
+                className={cn(
+                  "flex items-start gap-2 text-xs",
+                  c.source === "vote_dislike" && "opacity-70",
+                )}
+              >
+                <span className="shrink-0 font-medium text-ink-600">
+                  {getNickname(c.user_id)}：
+                </span>
+                <span className="text-ink-400 break-all">
+                  {c.source === "vote_dislike" ? `👎 ${c.text}` : c.text}
+                </span>
+              </div>
+            ))}
+            {!showLedger && <div ref={bottomRef} />}
+          </div>
+        </div>
+      )}
+
+      {/* 诉求台账（ADR-0013 F-4 单人 / F-5 房间共用同一份渲染，见文件顶部 docstring）*/}
+      {showLedger && (
+        <div className="card p-3 mb-3">
+          <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            诉求台账（{demandLedger!.length} 条）
+          </h4>
+          <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">
+            {demandLedger!.map((entry, i) => (
+              <DemandLedgerRow key={`${entry.created_at}-${i}`} entry={entry} itinerary={itinerary} />
+            ))}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -126,6 +134,14 @@ function DemandLedgerRow({
         {theme.label}
       </span>
       <span className="text-ink-600 break-all">
+        {/* 房间模式归名（ADR-0013 F-5）：entry.nickname 非空时点名"谁提的"；
+            单人模式恒为 null，不显示这一段（不是"匿名"，是压根没有"谁"这个概念）*/}
+        {entry.nickname && (
+          <>
+            <span className="font-medium text-ink-700">{entry.nickname}</span>
+            <span className="text-ink-400 mx-1">·</span>
+          </>
+        )}
         <span className="font-medium text-ink-700">{nodeLabel}</span>
         <span className="text-ink-400 mx-1">·</span>
         {dimensionLabel}：{entry.value}

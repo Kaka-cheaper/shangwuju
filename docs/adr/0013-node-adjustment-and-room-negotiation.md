@@ -50,4 +50,6 @@
 
 ## 落地状态
 
-⏳ **待实现**(决策 2026-07-03;排期 E-1 之后、E-2 之前;证据锚点待各片 commit 回填)
+🔁 **F-1..F-6 全部落地,体感编排批在途**(2026-07-03)。
+F-1 引擎(ead7f12,repair_route 共享 seam+机制修正)/F-2 台账(a402396,归并器深审修正)/F-3 按钮备选生成(ba06f7c,含 AGENT_NARRATION 改址修正)/F-4 单人入口+节点行(9985392,含具名备选收窄+满足回写+投影 sync_snapshot)/F-5 房间收尾(WS adjust 串行+锁定广播/点踩收编不再全量重排/TTL 50min 惰性清扫带活连接护栏/台账进快照/重连改名生效+member_reconnected)/F-6 房间路由同权(ea236de)。
+已知留痕:房间中途加入者在下一次换菜前看不到按钮(node_actions 刻意不进快照);graph_adjust 私有 helper 被 room.py 跨模块 import,待抽中立 seam;_get_stage_title 死代码(前端注释引用限制)。

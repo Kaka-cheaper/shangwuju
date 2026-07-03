@@ -39,6 +39,7 @@ export default function ItineraryCard() {
   // 协作模式
   const collabMode = useCollabStore((s) => s.collabMode);
   const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
+  const sendCollabAdjust = useCollabStore((s) => s.sendAdjust);
   const myRole = useCollabStore((s) => s.myRole);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const previousItinerary = useChatStore((s) => s.previousItinerary);
@@ -215,6 +216,10 @@ export default function ItineraryCard() {
   const canAct = !streaming && !hasOrders && !cancelled && !animating;
   const canConfirm = canAct && (!collabMode || myRole === "owner");
   const handleConfirm = collabMode ? sendCollabConfirm : confirm;
+  // ADR-0013 F-5：房间模式下节点调整走 WS "adjust"（RoomManager.adjust，归名+
+  // 串行+锁定广播），单人模式维持原 HTTP `/chat/adjust` SSE（同 ChatDock 的
+  // collabMode 分流先例）——两个调用点（具名备选/定向调整 chip）共用这一处分流。
+  const dispatchAdjust = collabMode ? sendCollabAdjust : sendAdjust;
 
   return (
     <div className={cn("relative card animate-fade-in", spotlight && "spotlight-once")}>
@@ -428,7 +433,7 @@ export default function ItineraryCard() {
                             alt={alt}
                             disabled={!canAdjust}
                             onClick={() =>
-                              sendAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                              dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
                             }
                           />
                         ))}
@@ -447,7 +452,7 @@ export default function ItineraryCard() {
                           chip={chip}
                           disabled={!canAdjust}
                           onClick={() =>
-                            sendAdjust(targetId, {
+                            dispatchAdjust(targetId, {
                               type: "adjust",
                               adjustment: chip.adjustment,
                               label: chip.label,

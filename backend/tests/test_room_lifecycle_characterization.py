@@ -393,8 +393,9 @@ def test_join_new_participant_gets_full_snapshot_and_others_get_member_joined_ex
         snapshot_msg = new_ws.sent[0]
         assert snapshot_msg["type"] == "room_state"
         assert snapshot_msg == room.get_state_snapshot()
-        assert "demand_ledger" not in snapshot_msg, (
-            "F-2 拍板：诉求台账刻意不进快照（房间侧只是存储位），现状钉住"
+        assert snapshot_msg["demand_ledger"] == [], (
+            "F-5 拍板：诉求台账接入快照（ledger_for_display 投影）——F-2 阶段的"
+            "「刻意不进快照」现状到 F-5 落地时翻转，新成员也该看到房间已有的台账"
         )
         assert all(m["type"] != "member_joined" for m in new_ws.sent), (
             "join() 用 exclude=user_id 广播 member_joined——新成员自己不该收到关于自己的通知"
@@ -416,7 +417,12 @@ def test_join_new_participant_gets_full_snapshot_and_others_get_member_joined_ex
 def test_join_owner_reconnect_keeps_role_and_updates_ws_without_recreating_member():
     """HTTP 建房只创建 `ws=None` 的 owner 成员，随后房主真正连 WS 走的是
     `join()` 的"已在 members 里→只更新 ws"分支——role 不应被重置，Member 对象
-    不应被重建（重连凭证语义，F-5「身份房内归属+重连凭证」动刀前必须先钉死现状）。
+    不应被重建（重连凭证语义，F-5「身份房内归属+重连凭证」落地后钉住新现状）。
+
+    F-5 生命周期疑点处置（见 collab/room.py::RoomManager.join docstring）：
+    1. 重连时传入的新昵称**会**更新已存昵称（临时身份语义下改名应生效）；
+    2. 重连广播的类型是 `member_reconnected`，不是 `member_joined`（区分"新人
+       加入"与"老朋友回来"，避免前端成员列表重复追加行）。
     """
 
     async def scenario():
@@ -436,26 +442,33 @@ def test_join_owner_reconnect_keeps_role_and_updates_ws_without_recreating_membe
         assert room.members["owner_join_test"].ws is ws1
         assert room.members["owner_join_test"].role == "owner"
         joined_msgs = [m for m in observer_ws.sent if m["type"] == "member_joined"]
-        assert len(joined_msgs) == 1
-        assert joined_msgs[0] == {
-            "type": "member_joined",
-            "user_id": "owner_join_test",
-            "nickname": "房主本尊",
-            "role": "owner",
-        }
+        assert len(joined_msgs) == 0, "首次加入是 observer 自己，owner 的这次是重连，不应广播 member_joined"
+        reconnected_msgs = [m for m in observer_ws.sent if m["type"] == "member_reconnected"]
+        assert reconnected_msgs == [
+            {
+                "type": "member_reconnected",
+                "user_id": "owner_join_test",
+                "nickname": "房主本尊",
+                "role": "owner",
+            }
+        ]
 
         # 二次重连：换个 ws + 换个昵称参数
         ws2 = _FakeWebSocket()
         await manager.join(room, "owner_join_test", "改名后的房主", ws2)
-        assert room.members["owner_join_test"] is original_member
+        assert room.members["owner_join_test"] is original_member, "改名不应重建 Member 对象"
         assert room.members["owner_join_test"].ws is ws2
-        assert room.members["owner_join_test"].nickname == "房主本尊", (
-            "重连时传入的新昵称不会更新已存昵称——现状行为（疑似异味，非本次断言引入的"
-            "新逻辑）：若前端允许重连时改昵称，这里会静默丢弃，见任务报告"
+        assert room.members["owner_join_test"].role == "owner", "改名不应连带重置 role"
+        assert room.members["owner_join_test"].nickname == "改名后的房主", (
+            "F-5 拍板：重连时传入的新昵称应生效（临时身份语义下改名应该生效，"
+            "同对象契约不破——只改 nickname 字段）"
         )
-        # 现状：重连仍会无条件再广播一次 member_joined（非去重）——记入报告供 F-5 参考
+        # member_joined 全程只应有 0 条（两次都是重连）；member_reconnected 应有 2 条
         joined_msgs2 = [m for m in observer_ws.sent if m["type"] == "member_joined"]
-        assert len(joined_msgs2) == 2, "现状：每次 join()（含重连）都会再广播一次 member_joined"
+        assert len(joined_msgs2) == 0, "重连不应广播 member_joined（否则前端成员列表重复追加行）"
+        reconnected_msgs2 = [m for m in observer_ws.sent if m["type"] == "member_reconnected"]
+        assert len(reconnected_msgs2) == 2, "两次重连各广播一条 member_reconnected"
+        assert reconnected_msgs2[1]["nickname"] == "改名后的房主"
 
     asyncio.run(scenario())
 
@@ -528,9 +541,18 @@ def test_broadcast_marks_member_offline_on_send_failure_without_breaking_others(
 # ============================================================
 
 
-def test_snapshot_key_shape_and_demand_ledger_excluded():
+def test_snapshot_key_shape_includes_demand_ledger():
+    """F-5 有意变更（见本文件模块 docstring"覆盖清单"第 1 条 + 任务书"台账进
+    快照"）：`demand_ledger` 键从"刻意不进快照"（F-2 阶段现状）翻转为"进快照，
+    走 `ledger_for_display` 投影"——新成员加入时也该看到房间已攒的协商台账。
+    """
     manager, room = _seed_room("owner_snapshot_keys_test")
-    room.demand_ledger.append({"member_id": "owner_snapshot_keys_test", "field": "distance_max_km"})
+    room.demand_ledger.append({
+        "member_id": "owner_snapshot_keys_test",
+        "nickname": "发起人",
+        "adjustment": {"dimension": "distance", "value": "closer"},
+        "source_text": "更近的",
+    })
 
     snapshot = room.get_state_snapshot()
 
@@ -549,21 +571,33 @@ def test_snapshot_key_shape_and_demand_ledger_excluded():
         "chat_messages",
         "chat_state",
         "planning_active",
+        "demand_ledger",
     }
     assert set(snapshot.keys()) == expected_keys, (
-        f"快照字段清单变化——F-5 接线台账前请先确认是否为有意变更。实际={set(snapshot.keys())}"
+        f"快照字段清单变化——请先确认是否为有意变更。实际={set(snapshot.keys())}"
     )
-    assert "demand_ledger" not in snapshot, (
-        "F-2 拍板：诉求台账刻意不进快照（房间侧只是存储位，接线归 F-4/F-5），"
-        "即便 room.demand_ledger 已有数据也不应泄漏进快照——现状钉住"
-    )
+    assert snapshot["demand_ledger"] == [
+        {
+            "member_id": "owner_snapshot_keys_test",
+            "nickname": "发起人",
+            "node_ref": None,
+            "dimension": "distance",
+            "value": "closer",
+            "status": "active",
+            "source_text": "更近的",
+            "created_at": snapshot["demand_ledger"][0]["created_at"],
+        }
+    ], "demand_ledger 走 ledger_for_display 投影，形状与 F-4 单人 /chat/adjust 同一口径"
 
 
 def test_snapshot_votes_and_locked_stages_evolve_with_update_vote():
     """votes/locked_stages 随真实 `update_vote` 调用演化（而非直接摆字段）：
     - 赞不产生约束、不触发重排，只写 votes + 加入 locked_stages；
     - 对某一段踩，只解锁那一段，不影响其它段已有的赞锁定；
-    - 踩仍走既有 refiner 合并重排路径（回归防护）。
+    - 【F-5 有意变更】踩不再走 refiner 合并全量重排——ADR-0013 决策 4/Q5「点踩
+      收编」收编进 `RoomManager.adjust()` 节点级局部重解（`action=dislike`）：
+      不进 `room.constraints`、不触发 `_trigger_replan`/`refinement_done`，直接
+      走同一个换菜引擎产出 `itinerary_ready`/`agent_narration`。
     """
 
     async def scenario():
@@ -580,16 +614,25 @@ def test_snapshot_votes_and_locked_stages_evolve_with_update_vote():
         assert room.constraints == []
         assert room.planning_task is None
 
+        original_poi_id = room.current_itinerary_dict["nodes"][1]["target_id"]
+
         await _vote_and_drain(manager, room, "owner_vote_snap_test", 0, "dislike")
         snap2 = room.get_state_snapshot()
         assert snap2["votes"]["0"] == {"owner_vote_snap_test": "dislike"}
         assert set(snap2["locked_stages"]) == {1}, (
             "对第 0 段踩只应解锁第 0 段，第 1 段的赞锁定不受影响"
         )
-        assert len(room.constraints) == 1
-        assert room.constraints[0].source == "vote_dislike"
+        assert room.constraints == [], (
+            "F-5 拍板：点踩收编进局部重解引擎，不再合成「不满意第 N 段」约束文本"
+        )
+        assert room.planning_task is None, "局部重解不经过 room.planning_task（那是全量重排的机制）"
 
-        assert "refinement_done" in _event_types(room), "踩应沿用既有 refiner 合并重排路径"
+        types_ = _event_types(room)
+        assert "refinement_done" not in types_, "点踩不应再途经 refiner 合并重排路径（这正是本弧要治的病）"
+        assert "itinerary_ready" in types_, f"点踩应产出局部重解的新方案，实际事件={types_}"
+        new_poi_id = room.current_itinerary_dict["nodes"][1]["target_id"]
+        assert new_poi_id != original_poi_id, "点踩的这一格应该真的换了实体（只动这一格，钉住 P040→别的 poi）"
+        assert room.demand_ledger == [], "点踩（无方向局部重解）不记账——同 F-4 口径，dislike 不是「诉求」"
 
     asyncio.run(scenario())
 

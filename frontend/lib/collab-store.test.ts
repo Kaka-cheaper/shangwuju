@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildCollabChatStateSnapshot,
   buildCollabPlanningEvents,
+  handleWsMessage,
   useCollabStore,
 } from "./collab-store";
 import { useChatStore } from "./store";
@@ -137,5 +138,109 @@ describe("collab store helpers", () => {
 
     expect(send).not.toHaveBeenCalled();
     expect(useCollabStore.getState().connectionError).toContain("发起人");
+  });
+
+  // ADR-0013 F-5：房间版节点调整入口——WS "adjust" 消息
+  it("sendAdjust sends an adjust WS message with node_id + action", () => {
+    const send = vi.fn();
+    useCollabStore.setState({
+      _wsClient: { send, close: vi.fn(), isConnected: () => true },
+    });
+
+    useCollabStore.getState().sendAdjust("R001", { type: "dislike" });
+
+    expect(send).toHaveBeenCalledWith({
+      type: "adjust",
+      node_id: "R001",
+      action: { type: "dislike" },
+    });
+  });
+});
+
+describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => {
+  const set = useCollabStore.setState;
+  const get = useCollabStore.getState;
+
+  it("member_joined appends a new member but does not duplicate an existing one", () => {
+    handleWsMessage(set, get, {
+      type: "member_joined",
+      user_id: "p1",
+      nickname: "小明",
+      role: "participant",
+    });
+    expect(get().members).toHaveLength(1);
+
+    // 同一个 user_id 再收到一次 member_joined（防御性：不应出现在真实后端行为里，
+    // 但前端不该假设后端绝对不会重复——upsert 语义比"信任上游不重复"更稳）
+    handleWsMessage(set, get, {
+      type: "member_joined",
+      user_id: "p1",
+      nickname: "小明",
+      role: "participant",
+    });
+    expect(get().members).toHaveLength(1);
+  });
+
+  it("member_reconnected updates the existing member's online/nickname without appending a new row", () => {
+    handleWsMessage(set, get, {
+      type: "member_joined",
+      user_id: "p2",
+      nickname: "旧昵称",
+      role: "participant",
+    });
+    handleWsMessage(set, get, { type: "member_left", user_id: "p2" });
+    expect(get().members.find((m) => m.user_id === "p2")?.online).toBe(false);
+
+    handleWsMessage(set, get, {
+      type: "member_reconnected",
+      user_id: "p2",
+      nickname: "新昵称",
+      role: "participant",
+    });
+
+    expect(get().members).toHaveLength(1);
+    const member = get().members.find((m) => m.user_id === "p2");
+    expect(member?.online).toBe(true);
+    expect(member?.nickname).toBe("新昵称");
+  });
+
+  it("node_locked/node_unlocked bridge to the main chat store's lockedNodeId", () => {
+    handleWsMessage(set, get, { type: "node_locked", node_id: "R001", by_user: "p1", nickname: "小明" });
+    expect(useChatStore.getState().lockedNodeId).toBe("R001");
+
+    handleWsMessage(set, get, { type: "node_unlocked", node_id: "R001" });
+    expect(useChatStore.getState().lockedNodeId).toBeNull();
+  });
+
+  it("room_state hydrates the shared demandLedger field from the room snapshot", () => {
+    const ledgerEntry = {
+      member_id: "p1",
+      nickname: "小明",
+      node_ref: { kind: "restaurant" as const, target_id: "R001" },
+      dimension: "dietary" as const,
+      value: "不辣",
+      status: "active" as const,
+      source_text: "不辣的",
+      created_at: 1,
+    };
+
+    handleWsMessage(set, get, {
+      type: "room_state",
+      owner_id: "owner1",
+      members: [],
+      constraints: [],
+      votes: {},
+      locked_stages: [],
+      itinerary: null,
+      previous_itinerary: null,
+      intent: null,
+      planning_events: [],
+      chat_messages: [],
+      chat_state: null,
+      planning_active: false,
+      demand_ledger: [ledgerEntry],
+    });
+
+    expect(useChatStore.getState().demandLedger).toEqual([ledgerEntry]);
   });
 });

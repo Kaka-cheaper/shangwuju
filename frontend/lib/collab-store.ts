@@ -13,7 +13,7 @@ import { createWsClient, type WsClient, type WsMessage } from "./ws";
 import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
-import type { SseEvent } from "./types";
+import type { AdjustAction, DemandLedgerEntry, SseEvent } from "./types";
 import { API_BASE } from "./utils";
 
 // ============================================================
@@ -63,6 +63,10 @@ export interface CollabState {
   leaveRoom: () => void;
   sendConstraint: (text: string) => void;
   sendVote: (stageIndex: number, action: VoteAction) => void;
+  /** ADR-0013 F-5：房间版节点调整入口——WS "adjust" 消息，同 F-4 单人
+   * `sendAdjust` 的 action 判别式协议（见 `frontend/components/ItineraryCard.tsx`
+   * 的 collabMode 分流：房间模式发这个而非 HTTP `/chat/adjust`）。 */
+  sendAdjust: (nodeId: string, action: AdjustAction) => void;
   sendConfirm: () => void;
   createRoom: (
     userId: string,
@@ -97,7 +101,7 @@ export type CollabChatStateSnapshot = Partial<
 
 const initialCollabState: Omit<
   CollabState,
-  "joinRoom" | "leaveRoom" | "sendConstraint" | "sendVote" | "sendConfirm" | "createRoom"
+  "joinRoom" | "leaveRoom" | "sendConstraint" | "sendVote" | "sendAdjust" | "sendConfirm" | "createRoom"
 > = {
   collabMode: false,
   roomId: null,
@@ -169,6 +173,13 @@ export const useCollabStore = create<CollabState>((set, get) => ({
     }
   },
 
+  sendAdjust: (nodeId, action) => {
+    const client = get()._wsClient;
+    if (client) {
+      client.send({ type: "adjust", node_id: nodeId, action });
+    }
+  },
+
   sendConfirm: () => {
     const client = get()._wsClient;
     if (get().myRole !== "owner") {
@@ -210,7 +221,10 @@ export const useCollabStore = create<CollabState>((set, get) => ({
 type Setter = (partial: Partial<CollabState> | ((s: CollabState) => Partial<CollabState>)) => void;
 type Getter = () => CollabState;
 
-function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
+// 导出供测试直驱（同 buildCollabPlanningEvents/buildCollabChatStateSnapshot 的既有
+// 测试性导出先例）——WS 层构造真实 `WebSocket` 在 vitest/node 环境下不可用，
+// 单测改为直接调用本函数模拟收到的下行消息。
+export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
   const type = msg.type;
 
   switch (type) {
@@ -263,21 +277,59 @@ function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void {
       if (chatMsgs.length > 0) {
         useChatStore.setState({ messages: chatMsgs });
       }
+      // ADR-0013 F-5：诉求台账数据源永远是房间快照本身（room.demand_ledger 的
+      // `ledger_for_display` 投影）——房间是"谁提的"归名记录的唯一真相源，不随
+      // `chat_state` 是否存在而分支（`chat_state` 只是单人转房间时的一次性前端
+      // 本地态迁移载体，不携带房间侧台账）。喂给 `ConstraintFeed`（读现状对齐：
+      // 单人模式已经读 `useChatStore.demandLedger`，房间模式复用同一个字段）。
+      useChatStore.setState({ demandLedger: (msg.demand_ledger as DemandLedgerEntry[]) || [] });
       break;
     }
 
     case "member_joined": {
+      const uid = msg.user_id as string;
+      set((s) => {
+        if (s.members.some((m) => m.user_id === uid)) return {};
+        return {
+          members: [
+            ...s.members,
+            {
+              user_id: uid,
+              nickname: msg.nickname as string,
+              role: (msg.role as "owner" | "participant") || "participant",
+              online: true,
+            },
+          ],
+        };
+      });
+      break;
+    }
+
+    case "member_reconnected": {
+      // 区别于 member_joined（新增一行）——重连是"老朋友回来了"，更新既有行的
+      // online/nickname，不追加新行（见 collab/room.py::RoomManager.join
+      // docstring："重连刷屏"曾是真实的列表重复 bug）。
+      const uid = msg.user_id as string;
       set((s) => ({
-        members: [
-          ...s.members,
-          {
-            user_id: msg.user_id as string,
-            nickname: msg.nickname as string,
-            role: (msg.role as "owner" | "participant") || "participant",
-            online: true,
-          },
-        ],
+        members: s.members.map((m) =>
+          m.user_id === uid
+            ? { ...m, online: true, nickname: (msg.nickname as string) ?? m.nickname }
+            : m,
+        ),
       }));
+      break;
+    }
+
+    case "node_locked": {
+      // ADR-0013 F-5：房间版换菜处理期锁定——桥接到主 store 的 lockedNodeId
+      // （F-4 单人换菜同一个字段），ItineraryCard 的 Shimmer/禁用逻辑零改动
+      // 即可复用（房间模式下该字段由这里驱动，单人模式由 sendAdjust 自己驱动）。
+      useChatStore.setState({ lockedNodeId: msg.node_id as string });
+      break;
+    }
+
+    case "node_unlocked": {
+      useChatStore.setState({ lockedNodeId: null });
       break;
     }
 

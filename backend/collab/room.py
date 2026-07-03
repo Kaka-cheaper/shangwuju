@@ -2,16 +2,23 @@
 
 核心流程：
 1. 发起人 POST /room/create → RoomManager.create_room() → 返回 room_id
-2. 任何人 WS /ws/{room_id} → RoomManager.join() → 广播 member_joined
+2. 任何人 WS /ws/{room_id} → RoomManager.join()（首次广播 member_joined，
+   重连广播 member_reconnected）
 3. 任何人发 constraint（自由打字）→ Room.add_constraint() → 先过统一路由脑子
    route_turn 判义务（ADR-0013 决策 7，"房间路由同权"）→ 归名广播给全员 + 按义务
    分流：feedback→合并约束重新规划 / planning→全新规划 / 其余→气泡广播，不动方案
-4. 任何人发 vote → Room.update_vote() → 广播 → 踩触发重规划（暂未接路由，见 F-5）
-5. owner 发 confirm → Room.confirm() → 广播确认结果
+4. 任何人发 vote → Room.update_vote() → 广播；踩（dislike）收编进 RoomManager.adjust()
+   的节点级局部重解（ADR-0013 决策 4/Q5，F-5），不再触发全量重排
+5. 任何人发 adjust（节点行定向调整按钮 / 具名备选）→ RoomManager.adjust()：
+   room.lock 内串行 → 候选池现场重查 → resolve_node_swap → 归名台账 + 归名说明 →
+   node_locked/node_unlocked 广播全员可见处理态（ADR-0013 F-5）
+6. owner 发 confirm → Room.confirm() → 广播确认结果
+7. RoomManager.sweep_expired_rooms()：50min 空闲 TTL 惰性清扫（ADR-0013 决策 6，
+   F-5）——房间对象连诉求台账一起蒸发；绝不清扫仍有在线 WS 连接的房间
 
 设计取舍：
 - 单进程 dict 存储（与 InMemoryRepository 一致，Demo 够用）
-- asyncio.Lock per room 保证约束串行处理
+- asyncio.Lock per room 保证约束/调整串行处理
 - planning_task 用 asyncio.Task.cancel() 实现中断
 - 规划事件通过回调广播给所有 WS 连接（复用现有 SseEvent 格式）
 """
@@ -20,12 +27,15 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -76,14 +86,20 @@ class Room:
     planning_task: Optional[asyncio.Task] = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     created_at: float = field(default_factory=time.time)
+    # ADR-0013 决策 6 / F-5：房间 TTL 清扫的计时基准——任何成员发起的动作
+    # （join/leave/add_constraint/update_vote/confirm/adjust）都刷新它；
+    # `RoomManager.sweep_expired_rooms` 用它判定"最后活动"是否已超过 50min。
+    # 不进 `get_state_snapshot()`——纯内部记账字段，前端无消费理由。
+    last_activity_at: float = field(default_factory=time.time)
     # 被赞锁定的 stage index 集合（重规划时保留这些段）
     locked_stages: set[int] = field(default_factory=set)
-    # 诉求台账（ADR-0013 决策 3 / F-2）：list[dict]（schemas.demand_ledger.
-    # LedgerEntry.model_dump()）——房间侧的台账存储位，生命周期随房间本身
-    # （房间销毁即销毁，50min 空闲 TTL 清扫器一并清掉是 F-5 的事，本步不实现
-    # 计时/清扫）。写入（schemas.demand_ledger.record_demand）与消费（喂给
-    # F-1 引擎 / 前端台账面板）的接线——谁在何时调用——归 F-4/F-5；本字段
-    # 本步只提供存储位，不接入 add_constraint / get_state_snapshot 等既有流程。
+    # 诉求台账（ADR-0013 决策 3 / F-2，F-5 接线落地）：list[dict]（schemas.
+    # demand_ledger.LedgerEntry.model_dump()）——房间侧的台账存储位，生命周期
+    # 随房间本身（房间销毁即销毁，`RoomManager.sweep_expired_rooms` 的 TTL 清扫
+    # 连它一起蒸发）。写入（`schemas.demand_ledger.record_demand`/
+    # `mark_satisfied`）在 `RoomManager.adjust()`；消费（喂给 F-1 引擎的
+    # `ledger_slice`/前端台账面板）分别在 `adjust()` 内部与 `get_state_snapshot()`
+    # 的 `ledger_for_display` 投影。
     demand_ledger: list[dict[str, Any]] = field(default_factory=list)
 
     @property
@@ -111,7 +127,17 @@ class Room:
         ]
 
     def get_state_snapshot(self) -> dict[str, Any]:
-        """全量状态快照（新成员加入时推送）。"""
+        """全量状态快照（新成员加入时推送）。
+
+        F-5 新增 `demand_ledger`（F-2 拍板落地时刻——见 F-2 阶段本字段
+        docstring"本步只提供存储位……不接入 get_state_snapshot 等既有流程"，
+        接入的正是这里）：投影用 `ledger_for_display`（同 F-4 单人 `/chat/adjust`
+        的 `agent_narration.demand_ledger` 同一投影口径），让新加入者也能看到
+        房间已经攒下的协商台账，不必等下一次换菜事件才补齐。
+        """
+        from schemas.demand_ledger import LedgerEntry, ledger_for_display
+
+        ledger_entries = [LedgerEntry.model_validate(d) for d in self.demand_ledger]
         return {
             "type": "room_state",
             "room_id": self.room_id,
@@ -127,6 +153,7 @@ class Room:
             "chat_messages": self.chat_messages,
             "chat_state": self.chat_state_snapshot,
             "planning_active": self.planning_task is not None and not self.planning_task.done(),
+            "demand_ledger": ledger_for_display(ledger_entries),
         }
 
 
@@ -138,11 +165,17 @@ class Room:
 class RoomManager:
     """房间生命周期管理 + WebSocket 广播。"""
 
+    # ADR-0013 决策 6：50 分钟空闲 TTL，从"最后活动"起算（见 `Room.last_activity_at`）。
+    # 类属性而非模块级常量——测试可 `manager.ROOM_TTL_SECONDS = ...` 局部覆盖，
+    # 不需要 monkeypatch 整个模块。
+    ROOM_TTL_SECONDS: float = 50 * 60
+
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}
 
     def create_room(self, owner_id: str, nickname: str = "发起人") -> Room:
         """创建新房间。"""
+        self.sweep_expired_rooms()
         room_id = self._generate_room_id()
         room = Room(room_id=room_id, owner_id=owner_id)
         room.members[owner_id] = Member(
@@ -152,6 +185,7 @@ class RoomManager:
         return room
 
     def get_room(self, room_id: str) -> Optional[Room]:
+        self.sweep_expired_rooms()
         return self._rooms.get(room_id)
 
     def delete_room(self, room_id: str) -> None:
@@ -160,6 +194,7 @@ class RoomManager:
             room.planning_task.cancel()
 
     def list_rooms(self) -> list[dict[str, Any]]:
+        self.sweep_expired_rooms()
         return [
             {
                 "room_id": r.room_id,
@@ -170,29 +205,86 @@ class RoomManager:
             for r in self._rooms.values()
         ]
 
+    def sweep_expired_rooms(self, *, now: Optional[float] = None) -> list[str]:
+        """惰性 TTL 清扫（ADR-0013 决策 6/F-5）——销毁=房间对象连台账全蒸发。
+
+        【机制选型：惰性 vs 定时器，选惰性】`RoomManager` 是进程内单例（模块级
+        `_manager`），若改用 `asyncio.create_task` 起一个常驻定时协程，其生命
+        周期会绑死在"第一次创建它时恰好在跑的那个事件循环"上——本仓库测试套件
+        大量用 `asyncio.run()`（每次开一个新循环、返回前强制 cancel 掉残留任务，
+        见 `test_room_lifecycle_characterization.py` 等多处 docstring 对这一点
+        的反复强调），常驻任务跨 `asyncio.run()` 边界存活会在下一次测试的新循环
+        里变成"绑在已关闭循环上的僵尸任务"，引入与本次改造目标无关的 flaky。
+        惰性清扫无需常驻协程/无需 FastAPI lifespan 挂钩（main.py 本轮由并行任务
+        改动中，不额外争用）——挂在每次外部交互的入口（`create_room`/`get_room`/
+        `list_rooms`，覆盖 HTTP 建房、WS 连接、管理态查询三条所有"有人在跟系统
+        交互"的路径）上顺手做一次全量扫描，代价是 O(房间数) 的 dict 遍历，demo
+        规模下可忽略；`now` 可注入，供测试确定性驱动（不依赖真实 sleep）。
+
+        【护栏】只清扫"最后活动超过 TTL" **且** "当前无任何在线 WS 连接"的房间——
+        后一条硬性兜底防止长连接活跃的房间被误杀（评委开着房间讲 PPT，中途没有
+        触发任何 `last_activity_at` 刷新点，但连接仍在，绝不能被清扫掉）。
+        """
+        ts = now if now is not None else time.time()
+        expired = [
+            room_id
+            for room_id, room in self._rooms.items()
+            if ts - room.last_activity_at > self.ROOM_TTL_SECONDS
+            and all(m.ws is None for m in room.members.values())
+        ]
+        for room_id in expired:
+            self.delete_room(room_id)
+        return expired
+
     async def join(
         self, room: Room, user_id: str, nickname: str, ws: WebSocket
     ) -> None:
-        """成员加入房间。"""
+        """成员加入房间。
+
+        F-5 生命周期疑点处置（任务书"重连凭证"节，2026-07-03 拍板）：
+        1. **重连时更新昵称**——原实现只更新 `ws`、无条件丢弃重连传入的新昵称
+           （特征化测试曾钉死这个现状为"疑似异味"）。临时身份语义下"改名"应该
+           生效（localStorage id 只是断线重连凭证，不锁定昵称），且不破坏"同对象
+           契约"——只改 `Member.nickname` 字段，`Member` 对象本身不重建、`role`
+           不重置，重连前后 `is` 同一对象的既有保证原样保留。
+        2. **重连不再广播 `member_joined`**——原实现无条件对首次加入/重连都广播
+           `member_joined`，前端 `handleWsMessage` 的对应 case 是无条件 `push`
+           进 `members` 数组（不做 `user_id` 去重），每次重连都会在其他成员本地
+           的成员列表里追加一条重复行（"重连刷屏"，不是比喻，是真实的列表重复
+           bug）。改为：首次加入广播 `member_joined`（新增一行）；重连广播
+           `member_reconnected`（更新既有行的 `online`/`nickname`，见
+           `frontend/lib/collab-store.ts` 对应 case）——语义上"老王回来了"和
+           "来了个新人小明"是两种不同的事件，值得用两个类型区分，而不是让前端
+           靠"这个 user_id 是不是已经在列表里"反推事件语义。
+        """
+        room.last_activity_at = time.time()
         if user_id in room.members:
-            # 重连：更新 ws
-            room.members[user_id].ws = ws
+            # 重连：更新 ws + 昵称，Member 对象本身不重建（role 不变）
+            member = room.members[user_id]
+            member.ws = ws
+            member.nickname = nickname
+            await self._send(ws, room.get_state_snapshot())
+            await self.broadcast(room, {
+                "type": "member_reconnected",
+                "user_id": user_id,
+                "nickname": nickname,
+                "role": member.role,
+            }, exclude=user_id)
         else:
             room.members[user_id] = Member(
                 user_id=user_id, nickname=nickname, role="participant", ws=ws
             )
-        # 给新成员推全量状态
-        await self._send(ws, room.get_state_snapshot())
-        # 广播 member_joined
-        await self.broadcast(room, {
-            "type": "member_joined",
-            "user_id": user_id,
-            "nickname": nickname,
-            "role": room.members[user_id].role,
-        }, exclude=user_id)
+            await self._send(ws, room.get_state_snapshot())
+            await self.broadcast(room, {
+                "type": "member_joined",
+                "user_id": user_id,
+                "nickname": nickname,
+                "role": room.members[user_id].role,
+            }, exclude=user_id)
 
     async def leave(self, room: Room, user_id: str) -> None:
         """成员离开（WS 断开）。"""
+        room.last_activity_at = time.time()
         member = room.members.get(user_id)
         if member:
             member.ws = None
@@ -200,11 +292,9 @@ class RoomManager:
             "type": "member_left",
             "user_id": user_id,
         })
-        # 如果所有人都离线，5 分钟后清理（简化：直接标记，不做定时器）
-        all_offline = all(m.ws is None for m in room.members.values())
-        if all_offline:
-            # Demo 场景不做延迟清理，直接保留房间（评委可能刷新页面）
-            pass
+        # 全员离线后的销毁交给 `sweep_expired_rooms`（ADR-0013 决策 6 / F-5）——
+        # 惰性 TTL 清扫会在下一次任意外部交互时发现并清掉；这里不再需要任何
+        # "标记待清理"的占位注释（F-5 之前的现状，见特征化测试对本行为的钉住）。
 
     async def add_constraint(
         self, room: Room, user_id: str, text: str, source: str = "text"
@@ -252,6 +342,7 @@ class RoomManager:
         该边界的自然结果，不是缺陷。
         """
         async with room.lock:
+            room.last_activity_at = time.time()
             from agent.core.llm_client import get_llm_client
             from agent.routing.route_turn import route_turn
 
@@ -336,13 +427,31 @@ class RoomManager:
     async def update_vote(
         self, room: Room, user_id: str, stage_index: int, action: str
     ) -> None:
-        """更新投票 → 广播 → 踩触发重规划。"""
+        """更新投票 → 广播 →（踩）收编进节点级局部重解。
+
+        ADR-0013 决策 4/Q5「点踩收编」（F-5 拍板落地）：改造前，踩一段会翻译成
+        一句"不满意第 N 段，请换一个"塞进约束池、中断在跑规划、触发全量重排——
+        正是 ADR-0013 背景节点名的病灶（"嫌一个节点 → 整个方案洗牌"）。改造后，
+        踩直接走 `adjust()`（房间版局部重解引擎，同 WS "adjust" 消息复用的同一
+        入口，`action=dislike`）：立刻换、只动这一格，不再合成约束文本、不再进
+        `room.constraints`、不再中断/触发 `_trigger_replan`。
+
+        `locked_stages` 语义不受此次改造影响——仍是纯展示态的"赞锁定"集合（无
+        下游消费者按它门控重排，见任务报告"深审重点"），"踩只解锁本段"的既有
+        保证（`discard(stage_index)` 只影响这一个 index）原样保留。
+
+        `adjust()` 自己会重新 `async with room.lock` 串行——必须等本方法自己的
+        `async with room.lock` 块结束（投票记录+广播已完成）才能调用，否则
+        `asyncio.Lock` 不可重入会死锁。
+        """
+        target_id: Optional[str] = None
         async with room.lock:
+            room.last_activity_at = time.time()
             if stage_index not in room.votes:
                 room.votes[stage_index] = {}
             room.votes[stage_index][user_id] = action
 
-            # 更新锁定集合
+            # 更新锁定集合（纯展示态，见方法 docstring）
             if action == "like":
                 room.locked_stages.add(stage_index)
             elif action == "dislike":
@@ -357,47 +466,270 @@ class RoomManager:
                 "locked_stages": list(room.locked_stages),
             })
 
-            # 踩 → 触发重规划
             if action == "dislike":
-                # 翻译投票为约束文本
-                stage_title = self._get_stage_title(room, stage_index)
-                constraint_text = f"不满意第 {stage_index + 1} 段「{stage_title}」，请换一个"
-                constraint = Constraint(
-                    user_id=user_id, text=constraint_text, source="vote_dislike"
-                )
-                room.constraints.append(constraint)
-                nickname = room.members.get(user_id, Member(user_id=user_id, nickname=user_id, role="participant")).nickname
-                room.chat_messages.append(
-                    {
-                        "id": f"collab-{int(constraint.timestamp * 1000)}",
-                        "role": "user",
-                        "text": f"{nickname}：{constraint_text}",
-                        "createdAt": int(constraint.timestamp * 1000),
-                    }
-                )
-                await self.broadcast(room, {
-                    "type": "constraint_added",
-                    "user_id": user_id,
-                    "nickname": nickname,
-                    "text": constraint_text,
-                    "source": "vote_dislike",
-                    "timestamp": constraint.timestamp,
+                target_id = self._stage_target_id(room, stage_index)
+
+        if action == "dislike" and target_id is not None:
+            from api._streams.models import AdjustActionDislike
+
+            await self.adjust(room, user_id, target_id, AdjustActionDislike())
+        # target_id is None（当前方案里定位不到这一段，如尚未出方案）——静默丢弃，
+        # 不广播、不报错：UI 不应该出现指向不存在节点的踩按钮，这是防御性兜底。
+
+    # ============================================================
+    # 房间版节点调整（ADR-0013 F-5）——WS "adjust" 消息 + 点踩收编共用入口
+    # ============================================================
+
+    async def adjust(
+        self,
+        room: Room,
+        user_id: str,
+        node_id: str,
+        action: Any,
+    ) -> None:
+        """房间版节点换菜——复用 F-4 单人链路的同一个引擎
+        `agent.planning.planners.node_swap.resolve_node_swap`（见
+        `api/_streams/graph_adjust.py` 模块 docstring）。`action` 是 F-4 既有的
+        判别式协议对象（`api._streams.models.AdjustActionAdjust` /
+        `AdjustActionAlternative` / `AdjustActionDislike`），由 WS 层
+        （`api/collab.py`）按同一份 pydantic schema 校验后传入——三个入口
+        （节点行的定向调整按钮 / 具名备选 / 点踩）到这里已经殊途同归。
+
+        与单人版三处必然差异（房间是长连接多人会话，不是一次性 SSE 请求）：
+        1. **候选池现场重查**：房间没有 LangGraph 图 checkpoint 里现成缓存的
+           `pois`/`restaurants`（那是单人会话规划时"顺手"存下的），复用
+           `agent.planning.planners.ils_planner._query_pois`/`_query_restaurants`
+           同款真实召回（同 intent、同 grounding 过滤），不平行发明第二套查询。
+        2. **全程串行**：`room.lock` 保证同一房间的多个调整请求排队处理，后到的
+           基于前一个的结果重解（ADR-0013 决策 6）。
+        3. **归名 + 处理期锁定广播**：诉求台账记 `member_id`/`nickname`；处理期
+           先广播 `node_locked`（全员可见该节点 Shimmer 处理中），成功/失败都
+           以 `node_unlocked`收尾（`finally`，任何异常路径都不会让节点卡死锁定）。
+
+        业务性失败（无可换候选 / 保留节点排不到一块儿）与调用方契约违反
+        （`node_id` 并发下已失效等 `ValueError`）在这里**都**降级为告知气泡，
+        不像 F-4 SSE 那样把契约违反交给外层兜底转 `stream_error`——房间 WS 是
+        长连接会话，任何未捕获异常都会被 `api/collab.py::ws_collab` 的外层
+        `except Exception` 当成断线处理触发 `manager.leave()`，那是"因为一次
+        换菜的边界情况就把人踢下线"的真事故，比多做一层防御性收窄严重得多。
+        """
+        async with room.lock:
+            room.last_activity_at = time.time()
+            member = room.members.get(user_id)
+            nickname = member.nickname if member else user_id
+
+            await self.broadcast(room, {
+                "type": "node_locked",
+                "node_id": node_id,
+                "by_user": user_id,
+                "nickname": nickname,
+            })
+            try:
+                await self._resolve_and_broadcast_adjust(room, user_id, nickname, node_id, action)
+            except Exception:  # noqa: BLE001
+                # 纵深防御：`_resolve_and_broadcast_adjust` 内部已经把已知的业务失败/
+                # 契约违反都收窄成告知气泡，这里兜的是"未预料的真 bug"——同样不能
+                # 冒泡（见方法 docstring），退化为一句通用告知，把异常记日志供事后排查。
+                logger.exception("room adjust 未预料异常：room_id=%s node_id=%s", room.room_id, node_id)
+                await self._broadcast_planning_event(room, {
+                    "type": "agent_narration",
+                    "seq": 0,
+                    "payload": {"text": "这一步出了点意外，方案维持不变，麻烦稍后再试。", "stage": "stream"},
+                    "timestamp_ms": int(time.time() * 1000),
                 })
+            finally:
+                await self.broadcast(room, {"type": "node_unlocked", "node_id": node_id})
 
-                # 中断 + 重规划
-                if room.planning_task and not room.planning_task.done():
-                    room.planning_task.cancel()
-                    try:
-                        await room.planning_task
-                    except (asyncio.CancelledError, Exception):
-                        pass
-                    await self.broadcast(room, {
-                        "type": "planning_aborted",
-                        "reason": "vote_dislike",
-                        "by_user": user_id,
-                    })
+    async def _resolve_and_broadcast_adjust(
+        self, room: Room, user_id: str, nickname: str, node_id: str, action: Any
+    ) -> None:
+        """`adjust()` 的实际换菜逻辑——拆成独立方法只是为了让 `finally` 解锁
+        与"到底怎么换"两件事在视觉上分开，不代表可以脱离 `adjust()` 单独调用
+        （依赖调用方已持有 `room.lock` 且已广播 `node_locked`）。
+        """
+        from agent.core.trace import Tracer
+        from agent.graph.nodes.narrate import _build_node_actions
+        from agent.intent.narrator import generate_template_node_chips
+        from agent.planning.planners.ils_planner import _query_pois, _query_restaurants
+        from agent.planning.planners.node_swap import resolve_node_swap
+        from api._streams.graph_adjust import (
+            _compose_narration_text,
+            _find_entity,
+            _narrow_pool_to_single_alternative,
+            _node_title,
+            _synthesize_source_text,
+            _target_kind,
+        )
+        from api._streams.models import AdjustActionAdjust, AdjustActionAlternative, AdjustActionDislike
+        from schemas import IntentExtraction, Itinerary
+        from schemas.demand_ledger import (
+            LedgerEntry,
+            NodeRef,
+            active_adjustments,
+            ledger_for_display,
+            mark_satisfied,
+            record_demand,
+        )
 
-                await self._trigger_replan(room, trigger_user=user_id, trigger_reason="vote_dislike")
+        async def _narrate_bubble(text: str) -> None:
+            await self._broadcast_planning_event(room, {
+                "type": "agent_narration",
+                "seq": 0,
+                "payload": {"text": text, "stage": "stream"},
+                "timestamp_ms": int(time.time() * 1000),
+            })
+
+        if room.current_itinerary_dict is None or room.current_intent_dict is None:
+            await _narrate_bubble("现在还没有可以调整的方案，先让大家一起规划出一个吧。")
+            return
+
+        itinerary = Itinerary.model_validate(room.current_itinerary_dict)
+        intent = IntentExtraction.model_validate(room.current_intent_dict)
+        ledger = [LedgerEntry.model_validate(d) for d in room.demand_ledger]
+
+        kind = _target_kind(itinerary, node_id)
+        if kind is None:
+            # 契约违反级别的边界（节点已不在方案里）——房间长连接下降级为告知，
+            # 不抛异常（见 `adjust()` docstring）。多是并发下"方案在你点击的同时
+            # 已被别的操作换过"的正常竞态，不是真正的程序错误。
+            await _narrate_bubble("这个节点好像已经不在当前方案里了，方案可能刚被别的操作换过，刷新后再试试？")
+            return
+
+        old_title = _node_title(itinerary, node_id)
+        node_ref = NodeRef(kind=kind, target_id=node_id)  # type: ignore[arg-type]
+
+        tracer = Tracer()
+        pois = _query_pois(intent, tracer)
+        restaurants = _query_restaurants(intent, tracer)
+
+        updated_ledger = ledger
+        adjustment = None
+
+        try:
+            if isinstance(action, AdjustActionDislike):
+                result = resolve_node_swap(
+                    itinerary, intent, pois, restaurants,
+                    target_node_id=node_id,
+                    adjustment=None,
+                    ledger_slice=active_adjustments(ledger, node_ref=node_ref),
+                )
+
+            elif isinstance(action, AdjustActionAdjust):
+                adjustment = action.adjustment
+                source_text = (action.label or "").strip() or _synthesize_source_text(adjustment)
+                new_entry = LedgerEntry(
+                    member_id=user_id,
+                    nickname=nickname,
+                    node_ref=node_ref,
+                    adjustment=adjustment,
+                    source_text=source_text,
+                )
+                ledger_slice = active_adjustments(ledger, node_ref=node_ref)
+                result = resolve_node_swap(
+                    itinerary, intent, pois, restaurants,
+                    target_node_id=node_id,
+                    adjustment=adjustment,
+                    ledger_slice=ledger_slice,
+                )
+                updated_ledger = record_demand(ledger, new_entry)
+                if result.success and result.degrade_tier in (1, 2):
+                    updated_ledger = mark_satisfied(
+                        updated_ledger, member_id=user_id, node_ref=node_ref, dimension=adjustment.dimension
+                    )
+
+            else:  # AdjustActionAlternative
+                assert isinstance(action, AdjustActionAlternative)
+                chosen_entity = _find_entity(kind, action.target_id, pois, restaurants)
+                if chosen_entity is None:
+                    await _narrate_bubble("这个备选好像已经不在候选里了，我再帮你看看还有什么可以换。")
+                    return
+                call_pois, call_rests = _narrow_pool_to_single_alternative(itinerary, pois, restaurants, kind, chosen_entity)
+                result = resolve_node_swap(
+                    itinerary, intent, call_pois, call_rests,
+                    target_node_id=node_id,
+                    adjustment=None,
+                    ledger_slice=(),
+                )
+        except ValueError:
+            # 契约违反（如 target_node_id 并发下已失效）——同上，房间长连接下
+            # 降级为告知，不冒泡（见 `adjust()` docstring「三」）。
+            await _narrate_bubble("这一步暂时没能处理，方案维持不变，麻烦稍后再试。")
+            return
+
+        # ---- 业务性失败：方案不动，只告知 ----
+        if not result.success:
+            if isinstance(action, AdjustActionAdjust):
+                # 诉求依然记账（换不成不代表用户不再想要——同 F-4 语义）。
+                room.demand_ledger = [e.model_dump() for e in updated_ledger]
+            message = result.advisories[0].message if result.advisories else "这一步暂时没能调整成功，方案维持不变。"
+            await _narrate_bubble(message)
+            return
+
+        # ---- 成功：更新房间状态 + SESSION_STORE 投影 + 归名说明 + 广播 ----
+        new_itinerary = result.new_itinerary
+        node_chips = generate_template_node_chips(new_itinerary, intent, pois, restaurants)
+        node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
+        advisory_dicts = [a.model_dump() for a in result.advisories]
+
+        room.current_itinerary_dict = new_itinerary.model_dump()
+        room.demand_ledger = [e.model_dump() for e in updated_ledger]
+
+        session_id = room.session_id or f"collab_{room.room_id}"
+        from api._session_store import sync_snapshot
+
+        sync_snapshot(session_id, itinerary=new_itinerary.model_dump())
+
+        new_title = _node_title(new_itinerary, result.swapped_to or "")
+        base_text = self._build_room_narration(action, nickname, old_title, new_title, adjustment)
+        narration_text = _compose_narration_text(base_text, advisory_dicts)
+
+        narration_payload: dict[str, Any] = {"text": narration_text, "stage": "stream"}
+        if advisory_dicts:
+            narration_payload["messages"] = [
+                {"kind": "advisory", "code": a.get("code"), "text": a.get("message")}
+                for a in advisory_dicts
+                if a.get("message")
+            ]
+        if node_actions:
+            narration_payload["node_actions"] = node_actions
+        ledger_display = ledger_for_display(updated_ledger)
+        if ledger_display:
+            narration_payload["demand_ledger"] = ledger_display
+
+        await self._broadcast_planning_event(room, {
+            "type": "itinerary_ready",
+            "seq": 0,
+            "payload": new_itinerary.model_dump(),
+            "timestamp_ms": int(time.time() * 1000),
+        })
+        await self._broadcast_planning_event(room, {
+            "type": "agent_narration",
+            "seq": 0,
+            "payload": narration_payload,
+            "timestamp_ms": int(time.time() * 1000),
+        })
+
+    def _build_room_narration(
+        self,
+        action: Any,
+        nickname: str,
+        old_title: str,
+        new_title: str,
+        adjustment: Optional[Any],
+    ) -> str:
+        """房间版换菜说明——归名（"按{nickname}的要求…"），区别于 F-4 单人版
+        `api/_streams/graph_adjust.py::_build_success_narration` 的"按你的
+        要求"（房间是多人场景，必须点名是谁提的，不能含糊成"你"）。
+        """
+        from api._streams.graph_adjust import _adjustment_descriptor
+        from api._streams.models import AdjustActionAdjust, AdjustActionAlternative
+
+        if isinstance(action, AdjustActionAdjust) and adjustment is not None:
+            descriptor = _adjustment_descriptor(adjustment)
+            return f"按{nickname}的要求，把「{old_title}」换成了「{new_title}」，{descriptor}。"
+        if isinstance(action, AdjustActionAlternative):
+            return f"已经按{nickname}选的，把「{old_title}」换成了「{new_title}」。"
+        return f"{nickname}点了个踩，已经把「{old_title}」换掉了，换成了「{new_title}」，看看这个怎么样。"
 
     async def broadcast(
         self, room: Room, message: dict[str, Any], *, exclude: str | None = None
@@ -442,6 +774,7 @@ class RoomManager:
                 )
             return
 
+        room.last_activity_at = time.time()
         if room.planning_task and not room.planning_task.done():
             room.planning_task.cancel()
             try:
@@ -879,6 +1212,26 @@ class RoomManager:
                 return mid_nodes[stage_index].get("title", f"第 {stage_index + 1} 段")
 
         return f"第 {stage_index + 1} 段"
+
+    def _stage_target_id(self, room: Room, stage_index: int) -> Optional[str]:
+        """`update_vote` 点踩收编（F-5）用：把 `stage_index`（前端时间轴的可见段
+        编号，与 `_get_stage_title` 同一口径——跳过首尾 home 的 mid nodes 顺序）
+        翻译成 `adjust()` 需要的 `target_id`（`ActivityNode.target_id`）。
+
+        与 `_get_stage_title` 是姊妹方法而非合并改造它——那个方法产出的是"展示
+        用标题"，本方法产出的是"引擎定位用 id"，两者消费方不同（前者给旧的
+        约束文案合成，后者给新的局部重解引擎），故意不复用同一个返回值语义。
+        找不到（尚未出方案 / index 越界）返回 `None`，调用方按"静默丢弃"处理。
+        """
+        if not room.current_itinerary_dict:
+            return None
+        nodes = room.current_itinerary_dict.get("nodes")
+        if not isinstance(nodes, list):
+            return None
+        mid_nodes = [n for n in nodes if isinstance(n, dict) and n.get("target_kind") != "home"]
+        if 0 <= stage_index < len(mid_nodes):
+            return mid_nodes[stage_index].get("target_id")
+        return None
 
     @staticmethod
     def _generate_room_id() -> str:

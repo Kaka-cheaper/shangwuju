@@ -4,7 +4,10 @@
  * 设计：
  * - 连接 {API_BASE 对应 ws/wss}/ws/{roomId}?user_id={userId}&nickname={nickname}
  * - 自动重连 3 次（指数退避 1s/2s/4s）
- * - 上行：send(JSON) → constraint / vote / confirm / ping
+ * - 上行：send(JSON) → constraint / vote / confirm / adjust / ping
+ *   （"adjust" 是 ADR-0013 F-5 节点级调整：{type:"adjust", node_id, action}，
+ *   action 判别式协议同 F-4 单人 `/chat/adjust`，见 `lib/collab-store.ts::
+ *   sendAdjust`）
  * - 下行：onmessage → JSON 解析 → 回调分发
  */
 

@@ -13,13 +13,22 @@ import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from collab import get_room_manager
 
 from ._session_store import SESSION_STORE
+from ._streams.models import AdjustAction
 
 router = APIRouter(tags=["协作房间"])
+
+# ADR-0013 F-5：WS "adjust" 消息的 action 字段校验——复用 F-4 单人 `/chat/adjust`
+# 同一份判别式 schema（`AdjustActionAdjust`/`AdjustActionAlternative`/
+# `AdjustActionDislike`），节点行的定向调整按钮/具名备选/点踩三个入口在协议层
+# 就已经殊途同归，不为房间另起一套平行的 action 校验。`TypeAdapter` 而非
+# `BaseModel.model_validate`——`AdjustAction` 是判别式 `Union` 类型别名本身，不是
+# 一个 `BaseModel` 子类，这是 pydantic v2 校验裸 `Union`/`Annotated` 类型的标准写法。
+_ADJUST_ACTION_ADAPTER: TypeAdapter[AdjustAction] = TypeAdapter(AdjustAction)
 
 
 class CreateRoomRequest(BaseModel):
@@ -142,8 +151,16 @@ async def ws_collab(websocket: WebSocket, room_id: str):
     - {"type": "vote", "stage_index": 3, "action": "dislike"}
     - {"type": "vote", "stage_index": 1, "action": "like"}
     - {"type": "confirm"}
+    - {"type": "adjust", "node_id": "R001", "action": {"type": "adjust", "adjustment": {...}, "label": "..."}}
+      | {"type": "adjust", "node_id": "R001", "action": {"type": "alternative", "target_id": "..."}}
+      | {"type": "adjust", "node_id": "R001", "action": {"type": "dislike"}}
+      （ADR-0013 F-5：节点行定向调整按钮/具名备选，`action` 判别式协议同 F-4
+      单人 `/chat/adjust` 的 `AdjustAction`；点踩走既有 `vote` 消息，`RoomManager.
+      update_vote` 内部收编转调同一个 `RoomManager.adjust()` 引擎，不走这个消息类型）
 
-    下行消息格式：见设计文档 §2 WebSocket 协议设计。
+    下行消息格式：见设计文档 §2 WebSocket 协议设计；F-5 新增 `node_locked`/
+    `node_unlocked`（adjust 处理期锁定态广播）与 `member_reconnected`（区别于
+    `member_joined`，见 `collab/room.py::RoomManager.join` docstring）。
     """
     manager = get_room_manager()
     room = manager.get_room(room_id)
@@ -181,6 +198,25 @@ async def ws_collab(websocket: WebSocket, room_id: str):
                 action = data.get("action", "")
                 if isinstance(stage_index, int) and action in ("like", "dislike"):
                     await manager.update_vote(room, user_id, stage_index, action)
+
+            elif msg_type == "adjust":
+                node_id = data.get("node_id")
+                raw_action = data.get("action")
+                if not isinstance(node_id, str) or not node_id or not isinstance(raw_action, dict):
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "adjust 消息缺少合法的 node_id/action",
+                    })
+                    continue
+                try:
+                    action = _ADJUST_ACTION_ADAPTER.validate_python(raw_action)
+                except ValidationError as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"action 字段格式不对：{str(e)[:200]}",
+                    })
+                    continue
+                await manager.adjust(room, user_id, node_id, action)
 
             elif msg_type == "confirm":
                 # 仅 owner 可确认
