@@ -31,7 +31,8 @@ def test_semantic_feedback_detected(text: str) -> None:
 
 # ADR-0011 决策 2（E-1）：纯品味/评价词清洗——"优雅/不太好"等不指向任何可调参数
 # （距离/价格/时长/节奏/时间），且codebase 里没有任何模块（如 refiner 的
-# pace_profile 调整）依赖这两个词做具体动作，纯语义品评，误吞新需求面大
+# duration_hours 收缩，ADR-0014 G-0 迁移前是 pace_profile）依赖这两个词做
+# 具体动作，纯语义品评，误吞新需求面大
 # （"想要精致优雅一点的下午"这类新需求也会含"优雅"），职责移交 LLM（脑子）。
 # 与仍保留的 SESSION_TOO_LONG 词族（太久/太长/盯不住/无聊/扛不住/腻了，见
 # test_refiner_session_too_long.py 的同步契约）不同——那组词有 refiner.py 的

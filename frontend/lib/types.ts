@@ -442,7 +442,6 @@ export interface Companion {
   role: string;
   age?: number | null;
   count: number;
-  gender_mix?: string | null;
   is_birthday: boolean;
   is_special_role: boolean;
 }

@@ -22,12 +22,6 @@
       "suitable_for_priority": [
         "家庭日常"
       ]
-    },
-    "default_pace_profile": {
-      "single_session_max_min": 75,
-      "total_active_min": 240,
-      "break_every_min": 45,
-      "preferred_dwell_min": 60
     }
   },
   {
@@ -54,12 +48,6 @@
         "商务接待",
         "纪念日仪式感"
       ]
-    },
-    "default_pace_profile": {
-      "single_session_max_min": 120,
-      "total_active_min": 240,
-      "break_every_min": 90,
-      "preferred_dwell_min": 90
     }
   },
   {
@@ -85,12 +73,6 @@
         "老人伴助",
         "纪念日仪式感"
       ]
-    },
-    "default_pace_profile": {
-      "single_session_max_min": 75,
-      "total_active_min": 180,
-      "break_every_min": 45,
-      "preferred_dwell_min": 60
     }
   },
   {
@@ -113,12 +95,6 @@
       "suitable_for_priority": [
         "独处放空"
       ]
-    },
-    "default_pace_profile": {
-      "single_session_max_min": 90,
-      "total_active_min": 240,
-      "break_every_min": 90,
-      "preferred_dwell_min": 75
     }
   },
   {
@@ -146,12 +122,6 @@
         "情侣亲密",
         "闺蜜聊天"
       ]
-    },
-    "default_pace_profile": {
-      "single_session_max_min": 90,
-      "total_active_min": 240,
-      "break_every_min": 60,
-      "preferred_dwell_min": 75
     }
   }
 ]

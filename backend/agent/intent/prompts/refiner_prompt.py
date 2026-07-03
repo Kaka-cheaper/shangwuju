@@ -123,9 +123,9 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"extra_services":[],"preferred_poi_types":[]} | feedback="太远了，希望 3 公里以内"',
         '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
         '"duration_hours":[3,5],"distance_max_km":3,'
-        '"companions":[{"role":"妻子","age":null,"count":1,"gender_mix":null,'
+        '"companions":[{"role":"妻子","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":false},'
-        '{"role":"孩子","age":5,"count":1,"gender_mix":null,'
+        '{"role":"孩子","age":5,"count":1,'
         '"is_birthday":false,"is_special_role":false}],'
         '"physical_constraints":["亲子友好","适合 5-10 岁"],'
         '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
@@ -146,7 +146,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"extra_services":[],"preferred_poi_types":[]} | feedback="预算紧，便宜点"',
         '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
         '"duration_hours":[3,5],"distance_max_km":5,'
-        '"companions":[{"role":"商务客户","age":null,"count":1,"gender_mix":null,'
+        '"companions":[{"role":"商务客户","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":true}],'
         '"physical_constraints":[],"dietary_constraints":["有包间","健康轻食"],'
         '"experience_tags":["礼仪感"],"social_context":"商务接待",'
@@ -158,7 +158,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
     # 3. 反馈为空
     (
         '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
-        '"distance_max_km":5,"companions":[{"role":"朋友","count":4,"gender_mix":"2男2女"}],'
+        '"distance_max_km":5,"companions":[{"role":"朋友","count":4}],'
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
         '"capacity_requirement":4,"raw_input":"和朋友 4 人",'
@@ -166,7 +166,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"start_weekday":null,"extra_services":[],"preferred_poi_types":[]} | feedback=""',
         '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
         '"duration_hours":[3,5],"distance_max_km":4,'
-        '"companions":[{"role":"朋友","age":null,"count":4,"gender_mix":"2男2女",'
+        '"companions":[{"role":"朋友","age":null,"count":4,'
         '"is_birthday":false,"is_special_role":false}],'
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
@@ -187,7 +187,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"extra_services":[],"preferred_poi_types":[]} | feedback="不带孩子了，改成陪我爸妈吃个饭，要安静点"',
         '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
         '"duration_hours":[3,5],"distance_max_km":5,'
-        '"companions":[{"role":"父母","age":null,"count":2,"gender_mix":null,'
+        '"companions":[{"role":"父母","age":null,"count":2,'
         '"is_birthday":false,"is_special_role":false}],'
         '"physical_constraints":["适合老人","可休息"],'
         '"dietary_constraints":["健康轻食","软烂"],"experience_tags":["安静聊天"],'
@@ -210,9 +210,9 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"extra_services":[],"preferred_poi_types":[]} | feedback="不要刚才那家椰林餐厅，换一家"',
         '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
         '"duration_hours":[3,5],"distance_max_km":5,'
-        '"companions":[{"role":"妻子","age":null,"count":1,"gender_mix":null,'
+        '"companions":[{"role":"妻子","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":false},'
-        '{"role":"孩子","age":5,"count":1,"gender_mix":null,'
+        '{"role":"孩子","age":5,"count":1,'
         '"is_birthday":false,"is_special_role":false}],'
         '"physical_constraints":["亲子友好","适合 5-10 岁"],'
         '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'

@@ -4,7 +4,15 @@
 1) `mock_data/pois.json` 中每个 POI 的 `suggested_duration_minutes`（int）
    升级为 SuggestedDuration dict（含 `default` 必填 + 至少 1 个 age 桶可选）；
 2) `mock_data/restaurants.json` 中每个餐厅按 cuisine 回填 `typical_dining_min`；
-3) `mock_data/personas.json` 中每个 persona 加 `default_pace_profile`。
+
+ADR-0014 G-0（2026-07-03）砍除记录：原第 3 步「`mock_data/personas.json` 中
+每个 persona 加 `default_pace_profile`」已随 `Persona.default_pace_profile` /
+`PaceProfile` 一并砍除（该字段全系统无消费方，见 `schemas/persona.py` 砍除
+记录）——**此处特意保留砍除的痕迹而非静默删掉整段**，是因为这是一个幂等
+迁移脚本：若未来重跑本脚本又保留了"给 persona 加 default_pace_profile"的
+第 3 步，`personas.json` 里会被重新写回一个 `Persona` schema 已不再接受
+的字段（`extra="forbid"`），下次加载 mock 数据会直接炸——第 3 步的实现
+已整体删除，不是仅删调用点。
 
 设计原则：
 - 幂等：脚本可重复跑，已经升级过的 POI 不再改写
@@ -164,56 +172,9 @@ def _upgrade_restaurant_dining(rest: dict[str, Any]) -> bool:
 
 
 # ============================================================
-# 3. Persona 加 default_pace_profile
+# 3. Persona 加 default_pace_profile —— ADR-0014 G-0（2026-07-03）已砍除
+#    （见本文件顶部模块 docstring 砍除记录）。
 # ============================================================
-_PACE_PROFILE_BY_USER: dict[str, dict[str, int]] = {
-    # 5 岁男孩家庭 → 单段 ≤ 75 / 总活跃 ≤ 240 / 每 45min 一次休息 / 偏好 60min 停留
-    "u_dad": {
-        "single_session_max_min": 75,
-        "total_active_min": 240,
-        "break_every_min": 45,
-        "preferred_dwell_min": 60,
-    },
-    # 商务接待 → 单段 ≥ 90 / 偏好长时段
-    "u_biz": {
-        "single_session_max_min": 120,
-        "total_active_min": 240,
-        "break_every_min": 90,
-        "preferred_dwell_min": 90,
-    },
-    # 老人陪伴 → 单段 ≤ 75 / 高频休息
-    "u_grandma": {
-        "single_session_max_min": 75,
-        "total_active_min": 180,
-        "break_every_min": 45,
-        "preferred_dwell_min": 60,
-    },
-    # 独处放空 → 单段 60-90 / 中等节奏
-    "u_solo": {
-        "single_session_max_min": 90,
-        "total_active_min": 240,
-        "break_every_min": 90,
-        "preferred_dwell_min": 75,
-    },
-    # 情侣 → 单段 60-90
-    "u_couple": {
-        "single_session_max_min": 90,
-        "total_active_min": 240,
-        "break_every_min": 60,
-        "preferred_dwell_min": 75,
-    },
-}
-
-
-def _upgrade_persona_pace(persona: dict[str, Any]) -> bool:
-    """给 persona 加 default_pace_profile。"""
-    if "default_pace_profile" in persona:
-        return False
-    pp = _PACE_PROFILE_BY_USER.get(persona.get("user_id", ""))
-    if pp is None:
-        return False
-    persona["default_pace_profile"] = pp
-    return True
 
 
 # ============================================================
@@ -223,7 +184,6 @@ def _upgrade_persona_pace(persona: dict[str, Any]) -> bool:
 def main() -> int:
     pois_path = MOCK_DIR / "pois.json"
     rest_path = MOCK_DIR / "restaurants.json"
-    persona_path = MOCK_DIR / "personas.json"
 
     # 1. POI
     pois = json.loads(pois_path.read_text(encoding="utf-8"))
@@ -241,16 +201,7 @@ def main() -> int:
     )
     print(f"✓ restaurants.json: {rest_changed}/{len(rests)} 餐厅已加 typical_dining_min")
 
-    # 3. Persona
-    personas = json.loads(persona_path.read_text(encoding="utf-8"))
-    persona_changed = sum(1 for p in personas if _upgrade_persona_pace(p))
-    persona_path.write_text(
-        json.dumps(personas, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(
-        f"✓ personas.json: {persona_changed}/{len(personas)} persona "
-        f"已加 default_pace_profile"
-    )
+    # 3. Persona（ADR-0014 G-0 已砍除 default_pace_profile 步骤，见模块 docstring）
 
     return 0
 

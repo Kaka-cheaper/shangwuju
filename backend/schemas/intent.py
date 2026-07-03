@@ -6,11 +6,21 @@
 - social_context 是 §5.5 9 选 1
 - companions[].role 是自由文本
 
-spec planning-quality-deep-review R8（Task 7）：
-- 引入 `pace_profile: Optional[PaceProfile]` 字段
-- PaceProfile 复用自 `schemas.persona`（同一节奏画像模型，避免重复定义；
-  Wave 1 已锁定 PaceProfile 在 persona.py 的位置）
-- 该字段保持向后兼容：默认 None，所有现有 IntentExtraction 构造方都不破
+ADR-0014 G-0（2026-07-03）砍除记录：
+- `pace_profile`（spec planning-quality-deep-review R8 引入）已砍除——全系统
+  无消费方（规划器 `agent/planning/planners/pace_budget.py` 自证不读，走自己的
+  三档节奏模型），"太久了"类反馈的收缩契约已迁移到 `duration_hours` 上界
+  （见 `agent/intent/refiner.py::_rule_fallback`），原字段纯属空转，砍除更诚实。
+- `Companion.gender_mix` 已砍除——全仓零消费，纯抽取无下游读取。
+- 详见 `docs/adr/0014-requirement-analysis-provenance-and-hard-constraints.md` G-0 段。
+
+兼容提醒（redis 持久 checkpoint）：`model_config = ConfigDict(extra="forbid")`
+（见下方）意味着本次砍字段前落盘的旧 checkpoint（`SESSION_STORE=redis` 模式下
+经 LangGraph Redis checkpointer 持久化、含 `pace_profile`/`gender_mix` 键的
+存量 `IntentExtraction`）在本次发布后重新反序列化会校验失败。当前默认
+`SESSION_STORE=memory`（进程重启即清，不受影响）；线上若曾切到 redis 模式，
+升级前需清空/等旧 checkpoint 过期（hackathon demo 场景，不做旧 checkpoint 迁移，
+这是本次拍板的已知代价而非遗漏）。
 
 不负责：
 - 解析逻辑（在 Agent 层）。
@@ -21,7 +31,6 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, conint, conlist
 
-from schemas.persona import PaceProfile
 from schemas.tags import (
     DietaryTag,
     ExperienceTag,
@@ -49,9 +58,6 @@ class Companion(BaseModel):
     )
     count: NonNegativeInt = Field(
         default=1, description="同 role 人数，默认 1"
-    )
-    gender_mix: Optional[str] = Field(
-        default=None, description='仅多人时填，如 "2男2女"'
     )
     is_birthday: bool = Field(
         default=False, description="是否当事人生日"
@@ -149,16 +155,6 @@ class IntentExtraction(BaseModel):
     )
     preferred_poi_types: list[str] = Field(
         default_factory=list, description="用户明示 POI 类型，如 [展览, 美术馆]"
-    )
-
-    # ===== 节奏画像（spec planning-quality-deep-review R8 引入；Optional，向后兼容）=====
-    pace_profile: Optional[PaceProfile] = Field(
-        default=None,
-        description=(
-            "节奏画像。当 LLM / refiner 推断出用户对单段时长 / 总活跃 / 休息频率 / "
-            "偏好停留有偏好时填充；缺省时下游算法降级到行业基线。"
-            "spec planning-quality-deep-review R8（Task 7）"
-        ),
     )
 
     # ===== 元数据 =====

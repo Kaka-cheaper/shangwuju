@@ -10,14 +10,17 @@
     3. 中文数字 + 时间/距离单位（"一个小时 / 半小时 / 三公里"）
     4. 强信号短语「N 以内 / 以下 / 之内」（短句 + 单位）
 
-spec planning-quality-deep-review R8（Task 7）扩展：
+spec planning-quality-deep-review R8（Task 7）扩展，ADR-0014 G-0（2026-07-03）迁移：
     - 加 SESSION_TOO_LONG 关键词（"太久 / 太长 / 盯不住 / 无聊 / 扛不住 / 腻了"），让
-      用户说"这段太长了"时也能被识别为反馈，触发下游 refiner 的 pace_profile 调整。
+      用户说"这段太长了"时也能被识别为反馈，触发下游 refiner 的 duration_hours 上界
+      收缩（原目标是 pace_profile.single_session_max_min，该字段全系统无消费方已
+      随 ADR-0014 G-0 砍除，收缩契约迁移到有真实消费的 duration_hours，见
+      agent/intent/refiner.py 模块 docstring）。
       **这份词必须和 agent/intent/refiner.py 的 _KEYWORDS_SESSION_TOO_LONG 保持同步**
       （test_refiner_session_too_long.py::test_feedback_detector_recognizes_session_
       too_long 显式钉死这条同步契约）——否则用户说"盯不住了"会连 feedback 都进不去，
       refiner 那份更宽的规则地板永远够不着。这 4 个词看似"情绪词"，实则**指向具体
-      可调参数**（pace_profile.single_session_max_min 缩 30%），与下面 ADR-0011
+      可调参数**（duration_hours 上界缩 30%），与下面 ADR-0011
       真正删除的"纯品味评价词"（无对应调参逻辑）不是一类，不可一并删除。
 
 ADR-0011 决策 2（E-1）清洗（只删"无任何下游调参逻辑"的纯品味/评价词）：
@@ -62,13 +65,15 @@ _FEEDBACK_KEYWORDS: tuple[str, ...] = (
     # 「以内/以下/之内」（强信号但需配合单位，由正则补充）
     # spec planning-quality-deep-review R8（Task 7）：单段时长抱怨——4 词与
     # refiner.py 的 _KEYWORDS_SESSION_TOO_LONG 显式同步（见上方模块 docstring），
-    # ADR-0011 清洗**不动**这组（它们指向具体可调参数 pace_profile，非纯品味词）。
+    # ADR-0011 清洗**不动**这组（它们指向具体可调参数 duration_hours 上界，
+    # 见 ADR-0014 G-0 迁移说明，非纯品味词）。
     "太久", "太长", "盯不住", "无聊", "扛不住", "腻了",
     # ============================================================
     # spec feedback-routing-fix R2：语义类反馈（无数字单位，靠语义表达）
     # 这些是用户对方案的口语化反馈，曾被漏判 → 当作新需求重规划（反馈无用 bug）
     # ============================================================
-    # 节奏 / 强度类（指向具体可调参数：pace_profile / 日程密度）
+    # 节奏 / 强度类（指向具体可调参数：日程密度；交由 LLM 路径判断具体怎么调，
+    # 不像 SESSION_TOO_LONG 那组有 _rule_fallback 的确定性关键词→字段映射）
     "节奏", "太赶", "赶", "轻松", "悠闲", "慢一点", "慢点", "紧凑", "太满", "太累",
     # ADR-0011 决策 2（E-1）：纯品味/情绪评价词已删——"一般/普通/优雅/高级/
     # 没意思/不太好/更高级"不指向任何可调参数，纯语义品评，误吞新需求面大
@@ -163,7 +168,8 @@ def looks_like_feedback(message: str) -> bool:
 # 「盯不住」「扛不住」ADR-0011 清洗时曾按"纯情绪词"考虑删除，读码核实到
 # test_refiner_session_too_long.py::test_feedback_detector_recognizes_session_too_long
 # 显式钉死它们必须被 looks_like_feedback 识别（spec R8 同步契约，见模块 docstring）
-# 后撤回：这两词指向具体可调参数（pace_profile），不是纯品味词，予以保留。
+# 后撤回：这两词指向具体可调参数（duration_hours 上界，见 ADR-0014 G-0 迁移
+# 说明），不是纯品味词，予以保留。
 _STRONG_FEEDBACK_KEYWORDS: tuple[str, ...] = (
     # 距离类（明确指向"上一轮太远了"）
     "太远", "近一点", "近点", "别走太远", "别太远", "再近",

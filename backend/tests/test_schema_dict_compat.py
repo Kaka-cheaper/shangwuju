@@ -3,8 +3,11 @@
 测试矩阵：
 - Poi.suggested_duration_minutes 接受 int / dict / None 三种形态
 - Restaurant.typical_dining_min 字段存在且可加载
-- Persona.default_pace_profile 可加载
 - get_duration_for_companions helper 投影正确
+
+ADR-0014 G-0（2026-07-03）砍除记录：原「Persona.default_pace_profile 可加载」
+一条已随 `PaceProfile` / `Persona.default_pace_profile` 一并砍除，见
+`schemas/persona.py` 砍除记录。
 """
 
 from __future__ import annotations
@@ -12,7 +15,6 @@ from __future__ import annotations
 from collections import namedtuple
 
 from schemas.domain import Poi, Restaurant, SuggestedDuration
-from schemas.persona import PaceProfile, Persona, PersonaDefaultTags
 from utils.duration_helpers import get_duration_for_companions
 
 _POI_BASE = {
@@ -72,37 +74,6 @@ def test_restaurant_accepts_none_typical_dining_min() -> None:
     """typical_dining_min 是可选字段。"""
     r = Restaurant.model_validate(_REST_BASE)
     assert r.typical_dining_min is None
-
-
-def test_persona_accepts_pace_profile() -> None:
-    """Persona 加 default_pace_profile 字段后可加载。"""
-    p = Persona.model_validate(
-        {
-            "user_id": "u_test",
-            "label": "测试",
-            "icon": "🧪",
-            "notes": "测试 persona",
-            "default_pace_profile": {
-                "single_session_max_min": 75,
-                "break_every_min": 45,
-            },
-        }
-    )
-    assert p.default_pace_profile is not None
-    assert p.default_pace_profile.single_session_max_min == 75
-
-
-def test_persona_accepts_none_pace_profile() -> None:
-    """default_pace_profile 是可选字段。"""
-    p = Persona.model_validate(
-        {
-            "user_id": "u_test",
-            "label": "测试",
-            "icon": "🧪",
-            "notes": "测试 persona",
-        }
-    )
-    assert p.default_pace_profile is None
 
 
 # ============================================================
@@ -194,11 +165,3 @@ def test_p003_kid_5_real_mock() -> None:
     )
 
 
-def test_persona_u_dad_pace_profile() -> None:
-    """加载真实 u_dad persona（5 岁孩家庭），pace_profile 单段 ≤ 75。"""
-    from data.memory_store import get_persona
-
-    p = get_persona("u_dad")
-    assert p is not None
-    assert p.default_pace_profile is not None
-    assert p.default_pace_profile.single_session_max_min == 75

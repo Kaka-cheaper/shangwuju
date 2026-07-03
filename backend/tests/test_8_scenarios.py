@@ -52,7 +52,7 @@ INTENTS: dict[str, IntentExtraction] = {
         duration_hours=[3, 5],
         distance_max_km=5,
         companions=[
-            Companion(role="朋友", count=4, gender_mix="2男2女"),
+            Companion(role="朋友", count=4),
         ],
         physical_constraints=[],
         dietary_constraints=[],

@@ -11,18 +11,19 @@
 4. 输出强制 JSON、不要围栏
 5. 同行人 role 是自由文本（D9 开放性）
 
-spec planning-quality-deep-review R8（Task 7）扩展：
-- INTENT_PARSER_SYSTEM_PROMPT 增加「pace_profile 抽取规则」段（4 条隐含规则）
-- build_intent_parser_system_prompt_with_priors 消费 persona.default_pace_profile
-  注入 prompt addendum，让 LLM 对节奏 prior 有感知
+ADR-0014 G-0（2026-07-03）砍除记录：
+- 「pace_profile 抽取规则」段（4 条隐含规则）与 `_format_pace_prior_section`
+  注入的 persona.default_pace_profile prior 段已一并砍除——两者服务的
+  `IntentExtraction.pace_profile` 字段本身已砍除（全系统无消费方，见
+  `schemas/intent.py` 砍除记录），留着这段 prompt 只会让 LLM 抽取一个
+  不再存在的字段，纯属误导。
+- companions[].gender_mix 抽取指令已随字段砍除同步移除。
 
 不在此处的事：
 - few-shot 数量按需调整；演示场景集 §5.7 schema 是唯一字段权威
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from agent.core.prompt_guard import INPUT_CLOSE, INPUT_OPEN, ROLE_LOCK_NOTICE
 from schemas.tags import (
@@ -31,9 +32,6 @@ from schemas.tags import (
     PHYSICAL_TAGS,
     SOCIAL_CONTEXTS,
 )
-
-if TYPE_CHECKING:
-    from schemas.persona import PaceProfile
 
 
 def _format_set(values: frozenset[str]) -> str:
@@ -64,7 +62,6 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
       "role": str,                    // 自由文本：妻子 / 孩子 / 朋友 / 女朋友 / 外公 / 商务客户 / 闺蜜 / 母亲 / ...
       "age": int | null,              // 出现年龄时填，如"5 岁"
       "count": int,                   // 默认 1；多人时填实际数量
-      "gender_mix": str | null,       // 仅多人时填，如 "2男2女"
       "is_birthday": bool,            // 仅当事人生日时填 true
       "is_special_role": bool         // 商务客户 / 长辈等需特别尊重的场合填 true
     }}
@@ -117,25 +114,6 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - experience_tags **禁止**出现 "安静聊天"——一个人没有同伴可聊，自相矛盾。
 - 想表达「安静」语义时改用 "独处舒缓"（独处场景专用标签）。
 
-【pace_profile 隐含规则（spec planning-quality-deep-review R8）】
-当下列条件命中时，必须填写 pace_profile（4 个子字段全 Optional，按需选填；缺字段保持 null）：
-
-字段白名单（**只能输出这 4 个字段，不要发明新字段名如 total_active_max_min**）：
-- single_session_max_min: 单段活动最长分钟数
-- total_active_min: 总活跃时长分钟数（注意：**没有** total_active_max_min 字段，就叫 total_active_min）
-- break_every_min: 每隔多久建议休息一次（分钟）
-- preferred_dwell_min: 单点偏好停留时长（分钟）
-
-触发规则：
-- 任一 companion 的 ages ≤ 6（学龄前儿童）→ pace_profile.single_session_max_min ≤ 90（建议 75-90）
-- 提到老人 / 外公外婆 / 父母 + 腿不好，或 physical_constraints 含 "适合老人"
-  → pace_profile.single_session_max_min ≤ 90 且 break_every_min ≤ 60
-- 提到「玩半天 / 一整天」+ 含儿童 → pace_profile.total_active_min ≤ 240
-- social_context = "独处放空"（一个人放空 / 加班想透气 / 想自己待会）
-  → pace_profile.preferred_dwell_min ≥ 60（让用户在一个点慢慢待）
-- social_context = "商务接待" 且涉及用餐 → pace_profile.preferred_dwell_min ≥ 90（商务餐至少 90 分钟）
-其他场景下 pace_profile 字段可全为 null（直接省略 pace_profile 整个对象也行，等同 null）。
-
 【social_context 选择参考】
 - 家庭日常：和老婆孩子 / 三口之家普通出行
 - 老人伴助：带父母 / 外公外婆为主
@@ -151,7 +129,9 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - 用户清楚说明所有维度（家庭主场景）：0.85-0.95
 - 大部分清楚但社交上下文需推断：0.70-0.85
 - 多义词或低频表达：0.50-0.70；并把不确定字段写入 ambiguous_fields
-- 确实无法判断 → parse_confidence < 0.6，下游会回问澄清
+- 确实无法判断 → 如实给低 parse_confidence（< 0.6），并把不确定的字段名写进
+  ambiguous_fields——如实自报比强行打高分更有用（ADR-0014 决策 4：这两个
+  字段接入下游澄清消费在 E-3 落地，本段先只要求"如实自报"）
 
 【字段抽取义务（强约束 · 通过 OpenAI Function Calling 输出 IntentExtraction 时务必遵守）】
 你正在通过 OpenAI Function Calling / response_format=json_object 输出 IntentExtraction。
@@ -190,9 +170,9 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         "今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",
         '{"start_time":"today_afternoon","start_weekday":null,"duration_hours":[3,5],'
         '"distance_max_km":5,'
-        '"companions":[{"role":"妻子","age":null,"count":1,"gender_mix":null,'
+        '"companions":[{"role":"妻子","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":false},'
-        '{"role":"孩子","age":5,"count":1,"gender_mix":null,'
+        '{"role":"孩子","age":5,"count":1,'
         '"is_birthday":false,"is_special_role":false}],'
         '"physical_constraints":["亲子友好","适合 5-10 岁"],'
         '"dietary_constraints":["低脂","健康轻食"],'
@@ -205,9 +185,9 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         "周日下午想带外公外婆出去走走，别走太远他们腿不好。",
         '{"start_time":"sunday_afternoon","start_weekday":"sunday","duration_hours":[3,5],'
         '"distance_max_km":3,'
-        '"companions":[{"role":"外公","age":null,"count":1,"gender_mix":null,'
+        '"companions":[{"role":"外公","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":true},'
-        '{"role":"外婆","age":null,"count":1,"gender_mix":null,'
+        '{"role":"外婆","age":null,"count":1,'
         '"is_birthday":false,"is_special_role":true}],'
         '"physical_constraints":["适合老人","无台阶","可休息"],'
         '"dietary_constraints":["软烂"],'
@@ -318,9 +298,6 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 
     top_priors_str = "、".join(top_priors) if top_priors else "（暂无累积）"
 
-    # spec planning-quality-deep-review R8：注入 persona.default_pace_profile prior
-    pace_section = _format_pace_prior_section(persona.default_pace_profile)
-
     addendum = f"""
 
 【当前用户档案 + 历史偏好（仅作 prior，用户输入优先）】
@@ -334,7 +311,7 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 
 历史拒绝 top 3（**慎重**主动加）：
 {rejected_section}
-{pace_section}
+
 【prior 使用规则（关键：用户输入永远优先；prior 仅作"补全空字段"）】
 
 1. **social_context 是 user 身份标识**——优先用 persona 的 suitable_for_priority 第一项：
@@ -355,11 +332,6 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 4. 用户输入与 prior 冲突时**以用户输入为准**，并把字段名写入 ambiguous_fields
 
 5. parse_confidence 不要因 prior 加注而强行抬高：仅按用户输入清晰度打分
-
-6. **pace_profile 注入规则（spec planning-quality-deep-review R8）**：
-   - 上方"档案默认节奏"非空 → 输出 pace_profile 时以 persona 默认值为底
-   - 用户输入暗示更紧/更松节奏（"快速逛逛" / "慢慢走"）→ 按用户输入覆盖对应字段
-   - 用户输入完全无节奏暗示 → 直接采用档案默认值（让下游 critic / planner 有 prior）
 """
     # spec algorithm-redesign R5：user_profile.json 三层 schema 召回（dietary_preference / recent_trips）
     profile_addendum = _build_user_profile_addendum()
@@ -412,24 +384,3 @@ def _build_user_profile_addendum() -> str:
     if not parts:
         return ""
     return "\n" + "\n".join(parts) + "\n"
-
-
-def _format_pace_prior_section(pace: PaceProfile | None) -> str:
-    """把 persona.default_pace_profile 渲染成 prompt addendum 的一段（spec R8）。
-
-    缺省（None / 全字段为空）→ 返回空字符串，不增加任何噪声。
-    """
-    if pace is None:
-        return ""
-    parts: list[str] = []
-    if pace.single_session_max_min is not None:
-        parts.append(f"单段时长上限 {pace.single_session_max_min} 分钟")
-    if pace.total_active_min is not None:
-        parts.append(f"总活跃时长上限 {pace.total_active_min} 分钟")
-    if pace.break_every_min is not None:
-        parts.append(f"建议每 {pace.break_every_min} 分钟休息一次")
-    if pace.preferred_dwell_min is not None:
-        parts.append(f"偏好单点停留 {pace.preferred_dwell_min} 分钟")
-    if not parts:
-        return ""
-    return "\n档案默认节奏（pace_profile prior）：" + "；".join(parts) + "\n"

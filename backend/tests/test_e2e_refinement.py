@@ -64,7 +64,7 @@ SCENARIOS: dict[str, dict] = {
         "raw_input": "今天下午想和老婆孩子出去玩几个小时",
     },
     "S2": {
-        "companions": [Companion(role="朋友", count=4, gender_mix="2男2女")],
+        "companions": [Companion(role="朋友", count=4)],
         "experience_tags": ["社交", "拍照友好"],
         "social_context": "朋友热闹",
         "capacity_requirement": 4,

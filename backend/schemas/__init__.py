@@ -18,12 +18,12 @@
 - errors.py 34行                   FailureReason 9 个失败枚举
 
 [核心契约层]                       业务核心数据结构（Agent 编排层 + Tool 层 + 前端共享）
-- intent.py 171行                  IntentExtraction（§5.7 D-SoT 唯一权威）+ Companion + PaceProfile
+- intent.py 171行                  IntentExtraction（§5.7 D-SoT 唯一权威）+ Companion
 - domain.py 347行                  POI / Restaurant / Route / UserProfile / Review / RecentTrip / Location
 - itinerary.py 287行               ActivityNode / Hop / Itinerary（edge_v1 模型，业内通用）
 
 [扩展层]                           相对独立的子领域
-- persona.py 252行                 Persona / UserMemory / PaceProfile（Phase 0.7 个性化 prior）
+- persona.py 252行                 Persona / UserMemory（Phase 0.7 个性化 prior）
 - decision_trace.py 153行          CriticAttempt / AlternativeCandidate / FallbackHop / DecisionTrace（评审可见性）
 
 [API 契约层]                       跨 4 层架构边界（HTTP / SSE / Tool I/O）
