@@ -21,6 +21,7 @@
 | [0011](0011-llm-first-routing-obligations.md) | 路由层重设计：一脑三壳（LLM-first + 义务闭集 + 上下文打包器） | 路由 | Accepted | 🔁 部分落地 | 6 标签闭集=[L0 契约](../L0-响应义务契约.md)投影；吸收 dialogue_acts；地板反转（绝不默认规划）；澄清状态机；**E-1 已落地**（地板反转+词表清洗+壳2 canonical 短路）；**E-2-a 已落地**（messages 通道+方案版本志三写手，c7638fd/0fa0a2a）；**E-2-b 已落地**（agent/context/ 打包器+双底座来源+refiner/narration 两切片，c26213c；1338 passed）；余 E-2-c 路由脑子 → E-3/E-4 |
 | [0012](0012-session-substrate-single-truth.md) | 会话底座收口：图状态单一真相源 + 旧藤葬礼 | 底座 | Accepted | ✅ 已落地 | E-0 四片全落地：a 葬礼+回写+结构诚实（e08398e）/b 38 字段生命周期表（6c92dac）/骑手 决策 11 全路径兑现（b10c4b1）/c 确认流合一+双轨记忆+USE_LANGGRAPH 退役；1087 passed；主 App 偏好标签不累积的 bug 修复（探针先红后绿） |
 | [0013](0013-node-adjustment-and-room-negotiation.md) | 节点级协商：局部重解 + 调整按钮 + 房间轻量成员体系 | 规划+协作 | Accepted | ✅ 已落地 | F-1→F-6 全落地（引擎 ead7f12/台账 a402396/按钮备选 ba06f7c/单人入口 9985392/房间收尾+路由同权 ea236de）；确认后调整守门（c′批 2a23f8b）；跨层 import 债已还（node_swap_support 中立 seam，c7de86f）；余留痕见 ADR 落地状态节 |
+| [0014](0014-requirement-analysis-provenance-and-hard-constraints.md) | 需求分析治理：字段出处 + 硬软约束 + 消费断链收口 | 抽取+消费 | Accepted | ⏳ 待实现 | 全链路审查钉死：硬约束降级到底会静默破防（L0 禁令 2）/出处落地即抹/预算无槽位/pace_profile 双轨空转；实施代号 G-0→G-3，排 E-2-c 后、最终冒烟前；E-3 挂钩两项（置信度接澄清+台账收全局诉求）；氛围词漏传/桌型守门两 bug 已先行派修 |
 
 ## 图例
 
