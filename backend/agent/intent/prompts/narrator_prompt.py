@@ -33,6 +33,15 @@ value 枚举表 + 按 kind 的典型分歧点选择指引 + few-shot 风格的 l
 `schemas/node_adjustment.py` 的受控词典——LLM 自创值会在
 `agent.intent.narrator._validate_llm_node_chips` 校验失败，整体回落
 `generate_template_node_chips` 模板生成器（不半信半用）。
+
+【ADR-0011 决策 3：narration 切片，2026-07-03 新增】
+`build_narrator_user_message` 新增 `plan_recap` 形参（str，默认空串）：
+非空时追加**一句** prompt 指令，要求 LLM 在文案里自然带一句"这版是照哪条
+反馈调的"简短回顾——material 由调用方（`agent/graph/nodes/narrate.py`）
+从会话上下文打包器的方案版本志切片里挑出（只在本轮确实是反馈触发的新版本
+时才有值，首轮/全新解析不硬扯，见该文件 `_plan_recap_clause`）。与
+critic_summary/quality_warnings 同一套"extras 追加、空则不出现"纪律，
+但不新增 few-shot 示例——这是最小面的一句话指令，不是新增一整套规则。
 """
 
 from __future__ import annotations
@@ -267,6 +276,7 @@ def build_narrator_user_message(
     advisories: list[str] | None = None,
     want_title: bool = False,
     node_chip_context: list[dict] | None = None,
+    plan_recap: str = "",
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
 
@@ -291,6 +301,10 @@ def build_narrator_user_message(
             LLM 让它"按活动的典型分歧点起 label"而不是瞎编。None / 空列表 = 不
             索要 node_chips（该字段本条消息里也就不会出现指令，模型应输出
             "node_chips": []）。仅在 want_title=True 时才会被使用。
+        plan_recap: ADR-0011 决策 3 新增（2026-07-03）。非空时是"这版是照哪条
+            反馈调的"回顾材料（来自会话上下文打包器的方案版本志切片），追加
+            一句 prompt 指令要求 LLM 自然带出。空串 = 不触发（首轮/非反馈轮
+            不硬扯）。
 
     Returns:
         给 LLM 的 user message 文本。
@@ -361,6 +375,11 @@ def build_narrator_user_message(
             f"→ 这些是规划器已经如实检测到的限制/建议（如点名的目标这次排不进、"
             f"超出常用预算、总时长比期望短等）。必须按【诚实告知规则】的坦白精神，"
             f"把这些内容自然带进文案，不要省略、不要轻描淡写成正常方案介绍。"
+        )
+    if plan_recap:
+        extras.append(
+            f"【上版回顾】{plan_recap}\n"
+            f"→ 请在文案里自然带一句简短回顾这版是照哪条反馈调的（不要生硬照抄，不要另起一段）。"
         )
     extras_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 

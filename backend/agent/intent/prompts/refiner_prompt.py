@@ -230,16 +230,32 @@ def build_user_message(
     original_intent_json: str,
     feedback_text: str,
     itinerary_summary: str | None = None,
+    ledger_recap: str | None = None,
 ) -> str:
-    """组装单轮 user 消息（intent + 上一版行程摘要 + 这次的话 拼一起）。"""
+    """组装单轮 user 消息（intent + 上一版行程摘要 + 诉求回顾 + 这次的话 拼一起）。
+
+    ledger_recap（ADR-0011 决策 3 refiner 切片，2026-07-03 新增）：会话上下文
+    打包器（`agent.context.pack_routing_context` + `render_demand_recap`）
+    产出的「方案版本志 + 台账生效条目」文本切片——闭合"用户点击过某个节点的
+    定向调整、随后又说『重新规划一个』导致全量重排把点击的诉求忘光"这个已知
+    窗口（refiner 走 LLM 全量重解 intent，此前完全看不到台账，点击等于白点）。
+    None/空串 = 没有历史版本/生效诉求可回顾（如整个会话的第一次反馈），不加
+    这段——不给 prompt 塞一个空标题的段落。
+    """
     itin_block = (
         f"上一版行程（用户正是对它说话）：\n{itinerary_summary}\n\n"
         if itinerary_summary
         else ""
     )
+    ledger_block = (
+        f"用户此前的有效诉求（含点击调整，务必在这次输出里继续尊重）：\n{ledger_recap}\n\n"
+        if ledger_recap
+        else ""
+    )
     return (
         f"原 IntentExtraction JSON：\n{original_intent_json}\n\n"
         f"{itin_block}"
+        f"{ledger_block}"
         f"用户这次说：「{feedback_text or '（用户未填反馈）'}」\n\n"
         f"请按 schema 输出 refined_intent / changed_fields / refiner_note。"
     )

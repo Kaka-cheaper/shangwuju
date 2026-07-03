@@ -661,11 +661,12 @@ def _template_narration(
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
+    plan_recap: Optional[str] = None,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
 
     格式（暖语气）：
-        "{开场} {时长} 的安排——{主活动短语}；{用餐短语}；{回家短语}。{质疑}{结尾}"
+        "{开场} {回顾句}{主活动短语}；{用餐短语}；{回家短语}。{质疑}{结尾}"
 
     spec R6 兜底质疑：
     - 含 ≤6 岁孩 + 任一非 home 节点 duration_min > 90 时，强制追加质疑短语，
@@ -679,6 +680,12 @@ def _template_narration(
     ADR-0010 边界节（narration 覆盖多活动）：活动数 ≥3 时在活动复述之后、诚实
     告知段之前插入 `_multi_activity_rationale` 产出的"选择与顺序理由"一句话
     （见该函数 docstring）。
+
+    ADR-0011 决策 3（narration 切片，2026-07-03 新增）：`plan_recap` 非空时
+    （调用方——`agent/graph/nodes/narrate.py`——只在本轮确实是反馈触发的新
+    版本时才传值，见该文件 `_plan_recap_clause`"首轮不硬扯"纪律）在开场之后
+    插入一句确定性回顾，如"这版是照你『太远了』的反馈调过的，"。None/空串 =
+    不插入（首轮/全新解析没有"上一条反馈"可回顾）。
     """
     total_h = itinerary.total_minutes / 60
     companions_phrase = _format_companions(
@@ -784,7 +791,11 @@ def _template_narration(
     # （见 _multi_activity_rationale docstring）；<3 个活动返回空串，不硬加。
     rationale_text = _multi_activity_rationale(itinerary, nodes_dump)
 
-    return f"{opener}{body}。{rationale_text}{honest_text}{challenge_text}{ending}"
+    # ADR-0011 决策 3（narration 切片）：反馈轮的确定性回顾句，插在开场之后
+    # ——调用方只在"本轮是反馈触发的新版本"时传值（首轮不硬扯，见 docstring）。
+    recap_text = f"{plan_recap.strip()}，" if plan_recap and plan_recap.strip() else ""
+
+    return f"{opener}{recap_text}{body}。{rationale_text}{honest_text}{challenge_text}{ending}"
 
 
 # ============================================================
@@ -954,6 +965,7 @@ def _call_llm_narrator(
     want_title: bool = False,
     pois: Sequence[Poi] = (),
     restaurants: Sequence[Restaurant] = (),
+    plan_recap: str = "",
 ) -> Optional[tuple[Optional[str], str, list[NodeChip]]]:
     """调 LLM 生成开场白（want_title=True 时同次产出 title + narration + node_chips）。
 
@@ -994,6 +1006,7 @@ def _call_llm_narrator(
         advisories=list(advisories or []),
         want_title=want_title,
         node_chip_context=node_chip_context,
+        plan_recap=plan_recap,
     )
 
     try:
@@ -1132,6 +1145,7 @@ def generate_title_and_narration(
     advisories: Optional[list[str]] = None,
     pois: Sequence[Poi] = (),
     restaurants: Sequence[Restaurant] = (),
+    plan_recap: str = "",
 ) -> tuple[str, str, list[NodeChip]]:
     """同次产出 (title, narration, node_chips)。
 
@@ -1153,6 +1167,11 @@ def generate_title_and_narration(
     advisories（ADR-0010 D-7）：planner「绝不默默忽略」的结构化告知（完整句子
     列表），并入 narration 的诚实告知段——见 `_template_narration`/prompt。
 
+    plan_recap（ADR-0011 决策 3 narration 切片，2026-07-03 新增）：非空时是
+    "这版是照哪条反馈调的"回顾材料——LLM 路径经 prompt 指令自然带出，模板
+    路径插确定性回顾句（见 `_template_narration` 同名参数）。空串 = 首轮/
+    非反馈轮，两条路径都不硬扯。
+
     Returns:
         (title, narration, node_chips)；title/narration 永远非空，
         node_chips 可能是空列表（itinerary 没有非 home 节点这种边界情况）。
@@ -1172,13 +1191,15 @@ def generate_title_and_narration(
             want_title=True,
             pois=pois,
             restaurants=restaurants,
+            plan_recap=plan_recap,
         )
         if out is not None:
             llm_title, llm_narration, llm_node_chips = out
 
     # narration：LLM 有就用 LLM；否则规则模板兜底
     narration = llm_narration or _template_narration(
-        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories
+        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories,
+        plan_recap=plan_recap,
     )
     # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
     title = llm_title or _template_title(intent, itinerary)

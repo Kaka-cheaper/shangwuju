@@ -181,6 +181,7 @@ def refine_intent(
     client: LLMClient | None = None,
     max_retries: int = 1,
     itinerary_summary: str | None = None,
+    ledger_recap: str | None = None,
 ) -> RefinementOutput:
     """合并反馈进原 intent。
 
@@ -193,6 +194,12 @@ def refine_intent(
 
     `client` 缺省时通过 get_llm_client() 自动按 LLM_PROVIDER 环境变量构造，
     便于 HTTP 层（main.py）直接 `refine_intent(original, feedback)` 调用而不必关心 LLM 接线。
+
+    `ledger_recap`（ADR-0011 决策 3 refiner 切片，2026-07-03 新增）：调用方
+    （`agent/graph/nodes/refiner.py::refiner_node`）经会话上下文打包器
+    产出的「方案版本志 + 台账生效条目」文本，见 `build_user_message` 同名
+    参数 docstring。只影响 LLM 路径的 prompt；`_rule_fallback` 走关键词兜底，
+    不消费这个字段（兜底本就不读会话历史）。
     """
     if client is None:
         from ..core.llm_client import get_llm_client
@@ -214,6 +221,7 @@ def refine_intent(
                 client=client,
                 error_feedback=error_feedback,
                 itinerary_summary=itinerary_summary,
+                ledger_recap=ledger_recap,
             )
         except (RefinementError, ValidationError, json.JSONDecodeError) as e:
             error_feedback = str(e)
@@ -230,6 +238,7 @@ def _llm_refine(
     client: LLMClient,
     error_feedback: str | None,
     itinerary_summary: str | None = None,
+    ledger_recap: str | None = None,
 ) -> RefinementOutput:
     messages: list[LLMMessage] = [
         LLMMessage(role="system", content=REFINER_SYSTEM_PROMPT),
@@ -238,7 +247,7 @@ def _llm_refine(
         messages.append(LLMMessage(role="user", content=fs_user))
         messages.append(LLMMessage(role="assistant", content=fs_assistant))
 
-    user_msg = build_user_message(original_json, feedback_text, itinerary_summary)
+    user_msg = build_user_message(original_json, feedback_text, itinerary_summary, ledger_recap)
     if error_feedback:
         user_msg = (
             f"上次输出存在错误：\n{error_feedback}\n\n"
