@@ -88,7 +88,7 @@ class RouterDecision(BaseModel):
     流程：
     - main.py /chat/stream 收到请求 → 立即推一条 agent_thought 心跳
     - 后台线程调 LLM → RouterDecision
-    - input_kind == PLANNING → 走原 _planner_stream / _stub_stream（reply_text 可作 thought 态）
+    - input_kind == PLANNING/feedback 时 RouterDecision.reply_text 无人读取(E-2-c 后,brain 对这两类强制清空 chips,见 agent/routing/brain.py::_apply_label_chip_policy)
     - 其他 5 类                → 推 chitchat_reply（payload = 本模型 dump）+ done
 
     Demo 价值：
