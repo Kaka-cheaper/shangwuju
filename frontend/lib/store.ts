@@ -29,6 +29,7 @@ import {
 import { resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
 import { initialState } from "./store/initial-state";
+import { emptyCriticReport } from "./store/types";
 import type {
   ChatState,
   Getter,
@@ -250,6 +251,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
             toolCalls: [],
             replans: [],
             lastRefinement: null,
+            // Step 2：criticReport 同 toolCalls/thoughts 一样是规划过程的痕迹——
+            // confirm 终态让位给「已预约」结果时一并清掉，不留上一轮的自愈记录。
+            criticReport: emptyCriticReport(),
             messages:
               narr?.text && narr.stage === "confirm"
                 ? [
@@ -298,6 +302,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       narration: null,
       cancelled: false,
       lastRefinement: null,
+      // Step 2：refine() 走自己的同步清空（不经 clearForReplanIfPending——本
+      // action 从不置 awaitingReplan=true），若漏清 criticReport 会导致上一轮
+      // 的违规/返工/降级记录串场到这一轮反馈重规划的「质检与自愈」小节里。
+      criticReport: emptyCriticReport(),
       messages: feedbackText.trim()
         ? [
             ...s.messages,

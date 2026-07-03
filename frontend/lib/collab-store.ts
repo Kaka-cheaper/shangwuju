@@ -13,6 +13,7 @@ import { createWsClient, type WsClient, type WsMessage } from "./ws";
 import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
+import { emptyCriticReport } from "./store/types";
 import type { AdjustAction, DemandLedgerEntry, SseEvent } from "./types";
 import { API_BASE } from "./utils";
 
@@ -253,6 +254,10 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           toolCalls: [],
           replans: [],
           thoughts: [],
+          // Step 2：下面紧接着会把 planning_events 从头回放一遍（含
+          // critic_violations/critic_fix_attempt/plan_fallback）——不清空
+          // criticReport 会导致本地残留的上一轮自愈记录被回放内容重复追加。
+          criticReport: emptyCriticReport(),
           itinerary: (msg.itinerary as any) || null,
           previousItinerary: (msg.previous_itinerary as any) || null,
           intent: (msg.intent as any) || null,
@@ -408,6 +413,10 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           toolCalls: [],
           replans: [],
           thoughts: [],
+          // Step 2：同 toolCalls/thoughts——新一轮规划开始，上一轮的质检自愈记录
+          // 不清会串场到这一轮的「质检与自愈」小节里（同 store.ts refine() 的
+          // 既有清空手法，房间模式这里是它的对应版本）。
+          criticReport: emptyCriticReport(),
           itinerary: null,
           previousItinerary: currentItinerary ? cloneForCollab(currentItinerary) : null,
           narration: null,

@@ -11,8 +11,11 @@ import type {
   AgentNarrationPayload,
   AgentThoughtPayload,
   ChitchatReplyPayload,
+  CriticFixAttemptPayload,
+  CriticViolationsPayload,
   IntentExtraction,
   Itinerary,
+  PlanFallbackPayload,
   RefinementDonePayload,
   RefinementStartPayload,
   ReplanTriggeredPayload,
@@ -23,6 +26,7 @@ import type {
 } from "../types";
 
 import { currentArrival, nextArrival } from "./arrival-counter";
+import { emptyCriticReport } from "./types";
 import type { Getter, Setter, ToolCallRecord } from "./types";
 
 /**
@@ -47,6 +51,9 @@ function clearForReplanIfPending(set: Setter, get: Getter): void {
     // 清空，等新一轮 narrate 产出前不展示指向已作废节点的按钮。demandLedger 是
     // SESSION_SCOPED（诉求跨规划事件存活），不随重跑清空。
     nodeActions: null,
+    // Step 2：criticReport 同 toolCalls/thoughts 一样是 PER-TURN 过程数据——
+    // 不清会导致上一轮的违规/返工/降级记录串场到这一轮的「质检与自愈」小节里。
+    criticReport: emptyCriticReport(),
   });
 }
 
@@ -125,6 +132,68 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
           }
           return arr;
         })(),
+      }));
+      break;
+    }
+
+    // Step 2：critic 校验 + 自愈闭环三事件——原先在 SSE_NOT_CONSUMED_IN_SWITCH
+    // 白名单挂了很久（后端一直在发，前端一直静默丢弃），路演拍板做成「系统自愈
+    // 过程可视化」后正式接线。三者只落 store（criticReport），不影响任何既有
+    // 字段/清空逻辑；面板呈现见 ThoughtPanel「质检与自愈」小节。
+    case "critic_violations": {
+      const p = ev.payload as unknown as CriticViolationsPayload;
+      set((s) => ({
+        criticReport: {
+          ...s.criticReport,
+          violationRounds: [
+            ...s.criticReport.violationRounds,
+            {
+              seq: ev.seq,
+              arrivalIdx: nextArrival(),
+              fixAttempt: p.fix_attempt,
+              violations: p.violations,
+            },
+          ],
+        },
+      }));
+      break;
+    }
+
+    case "critic_fix_attempt": {
+      const p = ev.payload as unknown as CriticFixAttemptPayload;
+      set((s) => ({
+        criticReport: {
+          ...s.criticReport,
+          fixAttempts: [
+            ...s.criticReport.fixAttempts,
+            {
+              seq: ev.seq,
+              arrivalIdx: nextArrival(),
+              attempt: p.attempt,
+              feedbackText: p.feedback_text,
+            },
+          ],
+        },
+      }));
+      break;
+    }
+
+    case "plan_fallback": {
+      const p = ev.payload as unknown as PlanFallbackPayload;
+      set((s) => ({
+        criticReport: {
+          ...s.criticReport,
+          fallbackHops: [
+            ...s.criticReport.fallbackHops,
+            {
+              seq: ev.seq,
+              arrivalIdx: nextArrival(),
+              from: p.from,
+              to: p.to,
+              reason: p.reason,
+            },
+          ],
+        },
       }));
       break;
     }

@@ -58,6 +58,21 @@ export const FAILURE_REASON_LABEL: Record<string, string> = {
   empty_candidates: "候选为空",
   invalid_input: "参数校验失败",
   upstream_failure: "上游服务失败",
+  // Step 2：emit_critic 命中硬伤时随 critic_violations 一起兼容推的
+  // replan_triggered（from_tool="critics_v2"）——此前这条 reason 没有中文映射，
+  // 只在 ToolTracePanel/ThoughtPanel 的 replan 分隔线里裸展示英文枚举值；
+  // 现在「质检与自愈」小节让这条 replan 更显眼了，一并把它人话化。
+  critic_hard_violation: "质检不通过",
+};
+
+/** PlanFallback 4 级降级链阶段的中文标签（critic 自愈闭环可视化用）。 */
+export const PLAN_FALLBACK_STAGE_LABEL: Record<string, string> = {
+  llm_first: "LLM 首次规划",
+  llm_backprompt: "LLM 重新生成",
+  ils: "ILS 算法引擎",
+  rule: "规则引擎兜底",
+  error: "异常",
+  give_up: "保留当前方案",
 };
 
 /** SSE 流错误原因的中文显示（来自 lib/sse.ts SseStreamError.reason）。 */

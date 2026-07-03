@@ -8,10 +8,12 @@
 import type {
   AdjustAction,
   ChitchatReplyPayload,
+  CriticViolation,
   DemandLedgerEntry,
   Itinerary,
   IntentExtraction,
   NodeActionsMap,
+  PlanFallbackStage,
   PlannerMode,
   Persona,
   Scenario,
@@ -54,6 +56,55 @@ export interface ReplanRecord {
   arrivalIdx: number;
   reason: string;
   fromTool: string;
+}
+
+/**
+ * Step 2：critic 校验 + 自愈闭环三事件（critic_violations / critic_fix_attempt /
+ * plan_fallback）落地——路演「系统自愈过程可视化」。
+ *
+ * 三个子数组各自按到达顺序独立追加，同 toolCalls/replans/thoughts 的既有模式
+ * （store 只存原始记录，不做归并；面板层按 arrivalIdx 合并渲染一条时间线）。
+ *
+ * 生命周期：PER-TURN 数据（同 toolCalls/thoughts，随「清空重跑腾位」的既有清空
+ * 手法一起清空）——不是 SESSION_SCOPED（不同于 demandLedger 跨规划事件存活）。
+ */
+export interface CriticViolationRound {
+  seq: number;
+  arrivalIdx: number;
+  /** 被判定违规的是第几次出的蓝图（emit_critic 读 ctx.last_plan_attempt）。 */
+  fixAttempt: number;
+  violations: CriticViolation[];
+}
+
+export interface CriticFixAttemptRecord {
+  seq: number;
+  arrivalIdx: number;
+  /** 即将展开的这次重写是第几稿（LangGraph planner 节点的 plan_attempt）。 */
+  attempt: number;
+  /** 后端占位文案（常为「详见上一条 critic_violations」），不作为用户可读文案
+   * 直接展示——面板自己写人话（见 ThoughtPanel），此字段仅保留供调试 / 未来消费。 */
+  feedbackText: string;
+}
+
+export interface PlanFallbackHopRecord {
+  seq: number;
+  arrivalIdx: number;
+  from: PlanFallbackStage;
+  to: PlanFallbackStage;
+  reason: string;
+}
+
+export interface CriticReport {
+  violationRounds: CriticViolationRound[];
+  fixAttempts: CriticFixAttemptRecord[];
+  fallbackHops: PlanFallbackHopRecord[];
+}
+
+/** criticReport 的清空态——initial-state / 既有清空手法（clearForReplanIfPending
+ * / refine() / confirm() onDone）统一复用，避免任一处漏写字段导致上一轮的
+ * 违规记录串场到新一轮。每次调用返回新对象（不共享引用，虽然当前均只读替换）。 */
+export function emptyCriticReport(): CriticReport {
+  return { violationRounds: [], fixAttempts: [], fallbackHops: [] };
 }
 
 /** Toast 通知项（短暂显示后自动消失）。 */
@@ -121,6 +172,9 @@ export interface ChatState {
   toolCalls: ToolCallRecord[];
   replans: ReplanRecord[];
   thoughts: { seq: number; text: string; timestamp_ms: number | null }[];
+  /** Step 2：critic 校验 + 自愈闭环（critic_violations/critic_fix_attempt/
+   * plan_fallback 三事件落地）——驱动 ThoughtPanel「质检与自愈」小节。 */
+  criticReport: CriticReport;
 
   // 输出
   itinerary: Itinerary | null;

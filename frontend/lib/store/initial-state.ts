@@ -2,6 +2,7 @@
  * 初始 state（数据字段，无 action）—— 抽出便于 store.ts 主文件聚焦 action 实现。
  */
 
+import { emptyCriticReport } from "./types";
 import type { InitialChatState } from "./types";
 
 export const initialState: InitialChatState = {
@@ -24,6 +25,7 @@ export const initialState: InitialChatState = {
   toolCalls: [],
   replans: [],
   thoughts: [],
+  criticReport: emptyCriticReport(),
   itinerary: null,
   previousItinerary: null,
   cancelled: false,

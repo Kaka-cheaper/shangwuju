@@ -64,23 +64,14 @@ _EVENT_HANDLERS_TS = _REPO_ROOT / "frontend" / "lib" / "store" / "event-handlers
 # 轴 1：SSE 事件 —— SseEventType 每个值必须有前端 case 或登记白名单
 # ============================================================
 
-# 读码核实（2026-07-03）：以下 3 个事件后端有产出（emit_critic / plan-and-execute
-# fallback 链），但 frontend/lib/store/event-handlers.ts 的 handleEvent switch
-# 里没有对应 case——不是遗漏读码时才发现，是路演看板叙事还没拍板要不要展示这条
-# 修复闭环链路（critic 违规 → LLM backprompt 修正 → 4 级 fallback）。
-SSE_NOT_CONSUMED_IN_SWITCH: dict[str, str] = {
-    SseEventType.CRITIC_VIOLATIONS.value: (
-        "修复闭环可视化候选，路演看板叙事待拍板（Plan-and-Execute critic 闭环，"
-        "ADR-0014 G-4 现状登记，非本次任务范围）"
-    ),
-    SseEventType.CRITIC_FIX_ATTEMPT.value: (
-        "修复闭环可视化候选，路演看板叙事待拍板（同 CRITIC_VIOLATIONS，属同一条"
-        "修复闭环链路）"
-    ),
-    SseEventType.PLAN_FALLBACK.value: (
-        "修复闭环可视化候选，路演看板叙事待拍板（4 级 fallback 链路，同上）"
-    ),
-}
+# 读码核实（2026-07-03，接线批）：CRITIC_VIOLATIONS / CRITIC_FIX_ATTEMPT /
+# PLAN_FALLBACK 三个事件此前挂在这里——后端一直在发（emit_critic / emit_planner /
+# emit_replan_router / emit_ils_replan），前端一直静默丢弃，路演看板叙事待拍板。
+# 现已拍板：接成「系统自愈过程可视化」，event-handlers.ts 的 handleEvent switch
+# 补了这三个 case（落 store.criticReport，ThoughtPanel「质检与自愈」小节渲染），
+# 三条白名单登记随之摘除——这正是本 gate 的设计意图：接线后白名单条目过期即报红，
+# 逼着登记跟着代码演进维护，不是一次性放生。
+SSE_NOT_CONSUMED_IN_SWITCH: dict[str, str] = {}
 
 # `case "done":` 在 event-handlers.ts 里确实存在（是空分支，注释里写明
 # "onDone 在 streamSse 调用方处理"），会被下面的正则当作已消费——这与「done
