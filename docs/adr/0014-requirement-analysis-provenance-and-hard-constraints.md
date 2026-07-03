@@ -57,4 +57,7 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 **G-2 已完成**(2026-07-03):词典分层证据法(prompt 触发规则+mock 分布逐词定)/hard 永不放宽+出处降级序+tag_provenance 三路径透传/出口审计挂 finalize_plan(CONSTRAINT_RELAXED 三口径,default 不告知拍板)/告知限额 2+折叠/check_physical 新增+check_dietary 改判 hard-only ALL-match(主动修正)/give_up 死寂补洞(诚实文案+放宽 chips)/parity 静态网。联动真 bug×2: rule_planner 外层降级绕过 hard 保护已修;三引擎全败前端无反馈已修。mock 缺口登记: 无障碍 POI=0/无牛肉餐厅=0(待补数据)。1430 passed。
 **G-3 已完成**(2026-07-03):budget_per_person 定量定性分轨(定性压制"高人均"冲突消解真 LLM 实测)/check_budget SOFT 映射既有 OVER_BUDGET(两路径同语义)/比较对象改本轮明说优先/S1 被听见=ambiguous_fields 第一个真实消费方(narration"尽量控制着来");POI 票价核查推翻降级预设,全量校验。1449 passed。
 **G-4b 已完成**(60f6130):字段轴 gate——17 顶层+5 嵌套字段逐一核实消费面,白名单仅 parse_confidence(E-3);判据避开 few-shot 字符串与跨 schema 同名两类实测假阳性;防腐牙齿经临时探针验证。
-**✅ G 系列全落地(G-0→G-4b,2026-07-03,1454 passed)。** 余 E-3 挂钩两项(置信度接澄清/台账收全局诉求)随 E-3 排期;mock 缺口(无障碍 POI=0/无牛肉餐厅=0)待用户拍板补数据。
+**✅ G 系列全落地(G-0→G-4b,2026-07-03,1454 passed)。** ~~mock 缺口~~已补(b54e94c:无障碍×4/无牛肉×3,连锁 fixture 修复 271949c)。
+**横向深审(2026-07-03,六片接缝专项)**:翻车级×1(换菜引擎对硬约束失明,五条路径唯一逃逸者,P0 修复中)+语义级×3(social_context 出处被 forced_prior 系统性误伤,P1;出口审计并集判定与 checks 逐节点语义矛盾,P2a;messages 告知通道前端未消费致折叠句无落点,P2b)+卫生债(硬约束链路零日志/面板缺预算格,随 P2 批)。负面清单 13 项核实无问题(三主路径 hard 保护/出处传播/键格式/序列化等)。
+**已知限制(拍板记档,暂不修)**:房间重规划把 refiner 合并好的 refined_intent 只用于广播事件,实际规划走 raw_input 全新解析(collab/room.py:986-1011/1060-1074)——约束文本经拼接存活但出处/合并精度丢失,出口审计审的是重解析后的 intent。修复需重构房间规划入口,成本高;先随最终冒烟观察房间线实际质量,路演后与 E-3 一并议。
+余 E-3 挂钩两项(置信度接澄清/台账收全局诉求)随 E-3 排期。
