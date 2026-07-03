@@ -1,0 +1,133 @@
+%% ============================================================
+%% L2-a · 约束数据流 —— 这张图回答:
+%%   「用户的诉求(说的/点的/聊天里带出的)怎么变成结构化数据、
+%%    又被谁消费去影响方案」
+%% ----
+%% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
+%% 基于 commit: 57afcef (2026-07-03)
+%% 前置阅读: docs/map/L1-modules.mmd / L1-turn-pipeline.mmd / index.html 的 L0 术语表
+%%           (「需求单」=IntentExtraction,「诉求台账」=demand_ledger,「质检」=critic,
+%%            「兜底」=fallback/drain —— 本图沿用这套词,不新造术语)
+%% ----
+%% 【这是什么】ADR-0014(需求分析环节治理)的作业底图。全链路只读审查发现:
+%%   骨架成立(分层抽取/输入分层/校验-重试环都是成熟范式),但管道漏水——
+%%   若干字段被认真写出后从未被真正读过,若干"诚实告知"的素材半路被丢弃。
+%%   本图把「写手 → 两本账 → 消费面」的真实边全部画出来,断链用虚线+❌标出,
+%%   这正是 ADR-0014 决策(G-0~G-3 + E-3 挂钩两项)要收口的洞。
+%% ----
+%% 【图例】
+%%   实线 -->   = 当前代码里真实在跑的消费/写入边(有 grep/读码实锤)
+%%   虚线 -.->  = 断链 / 非直接(需用户点击中转) / 派生但未真正接线
+%%   ❌ 前缀    = ADR-0014 判定的已知缺口(管道漏水清单)
+%% ----
+%% 【锚点表:节点 id → 代码位置】
+%%   W1_PARSE       agent/intent/parser.py::parse_intent ; agent/graph/nodes/intent.py::intent_node
+%%   W2_REFINE      agent/intent/refiner.py::refine_intent ; agent/graph/nodes/refiner.py::refiner_node
+%%   W3_LEDGER_WRITE  schemas/demand_ledger.py::record_demand ; api/_streams/graph_adjust.py ; collab/room.py
+%%   W4_SNIFFER     agent/core/soft_constraint_sniffer.py::build_soft_constraint_decision
+%%   L_INTENT       schemas/intent.py::IntentExtraction (存于 AgentState["intent"])
+%%   L_LEDGER       schemas/demand_ledger.py::LedgerEntry (存于 AgentState["demand_ledger"] / Room.demand_ledger)
+%%   C1_SEARCH      tools/_helpers.py::relax_tag_search ; tools/search_pois.py ; tools/search_restaurants.py
+%%   C2_BLUEPRINT   agent/planning/blueprint/blueprint_llm.py
+%%   C3_WEIGHTS     agent/planning/weights_llm.py::get_planning_weights
+%%   C4_CRITIC      agent/planning/critic/_rules/checks.py::check_dietary, check_capacity
+%%   C5_PACEBUDGET  agent/planning/planners/pace_budget.py::pace, interval_fill_targets
+%%   C6_NARRATE     agent/graph/nodes/narrate.py ; agent/intent/narrator.py
+%%   C7_PACKER      agent/context/packer.py::pack_routing_context, render_demand_recap ; agent/context/types.py
+%%   C8_SWAP        agent/planning/planners/node_swap.py::resolve_node_swap (ledger_slice 形参)
+%%   C9_ADVISORY    schemas/advisory.py::Advisory ; ils_planner.py::_build_success_advisories ; node_swap.py 降级序列
+%%   SSE_DEBUG      agent/graph/_emit_handlers.py::emit_fanout_worker (tool_call_end.relaxed_tags)
+%%   ROUTER_BRAIN   agent/routing/brain.py::classify_turn
+%%   G_*            ADR-0014 判定的断链/缺口(见各节点文字与背景 docstring 引用行号)
+%% ============================================================
+flowchart TB
+
+  subgraph WRITERS["四个写手 —— 诉求从人嘴里/点击里怎么进系统"]
+    W1_PARSE["首轮抽取:第一句话读成结构化需求单<br/>(intent/parser.py::parse_intent,经 graph/nodes/intent.py)"]
+    W2_REFINE["反馈合并:把新意见并进原需求单(LLM 或关键词兜底)<br/>(intent/refiner.py::refine_intent,经 graph/nodes/refiner.py)"]
+    W3_LEDGER_WRITE["点击记账:仅「定向调整」按钮落账;点踩/具名备选不记(选定不是诉求)<br/>(demand_ledger.py::record_demand,经 api/_streams/graph_adjust.py + collab/room.py)"]
+    W4_SNIFFER["陪聊嗅探:闲聊里听出隐含硬约束,只问不改,不自己写任何东西<br/>(core/soft_constraint_sniffer.py)"]
+  end
+
+  subgraph LEDGERS["两本账"]
+    L_INTENT["需求单:当前有效的合并视图(单一对象,反馈整体覆盖)<br/>(schemas/intent.py::IntentExtraction)"]
+    L_LEDGER["诉求台账:记名的诉求事件史(生效/被顶替/已满足,原地留痕不删除)<br/>(schemas/demand_ledger.py::LedgerEntry)"]
+  end
+
+  W1_PARSE --> L_INTENT
+  L_INTENT --> W2_REFINE
+  W2_REFINE -->|"覆盖式合并(model_copy update),raw_input 累积拼接"| L_INTENT
+  L_LEDGER -->|"读现有账目做顶替判定(member+node_ref+dimension 三元组)"| W3_LEDGER_WRITE
+  W3_LEDGER_WRITE -->|"record_demand:整体替换成含顶替改写的新全量列表"| L_LEDGER
+  W4_SNIFFER -.->|"只产出建议 chip;用户点击后文案重入路由→强反馈判定→W2 才真正写入(非直接写)"| W2_REFINE
+
+  subgraph CONSUMERS["消费面 —— 两本账喂给谁、影响了方案的什么"]
+    C1_SEARCH["搜索过滤与降宽链:tag 全命中精确过滤,打空则渐进丢<br/>(tools/_helpers.py::relax_tag_search,经 search_pois.py + search_restaurants.py)"]
+    C2_BLUEPRINT["蓝图 prompt:整份需求单 JSON 灌给 AI 起草行程蓝图<br/>(planning/blueprint/blueprint_llm.py)"]
+    C3_WEIGHTS["打分权重:同行人结构+场景算 4 维 utility 权重<br/>(planning/weights_llm.py::get_planning_weights)"]
+    C4_CRITIC["质检:餐厅 tags 覆盖饮食约束/桌型够不够<br/>(critic/_rules/checks.py::check_dietary, check_capacity)"]
+    C5_PACEBUDGET["降级链(节奏留白):从同行人+场景独立重推节奏档<br/>(planning/planners/pace_budget.py::pace, interval_fill_targets)"]
+    C6_NARRATE["叙事诚实告知:开场白+调整按钮+没做到之处如实说明<br/>(graph/nodes/narrate.py + intent/narrator.py)"]
+    C7_PACKER["上下文打包器:台账生效切片打包成三方共用只读快照<br/>(context/packer.py::pack_routing_context)"]
+    C8_SWAP["换菜引擎候选筛选:生效诉求作为候选池优先级偏置<br/>(planning/planners/node_swap.py::resolve_node_swap 的 ledger_slice)"]
+    C9_ADVISORY["规划器诚实告知通道:方案办不到时的结构化理由<br/>(schemas/advisory.py::Advisory)"]
+  end
+
+  SSE_DEBUG["SSE 工具调用调试字段(仅调试展示,非叙事素材)<br/>(graph/_emit_handlers.py::emit_fanout_worker 的 tool_call_end.relaxed_tags)"]
+  ROUTER_BRAIN["路由脑子 prompt:判这句话该走哪条分支<br/>(routing/brain.py::classify_turn)"]
+
+  L_INTENT -->|"physical/dietary/experience_tags 三词典(拼一个 flat list)"| C1_SEARCH
+  L_INTENT -->|"model_dump_json() 整份灌入(含断链字段,但无专门读取)"| C2_BLUEPRINT
+  L_INTENT -->|"social_context+companions+tags+raw_input"| C3_WEIGHTS
+  L_INTENT -->|"dietary_constraints / capacity_requirement"| C4_CRITIC
+  L_INTENT -->|"companions+social_context(不读 pace_profile)"| C5_PACEBUDGET
+  L_INTENT -->|"评分/节奏上下文(resolve_node_swap 内部默认调用同一函数)"| C8_SWAP
+
+  L_LEDGER -->|"demand_ledger_raw()→ledger_active_global/named"| C7_PACKER
+  L_LEDGER -->|"active_adjustments(ledger,node_ref=...)→ledger_slice 优先级偏置"| C8_SWAP
+
+  C3_WEIGHTS -.->|"resolve_node_swap 内部默认复用同一打分函数(get_planning_weights)"| C8_SWAP
+  C5_PACEBUDGET -->|"budget_min=interval_fill_targets(...).hi_min(节点修复重用同一节奏预算)"| C8_SWAP
+
+  C8_SWAP --> C9_ADVISORY
+  C4_CRITIC -->|"SOFT 违规转 advisory(如 DURATION_OUT_OF_RANGE→SHORTER_THAN_REQUESTED)"| C9_ADVISORY
+  C9_ADVISORY --> C6_NARRATE
+
+  C7_PACKER -->|"render_text()"| ROUTER_BRAIN
+  C7_PACKER -->|"render_demand_recap()——版本志+台账生效条目"| W2_REFINE
+  C7_PACKER -->|"plan_version_log 切片→'这版是照哪条反馈调的'回顾句"| C6_NARRATE
+
+  subgraph GAPS["ADR-0014 已知断链 —— 写出来了但没人真正用,或该有消费者却没有"]
+    G_PROVENANCE["❌出处被抹掉:先验(persona prior)与用户明说融合进同一次 LLM 输出,产出分不清谁说的<br/>(intent_parser_prompt.py::build_intent_parser_system_prompt_with_priors;IntentExtraction 无出处字段)"]
+    G_CONF["❌parse_confidence/ambiguous_fields 零消费:prompt 许诺'低置信下游会回问澄清',但无此分支<br/>(全仓仅见于 prompt 文案/测试脚本,归 E-3 待接)"]
+    G_GENDER["❌gender_mix 零消费:仅 prompt few-shot 出现,从未被任何代码读取<br/>(schemas/intent.py::Companion.gender_mix,ADR-0014 判定直接砍除)"]
+    G_PACE["❌pace_profile 抽了没人读:规划侧自证不读,改从同行人+场景独立重推<br/>(pace_budget.py 头部'本模块不读 pace_profile 字段')"]
+    G_HARDSOFT["❌硬软不分:忌口级与风格级混一个 flat list,唯一区分是放宽顺序常量<br/>(_helpers.py::_PRIORITY_TAGS_HIGH;顶到底一样全丢光,零告知)"]
+    G_RELAX["❌relaxed_tags 断链:三条规划路径(execute worker/ils_planner/rule_planner)全拿到又全丢<br/>(仅 execute worker 一路径写进 SSE 调试字段,另两路径连调试都没进,narrate 从不读它)"]
+    G_BUDGET["❌预算无槽位:OVER_BUDGET 比的是 persona 静态默认值,不是本轮用户明说的数<br/>(IntentExtraction 无 budget_per_person 字段;ils_planner.py money_budget=user_profile.default_budget)"]
+    G_PHYS["❌physical_constraints 无质检复核:check_dietary 有对应检查,它没有<br/>(critic/_rules/checks.py 全文件无 check_physical;适老/无台阶不达标不会被拦)"]
+    G_GLOBAL["❌台账'全局诉求'形态零写手:node_ref=None 从未被任何写手产出<br/>(两个写手都强制带具体 node_ref;聊天里说的忌口永远进不了台账面板)"]
+  end
+
+  W1_PARSE -.->|"先验注入发生在这一步"| G_PROVENANCE
+  G_PROVENANCE -.-> C6_NARRATE
+
+  L_INTENT -.->|"pace_profile 字段(W1 首抽 + W2 反馈缩水都写)"| G_PACE
+  G_PACE -.-> C5_PACEBUDGET
+
+  L_INTENT -.->|"parse_confidence/ambiguous_fields 字段"| G_CONF
+  L_INTENT -.->|"Companion.gender_mix 字段"| G_GENDER
+
+  C1_SEARCH -.->|"内部机制即此缺陷本身"| G_HARDSOFT
+  C1_SEARCH -->|"relaxed_tags(本次丢了哪些 tag)"| SSE_DEBUG
+  SSE_DEBUG -.-> G_RELAX
+  G_RELAX -.-> C6_NARRATE
+
+  L_INTENT -.->|"IntentExtraction 无预算字段"| G_BUDGET
+  G_BUDGET -.-> C9_ADVISORY
+
+  L_INTENT -.->|"physical_constraints 字段"| G_PHYS
+  G_PHYS -.->|"应比照 check_dietary 接入,尚未实现"| C4_CRITIC
+
+  L_LEDGER -.->|"node_ref=None 从未出现过"| G_GLOBAL
+  W4_SNIFFER -.->|"嗅到的软约束若成为诉求,理应也记台账全局条目,但无此写手"| G_GLOBAL

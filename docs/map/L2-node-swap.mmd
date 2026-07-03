@@ -1,0 +1,200 @@
+%% ============================================================
+%% L2-a · 节点调整引擎 —— 这张图回答:「点一站下面的按钮之后发生什么」
+%% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
+%% 前置阅读: docs/map/L1-turn-pipeline.mmd + L1-modules.mmd + index.html 的 L0
+%%   术语表(方案=Itinerary / 站=ActivityNode / 诉求台账=demand_ledger / 房间=Room /
+%%   确认=confirm),本图延用同一套词,不重新定义。
+%% 范围: 承接 L1-a 的 U4(点某一站下面的调整按钮)与 U5(房间协作)两条线,
+%%   钻进「换菜引擎(resolve_node_swap)」这一格,画清楚单人 /chat/adjust 与
+%%   房间 WS adjust 两个入口如何共用同一套编排 helper + 同一个局部重解引擎。
+%% 基于 commit: 57afcef
+%% 文字纪律: 每框第一行人话职责,括号内是代码里的名字;不转录函数体;
+%%   不出现未解释的内部代号;mermaid 标签内不用花括号。
+%% --------------------------------------------------------------
+%% 【锚点表:图中代码名 → 代码位置】(逐条对应报告里的完整表,这里给精简版)
+%% AdjustChipButton/AlternativeButton/VoteButtons(dislike)
+%%   → frontend/components/ItineraryCard.tsx:427-465(点击入口),1136-1192(按钮组件)
+%% dispatchAdjust                → frontend/components/ItineraryCard.tsx:222
+%% sendAdjust(单人)              → frontend/lib/store.ts:365-387
+%% sendAdjust(房间, ws send)     → frontend/lib/collab-store.ts:176-181
+%% RoomManager.update_vote       → backend/collab/room.py:452-502
+%% chat_adjust(POST /chat/adjust)→ backend/api/adjust.py:39-76(前置校验 63-73)
+%% ws_collab adjust 分支         → backend/api/collab.py:202-219
+%% RoomManager.adjust            → backend/collab/room.py:508-566
+%% _graph_adjust                 → backend/api/_streams/graph_adjust.py:143-324
+%% _resolve_and_broadcast_adjust → backend/collab/room.py:568-742
+%% CONFIRMED_ADJUST_BLOCKED_MESSAGE(守门文案)
+%%   → backend/agent/planning/planners/node_swap_support.py:103-106
+%%   单人判据 user_decision=="confirm" → graph_adjust.py:162-168
+%%   房间判据 room.confirmed          → room.py:614-616
+%% target_kind(节点定位)          → node_swap_support.py:133-137
+%%   单人定位不到→抛 ValueError     → graph_adjust.py:181-186
+%%   房间定位不到→降级为告知不抛异常 → room.py:622-628
+%% 候选池:单人 load_pois/load_restaurants(全量目录) → graph_adjust.py:176-177
+%% 候选池:房间 _query_pois/_query_restaurants(现场重查) → room.py:634-635
+%% narrow_pool_to_single_alternative(候选池收窄)→ node_swap_support.py:181-206
+%% resolve_node_swap(核心引擎)    → backend/agent/planning/planners/node_swap.py:452-540
+%%   先验 kept 可行性                → node_swap.py:486-492
+%%   三级降级 _degrade_tiers         → node_swap.py:288-313
+%%   ledger 软偏置 _ledger_priority_groups → node_swap.py:316-337
+%%   单次尝试 _attempt_pool/repair_route → node_swap.py:340-379
+%%   advisory 构造                  → node_swap.py:387-411
+%%   SwapResult                     → node_swap.py:151-167
+%% feasible_alternatives           → node_swap.py:543-605
+%% record_demand / mark_satisfied  → backend/schemas/demand_ledger.py:134-166 / 169-206
+%%   单人调用点 → graph_adjust.py:204-230(成功)/253-264(失败仍记账)
+%%   房间调用点 → room.py:649-670(成功)/691-698(失败仍记账)
+%% _build_node_actions(重算按钮/备选) → backend/agent/graph/nodes/narrate.py:341-398
+%% 版本志:单人 trigger=adjust → graph_adjust.py:272-297
+%% 版本志:房间未接线(已知留待项) → backend/agent/context/sources.py:118
+%% sync_snapshot(会话缓存投影)     → graph_adjust.py:300 / room.py:709-712
+%% 单人 emit(SSE)                  → graph_adjust.py:307-323;safe_stream 兜底 stream_error
+%% 房间 emit(WS 广播)              → room.py:731-742(_broadcast_planning_event:1291-1295)
+%% node_locked/node_unlocked       → room.py:546-551(锁)/565-566(finally 解锁)
+%% 前端消费(单人)                  → frontend/lib/store/event-handlers.ts:143-181(itinerary_ready)/183-200(agent_narration)/283-285(stream_error)
+%% 前端消费(房间桥接)              → frontend/lib/collab-store.ts:323-332(node_locked/unlocked)/430-443(planning_event 转发)
+%% ============================================================
+flowchart TB
+
+  subgraph FE["前端:节点行三种点击入口(components/ItineraryCard.tsx)"]
+    C_ADJ["点定向调整按钮:维度已限定,直接换<br/>(AdjustChipButton, type=adjust)"]
+    C_ALT["点具名备选:点这个就换这个<br/>(AlternativeButton, type=alternative)"]
+    C_DIS["点踩:仅房间可见,单人 UI 不发这个 action<br/>(VoteButtons dislike)"]
+  end
+
+  DISPATCH["按单人/房间分流,三者共用同一份判别式协议<br/>(dispatchAdjust)"]
+  ROOM_VOTE["先记投票再广播<br/>(RoomManager.update_vote)"]
+  ENTRY_SINGLE["POST 一次性 SSE 请求<br/>(sendAdjust → /chat/adjust)"]
+  ENTRY_ROOM_SEND["WS 发送 adjust 消息<br/>(sendAdjust → ws send)"]
+
+  C_ADJ --> DISPATCH
+  C_ALT --> DISPATCH
+  C_DIS --> ROOM_VOTE
+  DISPATCH -->|"单人模式"| ENTRY_SINGLE
+  DISPATCH -->|"房间模式"| ENTRY_ROOM_SEND
+
+  subgraph BACKEND_ENTRY["两个入口(协议同款,结构对称)"]
+    EP_S["先做前置校验:有没有方案<br/>(chat_adjust · api/adjust.py)"]
+    REJECT["同步 4xx,不流到一半才报错<br/>(HTTPException 404)"]
+    CALL_S["起 SSE 生成器<br/>(_graph_adjust)"]
+
+    WS_ROUTE["WS 消息路由:同一份判别式 schema 校验<br/>(ws_collab, type=adjust 分支)"]
+    ADJUST_ENTRY_ROOM["房间锁内串行+广播处理中<br/>(RoomManager.adjust → node_locked)"]
+    CALL_R["实际换菜逻辑<br/>(_resolve_and_broadcast_adjust)"]
+  end
+
+  ENTRY_SINGLE --> EP_S
+  EP_S -->|"session 无 checkpoint 或无方案"| REJECT
+  EP_S -->|"校验过"| CALL_S
+
+  ENTRY_ROOM_SEND --> WS_ROUTE
+  WS_ROUTE --> ADJUST_ENTRY_ROOM
+  ROOM_VOTE -->|"踩=收编成无方向局部重解,绕开 WS 消息校验直接调同一入口"| ADJUST_ENTRY_ROOM
+  ADJUST_ENTRY_ROOM --> CALL_R
+
+  subgraph SHARED_ORCH["共用编排 helper(两入口各调一次,同一套逻辑——node_swap_support.py,F-5 落地时'待抽中立 seam'的搬迁终点)"]
+    GATE["已下单守门:确认过的方案不许静默换菜<br/>(CONFIRMED_ADJUST_BLOCKED_MESSAGE)"]
+    GATE_BLOCK["只回一句告知,方案不动,引擎不进"]
+    LOCATE["按 target_id 定位节点属于 poi 还是 restaurant<br/>(target_kind)"]
+    LOCATE_FAIL["定位不到:节点可能刚被别的操作换掉"]
+    POOL["候选池整理:单人读全量目录;房间现场重查<br/>(load_pois/load_restaurants · _query_pois/_query_restaurants)"]
+    PREP["按三种 action 类型准备引擎入参"]
+    PREP_ADJ["定向调整:原样透传方向+生效诉求切片<br/>(adjustment= · ledger_slice=active_adjustments)"]
+    PREP_DIS["点踩:无方向<br/>(adjustment=None)"]
+    PREP_ALT["候选池收窄手法:点这个就该换成这个<br/>(narrow_pool_to_single_alternative)"]
+  end
+
+  CALL_S --> GATE
+  CALL_R --> GATE
+  GATE -->|"单人读 user_decision=confirm / 房间读 room.confirmed → 已确认"| GATE_BLOCK
+  GATE -->|"未确认→放行"| LOCATE
+  LOCATE -->|"单人:契约违反"| STREAM_ERR
+  LOCATE -->|"房间:并发竞态,降级为告知"| LOCATE_FAIL
+  LOCATE -->|"定位到"| POOL
+  POOL --> PREP
+  PREP -->|"adjust"| PREP_ADJ
+  PREP -->|"dislike"| PREP_DIS
+  PREP -->|"alternative"| PREP_ALT
+
+  subgraph ENGINE["局部重解核心引擎(真正共享,零特判两个入口——agent/planning/planners/node_swap.py)"]
+    KEPT_CHECK["先验:去掉目标后,钉住的其余节点还能排到一块儿吗<br/>(schedule_route(kept))"]
+    KEPT_FAIL["排不到一块儿:方案不动,只告知<br/>(SWAP_KEPT_NODE_UNFIT)"]
+    DEGRADE["三级降级候选集合:同子类满足→同大类满足→近似满足<br/>(_degrade_tiers + _ledger_priority_groups,诉求是软偏置不是硬门槛)"]
+    ATTEMPT["repair_route 单次尝试:拉黑目标+只补这一个空槽,其余节点原样不动<br/>(_attempt_pool,不涌现加塞——只动一格的承诺在这里兑现)"]
+    ENGINE_OK["命中:新方案+swapped_to+degrade_tier<br/>(SwapResult success=True)"]
+    NO_ALT["三级全试完仍一个都插不进:方案不动,只告知<br/>(SWAP_NO_ALTERNATIVE_FOUND)"]
+  end
+
+  PREP_ADJ --> KEPT_CHECK
+  PREP_DIS --> KEPT_CHECK
+  PREP_ALT --> KEPT_CHECK
+  KEPT_CHECK -->|"排不到一块儿"| KEPT_FAIL
+  KEPT_CHECK -->|"排得到→只动这一格"| DEGRADE
+  DEGRADE --> ATTEMPT
+  ATTEMPT -->|"插得进→命中,停止降级"| ENGINE_OK
+  ATTEMPT -->|"这一组插不进→换下一优先级组/下一级(第3级命中另产 SWAP_DEGRADED 告知)"| DEGRADE
+  ATTEMPT -->|"三级全部试完仍一个都插不进"| NO_ALT
+
+  subgraph OUTCOME["结果分流(回到各自入口的调用点处理)"]
+    FAIL_COMMON["业务性失败:方案不动,只回一句告知——不是 stream_error"]
+    LEDGER_FAIL_RECORD["仅 adjust 动作:诉求依然记账,状态生效<br/>(换不成不代表不想要了)"]
+    LEDGER_BRANCH["按 action 类型决定记不记账"]
+    LEDGER_RECORD["记一笔新诉求:同节点同维度顶替旧诉求<br/>(record_demand)"]
+    LEDGER_SATISFY["刚记的这条→已满足<br/>(mark_satisfied,degrade_tier∈1,2)"]
+    LEDGER_STAY["只是近似,不算满足,保持生效<br/>(degrade_tier=3)"]
+    LEDGER_SKIP["选定不是诉求,不记账<br/>(dislike/alternative)"]
+  end
+
+  KEPT_FAIL --> FAIL_COMMON
+  NO_ALT --> FAIL_COMMON
+  FAIL_COMMON -->|"仅当本次是 adjust 动作"| LEDGER_FAIL_RECORD
+
+  ENGINE_OK --> LEDGER_BRANCH
+  LEDGER_BRANCH -->|"adjust"| LEDGER_RECORD
+  LEDGER_RECORD -->|"degrade_tier∈1,2:调整谓词真被满足"| LEDGER_SATISFY
+  LEDGER_RECORD -->|"degrade_tier=3:只是近似"| LEDGER_STAY
+  LEDGER_BRANCH -->|"dislike/alternative"| LEDGER_SKIP
+
+  subgraph POSTPROC["方案落地(两入口对称各做一遍)"]
+    REBUILD_ACTIONS["重算这一版方案的按钮/具名备选<br/>(_build_node_actions,复用 feasible_alternatives 同一真相源)"]
+    VLOG_S["单人:补一笔版本志,trigger=adjust,续既有编号<br/>(plan_version_log)"]
+    VLOG_R["房间:不记版本志<br/>(已知留待项,未接线)"]
+    SNAPSHOT["同步会话速查缓存投影:换菜后确认必须拿到新方案<br/>(sync_snapshot)"]
+  end
+
+  LEDGER_SATISFY --> REBUILD_ACTIONS
+  LEDGER_STAY --> REBUILD_ACTIONS
+  LEDGER_SKIP --> REBUILD_ACTIONS
+  REBUILD_ACTIONS -->|"单人"| VLOG_S
+  REBUILD_ACTIONS -->|"房间"| VLOG_R
+  VLOG_S --> SNAPSHOT
+  VLOG_R --> SNAPSHOT
+
+  subgraph EMIT_SG["结果推回入口各自的通道"]
+    STREAM_ERR["外层兜底转 stream_error(不是引擎判的业务失败,是调用方契约违反)<br/>(safe_stream)"]
+    EMIT_S["SSE 推送:成功带 itinerary_ready+agent_narration(按钮/告知/台账);<br/>失败/守门只 agent_narration+done"]
+    EMIT_R["WS 广播同形状事件,归名文案(不是单人含糊的'你')<br/>(_broadcast_planning_event)"]
+    UNLOCK_R["广播 node_unlocked(finally,任何路径都解锁)"]
+  end
+
+  SNAPSHOT --> EMIT_S
+  SNAPSHOT --> EMIT_R
+  LEDGER_FAIL_RECORD --> EMIT_S
+  LEDGER_FAIL_RECORD --> EMIT_R
+  GATE_BLOCK --> EMIT_S
+  GATE_BLOCK --> EMIT_R
+  LOCATE_FAIL --> EMIT_R
+  EMIT_R --> UNLOCK_R
+
+  subgraph FE_STORE["前端消费(单人/房间最终落回同一个 store)"]
+    STORE_S["handleEvent 落地 itinerary/nodeActions/demandLedger<br/>(event-handlers.ts)"]
+    STORE_R["planning_event 转发给主 store 同一套 handleEvent<br/>(collab-store.ts dispatchPlanningEvent)"]
+    STORE_ERR["前端展示错误横幅,不动 itinerary/nodeActions<br/>(streamError · event-handlers.ts stream_error 分支)"]
+    RENDER["ItineraryCard 重渲染:新按钮+具名备选+台账面板"]
+  end
+
+  EMIT_S --> STORE_S
+  UNLOCK_R --> STORE_R
+  STREAM_ERR --> STORE_ERR
+  STORE_S --> RENDER
+  STORE_R --> RENDER

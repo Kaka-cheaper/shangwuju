@@ -1,0 +1,160 @@
+%% ============================================================
+%% L2-b · 核心数据结构关系 —— 这张图回答:
+%%   「IntentExtraction/Itinerary/LedgerEntry/NodeAdjustment/...
+%%    这些核心结构谁包含谁、谁引用谁,每类是干什么的」
+%% ----
+%% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
+%% 基于 commit: 57afcef (2026-07-03)
+%% 前置阅读: docs/map/L1-modules.mmd / L1-turn-pipeline.mmd / index.html 的 L0 术语表
+%% ----
+%% 【范围纪律】只画任务指定的 12 个类之间、有代码依据(字段类型/model_validate
+%% 反查约定)的结构性关系;不画"谁在哪个函数里调用谁"这类流程关系
+%% (那是 L2-constraint-dataflow.mmd 的职责,概念完整性:两图各司其职不重复)。
+%% 12 类之外的小值对象(PaceProfile/NodeRef/CtaChip/ScheduleEntry/OrderRecord/
+%% PendingAction/CriticAttempt/AlternativeCandidate/FallbackHop)只在字段类型
+%% 或 note 里点名,不单独开框——避免图被非任务范围的类稀释。
+%% ----
+%% 【图例】
+%%   *--  组合(持有对象本体,生命周期绑定,如 model_dump 会把它整份序列化进去)
+%%   o--  可选挂载(Optional 字段,可以是 None)
+%%   ..>  依赖/派生(消费其值或据其现算,但不持有对象本体——如按 id 字符串反查、
+%%        或读一份 model_dump() 投影)
+%% ----
+%% 【锚点表:类名 → 代码位置】
+%%   IntentExtraction   schemas/intent.py
+%%   Companion          schemas/intent.py (IntentExtraction 内联类)
+%%   Itinerary          schemas/itinerary.py (edge_v1)
+%%   ActivityNode       schemas/itinerary.py
+%%   Hop                schemas/itinerary.py
+%%   LedgerEntry        schemas/demand_ledger.py
+%%   NodeAdjustment     schemas/node_adjustment.py
+%%   NodeChip           schemas/node_chip.py
+%%   RoutingContext     agent/context/types.py
+%%   RouterDecision     schemas/router.py
+%%   Advisory           schemas/advisory.py
+%%   DecisionTrace      schemas/decision_trace.py
+%% ============================================================
+classDiagram
+
+  class IntentExtraction {
+    +list~Companion~ companions
+    +list~str~ physical_constraints
+    +list~str~ dietary_constraints
+    +list~str~ experience_tags
+    +str social_context
+    +float distance_max_km
+    +list~int~ duration_hours
+    +PaceProfile pace_profile
+    +float parse_confidence
+    +list~str~ ambiguous_fields
+    +str raw_input
+  }
+  note for IntentExtraction "需求单：用户一句话翻译成的结构化清单——查店/排方案/打分全靠它，规划期唯一权威输入 (schemas/intent.py)。pace_profile/parse_confidence/ambiguous_fields/Companion.gender_mix 四字段的实际消费情况见 L2-constraint-dataflow.mmd 的断链清单"
+
+  class Companion {
+    +str role
+    +int age
+    +int count
+    +str gender_mix
+    +bool is_special_role
+  }
+  note for Companion "同行人一个成员：角色是自由文本(体现开放性)，age/count 供 age-cap 与桌型判断 (schemas/intent.py 内联类)"
+
+  class Itinerary {
+    +str summary
+    +list~ActivityNode~ nodes
+    +list~Hop~ hops
+    +DecisionTrace decision_trace
+  }
+  note for Itinerary "方案：给前端的最终交付物 (schemas/itinerary.py, edge_v1)。另含 schedule(派生视图)/orders/pending_actions/share_message字段，本图只画 nodes+hops+decision_trace 三条结构性关系"
+
+  class ActivityNode {
+    +str node_id
+    +str target_kind
+    +str target_id
+    +str start_time
+    +int duration_min
+  }
+  note for ActivityNode "方案里的一站：在某地停留 (schemas/itinerary.py)。首尾固定 home 虚拟节点，duration_min=0"
+
+  class Hop {
+    +str hop_id
+    +str from_node_id
+    +str to_node_id
+    +int minutes
+    +str mode
+  }
+  note for Hop "相邻两站间的通勤段 (schemas/itinerary.py)。长度恒等于 len(nodes)-1，同地也用 minutes=0 的 hop 占位"
+
+  class LedgerEntry {
+    +str member_id
+    +NodeRef node_ref
+    +NodeAdjustment adjustment
+    +LedgerEntryStatus status
+    +str source_text
+  }
+  note for LedgerEntry "诉求台账一条记录：谁·要了什么(NodeAdjustment)·针对哪个节点(NodeRef，None=全局)·状态(生效/被顶替/已满足) (schemas/demand_ledger.py)。ADR-0014 判定 node_ref=None 这一形态目前零写手，见 dataflow 图 G_GLOBAL"
+
+  class NodeAdjustment {
+    +NodeAdjustmentDimension dimension
+    +str value
+  }
+  note for NodeAdjustment "一条定向调整的核心可满足载荷：调哪个维度(6选1:price/distance/cuisine_or_type/dietary/ambience/crowd_fit)、调成什么方向/取值 (schemas/node_adjustment.py)。value 合法性随 dimension 变化，由 model_validator 强制校验"
+
+  class NodeChip {
+    +str node_id
+    +str label
+    +NodeAdjustment adjustment
+  }
+  note for NodeChip "定向调整按钮的下发/回传形状：展示与点击同一份 (schemas/node_chip.py)。不含节点当前长相(title/kind等)，只携带「点了要做什么」"
+
+  class RoutingContext {
+    +tuple~TurnLogEntry~ turn_log
+    +tuple~PlanSummaryLine~ plan_summary
+    +ProfileSnapshot profile
+    +tuple~NodeAdjustment~ ledger_active_global
+    +tuple~Mapping~ ledger_active_named
+  }
+  note for RoutingContext "会话上下文打包器产出：路由脑子/refiner/narration 三方共同消费的只读快照，每轮重新现算，不缓存 (agent/context/types.py + packer.py)"
+
+  class RouterDecision {
+    +InputKind input_kind
+    +float confidence
+    +str reply_text
+    +list~CtaChip~ cta_chips
+  }
+  note for RouterDecision "分诊台一次性判断结果：走哪条路+暖心回话+引导按钮 (schemas/router.py)。cta_chips[].send 必须精确等于白名单文案，LLM 不得发明"
+
+  class Advisory {
+    +AdvisoryCode code
+    +str message
+  }
+  note for Advisory "限制/建议的告知：不 gate 方案，只如实说明 (schemas/advisory.py)。不持有、也不被其余 11 类当作字段类型引用——它活在 AgentState.advisories: list[dict] 里，靠 message 字符串拼进 narration，是本图 12 类里唯一的孤立节点(见报告「我不确定的箭头」)"
+
+  class DecisionTrace {
+    +str blueprint_rationale
+    +str weights_explanation
+    +list~CriticAttempt~ critic_attempts
+    +list~AlternativeCandidate~ alternatives_considered
+    +list~FallbackHop~ fallback_chain
+  }
+  note for DecisionTrace "决策可解释性聚合：为什么这样规划/修了几次/比较过谁/走了哪条 fallback (schemas/decision_trace.py)。挂在 Itinerary 上随响应一起返回，前端折叠卡默认隐藏(is_empty() 时)"
+
+  IntentExtraction "1" *-- "0..*" Companion : 包含同行人列表(companions)
+
+  Itinerary "1" *-- "2..*" ActivityNode : 包含节点序列,首尾必为 home(nodes)
+  Itinerary "1" *-- "1..*" Hop : 包含通勤段,长度恒为节点数-1(hops)
+  Itinerary "1" o-- "0..1" DecisionTrace : 可选挂载决策痕迹(decision_trace)
+
+  LedgerEntry "1" *-- "1" NodeAdjustment : 复用同一核心可满足载荷,不新造平行结构(adjustment)
+  NodeChip "1" *-- "1" NodeAdjustment : 复用同一核心载荷,与台账三方对齐同一契约(adjustment)
+
+  LedgerEntry ..> ActivityNode : node_ref.target_id 即 ActivityNode.target_id(值引用,非对象持有)
+  NodeChip ..> ActivityNode : node_id 即 ActivityNode.target_id,可直接透传换菜引擎(不是 ActivityNode.node_id)
+  Hop ..> ActivityNode : from_node_id/to_node_id 字符串对应 ActivityNode.node_id(非对象引用)
+
+  RoutingContext "1" *-- "0..*" NodeAdjustment : 台账全局生效切片(ledger_active_global)
+  RoutingContext ..> LedgerEntry : ledger_active_named 由 ledger_for_display 投影而来(不持有对象本体)
+  RoutingContext ..> Itinerary : plan_summary/plan_version_log 由 Itinerary 现算/摘要而来(不持有对象本体)
+
+  RouterDecision ..> RoutingContext : 路由脑子读 render_text() 决策(消费渲染文本,非持有对象)

@@ -1,0 +1,91 @@
+%% ============================================================
+%% L3 · 房间一生 —— 这张图回答:「一个房间从建到销毁,经历哪些阶段,谁触发的转移」
+%% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
+%% 术语对齐 docs/map/index.html 的 L0 词表(房间=Room、确认=confirm、诉求台账=demand_ledger)
+%% 基于 commit: 57afcef
+%% ----
+%% 证据缩写(每条迁移箭头末尾括号内引用):
+%%   生命周期测试 = backend/tests/test_room_lifecycle_characterization.py
+%%   adjust_ttl测试 = backend/tests/test_room_adjust_and_ttl.py
+%%   代码位置一律给 backend/collab/room.py 的行号,另有来源另行写全路径
+%% ----
+%% 锚点表(状态 → 判定字段/代码位置):
+%%   CREATED    room.members 只有 owner 且 owner.ws is None——RoomManager.create_room(192-201)
+%%   ONLINE     room.members 里至少一个成员 ws 非 None,且 planning_task 未在跑、confirmed=False
+%%   PLANNING   room.planning_task 存在且未 done()——get_state_snapshot() 的 planning_active(170)
+%%   CONFIRMED  room.confirmed == True——字段定义与生命周期见 104-118 docstring
+%%   OFFLINE    room.members 非空但全部 ws is None(成员对象保留,台账等房间状态仍在)
+%%   DESTROYED  room_id 已从 RoomManager._rooms 字典移除——delete_room(207-210)
+%% ----
+%% 闲置计时与清扫机制(不单独画箭头,适用于 CREATED/OFFLINE 两个状态在等待期间):
+%%   任何成员动作(join/leave/add_constraint/update_vote/confirm/adjust)都会把
+%%   room.last_activity_at 刷新为当前时间,复位闲置倒计时——见 Room.last_activity_at
+%%   docstring(89-93)与 test_room_activity_refreshes_last_activity_at(adjust_ttl测试:461-477)。
+%%   清扫只在 create_room/get_room/list_rooms 三个外部交互入口顺手触发一次全量扫描
+%%   (惰性,非常驻定时器,理由见 sweep_expired_rooms docstring 224-243)。
+%% ============================================================
+stateDiagram-v2
+
+    state "已创建:仅房主,owner.ws is None(create_room 初始化)" as CREATED
+    state "有人在线:至少一个成员 ws 非 None,平常协商态" as ONLINE
+    state "规划中:room.planning_task 存在且未完成(全量重排/全新规划)" as PLANNING
+    state "已确认下单:room.confirmed = True(execute_finalize 真正跑完才置位)" as CONFIRMED
+    state "全员离线:成员对象保留,台账等房间状态都还在,只是无人连着" as OFFLINE
+    state "已销毁:房间对象连诉求台账一起蒸发" as DESTROYED
+
+    %% ⤷ (api/collab.py:54-128；room.py:192-201；生命周期测试:test_create_room_initializes_owner_member_and_registers_room、test_http_create_room_without_session_id_has_empty_baseline)
+    [*] --> CREATED : 发起人 POST /room/create 建房,owner 成员登记为 ws=None
+
+    %% ⤷ (room.py:277-288；生命周期测试:test_join_owner_reconnect_keeps_role_and_updates_ws_without_recreating_member,该测试原文即用"owner_reconnect"命名此场景)
+    CREATED --> ONLINE : 房主自己首次真连 WS——owner_id 已在 members 字典里(HTTP建房时登记),代码上走的是 join() 的"重连"分支,广播 member_reconnected 而非 member_joined,即使这是他的第一次连接
+
+    %% ⤷ (room.py:289-299；生命周期测试:test_join_new_participant_gets_full_snapshot_and_others_get_member_joined_excluding_self)
+    CREATED --> ONLINE : 或者：某个参与者抢在房主之前连上 WS——该 user_id 从未出现过,走 join() 的"新成员"分支,广播 member_joined
+
+    %% ⤷ (room.py:289-299；同上测试)
+    ONLINE --> ONLINE : 新参与者加入(自环,不改变"有人在线"整体态)
+
+    %% ⤷ (room.py:277-288；生命周期测试:test_join_owner_reconnect_keeps_role_and_updates_ws_without_recreating_member 第二段"二次重连:换个ws+换个昵称")
+    ONLINE --> ONLINE : 已在场成员重连改名——同对象不重建,role 不重置,昵称按新值更新
+
+    %% ⤷ (room.py:401-421,873-896；分诊逻辑本身见 agent/routing/route_turn.py；⚠不确定——两份指定测试文件都未直接驱动这条 add_constraint 派发路径,相关特征化在未列入本次基准的 test_room_route_turn_dispatch.py)
+    ONLINE --> PLANNING : 有人打字,route_turn 判为 feedback——追加进约束池,中断在跑规划,合并重排
+
+    %% ⤷ (room.py:423-438,898-934；⚠不确定,理由同上一条)
+    ONLINE --> PLANNING : 或者：route_turn 判为 planning(如整句 canonical 场景文本)——不进约束池不经 refiner,直接重开一局
+
+    %% ⤷ (room.py:170 planning_active 判定机制；生命周期测试:test_snapshot_planning_active_reflects_task_lifecycle——用同款 asyncio.Task 验证的是这一"完成即False"的通用机制,不是走完整真实规划路径)
+    PLANNING --> ONLINE : 规划任务跑完(done()变True,无需显式清空 planning_task)
+
+    %% ⤷ (room.py:407-418,426-436；⚠不确定——两份指定测试文件未覆盖这条打断路径)
+    PLANNING --> ONLINE : 或者：被新约束/新规划请求打断,cancel 当前任务并广播 planning_aborted
+
+    %% ⤷ (room.py:785-867,845-854；Room.confirmed docstring 104-118；⚠不确定——两份指定测试文件里 confirmed=True 都是直接赋值模拟"已跑完一次confirm()"的前置态,没有测试从头驱动 confirm() 本身走到置位这一步,该完整特征化在未列入本次基准的 test_room_confirm_characterization.py)
+    ONLINE --> CONFIRMED : 房主触发 confirm(),复用单人确认流,收到 itinerary_ready(execute_finalize 真正跑完)后置位
+
+    %% ⤷ (room.py:612-616；adjust_ttl测试:test_room_adjust_blocked_after_confirmed_plan_unchanged_and_narrated)
+    CONFIRMED --> CONFIRMED : 确认后仍有人点调整——整体短路,不产 itinerary_ready,只回告知气泡,方案与确认态都不变(自环)
+
+    %% ⤷ (room.py:884,926；adjust_ttl测试:test_room_confirmed_flag_set_on_confirm_and_reset_on_new_planning_episode)
+    CONFIRMED --> PLANNING : 新一轮规划事件开始(同 ONLINE→PLANNING 的两条触发路径)——房间侧"新 episode",confirmed 重置回 False,呼应单人图状态 user_decision 的 reset_for_new_episode 时机
+
+    %% ⤷ (room.py:301-313；生命周期测试:test_leave_marks_offline_without_removing_member_and_broadcasts_member_left、test_leave_all_members_offline_room_still_retained)
+    ONLINE --> OFFLINE : 最后一个在线成员断开连接(WS断线/主动离开)——只置 ws=None,不删成员
+
+    %% ⤷ (room.py:301-313；同上两个测试；⚠不确定——两份指定测试文件都没有专门覆盖"规划任务还在跑时最后一人断线"这一具体组合)
+    PLANNING --> OFFLINE : 同上——leave() 断连机制与房间是否在规划中无关
+
+    %% ⤷ (room.py:301-313；同上两个测试；⚠不确定,理由同上)
+    CONFIRMED --> OFFLINE : 同上——leave() 断连机制与是否已确认下单无关
+
+    %% ⤷ (room.py:277-288；⚠不确定——leave()与join()重连分支各自独立测过,但两份指定测试文件里没有"先leave再rejoin"的链式测试,这里是组合两处证据的推断而非单一测试直接覆盖)
+    OFFLINE --> ONLINE : 任意成员重新连上 WS,走 join() 的"重连"分支恢复在线
+
+    %% ⤷ (room.py:224-253；adjust_ttl测试:test_sweep_expired_rooms_removes_idle_room_with_no_active_connections)
+    CREATED --> DESTROYED : 从未有人真正连过 WS,50分钟无活动——下次任意人触碰 create_room/get_room/list_rooms 时惰性清扫命中
+
+    %% ⤷ (room.py:224-253；adjust_ttl测试:test_sweep_expired_rooms_time_is_injectable_for_deterministic_testing、test_sweep_destroys_room_object_and_its_demand_ledger_together、test_sweep_expired_rooms_preserves_room_with_active_ws_connection(反证:仍有在线连接绝不清扫))
+    OFFLINE --> DESTROYED : 断线后50分钟无新活动且确认全员离线(无活连接护栏,防止评委开着房间讲PPT被误杀)——房间对象连诉求台账一起蒸发
+
+    %% ⤷ (room.py:207-210；生命周期测试:test_delete_room_cancels_running_planning_task)
+    DESTROYED --> [*] : 房间从 RoomManager._rooms 字典移除,在跑的 planning_task 一并 cancel
