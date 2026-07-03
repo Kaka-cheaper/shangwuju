@@ -665,6 +665,80 @@ def test_demo_full_check_disabled_no_trigger_at_17_00(monkeypatch):
 
 
 # ============================================================
+# 测试 11b（c′批 任务三）：backprompt 槽位提示增强
+#
+# 病灶：改动前 RESTAURANT_FULL_UNRESOLVED 的反馈文本只说"这个时刻订不上"，
+# 不告诉 LLM 该店真实可订的槽（尤其最晚一个）——LLM 在 backprompt 轮里没有
+# 这份信息，只能瞎猜下一次改到几点。R001 mock 槽位：17:00(满) / 17:30(可订)
+# / 18:00(可订，排队 5min)。
+# ============================================================
+
+
+def test_demo_full_check_slot_full_message_includes_available_slots_hint(monkeypatch):
+    """满座分支（17:00 available=False）：反馈须点出该店真实可订时段 17:30/18:00，
+    并明示"最晚可订 18:00"——不能只说"已满座"就完事。
+    """
+    monkeypatch.setenv("ENABLE_DEMO_FULL_CHECK", "1")
+
+    nodes = [
+        ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home", start_time="14:00", duration_min=0, title="出发"),
+        ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id="P040", start_time="14:09", duration_min=160, title="P040"),
+        ActivityNode(node_id="n2", kind="用餐", target_kind="restaurant", target_id="R001", start_time="17:00", duration_min=60, title="R001"),
+        ActivityNode(node_id="n3", kind="终点", target_kind="home", target_id="home", start_time="18:07", duration_min=0, title="回家"),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1", start_time="14:00", minutes=9, mode="taxi", path_type="real_route", buffer_min=0),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2", start_time="16:49", minutes=5, mode="taxi", path_type="real_route", buffer_min=5),
+        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3", start_time="18:00", minutes=7, mode="taxi", path_type="real_route", buffer_min=0),
+    ]
+    itinerary = Itinerary(summary="17:00 满座", nodes=nodes, hops=hops, total_minutes=247)
+    intent = _make_intent()
+
+    violations = validate_itinerary(itinerary, intent)
+    full_violations = [v for v in violations if v.code == ViolationCode.RESTAURANT_FULL_UNRESOLVED]
+    assert full_violations, "R001 17:00 应触发 RESTAURANT_FULL_UNRESOLVED"
+    message = full_violations[0].message
+    assert "17:30" in message and "18:00" in message, (
+        f"反馈文本必须点出该店真实可订槽位，实际：{message}"
+    )
+    assert "最晚可订 18:00" in message, f"须明示最晚一个可订槽，实际：{message}"
+
+
+def test_demo_full_check_super_late_arrival_no_slot_message_includes_available_slots_hint(monkeypatch):
+    """超晚到达用例（"该时段无 slot 配置"分支）：node 排定 19:30——晚于 R001
+    全部预约槽（17:00/17:30/18:00），槽吸附（assemble_blueprint.py::
+    _earliest_available_slot_min）无解，落到 critic 拦截。反馈文本必须给出
+    该店真实可订时段，不能只说"没有这个时刻"——否则 LLM 在 backprompt 轮里
+    无从得知该把到达时刻提前到几点。
+    """
+    monkeypatch.setenv("ENABLE_DEMO_FULL_CHECK", "1")
+
+    nodes = [
+        ActivityNode(node_id="n0", kind="起点", target_kind="home", target_id="home", start_time="14:00", duration_min=0, title="出发"),
+        ActivityNode(node_id="n1", kind="主活动", target_kind="poi", target_id="P040", start_time="14:09", duration_min=280, title="P040"),
+        ActivityNode(node_id="n2", kind="用餐", target_kind="restaurant", target_id="R001", start_time="19:30", duration_min=60, title="R001"),
+        ActivityNode(node_id="n3", kind="终点", target_kind="home", target_id="home", start_time="20:37", duration_min=0, title="回家"),
+    ]
+    hops = [
+        Hop(hop_id="h0", from_node_id="n0", to_node_id="n1", start_time="14:00", minutes=9, mode="taxi", path_type="real_route", buffer_min=0),
+        Hop(hop_id="h1", from_node_id="n1", to_node_id="n2", start_time="18:49", minutes=5, mode="taxi", path_type="real_route", buffer_min=5),
+        Hop(hop_id="h2", from_node_id="n2", to_node_id="n3", start_time="20:30", minutes=7, mode="taxi", path_type="real_route", buffer_min=0),
+    ]
+    itinerary = Itinerary(summary="超晚到达", nodes=nodes, hops=hops, total_minutes=397)
+    intent = _make_intent()
+
+    violations = validate_itinerary(itinerary, intent)
+    full_violations = [v for v in violations if v.code == ViolationCode.RESTAURANT_FULL_UNRESOLVED]
+    assert full_violations, "19:30 排定（无此槽）应触发 RESTAURANT_FULL_UNRESOLVED"
+    message = full_violations[0].message
+    assert "没有这个时刻" in message
+    assert "17:30" in message and "18:00" in message, (
+        f"反馈文本必须点出该店真实可订槽位（尤其最晚一个），实际：{message}"
+    )
+    assert "最晚可订 18:00" in message, f"须明示最晚一个可订槽，实际：{message}"
+
+
+# ============================================================
 # 测试 12：CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3）
 # ============================================================
 

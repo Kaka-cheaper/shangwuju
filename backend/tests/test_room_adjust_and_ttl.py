@@ -285,6 +285,67 @@ def test_adjust_before_any_plan_exists_narrates_without_raising():
 
 
 # ============================================================
+# 4c（c′批 任务二，L0 禁令 2）：已确认下单后，房间版 adjust 也被守门
+# ============================================================
+
+
+def test_room_adjust_blocked_after_confirmed_plan_unchanged_and_narrated():
+    """`room.confirmed=True`（`RoomManager.confirm()` 收到 itinerary_ready 后
+    置位，见 `Room.confirmed` docstring）时，`adjust()` 必须整体短路：不产
+    `itinerary_ready`，只回一句告知，方案原样——不能像修复前那样"换菜成功但
+    订单是旧的，零告知"。
+    """
+
+    async def scenario():
+        manager, room = _seed_room("owner_confirmed_gate_test")
+        room.confirmed = True  # 模拟"已跑完一次 confirm()"的房间状态
+        ws = _FakeWebSocket()
+        await manager.join(room, "owner_confirmed_gate_test", "发起人", ws)
+        ws.sent.clear()
+
+        await manager.adjust(room, "owner_confirmed_gate_test", "R001", AdjustActionDislike())
+
+        types_ = _broadcast_types(ws)
+        assert types_ == ["node_locked", "planning_event:agent_narration", "node_unlocked"], (
+            f"确认后调整应整体短路，不产 itinerary_ready；实际={types_}"
+        )
+        narration = _planning_event_payloads(ws, "agent_narration")[0]
+        assert "确认" in narration["text"] and "重新规划" in narration["text"]
+
+        # 方案原封不动（种子数据的 R001 没被换掉）
+        assert [n["target_id"] for n in room.current_itinerary_dict["nodes"]] == [
+            "home", "P040", "R001", "home",
+        ]
+        assert room.demand_ledger == []
+
+    asyncio.run(scenario())
+
+
+def test_room_confirmed_flag_set_on_confirm_and_reset_on_new_planning_episode():
+    """`Room.confirmed` 生命周期：`confirm()` 收到 itinerary_ready 后置 True；
+    下一轮新规划事件（`_trigger_replan`，同单人图状态 `user_decision` 经
+    `reset_for_new_episode()` 的重置时机对齐）把它重置回 False——用户说"重新
+    规划"之后，调整守门应自动解除，不需要额外的"解锁"操作。
+    """
+
+    async def scenario():
+        manager, room = _seed_room("owner_confirmed_reset_test")
+        room.confirmed = True
+
+        # 新一轮规划事件开始（同 add_constraint 的 feedback 分支触发路径）——
+        # 重置发生在 asyncio.create_task 之前，await 这一行本身就足以观察到位。
+        await manager._trigger_replan(room, trigger_user="owner_confirmed_reset_test", trigger_reason="constraint_added")
+        assert room.confirmed is False, "新规划事件开始应重置 confirmed，不能带着上一版的确认态进入新一轮"
+
+        # 排空本轮触发的规划任务，避免任务挂在已关闭的事件循环上（同
+        # test_room_lifecycle_characterization.py::_vote_and_drain 的既定纪律）。
+        if room.planning_task is not None:
+            await room.planning_task
+
+    asyncio.run(scenario())
+
+
+# ============================================================
 # 5. 串行：room.lock 保证同一房间多次调整请求排队处理，不交叉
 # ============================================================
 

@@ -117,6 +117,31 @@ _DIMENSION_ZH: dict[NodeAdjustmentDimension, str] = {
 }
 
 
+# ============================================================
+# 确认后调整守门（c′批 任务二；L0 禁令 2「绝不默默让已下单方案与订单脱钩」）
+# ============================================================
+#
+# 病灶：确认下单后（/chat/confirm 成功 → user_decision="confirm" 回写图状态，
+# 见 api/_streams/graph_confirm.py::_writeback_graph_state），节点行的调整
+# 按钮此前仍会直接调用 resolve_node_swap 换菜——换菜成功、itinerary_ready 照
+# 常推送新方案，但 execute_finalize 阶段生成的 orders（预约/门票/加购）仍是
+# 换菜前那版方案的，两者从此静默脱钩，用户毫无感知。
+#
+# 守门信号：单人读图状态 `user_decision == "confirm"`（`_graph_adjust` 与
+# `/chat/confirm` 共享同一份 LangGraph checkpoint）。该字段是 ADR-0012 决策 4
+# 的 EPISODE_SCOPED 字段——下一次真正的新规划事件（新 intent / refiner 合并
+# 反馈）会经 `reset_for_new_episode()` 清零，故本守门不需要额外的"何时解锁"
+# 逻辑：用户只要说"重新规划"，图状态自然回到未确认态，调整重新放行。
+#
+# 房间侧对应实现：`collab.room.py::Room.confirmed`（房间没有图 checkpoint，
+# 用房间自己的确认信号，见该字段 docstring）。两侧共享下面这条文案，避免
+# 同一语义在两处各写一份措辞。
+CONFIRMED_ADJUST_BLOCKED_MESSAGE = (
+    "方案已经确认下单了，这时候直接换这一站会跟已经下的订单对不上——"
+    "想调整的话跟我说「重新规划」，我再帮你出个新方案，确认前都能随便换。"
+)
+
+
 def _synthesize_source_text(adjustment: NodeAdjustment) -> str:
     dim_zh = _DIMENSION_ZH.get(adjustment.dimension, "调整")
     return f"{dim_zh}：{adjustment.value}"
@@ -229,6 +254,15 @@ async def _graph_adjust(
 
     action = req.action
     yield emit(SseEventType.AGENT_THOUGHT, {"text": "收到，这就帮你调整一下这一站……"})
+
+    # ---- L0 禁令 2 守门：已确认下单的方案不静默换菜（见上方常量 docstring）----
+    if state.get("user_decision") == "confirm":
+        yield emit(
+            SseEventType.AGENT_NARRATION,
+            {"text": CONFIRMED_ADJUST_BLOCKED_MESSAGE, "stage": "stream"},
+        )
+        yield emit(SseEventType.DONE)
+        return
 
     itinerary: Itinerary = state["itinerary"]
     intent: IntentExtraction = state["intent"]

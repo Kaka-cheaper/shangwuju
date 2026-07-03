@@ -958,12 +958,21 @@ def _grounding_filter_restaurant(
 
 
 def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
+    # c′批 任务一：传 home 坐标，让本调用与 execute 阶段
+    # （agent/runtime/tools/search_adapter.py::search_pois_for_intent）走进
+    # 同一个 NearbySearchProvider 接缝——距离真相由 data.loader.
+    # dataset_distance_mode() 单一声明决定（authored 模式下这两个坐标压根
+    # 不参与计算），不再由「这次调用传不传坐标」这个隐式选择决定读哪份真相
+    # （见 data/nearby_provider.py 模块 docstring「距离解析单一接缝」节）。
+    home = load_user_profile().home_location
     args = SearchPoisInput(
         distance_max_km=intent.distance_max_km,
         physical_constraints=list(intent.physical_constraints),
         experience_tags=list(intent.experience_tags),
         social_context=intent.social_context,
         age_in_party=[c.age for c in intent.companions if c.age is not None] or None,
+        user_lat=home.lat,
+        user_lng=home.lng,
         limit=20,
     ).model_dump()
     tracer.emit("tool_call_start", {"tool": "search_pois", "input": args})
@@ -987,12 +996,17 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
 
 
 def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaurant]:
+    # c′批 任务一：同 `_query_pois` 上方注释——传 home 坐标走同一条
+    # NearbySearchProvider 接缝，与 execute 阶段距离真相口径统一。
+    home = load_user_profile().home_location
     args = SearchRestaurantsInput(
         distance_max_km=intent.distance_max_km,
         dietary_constraints=list(intent.dietary_constraints),
         experience_tags=list(intent.experience_tags),
         social_context=intent.social_context,
         capacity_requirement=intent.capacity_requirement,
+        user_lat=home.lat,
+        user_lng=home.lng,
         limit=20,
     ).model_dump()
     tracer.emit("tool_call_start", {"tool": "search_restaurants", "input": args})

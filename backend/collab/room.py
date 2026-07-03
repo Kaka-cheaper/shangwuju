@@ -101,6 +101,19 @@ class Room:
     # `ledger_slice`/前端台账面板）分别在 `adjust()` 内部与 `get_state_snapshot()`
     # 的 `ledger_for_display` 投影。
     demand_ledger: list[dict[str, Any]] = field(default_factory=list)
+    # c′批 任务二（L0 禁令 2「绝不默默让已下单方案与订单脱钩」）：房间版
+    # 「已确认下单」信号——单人模式读图状态 `user_decision == "confirm"`
+    # （见 api/_streams/graph_adjust.py 同名守门），房间没有图 checkpoint，
+    # 需要一个自己的一等信号。**没有**复用 `current_itinerary_dict.get(
+    # "orders")` 非空这个更廉价的代理信号——它对"全免费活动、confirm 阶段
+    # 一个订单都不产生"的方案会漏判（假阴性：明明已确认，orders 却是空
+    # 列表），confirm() 是唯一真正执行了"确认"这个动作的地方，直接在那里
+    # 置位比从下游数据反推更可靠。仅在 `RoomManager.confirm()` 收到
+    # `itinerary_ready`（即 execute_finalize 真正跑完）时置 True；`_trigger_
+    # replan`/`_trigger_fresh_plan`（新一轮规划开始，房间侧「新 episode」）
+    # 时重置回 False——语义上与单人图状态 `user_decision` 的 EPISODE_SCOPED
+    # 重置对齐。
+    confirmed: bool = False
 
     @property
     def member_list(self) -> list[dict[str, Any]]:
@@ -154,6 +167,7 @@ class Room:
             "chat_state": self.chat_state_snapshot,
             "planning_active": self.planning_task is not None and not self.planning_task.done(),
             "demand_ledger": ledger_for_display(ledger_entries),
+            "confirmed": self.confirmed,
         }
 
 
@@ -553,6 +567,7 @@ class RoomManager:
         from agent.planning.planners.ils_planner import _query_pois, _query_restaurants
         from agent.planning.planners.node_swap import resolve_node_swap
         from api._streams.graph_adjust import (
+            CONFIRMED_ADJUST_BLOCKED_MESSAGE,
             _compose_narration_text,
             _find_entity,
             _narrow_pool_to_single_alternative,
@@ -581,6 +596,12 @@ class RoomManager:
 
         if room.current_itinerary_dict is None or room.current_intent_dict is None:
             await _narrate_bubble("现在还没有可以调整的方案，先让大家一起规划出一个吧。")
+            return
+
+        # ---- L0 禁令 2 守门：已确认下单的方案不静默换菜（见 Room.confirmed /
+        # CONFIRMED_ADJUST_BLOCKED_MESSAGE docstring）----
+        if room.confirmed:
+            await _narrate_bubble(CONFIRMED_ADJUST_BLOCKED_MESSAGE)
             return
 
         itinerary = Itinerary.model_validate(room.current_itinerary_dict)
@@ -815,6 +836,11 @@ class RoomManager:
             event = ev.model_dump(mode="json")
             if event.get("type") == "itinerary_ready":
                 room.current_itinerary_dict = event.get("payload")
+                # c′批 任务二：execute_finalize 真正跑完（下单/预约/加购落地）
+                # 才置位——只有走到这里才代表"确认"这个动作真正发生过，不是
+                # 请求一发出就乐观置位（若 _graph_confirm 半路失败/落
+                # stream_error，不会走到这个分支，confirmed 保持原值）。
+                room.confirmed = True
             elif event.get("type") == "agent_narration":
                 payload = event.get("payload") or {}
                 text = payload.get("text")
@@ -841,6 +867,10 @@ class RoomManager:
         room.previous_itinerary_dict = room.current_itinerary_dict
         room.planning_events_history.clear()
         room.chat_state_snapshot = None
+        # c′批 任务二：新一轮规划事件开始 = 房间侧的「新 episode」——旧方案的
+        # 确认状态不再适用于即将产出的新方案，重置解除调整守门（同单人图状态
+        # `user_decision` 经 `reset_for_new_episode()` 的重置时机对齐）。
+        room.confirmed = False
 
         await self.broadcast(room, {
             "type": "planning_started",
@@ -882,6 +912,7 @@ class RoomManager:
         room.previous_itinerary_dict = room.current_itinerary_dict
         room.planning_events_history.clear()
         room.chat_state_snapshot = None
+        room.confirmed = False  # c′批 任务二：新 episode 开始，同 `_trigger_replan`
 
         await self.broadcast(room, {
             "type": "planning_started",

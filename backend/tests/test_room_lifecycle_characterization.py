@@ -572,6 +572,10 @@ def test_snapshot_key_shape_includes_demand_ledger():
         "chat_state",
         "planning_active",
         "demand_ledger",
+        # c′批 任务二（L0 禁令 2）：Room.confirmed 是有意新增的一等确认信号
+        # （见该字段 docstring）——full snapshot 理应反映房间当前是否已确认
+        # 下单，不能让重连成员靠"点一次调整试出来"才知道。
+        "confirmed",
     }
     assert set(snapshot.keys()) == expected_keys, (
         f"快照字段清单变化——请先确认是否为有意变更。实际={set(snapshot.keys())}"

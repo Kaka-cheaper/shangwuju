@@ -42,6 +42,7 @@ from .helpers import (
 
 if TYPE_CHECKING:  # 仅类型标注用，运行时不 import，避免 checks ↔ context 任何环依赖
     from agent.planning.critic.context import CriticContext
+    from schemas.domain import Restaurant
 
 
 # ============================================================
@@ -677,6 +678,38 @@ def check_distance(
     return out
 
 
+def _available_slots_hint(rest: "Restaurant") -> str:
+    """把该店 `reservation_slots` 里 `available=True` 的时段整理成人话提示，
+    拼进 `RESTAURANT_FULL_UNRESOLVED` 违规文本（c′批 任务三：backprompt 槽位
+    提示增强）。
+
+    病灶（对照真 LLM 冒烟观测）：改动前 critic 只说"这个时刻订不上"，从不
+    告诉 LLM 该店真实可订的槽位——LLM 在 backprompt 轮里拿不到这份信息，
+    只能盲猜下一次改到几点，真 LLM 复测里这类场景经常在 2 轮 backprompt 内
+    都碰不中真实槽位（根因见 `assemble_blueprint.py::_earliest_available_
+    slot_min` 判断点 1：LLM 不输出 start_time，槽吸附已经尽力找「不早于
+    自然到达」的最早可用槽——但若自然到达比该店所有可用槽都晚，吸附无解，
+    critic 必然拦截，此时更需要把"到底还有哪些槽"喂回去，不能让 LLM 瞎试）。
+
+    刻意强调"最晚可订"一个槽位（而非只列全部）：多数触发场景是自然到达
+    晚于该店全部槽位（见上），LLM 唯一能追的可行目标就是"最晚那个槽"——
+    需要缩短前面节点的时长或调整顺序把到达时刻提前到不晚于它。
+
+    返回空字符串以外的一句自包含中文话，直接拼进 Violation.message
+    （design.md「人话约束」：不暴露 dot-path，只给自然语言）。
+    """
+    times = sorted(
+        (s.time for s in rest.reservation_slots if s.available),
+        key=lambda t: parse_hhmm(t) or 0,
+    )
+    if not times:
+        return "该店当前所有预约时段均已满，建议直接换其它餐厅。"
+    if len(times) == 1:
+        return f"该店当前仅 {times[0]} 这一个时段可订，建议把到达时刻调整到这个点。"
+    slots_str = "、".join(times)
+    return f"该店当前可订时段：{slots_str}（其中最晚可订 {times[-1]}）。"
+
+
 def check_demo_restaurant_full(
     itinerary: Itinerary, *, ctx: "CriticContext | None" = None
 ) -> list[Violation]:
@@ -687,6 +720,10 @@ def check_demo_restaurant_full(
     是否 `available=False`。
 
     通过 ENABLE_DEMO_FULL_CHECK 环境变量控制开关（默认开）。
+
+    c′批 任务三：两条触发分支（无此槽 / 槽满）的反馈文本都追加
+    `_available_slots_hint`——不再只说"订不上"，把该店真实可订的槽位（尤其
+    最晚一个）编进反馈，backprompt 轮的 LLM 才有具体数字可用，不必瞎猜。
     """
     enabled = (os.getenv("ENABLE_DEMO_FULL_CHECK") or "1").strip().lower()
     if enabled in ("0", "false", "no", "off"):
@@ -728,7 +765,7 @@ def check_demo_restaurant_full(
                     message=(
                         f"{humanize_node(idx, node)} 排定在 {node_time}，但该店"
                         f"可预约时段列表中没有这个时刻（无法下订）。"
-                        "请换到该店真实提供的预约时段，或换其它餐厅。"
+                        f"{_available_slots_hint(rest)}"
                     ),
                     field_path=f"nodes[{idx}].start_time",
                 )
@@ -745,8 +782,7 @@ def check_demo_restaurant_full(
                 message=(
                     f"{humanize_node(idx, node)} 在 {node_time} 已满座"
                     f"（mock 餐厅 reservation_slots 标记 available=False）。"
-                    "请调用 check_restaurant_availability 验证实际可用性，"
-                    "或换到其它有空档的时段。"
+                    f"{_available_slots_hint(rest)}"
                 ),
                 field_path=f"nodes[{idx}].start_time",
             )

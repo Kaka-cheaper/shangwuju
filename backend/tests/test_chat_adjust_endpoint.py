@@ -79,7 +79,7 @@ def _drive_turn(*, user_input: str, session_id: str) -> list:
 
 
 def _seed_thread_with_scenario(
-    session_id: str, *, itinerary, intent, pois, restaurants, monkeypatch
+    session_id: str, *, itinerary, intent, pois, restaurants, monkeypatch, extra_state: dict | None = None
 ) -> tuple[Any, dict]:
     """先跑一轮真实 turn 拿到合法 checkpoint，再覆盖成本文件确定性场景。
 
@@ -118,6 +118,7 @@ def _seed_thread_with_scenario(
                 "restaurants": [],
                 "weights": None,
                 "demand_ledger": [],
+                **(extra_state or {}),
             },
             as_node="narrate",
         )
@@ -375,6 +376,50 @@ def test_dislike_swaps_without_direction_and_does_not_record_ledger(monkeypatch)
 
     post_state = _current_state(graph, config)
     assert _node_ids(post_state["itinerary"]) == ["home", "PA1", "RB_BETTER", "home"]
+    assert post_state["demand_ledger"] == []
+
+
+# ============================================================
+# 4b（c′批 任务二，L0 禁令 2）：已确认下单后，adjust 被守门——不静默换菜
+# ============================================================
+
+
+def test_adjust_blocked_after_confirm_plan_unchanged_and_narrated(monkeypatch):
+    """图状态 user_decision="confirm"（/chat/confirm 成功后回写，见
+    api/_streams/graph_confirm.py::_writeback_graph_state）时，/chat/adjust
+    必须整体短路：不调 resolve_node_swap、方案原样、只回一句告知——不能像
+    修复前那样"换菜成功但订单是旧的，零告知"。
+    """
+    session_id = "f4_adjust_blocked_after_confirm"
+    intent = _intent()
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅")
+    rb_better = _rest(rest_id="RB_BETTER", cuisine="火锅", rating=4.9)
+    itinerary = _build_itinerary(intent, [poi_a, rb1], depart_min=14 * 60)
+
+    graph, config = _seed_thread_with_scenario(
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_better],
+        monkeypatch=monkeypatch,
+        extra_state={"user_decision": "confirm", "orders": [{"tool": "reserve_restaurant"}]},
+    )
+    state = _current_state(graph, config)
+    assert state["user_decision"] == "confirm"  # 前置：确认已确认态真被种下
+
+    req = ChatAdjustRequest(session_id=session_id, node_id="RB1", action={"type": "dislike"})
+    events = _collect_adjust(req, graph=graph, config=config, state=state)
+    types_ = [e.type.value for e in events]
+
+    # 只有开工提示 + 一句告知 + done——不触碰候选池/resolve_node_swap，
+    # 不产 itinerary_ready（同「业务性失败」的短路形状，但触发条件不同）。
+    assert types_ == ["agent_thought", "agent_narration", "done"], types_
+    narration_ev = events[1]
+    assert "确认" in narration_ev.payload["text"] and "重新规划" in narration_ev.payload["text"]
+    assert narration_ev.payload["text"] == graph_adjust_mod.CONFIRMED_ADJUST_BLOCKED_MESSAGE
+
+    # 方案原封不动（RB1 没被换成 RB_BETTER）——这正是 L0 禁令 2 要守住的事：
+    # 已下单方案绝不能被静默换掉。
+    post_state = _current_state(graph, config)
+    assert _node_ids(post_state["itinerary"]) == ["home", "PA1", "RB1", "home"]
     assert post_state["demand_ledger"] == []
 
 
