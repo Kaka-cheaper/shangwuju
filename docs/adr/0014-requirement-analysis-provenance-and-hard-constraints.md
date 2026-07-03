@@ -52,4 +52,6 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 
 🔁 部分落地。bug 修复批(氛围词漏传/桌型守门)已落地 e70c6c1。
 **G-0 已完成**(2026-07-03):"太久了"收缩契约迁移到 duration_hours(探针红转绿,用户可见效果兑现)+pace_profile/PaceProfile/gender_mix 全链砍除;超任务书排雷三处(personas.json 死键 extra=forbid 隐患/migrate_mock_v2 幂等复活步骤/verify_planning_quality 失效检查);redis 旧 checkpoint 兼容代价已声明接受(demo memory 模式)。1355 passed。
-余 G-1→G-4。
+**G-4a 已完成**(2ce0341):SSE/Advisory 消费完备性 gate 三轴+白名单防腐(登记项被消费即红);IntentExtraction 字段轴留待 G-3 后(字段集仍在变)。
+**G-1 已完成**(2026-07-03):field_provenance 四值/元素级(companions/preferred_poi_types 拍板排除);交叉校正规则赢;refiner 纯规则 diff 传播(变→user_stated/继承/重申升级/撤回清理,数字标量不做重申防假阳性);narration 诚实段真 LLM 实测口径兑现;打包器不透传(读码确认 provenance 随 intent 对象流转,三消费方不需字段级出处)。1394 passed。
+余 G-2→G-3→G-4b。
