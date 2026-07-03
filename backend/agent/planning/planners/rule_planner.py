@@ -425,6 +425,13 @@ def _query_pois(
     任一级命中候选立即返回。
     """
     age_in_party = [c.age for c in intent.companions if c.age is not None]
+    # c′批留痕收口：传 home 坐标,与 execute 侧/ILS 侧走同一个距离真相接缝
+    # (data.nearby_provider.venue_distance_km,按 dataset_distance_mode() 分派;
+    # authored 模式下坐标不参与计算,行为不变——这是为望京 coords 数据集
+    # 提前拉平的第三条查询路径,见 ils_planner._query_pois 同款注释)。
+    from data.loader import load_user_profile
+
+    home = load_user_profile().home_location
 
     def _do(
         distance: float,
@@ -438,6 +445,8 @@ def _query_pois(
             "search_pois",
             SearchPoisInput(
                 distance_max_km=distance,
+                user_lat=home.lat,
+                user_lng=home.lng,
                 physical_constraints=physical
                 if physical is not None
                 else list(intent.physical_constraints),
@@ -547,6 +556,10 @@ def _query_restaurants(
     4. 剥 dietary 中 prior 注入的偏好（保留用户明示的）
     5. 仅 distance + social_context（最宽松，但仍调性匹配）
     """
+    # c′批留痕收口：同 `_query_pois` 上方注释——传 home 坐标走同一距离接缝。
+    from data.loader import load_user_profile
+
+    home = load_user_profile().home_location
 
     def _do(
         distance: float,
@@ -560,6 +573,8 @@ def _query_restaurants(
             "search_restaurants",
             SearchRestaurantsInput(
                 distance_max_km=distance,
+                user_lat=home.lat,
+                user_lng=home.lng,
                 dietary_constraints=dietary
                 if dietary is not None
                 else list(intent.dietary_constraints),

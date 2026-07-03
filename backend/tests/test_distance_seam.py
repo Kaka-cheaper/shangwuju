@@ -240,3 +240,46 @@ def test_execute_recall_nonempty_and_consistent_with_ils_for_business_intent():
     for r in exec_rests:
         if r.id in ils_rest_by_id:
             assert r.distance_km == ils_rest_by_id[r.id].distance_km
+
+
+# ============================================================
+# 4. rule_planner（D2 兜底地板）的查询同样带 home 坐标——第三条查询路径接缝钉
+#    （c′批当时只点名 execute/ILS 两条,rule_planner 留作已知缺口;本测试钉住
+#    收口后的现状:authored 模式下行为不变——上面第 2 节已证明传/不传等价——
+#    但 coords 模式启用时三条路径同步切换,不再有落后路径。）
+# ============================================================
+
+
+def test_rule_planner_queries_carry_home_coords():
+    from types import SimpleNamespace
+
+    from agent.planning.planners.rule_planner import (
+        _query_pois as rule_query_pois,
+        _query_restaurants as rule_query_restaurants,
+    )
+
+    home = load_user_profile().home_location
+    captured: dict[str, dict] = {}
+
+    def _fake_call(tool_name: str, args: dict):
+        captured[tool_name] = args
+        if tool_name == "search_pois":
+            out = SearchPoisOutput(
+                success=True, candidates=[_poi(dist=1.0, lat=None, lng=None)]
+            )
+        else:
+            out = SearchRestaurantsOutput(
+                success=True, candidates=[_rest(dist=1.0, lat=None, lng=None)]
+            )
+        return SimpleNamespace(success=True, output=out.model_dump(), reason=None)
+
+    intent = _business_intent()
+    tracer = Tracer()
+    pois = rule_query_pois(intent, _fake_call, tracer)
+    rests = rule_query_restaurants(intent, _fake_call, tracer)
+    assert isinstance(pois, list) and isinstance(rests, list)  # 前置：第 1 级即命中
+
+    for tool_name in ("search_pois", "search_restaurants"):
+        args = captured[tool_name]
+        assert args.get("user_lat") == home.lat, f"{tool_name} 未携带 home 纬度"
+        assert args.get("user_lng") == home.lng, f"{tool_name} 未携带 home 经度"
