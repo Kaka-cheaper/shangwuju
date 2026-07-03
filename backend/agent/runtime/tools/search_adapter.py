@@ -226,17 +226,34 @@ def search_restaurants_for_intent(
     - 从 user_profile 取 home_location 作 NearbyProvider 的查询基准
     - 从 UserMemory 取最近 30 天访问过的餐厅 id 排除（Step 7）
     """
+    # party_size：本路径（execute 阶段主路径）用「实付头数」自算——self + 全部
+    # companions.count，与 rule_planner/ils_planner 两处 _query_restaurants 刻意
+    # 不同源（那两处直传 intent.capacity_requirement，LLM 按"≥4 人才填"规则自填，
+    # 目的是让搜索期过滤与 critic._rules.checks.check_capacity 的判定用**同一个
+    # 字段**、避免"搜索按 X 过滤、critic 按 Y 判"的双真源不一致）。本路径不复用
+    # 该字段：execute 阶段已有 companions 明细，算真实头数比依赖 LLM 是否恰好
+    # 填了该 optional 字段更可靠——不为统一而统一（判断详见任务报告"party_size
+    # 语义核查"节）。
     party_size = max(1, sum(c.count for c in intent.companions) + 1)  # +1 自己
     user_lat, user_lng = _resolve_user_coords(user_id)
     excluded_ids = _resolve_excluded_visited_ids(user_id, kind="restaurant")
     # 块B-2（R2）：用户明示品类时扩大抓取池，避免 cuisine 命中的候选（评分略低）
     # 在 Tool 层 top-k 截断阶段就被挤掉；扩池后在编排层重排再截断回 limit。
     fetch_limit = max(limit, 15) if intent.preferred_poi_types else limit
+    # 三处 SearchRestaurantsInput 构造点之一（改一处查三处，另两处见
+    # ils_planner.py::_query_restaurants / rule_planner.py::_query_restaurants）：
+    # experience_tags 必须显式传（tools/search_restaurants.py 内部用 has_any_tag
+    # 宽松过滤氛围词候选）——此前本处漏传，是 bug 之一，见任务报告。
+    # capacity_requirement 直传 party_size（不再做 2/4/6/8 精确匹配守门——那是
+    # 另一个 bug：非精确桌型人数会被误判为"不过滤"，见任务报告）；
+    # tools/search_restaurants.py::_capacity_ok 本就按 ≤2/≤4/≤6/其余 分档，任意
+    # 整数都能正确分档，不需要在这里预先对齐到桌型档位。
     inp = SearchRestaurantsInput(
         distance_max_km=intent.distance_max_km or 5.0,
         dietary_constraints=list(intent.dietary_constraints),
+        experience_tags=list(intent.experience_tags),
         social_context=intent.social_context,
-        capacity_requirement=party_size if party_size in (2, 4, 6, 8) else None,
+        capacity_requirement=party_size,
         user_lat=user_lat,
         user_lng=user_lng,
         exclude_visited_ids=excluded_ids,

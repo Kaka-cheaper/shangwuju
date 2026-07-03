@@ -561,6 +561,12 @@ def _query_restaurants(
 
     home = load_user_profile().home_location
 
+    # 三处 SearchRestaurantsInput 构造点之一（改一处查三处，另两处见
+    # agent/runtime/tools/search_adapter.py::search_restaurants_for_intent /
+    # ils_planner.py::_query_restaurants）：capacity 缺省时同 ils_planner，直取
+    # intent.capacity_requirement（与 critic._rules.checks.check_capacity 同源
+    # 字段，保持搜索期过滤与 critic 判定单一真相源）——不要改成 search_adapter
+    # 那种自算 self+companions 头数，理由同 ils_planner 侧注释。
     def _do(
         distance: float,
         *,

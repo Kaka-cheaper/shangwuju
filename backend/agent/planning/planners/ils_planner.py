@@ -998,6 +998,16 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
 def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaurant]:
     # c′批 任务一：同 `_query_pois` 上方注释——传 home 坐标走同一条
     # NearbySearchProvider 接缝，与 execute 阶段距离真相口径统一。
+    #
+    # 三处 SearchRestaurantsInput 构造点之一（改一处查三处，另两处见
+    # agent/runtime/tools/search_adapter.py::search_restaurants_for_intent /
+    # rule_planner.py::_query_restaurants）：capacity_requirement 这里刻意直传
+    # intent.capacity_requirement（LLM 按"≥4 人才填"规则自填的字段），而不是
+    # 像 search_adapter 那样自算 self+companions 头数——这样搜索期过滤与
+    # critic._rules.checks.check_capacity 的判定用**同一个字段**，两者不可能
+    # 出现"搜索按 X 放过、critic 按 Y 判违规"的双真源不一致。不要为了跟
+    # search_adapter"看齐"改成自算头数，会破坏这个不变量（判断详见任务报告
+    # "party_size 语义核查"节）。
     home = load_user_profile().home_location
     args = SearchRestaurantsInput(
         distance_max_km=intent.distance_max_km,
