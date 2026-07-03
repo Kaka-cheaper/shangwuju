@@ -203,7 +203,16 @@ def emit_critic(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         critical_only = [
             d for d in violation_dicts if d.get("severity") == "hard"
         ]
-        attempt = diff.get("plan_attempt") or 1
+        # 真因修复批 item 4（看板 bug：fix_attempt 恒为 1）：critic_node 自己的
+        # diff 从不含 plan_attempt——那是 planner 节点专属字段（见 planner.py
+        # 的返回 dict），critic 只读它，不重新写它，`diff.get("plan_attempt")`
+        # 因此对 critic 这个 diff 永远是 None。ctx.last_plan_attempt 是
+        # EmitContext 为 DONE payload 累积的同一个值（_emit_context.py
+        # update_accum_from_diff），run_graph_stream 主循环里 planner 节点总在
+        # critic 节点之前完成一次 astream chunk（各自独立的 LangGraph 步，
+        # 见 sse_adapter.py 的 dispatch 循环），累积必然已经是最新值——直接读它，
+        # 不必奢望 critic 自己的 diff 里凭空多出一个它从未写过的字段。
+        attempt = ctx.last_plan_attempt or 1
         return [
             ctx.emit(
                 SseEventType.CRITIC_VIOLATIONS,

@@ -136,6 +136,24 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         client = get_llm_client()
         result = plan_hybrid(intent, client=client, tracer=None)
         if result.success and result.itinerary is not None:
+            # 真因修复批 item 3（看板 final_strategy 恒报 llm_first）：ILS 成功
+            # 产出的 itinerary 从未经过 assemble_node（decision_trace 唯一注入点，
+            # 见 agent/graph/nodes/assemble.py），decision_trace 原生是 None——
+            # finalize_plan_node 对 decision_trace=None 会兜底从 state.fallback_chain
+            # 重建一份最小 trace（本批同时修的另一半），判据是链末跳 to_stage。
+            # 链在 replan_router_node 里已经写过一跳 "llm_backprompt→ils"（决定
+            # 尝试 ILS 那一刻写的，反映的是"决定切换"，不是"ILS 真的成功了"）；
+            # 这里再补写一跳由 ils_replan_node 自己落的"成功"记录——与下面
+            # failure 分支（ils→rule / rule→give_up）对称：阶段的实际结果由跑
+            # 这个阶段的节点自己留痕，不依赖上游路由节点提前写好的、恰好凑巧
+            # 同尾的记录（那是决定尝试，不是结果确认）。
+            chain.append(
+                FallbackHop(
+                    from_stage="ils",
+                    to_stage="ils",
+                    reason="ILS 算法给出可行方案，成功兜底（不再进一步降级）",
+                ).model_dump()
+            )
             return {
                 "itinerary": result.itinerary,
                 "has_critical": False,
@@ -144,6 +162,7 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
                 # D-7：透传 plan_hybrid 收集到的「绝不默默忽略」告知（点名排不进/
                 # 被修复闭环换掉/超预算/时长不足等），narrate_node 消费。
                 "advisories": [a.model_dump() for a in result.advisories],
+                "fallback_chain": chain,
             }
     except Exception:  # noqa: BLE001
         pass

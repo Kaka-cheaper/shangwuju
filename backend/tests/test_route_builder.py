@@ -166,13 +166,38 @@ def test_dining_soft_anchored_false_when_crosses_dinner_window_but_no_dietary():
     assert rb.dining_soft_anchored(intent) is False
 
 
-def test_dining_soft_anchored_false_when_only_partial_overlap_with_meal_window():
-    # 出行窗 [16:30,18:30] 只与晚饭窗 [17:00,20:00] 部分重叠，不是"完整跨过"。
+def test_dining_soft_anchored_true_when_window_end_lands_inside_meal_window():
+    """真因修复批 item 2 有意识迁移（规则②放宽，用户拍板，修订 ADR-0010 决策 10）：
+
+    出行窗 [16:30,18:30]，结束点 18:30 落在晚饭窗 [17:00,20:00] 内——旧规则
+    要求"完整跨过"才软锚，这个窗没盖满 20:00 那一截，旧断言是 False。但真
+    LLM 复测实证类似形状的窗（14:00-19:00 家庭局，只差 60 分钟没盖满晚饭窗）
+    被判"不软锚"、饭在涌现段被放弃，违背常识——"16:30 出门 18:30 到家、有
+    忌口"分明是打算吃这顿晚饭的家庭局。规则②放宽为"结束点踩进饭点窗内即可"
+    后，本用例现在应判 True；旧的"只是部分重叠"的判断逻辑本身没变（"完整
+    跨过"仍是更强的特例继续保留），只是新增了这条更贴近常识的触发路径。
+    """
     intent = _intent(
         social_context="家庭日常",
         dietary=("不辣",),
         duration_hours=[2, 2],
         start_time="2026-07-02T16:30",
+    )
+    assert rb.dining_soft_anchored(intent) is True
+
+
+def test_dining_soft_anchored_still_false_when_window_never_touches_any_meal_window():
+    """放宽边界回归：有 dietary 信号，但出行窗压根不挨着任何饭点窗——不应因为
+    放宽就变成"有 dietary 就总软锚"。出行窗 [9:00,10:00]（上午）离最近的饭点
+    惯例窗（午餐 11:00-13:30）还有 1 小时，两个子条件（结束点落窗内 / 完整
+    跨过）都不成立，仍应判 False——规则②放宽的是"踩线"判据本身的严格度，
+    不是取消"必须真的挨着饭点"这个前提。
+    """
+    intent = _intent(
+        social_context="家庭日常",
+        dietary=("不辣",),
+        duration_hours=[1, 1],
+        start_time="2026-07-02T09:00",
     )
     assert rb.dining_soft_anchored(intent) is False
 

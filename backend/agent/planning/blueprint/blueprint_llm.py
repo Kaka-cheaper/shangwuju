@@ -31,7 +31,12 @@ from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction
 
 from .blueprint import PlanBlueprint
-from ...core.llm_client import LLMClient, LLMMessage, strip_json_fence
+from ...core.llm_client import (
+    MIMO_THINKING_DISABLED_EXTRA_BODY,
+    LLMClient,
+    LLMMessage,
+    strip_json_fence,
+)
 from .prompts.blueprint_prompt import (
     BLUEPRINT_SYSTEM_PROMPT,
     build_user_message,
@@ -273,6 +278,15 @@ def generate_blueprint(
             messages,
             temperature=0.2,
             response_format={"type": "json_object"},
+            # 真因修复批 item 5：低成本保险，非本批诊断出的主根因（真 LLM
+            # 8/8 轮蓝图都正常生成了 JSON，问题在 assemble 侧的槽对齐，见
+            # assemble_blueprint.py 的槽吸附修复）。但蓝图生成同样是"只要
+            # 结构化 JSON、不要思考过程"的场景——思考模型（如 MiMo）的
+            # reasoning token 计入 max_tokens 预算，narrator.py 已经在生产
+            # 踩过一次"思考吃光预算、正文截空"的静默失败（见该文件模块
+            # docstring），蓝图生成没有理由不带同一份保险，不必等它也在
+            # 生产上出事才补。对不识别该字段的 provider 无害（见常量定义）。
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
     except Exception as e:  # noqa: BLE001
         raise BlueprintGenError(

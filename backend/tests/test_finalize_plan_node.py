@@ -287,3 +287,47 @@ def test_finalize_plan_ready_precedes_narration_ils_fallback_path(monkeypatch):
     fallback_targets = [e.payload.get("to") for e in evs if e.type.value == "plan_fallback"]
     assert "ils" in fallback_targets, f"前置：应经过 ils_fallback，实际={fallback_targets}"
     _assert_ready_precedes_narration(evs, label="ils 成功兜底")
+
+
+def test_ils_success_done_payload_final_strategy_is_ils(monkeypatch):
+    """真因修复批 item 3 回归：ILS 一次成功兜底后，DONE payload 的
+    final_strategy 必须是 "ils"，不能漏成 sse_adapter 的默认值 "llm_first"。
+
+    根因回顾：ILS 成功产出的 itinerary 从不经过 assemble_node（decision_trace
+    唯一注入点），itinerary.decision_trace 原生是 None；finalize_plan_node
+    修复前对 None 直接跳过收尾，decision_trace 永远补不上，sse_adapter 读不到
+    trace 就落回默认值 "llm_first"——无论方案实际是哪条链路兜出来的，看板
+    永远显示"LLM 一次过"。
+
+    复用同组 ils_fallback 驱动手法（强制 blueprint 恒为 None + monkeypatch
+    plan_hybrid 成功），跑满整条 SSE 流，直接断言 DONE 事件 payload。
+    """
+    import agent.graph.nodes.planner as planner_mod
+    import agent.planning.planners.ils_planner as ils_planner_mod
+    from agent.planning.planners.ils_planner import HybridResult
+    from agent.routing.canonical_shortcut import DEMO_SCENARIOS
+
+    def _blueprint_always_none(*args, **kwargs):
+        return None
+
+    def _fake_hybrid_result(*args, **kwargs) -> HybridResult:
+        intent, itin = _itinerary()
+        return HybridResult(success=True, itinerary=itin, advisories=[])
+
+    monkeypatch.setattr(planner_mod, "generate_blueprint", _blueprint_always_none)
+    monkeypatch.setattr(ils_planner_mod, "plan_hybrid", _fake_hybrid_result)
+
+    user_input = DEMO_SCENARIOS[1]["input"]
+    evs = _drive(
+        user_input=user_input,
+        session_id="p3_ils_success_final_strategy_is_ils",
+    )
+
+    fallback_targets = [e.payload.get("to") for e in evs if e.type.value == "plan_fallback"]
+    assert "ils" in fallback_targets, f"前置：应经过 ils_fallback，实际={fallback_targets}"
+
+    done_events = [e for e in evs if e.type.value == "done"]
+    assert len(done_events) == 1
+    assert done_events[0].payload["final_strategy"] == "ils", (
+        f"ILS 成功兜底后 DONE.final_strategy 应为 'ils'，实际 payload={done_events[0].payload}"
+    )

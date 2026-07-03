@@ -159,6 +159,76 @@ def _resolve_target_meta(
 
 
 # ============================================================
+# 餐厅预约槽吸附（真因修复批 item 1）
+# ============================================================
+
+
+def _earliest_available_slot_min(target_id: str, natural_arrival_min: int) -> Optional[int]:
+    """给定餐厅 target_id + 自然到达分钟数，找该店 `reservation_slots` 里
+    「不早于自然到达时刻」且 `available=True` 的最早一个槽，返回其分钟数；
+    找不到（餐厅不存在 / 无槽表 / 当日剩余时段全不可用）→ None（不吸附，让
+    critic 照常拦——诚实，不硬造一个不存在的可预约时刻）。
+
+    【为什么必须存在（真 LLM 复测真因）】
+    `blueprint_llm.py` 故意不让 LLM 输出任何时间字段——edge_v1 设计里 LLM 只
+    决定节点顺序/kind/时长，start_time 这个"客观项"完全由 assemble 按 home/
+    上一站累加通勤+停留分钟数算出（精确到分钟，如 15:17）。但 mock 餐厅
+    `Restaurant.reservation_slots` 是离散槽位列表（多为 30 分钟网格，如
+    17:00/17:30/18:00，个别店甚至有整点缺口——如 mock_data/restaurants.json
+    的 R004 只有 14:30/15:00/16:00，15:30 是缺口），精确分钟几乎不可能命中
+    任何一个真实槽。真 LLM 复测 8/8 轮全部滑向 ILS 兜底，
+    `restaurant_full_unresolved` 场景 21/21 全中 `RESTAURANT_FULL_UNRESOLVED`
+    ——根因不是模型能力：蓝图 schema 本就不给 LLM 时间字段的写权限，2 轮
+    backprompt 冲着一个"LLM 改不动的字段"重试，物理上必败。
+
+    【口径对齐：与 check_demo_restaurant_full 读同一份真相，不是各算各的】
+    `agent.planning.critic._rules.checks.check_demo_restaurant_full` 校验
+    `node.start_time` 是否**精确等于**该店 `reservation_slots` 里某条
+    `time` 字段、且该条 `available=True`。本函数在"排定之前"用同一张
+    `reservation_slots` 表找"不早于自然到达的最早可用槽"并吸附上去——让
+    assemble 产出的 start_time 本就等于 critic 会认可的那个真实槽位，
+    两处读同一份 mock 真值，不是吸附算一套、校验又是另一套、靠运气对上。
+
+    【为什么不直接复用 route_scheduler._snap_to_slot_grid（ILS 侧机制）】
+    `agent.planning.planners.route_scheduler` 模块 docstring 判断点 3 明确
+    记录它是"向上取整到最近半点"的**通用网格近似**，刻意不读
+    `Visit.entity.reservation_slots`——理由是那一层要守住"纯函数、不消费
+    具体实体字段"的边界（D-2 层定位）。但真实 mock 数据并非处处严格半点
+    网格（R004 的 15:30 缺口即一例），通用网格 snap 可能落在该店根本没开放
+    的时刻，反而制造新的不一致。`assemble_blueprint.py` 本就在拼装层直接
+    消费 `load_restaurants()`（`_resolve_target_meta` 已经在读实体字段），
+    不是纯函数模块，没有"不碰实体字段"的边界要守；直接读该店真实
+    `reservation_slots` 精确吸附，比套用通用网格更准——两处"槽机制"因此
+    刻意不共享同一份实现，是分层职责使然，不是遗漏（rule/ILS 路径的
+    `not_before_start` 已经是调度器算好的、必然对得上真实槽的时刻，见下方
+    调用点判断点）。
+
+    Args:
+        target_id: 餐厅 mock id（如 "R001"）。
+        natural_arrival_min: 吸附前、按当前排程逐段累加算出的到达分钟数。
+
+    Returns:
+        最早可用槽的分钟数；查不到餐厅 / 无 `reservation_slots` / 无任何
+        不早于到达时刻的可用槽 → None。
+    """
+    rest = next((r for r in load_restaurants() if r.id == target_id), None)
+    if rest is None or not rest.reservation_slots:
+        return None
+
+    candidates: list[int] = []
+    for slot in rest.reservation_slots:
+        if not slot.available:
+            continue
+        if not _TIME_RE.match(slot.time):
+            continue  # 防御性：mock 数据理应合法，格式错的槽跳过不吸附
+        slot_min = _parse_hhmm(slot.time)
+        if slot_min >= natural_arrival_min:
+            candidates.append(slot_min)
+
+    return min(candidates) if candidates else None
+
+
+# ============================================================
 # Schedule 派生视图
 # ============================================================
 
@@ -366,7 +436,20 @@ def assemble_from_blueprint(
         # hop_end + buffer 仍通过（推迟只会让 to_start 更大，不会更小）。
         nb_raw = getattr(bp_node, "not_before_start", None)
         if nb_raw and _TIME_RE.match(nb_raw):
+            # rule/ILS 路径：route_builder.route_to_blueprint 已经把调度器
+            # （route_scheduler，窗感知 + 槽网格 snap）算好的可行时刻钉进
+            # not_before_start，直接采信，不重新吸附一遍。
             node_start_min = max(node_start_min, _parse_hhmm(nb_raw))
+        elif bp_node.target_kind == BlueprintTargetKind.RESTAURANT:
+            # LLM 路径：not_before_start 恒为 None（LLM 从未获得时间字段的
+            # 写权限，见 blueprint_llm.py），此时吸附到该店真实可用预约槽
+            # （_earliest_available_slot_min 判断点已详述真因 + 口径对齐）。
+            snapped_min = _earliest_available_slot_min(bp_node.target_id, node_start_min)
+            if snapped_min is not None:
+                node_start_min = snapped_min
+            # 找不到任何可用槽 → 不吸附，原样保留自然到达时刻，让
+            # check_demo_restaurant_full 照常拦（诚实反映"这确实订不上"，
+            # 不是伪造一个不存在的槽位掩盖真实容量约束）。
 
         # bp_node.target_kind 是 BlueprintTargetKind 枚举（poi/restaurant），
         # 与 ActivityNode.target_kind 的 Literal["poi","restaurant","home"] 兼容

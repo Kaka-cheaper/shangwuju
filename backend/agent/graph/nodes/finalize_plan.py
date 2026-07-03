@@ -51,6 +51,28 @@ from typing import Any
 
 from agent.graph.state import AgentState
 
+_FINAL_STRATEGY_BY_LAST_HOP: dict[str, str] = {
+    "give_up": "give_up",
+    "ils": "ils",
+    "rule": "rule",
+    "llm_backprompt": "llm_backprompt",
+}
+"""fallback_chain 最后一跳 to_stage → final_strategy 的判据（单一映射表，
+两处消费——decision_trace 已存在时的收尾、decision_trace 缺失时的兜底重建——
+共享同一份，不重复定义两套容易漂移的映射）。未命中键（如从未 fallback 过）
+落 "llm_first"。"""
+
+
+def _final_strategy_from_chain(chain: list[Any]) -> str:
+    """从 fallback_chain（FallbackHop 列表）算 final_strategy：读链末跳
+    `to_stage`，只增不减、严格反映"已发生的事"（与 assemble_node 同一判据，
+    见该文件同名逻辑）。空链 → "llm_first"（主路径一次过，从未降级）。
+    """
+    if not chain:
+        return "llm_first"
+    last_to = getattr(chain[-1], "to_stage", None)
+    return _FINAL_STRATEGY_BY_LAST_HOP.get(last_to, "llm_first")
+
 
 def finalize_plan_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
@@ -73,18 +95,7 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
     # ---- 3. decision_trace 收尾（叙事无关部分，原样从 narrate.py 挪来）----
     if itinerary.decision_trace is not None:
         old_trace = itinerary.decision_trace
-        chain = old_trace.fallback_chain
-        if chain:
-            last_to = chain[-1].to_stage
-            mapping = {
-                "give_up": "give_up",
-                "ils": "ils",
-                "rule": "rule",
-                "llm_backprompt": "llm_backprompt",
-            }
-            final_strategy = mapping.get(last_to, "llm_first")
-        else:
-            final_strategy = "llm_first"
+        final_strategy = _final_strategy_from_chain(old_trace.fallback_chain)
 
         # 把上一条 critic_attempt（如果存在且未 resolved）标 resolved
         # ——能走到 finalize_plan 说明 critic 已经放行，最后一次 attempt 的反馈被消化了。
@@ -101,6 +112,39 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
             }
         )
         update_fields["decision_trace"] = new_trace
+    else:
+        # 真因修复批 item 3（看板 bug：ILS 一次成功也报 final_strategy=llm_first）。
+        #
+        # decision_trace 唯一注入点是 assemble_node（planner→assemble→critic 这
+        # 条链，见 agent/graph/nodes/assemble.py 模块 docstring）——但 ILS 成功
+        # 分支（replan.py:ils_replan_node）直接把 plan_hybrid 产出的 itinerary
+        # 写回 state，从不经过 assemble_node，itinerary.decision_trace 因此原生
+        # 是 None。这不是"没有决策历史"，只是"没人写过"：state.fallback_chain
+        # 是 EPISODE_SCOPED 字段，跨节点持续累积，即使 itinerary 侧没挂 trace，
+        # 链本身是完整的——从它重建一份最小 DecisionTrace 顶上，final_strategy
+        # 判据与「decision_trace 已存在」分支同一张映射表（_final_strategy_from_chain），
+        # 不重新发明一套规则。
+        #
+        # 之前的行为：本分支完全不存在 → update_fields 不含 decision_trace →
+        # itinerary.decision_trace 保持 None → sse_adapter 读不到 trace →
+        # DONE payload 的 final_strategy 落到它自己的默认值 "llm_first"——
+        # 无论方案实际是 ILS 兜底还是 rule 兜底出的，看板都显示"LLM 一次过"。
+        fallback_dicts = state.get("fallback_chain") or []
+        if fallback_dicts:
+            from schemas.decision_trace import DecisionTrace, FallbackHop
+
+            chain_objs = [
+                FallbackHop.model_validate(d) if isinstance(d, dict) else d
+                for d in fallback_dicts
+            ]
+            update_fields["decision_trace"] = DecisionTrace(
+                fallback_chain=chain_objs,
+                final_strategy=_final_strategy_from_chain(chain_objs),
+            )
+        # fallback_chain 也空（从未 replan 过，如 critic 一次通过、或
+        # planner_mode="rule" 全程没触发降级）→ 保持 decision_trace=None：
+        # 没有任何决策历史可展示，前端本就该隐藏卡片（DecisionTrace.is_empty()
+        # 语义），不为空链硬造一个 final_strategy="llm_first" 的假 trace。
 
     new_itinerary = itinerary.model_copy(update=update_fields)
 

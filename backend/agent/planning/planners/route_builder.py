@@ -216,11 +216,20 @@ def dining_soft_anchored(
        纪念日仪式感——复用 `node_decider` 的既有集合，不重复定义一份）；
     **或**
     ② 出行窗 `[depart_min, depart_min + hi_min]`（`hi_min` = `duration_hours`
-       上限换算的分钟数）**完整跨过**某个饭点惯例窗（午/晚/夜宵三选一即可，
-       "完整跨过"= 该饭点窗整段落在出行窗内，不是有交集就算）**且**
+       上限换算的分钟数）的**结束点落在某个饭点惯例窗内**（`w_start <=
+       window_end <= w_end`）**或完整跨过**该饭点窗（`depart_min <= w_start
+       and window_end >= w_end`）（午/晚/夜宵三选一即可）**且**
        `intent.dietary_constraints` 非空。
 
     否则涌现（utility 说了算，是否有饭由贪心插入段自然决定）。
+
+    【规则②放宽记录（用户拍板，修订 ADR-0010 决策 10 共识）】
+    旧规则要求出行窗"完整覆盖"饭点窗才软锚，真 LLM 复测实证：14:00-19:00
+    的家庭局（有 dietary 信号）与晚餐惯例窗 17:00-20:00 只差 60 分钟没盖满，
+    旧规则判"不软锚"，饭在涌现段被放弃——但"14 点出门、19 点到家、有忌口"
+    分明是打算吃这顿晚饭的家庭局，旧规则过严、违背常识。放宽为"出行窗结束点
+    踩进饭点窗内"（仍要求真的"踩线"到饭点，不是任意窗都算）；"完整覆盖"作为
+    更强的特例继续保留（两个条件用 `or`，不是谁替代谁）。
 
     `depart_min`：出行窗起点。**调用方已有真实出发时刻时必须传入**（code-review
     finding #9：`build_route` 的 depart_min 可能是协商/修正过的，与
@@ -238,7 +247,8 @@ def dining_soft_anchored(
     window_end = depart_min + hi_min
 
     return any(
-        depart_min <= w_start and window_end >= w_end
+        (w_start <= window_end <= w_end)  # 结束点踩进饭点窗内（放宽后新增）
+        or (depart_min <= w_start and window_end >= w_end)  # 完整跨过（旧规则，保留）
         for w_start, w_end in _MEAL_CONVENTION_WINDOWS_MIN
     )
 

@@ -31,6 +31,7 @@ LLM 往返的挂钟时间。`OpenAICompatibleClient`（`agent/core/llm_client.py
 
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -38,6 +39,8 @@ from agent.planning.blueprint.blueprint_llm import generate_blueprint, Blueprint
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
 from agent.planning.weights_llm import get_planning_weights
+
+logger = logging.getLogger(__name__)
 
 
 def planner_node(state: AgentState) -> dict[str, Any]:
@@ -84,7 +87,19 @@ def planner_node(state: AgentState) -> dict[str, Any]:
                 critic_feedback=feedback_list,
                 user_id=user_id,
             )
-        except BlueprintGenError:
+        except BlueprintGenError as e:
+            # 真因修复批 item 5：这条分支曾经完全静默——蓝图生成失败（JSON 非法/
+            # 缺字段/旧字段污染/Pydantic 校验失败，见 BlueprintGenError.reason
+            # 的完整枚举）只会让 blueprint=None 悄悄流到 replan_router 触发
+            # fallback，日志里连一行"为什么"都没有，真因排查时只能靠猜。
+            # BlueprintGenError 自带 reason/detail（+ raw_content 前 500 字），
+            # 补一条 warning 摘要——不改变返回 None 交给上层 fallback 的既有
+            # 行为，只是让这次失败不再无声无息。
+            logger.warning(
+                "[planner] generate_blueprint 失败，转 fallback：reason=%s detail=%s",
+                e.reason,
+                (e.detail or "")[:300],
+            )
             return None
 
     # 体感编排批 P2：两次独立 LLM 调用并行发起（见模块 docstring）

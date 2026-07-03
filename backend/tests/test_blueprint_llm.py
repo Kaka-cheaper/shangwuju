@@ -86,7 +86,18 @@ class _MockClient:
         self.last_messages: list = []
         self.call_count: int = 0
 
-    def chat(self, messages, *, temperature=0.3, response_format=None):
+    def chat(
+        self,
+        messages,
+        *,
+        temperature=0.3,
+        response_format=None,
+        extra_body=None,
+    ):
+        # extra_body（真因修复批 item 5：generate_blueprint 现在传 MiMo 关闭
+        # 深度思考的 extra_body）对 mock 无意义，接住即可——同
+        # llm_client_stub.StubLLMClient 的既有先例（见该文件注释）。
+        del extra_body
         self.last_messages = messages
         self.call_count += 1
         return _MockResp(content=self._content)
@@ -98,7 +109,15 @@ class _RaisingClient:
     provider = "mock"
     model = "mock"
 
-    def chat(self, messages, *, temperature=0.3, response_format=None):
+    def chat(
+        self,
+        messages,
+        *,
+        temperature=0.3,
+        response_format=None,
+        extra_body=None,
+    ):
+        del extra_body
         raise RuntimeError("simulated upstream failure")
 
 

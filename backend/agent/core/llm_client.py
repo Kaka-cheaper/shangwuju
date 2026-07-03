@@ -89,6 +89,26 @@ class LLMChatResponse:
 
 
 # ============================================================
+# 共享 extra_body 常量
+# ============================================================
+
+MIMO_THINKING_DISABLED_EXTRA_BODY: dict = {"thinking": {"type": "disabled"}}
+"""关闭 MiMo「深度思考」模式的 extra_body（MiMo 官方文档 mimo.mi.com/docs
+"Deep Thinking Mode"；OpenAI SDK 无对应字段，须走 `.chat(extra_body=...)`
+透传——`OpenAICompatibleClient._create_completion` 已把 extra_body 原样并入
+请求体，见该方法实现）。
+
+原本只有 `agent/intent/narrator.py` 私有定义（narrator 曾踩过"思考 token 吃光
+max_tokens 预算，正文被截成空字符串"的静默失败，才加的双保险之一），本批
+（真因修复批 item 5）搬到这里供 `agent/planning/blueprint/blueprint_llm.py`
+共享——蓝图生成同样是"只要结构化 JSON 输出，不要思考过程"的场景，同样的
+风险（思考 token 挤占蓝图 JSON 的输出预算）理应带同一份保险，不必等它在
+生产上真出事才补。对不识别这个字段的 provider（非 MiMo）是无害的多余字段，
+OpenAI 兼容服务通常忽略未知字段，不需要按 provider 分支处理。
+"""
+
+
+# ============================================================
 # Protocol
 # ============================================================
 

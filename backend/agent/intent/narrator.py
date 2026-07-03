@@ -46,7 +46,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Sequence
 
-from agent.core.llm_client import LLMMessage, get_llm_client
+from agent.core.llm_client import (
+    LLMMessage,
+    MIMO_THINKING_DISABLED_EXTRA_BODY as _MIMO_THINKING_DISABLED_EXTRA_BODY,
+    get_llm_client,
+)
 from agent.intent.prompts.narrator_prompt import (
     NARRATOR_SYSTEM_PROMPT,
     build_narrator_user_message,
@@ -899,7 +903,12 @@ def _sanitize_title(title: Optional[str]) -> Optional[str]:
 #    该字段等），也把 max_tokens 同时拉高（want_title 400→2400 / 纯
 #    narration 180→1200），让思考 token 吃掉一部分预算后仍有余量吐正文，
 #    不完全依赖关思考成功。
-_MIMO_THINKING_DISABLED_EXTRA_BODY: dict = {"thinking": {"type": "disabled"}}
+#
+# 真因修复批 item 5：这份常量原本在本文件私有定义，现搬到
+# `agent.core.llm_client`（LLM 客户端的共享归属地，见该模块）供
+# `blueprint_llm.py` 复用——蓝图生成同样是"只要结构化 JSON、不要思考过程"的
+# 场景，同一份保险。本文件顶部已改为从那里 import（`as` 保留同名局部引用
+# `_MIMO_THINKING_DISABLED_EXTRA_BODY`），下面两处调用点不必改。
 
 
 def _diagnose_empty_llm_response(resp, client) -> str:
