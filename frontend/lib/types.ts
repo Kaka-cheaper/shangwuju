@@ -446,6 +446,9 @@ export interface Companion {
   is_special_role: boolean;
 }
 
+/** 字段出处四值（ADR-0014 决策 1 · G-1）。 */
+export type FieldProvenance = "user_stated" | "inferred" | "prior" | "default";
+
 export interface IntentExtraction {
   start_time: string;
   start_weekday?: string | null;
@@ -462,6 +465,17 @@ export interface IntentExtraction {
   raw_input: string;
   parse_confidence: number;
   ambiguous_fields: string[];
+  /**
+   * 字段/元素出处标注（ADR-0014 决策 1）。标量字段键=字段名本身（如
+   * "distance_max_km"）；列表字段键="字段名:元素值"（如
+   * "dietary_constraints:不辣"）。覆盖范围：start_time / start_weekday /
+   * duration_hours / distance_max_km / social_context / capacity_requirement
+   * （标量）+ physical_constraints / dietary_constraints / experience_tags /
+   * extra_services（列表，元素级）。companions / preferred_poi_types 不在
+   * 覆盖范围内（见 backend/schemas/intent.py 字段 docstring）。
+   * Optional，旧数据 / 未跑校正时为 null——前端不应假设它总是存在。
+   */
+  field_provenance?: Record<string, FieldProvenance> | null;
 }
 
 // ============================================================

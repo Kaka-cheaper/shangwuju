@@ -75,7 +75,8 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
   "preferred_poi_types": list[str],   // 用户明示的 POI 类型，如 ["展览", "美术馆"]
   "raw_input": str,                   // 原样回填用户输入
   "parse_confidence": float,          // 0-1，对自身抽取的信心；不确定字段越多越低
-  "ambiguous_fields": list[str]       // 自报"哪些字段我不确定"
+  "ambiguous_fields": list[str],      // 自报"哪些字段我不确定"
+  "field_provenance": dict[str, str]  // 每个字段/标签的出处自报，见下方【出处自报】
 }}
 
 【硬性约束（违反即视为失败）】
@@ -144,6 +145,28 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - `experience_tags`：从下方中文词典机械触发；不命中则**显式**填空数组 `[]`。
 - `social_context`：从 9 选 1 中**必选**最贴切的一个，**不得**省略、**不得**为 null。
 
+【出处自报（ADR-0014 决策 1 · field_provenance）】
+每个你填出的字段/标签都要老实说清楚"这个值是怎么来的"，四选一：
+- `user_stated`：用户这句话**原话直接给出**（哪怕你把口语翻成了词典写法，如
+  "老婆"→"妻子"、"网红"→"网红打卡"，只要**同一件事**用户确实说了，都算 user_stated）。
+- `inferred`：用户**没有直接要求这个属性**，是你从ta说的其它信息（年龄/身体状况/
+  情绪/同伴关系）**推断**出来的——例：「孩子 5 岁」推断出 physical "亲子友好"/
+  "适合 5-10 岁"；「老婆减肥」推断出 dietary "低脂"/"健康轻食"；「腿不好/外公外婆」
+  推断出 physical "适合老人"/"无台阶"；「一个人/加班想吐」推断出 experience "独处舒缓"。
+  **social_context 几乎总是 inferred**（除非用户原话直接点名场景，或来自下面的先验注入）。
+- `prior`：这个值**不是**用户这句话给的，是你从下面【当前用户档案+历史偏好】区块
+  （若存在）抄来补全的默认值——用户这句话对这件事**只字未提**。
+- `default`：用户完全没提、也没有可用先验，纯粹是 schema 兜底默认值（如没提距离时
+  的 5 公里、没提时长时的 [4,6]）。
+
+`field_provenance` 格式：dict，键=标量字段名本身（如 "distance_max_km"）或
+"列表字段名:元素值"（如 "dietary_constraints:不辣"，"physical_constraints:适合老人"）；
+值=上面四选一。**对本次输出里每一个非空标量字段 + 每一个非空列表元素都要给一条**
+（companions / preferred_poi_types / extra_services / raw_input / parse_confidence /
+ambiguous_fields 不需要标）。老实自报比自己藏着掖着更有用——下游有规则会交叉核对，
+自报错了也不会白白背锅，但**不自报**等于放弃了自己最了解的信息（你知道哪句话对应
+哪个推断，规则只能靠事后猜）。
+
 【中文词典强约束（关键 · 违反 = 任务失败）】
 `physical_constraints` / `dietary_constraints` / `experience_tags` **只能从下列中文词典选词**：
 - physical 词典：{_format_set(PHYSICAL_TAGS)}
@@ -179,7 +202,11 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"experience_tags":[],"social_context":"家庭日常",'
         '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
         '"raw_input":"今天下午想和老婆孩子出去玩几个小时，别离家太远，孩子 5 岁，老婆最近在减肥。",'
-        '"parse_confidence":0.92,"ambiguous_fields":[]}',
+        '"parse_confidence":0.92,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","duration_hours":"user_stated",'
+        '"distance_max_km":"inferred","social_context":"inferred",'
+        '"physical_constraints:亲子友好":"inferred","physical_constraints:适合 5-10 岁":"inferred",'
+        '"dietary_constraints:低脂":"inferred","dietary_constraints:健康轻食":"inferred"}}',
     ),
     (
         "周日下午想带外公外婆出去走走，别走太远他们腿不好。",
@@ -194,7 +221,11 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"experience_tags":[],"social_context":"老人伴助",'
         '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
         '"raw_input":"周日下午想带外公外婆出去走走，别走太远他们腿不好。",'
-        '"parse_confidence":0.88,"ambiguous_fields":[]}',
+        '"parse_confidence":0.88,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","start_weekday":"user_stated",'
+        '"duration_hours":"inferred","distance_max_km":"inferred","social_context":"inferred",'
+        '"physical_constraints:适合老人":"inferred","physical_constraints:无台阶":"inferred",'
+        '"physical_constraints:可休息":"inferred","dietary_constraints:软烂":"inferred"}}',
     ),
 ]
 
@@ -248,6 +279,63 @@ PLANNER_SYSTEM_PROMPT = """你是「晌午局」的规划智能体（Agent Plann
 # ============================================================
 
 
+from dataclasses import dataclass, field as _dataclass_field
+
+
+@dataclass(frozen=True)
+class InjectedPriors:
+    """本轮实际会被注入 system prompt 的先验值（ADR-0014 决策 1 · G-1）。
+
+    `agent.intent.parser` 的规则交叉校正复用**同一份**计算（`compute_injected_priors`
+    内部就是调下面 `build_intent_parser_system_prompt_with_priors` 用的
+    `data.memory_store.compute_priors`），不重新定义一份"先验注入集是什么"——
+    避免"prompt 文案改了先验取值方式、校正规则没跟着改"两处各说各话（ADR-0014
+    实施纪律："同一概念多点消费一律真相源声明"）。
+
+    user_id 为空 / persona 计算失败 → 三个字段全空（无先验可注入，校正端不应
+    强行判 prior）。
+    """
+
+    social_context: str | None
+    distance_max_km: float | None
+    tags: frozenset[str] = _dataclass_field(default_factory=frozenset)
+
+
+_EMPTY_INJECTED_PRIORS = InjectedPriors(social_context=None, distance_max_km=None, tags=frozenset())
+
+
+def compute_injected_priors(user_id: str | None) -> InjectedPriors:
+    """算出"这次会被注入 prompt 的先验值"，供 parser 规则交叉校正用。
+
+    覆盖三类（与 `build_intent_parser_system_prompt_with_priors` 的 addendum
+    实际写进 prompt 的信息一一对应）：
+    - social_context：persona.default_tags.suitable_for_priority 第一项
+    - distance_max_km：建议默认距离（memory 中位数，退化到 persona 默认）
+    - tags：合并后高优先 tag（`top_priors`，跨 physical/dietary/experience）
+
+    不包含 memory.rejected_tags（prompt 明确指示"不要主动加"，不是会被输出的
+    先验来源）与 dietary_preference 自然语言段落（自由文本，无离散值可供
+    "输出值∈先验集"这种成员判定）。
+    """
+    if not user_id:
+        return _EMPTY_INJECTED_PRIORS
+    try:
+        from data.memory_store import compute_priors
+    except Exception:  # noqa: BLE001
+        return _EMPTY_INJECTED_PRIORS
+    try:
+        view = compute_priors(user_id)
+    except Exception:  # noqa: BLE001
+        return _EMPTY_INJECTED_PRIORS
+
+    priority = view.persona.default_tags.suitable_for_priority
+    return InjectedPriors(
+        social_context=priority[0] if priority else None,
+        distance_max_km=view.suggested_distance_max_km,
+        tags=frozenset(view.top_priors),
+    )
+
+
 def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
     """在 INTENT_PARSER_SYSTEM_PROMPT 末尾追加 user 的 persona/memory prior。
 
@@ -279,6 +367,11 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
     persona = view.persona
     top_priors = view.top_priors
     median = view.suggested_distance_max_km
+    suitable_first = (
+        persona.default_tags.suitable_for_priority[0]
+        if persona.default_tags.suitable_for_priority
+        else None
+    )
 
     # 构造 memory 摘要：accepted top 3
     accepted_top = persona.label  # placeholder 初始化
@@ -303,6 +396,7 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 【当前用户档案 + 历史偏好（仅作 prior，用户输入优先）】
 
 档案：{persona.label}（{persona.notes}）
+档案默认场景：{suitable_first or "（无）"}
 建议默认距离：{median} km
 合并后高优先 tag：{top_priors_str}
 
@@ -314,8 +408,8 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 
 【prior 使用规则（关键：用户输入永远优先；prior 仅作"补全空字段"）】
 
-1. **social_context 是 user 身份标识**——优先用 persona 的 suitable_for_priority 第一项：
-   - 用户没明示场景（如「今天下午想出去玩」）→ 直接用 persona 的 suitable_for_priority[0]
+1. **social_context 是 user 身份标识**——优先用「档案默认场景」：
+   - 用户没明示场景（如「今天下午想出去玩」）→ 直接用「档案默认场景」的值
    - 用户明示了场景（如「带女朋友看展」）→ 按用户的来，prior 让步
 
 2. distance_max_km：
@@ -332,6 +426,19 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 4. 用户输入与 prior 冲突时**以用户输入为准**，并把字段名写入 ambiguous_fields
 
 5. parse_confidence 不要因 prior 加注而强行抬高：仅按用户输入清晰度打分
+
+6. **field_provenance 的 prior/default 判断**（结合上面的先验值自报，不要
+   自己瞎编"prior"）：
+   - 你输出的 social_context 恰好等于「档案默认场景」、且用户这句话没有另外
+     点名场景 → 标 `prior`
+   - 你输出的 distance_max_km 恰好等于「建议默认距离」、且用户没有另外说
+     距离/远近 → 标 `prior`
+   - 你输出的某个 physical/dietary/experience 标签是从「合并后高优先 tag」或
+     「历史接受 top 3」抄来的、且用户这句话根本没提到相关意思 → 标 `prior`
+   - **历史拒绝 top 3 不算先验来源**——那是"不要加"的清单，如果它仍出现在
+     你的输出里，必然是用户这次自己提了，标 `user_stated`，不要标 `prior`
+   - 完全没有任何来源（用户没提、也没有可用先验）时用的 schema 默认值 →
+     标 `default`（如没提距离时的默认 5 公里、没提时长时的默认 [4,6]）
 """
     # spec algorithm-redesign R5：user_profile.json 三层 schema 召回（dietary_preference / recent_trips）
     profile_addendum = _build_user_profile_addendum()

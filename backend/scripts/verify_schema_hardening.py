@@ -191,6 +191,21 @@ def _verify_intent_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
         )
     )
 
+    # 2.5 出处标注非空（ADR-0014 决策 1 · G-1：parser 自报 + 规则交叉校正
+    # 兜底后，intent.field_provenance 应至少覆盖 social_context 等必填标量）
+    provenance = payload.get("field_provenance") or {}
+    ok_provenance = isinstance(provenance, dict) and len(provenance) > 0
+    lines.append(
+        _bullet(
+            ok_provenance,
+            (
+                f"field_provenance 非空（ADR-0014 G-1）：{len(provenance)} 条"
+                if ok_provenance
+                else "field_provenance 为空（出处标注未生效）"
+            ),
+        )
+    )
+
     # 3. 语义断言
     sem_ok = True
     if "min_companions" in asserts:
@@ -259,7 +274,7 @@ def _verify_intent_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
         sem_ok &= cond
         lines.append(_bullet(cond, f"parse_confidence ≤ {asserts['max_parse_confidence']} (实际 {c})"))
 
-    return ok_fields and ok_dict and sem_ok, lines
+    return ok_fields and ok_dict and ok_provenance and sem_ok, lines
 
 
 # ============================================================

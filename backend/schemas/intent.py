@@ -27,7 +27,7 @@ ADR-0014 G-0（2026-07-03）砍除记录：
 - LLM Prompt 设计（在 backend/prompts）。
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, conint, conlist
 
@@ -41,6 +41,18 @@ from schemas.tags import (
 
 # 时长 [min, max] 元组：min ≤ max ≤ 12（半日上限放宽给 8-10 兜底场景）
 DurationRange = conlist(conint(ge=0, le=12), min_length=2, max_length=2)
+
+
+# ADR-0014 决策 1（G-1，2026-07-03，二轮拷问修订）：字段出处四值枚举。
+# - user_stated：用户这句话原话直接给出（即使做了口语→词典的直译，如"老婆"→"妻子"）。
+# - inferred：用户没有直接要求这个属性，是从其他信息（年龄/身体状况/情绪/同伴关系等）
+#   推断出来的（如"孩子 5 岁"推断出"亲子友好"；S7 类"安安静静"推断出更贴切的安静类
+#   标签，标签本身源于用户的话但非字面复述）——降级序位居中：比 user_stated 弱、
+#   比 prior/default 强，narration 可以说"我猜你想要…，不对可以说"。
+# - prior：值来自 persona 画像/历史偏好注入（用户这句话没有另外提及），见
+#   `intent_parser_prompt.compute_injected_priors`。
+# - default：用户未提且无可用先验，纯粹是 schema 默认值。
+FieldProvenance = Literal["user_stated", "inferred", "prior", "default"]
 
 
 class Companion(BaseModel):
@@ -164,4 +176,24 @@ class IntentExtraction(BaseModel):
     )
     ambiguous_fields: list[str] = Field(
         default_factory=list, description='LLM 自报"哪些字段我不确定"'
+    )
+
+    # ===== 字段出处（ADR-0014 决策 1，G-1）=====
+    field_provenance: Optional[dict[str, FieldProvenance]] = Field(
+        default=None,
+        description=(
+            "字段/元素出处标注。标量字段键=字段名本身（如 'distance_max_km'）；"
+            "列表字段键='字段名:元素值'（如 'dietary_constraints:不辣'），逐元素标——"
+            "一个 dietary 列表里可能'不辣'是用户说的、'日料'是先验注入的，字段级一个"
+            "标签盖不住。覆盖范围（G-1 拍板，非全字段）：标量 start_time/"
+            "start_weekday/duration_hours/distance_max_km/social_context/"
+            "capacity_requirement；列表 physical_constraints/dietary_constraints/"
+            "experience_tags/extra_services。companions（自由文本、无先验注入通道）、"
+            "preferred_poi_types（自由文本、无 canonical 化正向函数、且当前 prompt"
+            "设计下只有 user_stated 一条来源路径，标了也恒为 user_stated）、"
+            "raw_input/parse_confidence/ambiguous_fields（描述抽取过程本身而非需求"
+            "内容）不在本字段覆盖范围内，理由见 docs/adr/0014 决策 1 落地报告。"
+            "Optional 默认 None——旧 checkpoint（无此字段）免迁移，读取时把 None"
+            "当『无出处信息』处理，不强行倒推。"
+        ),
     )

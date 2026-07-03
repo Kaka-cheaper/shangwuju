@@ -49,6 +49,16 @@ class StubLLMClient:
             "raw_input": _last_user(messages),
             "parse_confidence": 0.88,
             "ambiguous_fields": [],
+            # ADR-0014 决策 1（G-1）：本 stub 的固定 JSON 被多处测试当作
+            # "任意一次 client.chat() 的通用回复"复用（不止 parse_intent，
+            # 也包括 itinerary_qa._abstain 等把 resp.content 直接当 reply_text
+            # 使用、且有长度上限的调用点——见 RouterDecision.reply_text ≤400
+            # 字）。刻意**不**在这里加 field_provenance 自报键：加长这段固定
+            # JSON 会顶穿那些无关调用点的长度上限（已实测 test_e0a_graph_
+            # confirm_writeback 因此炸——真实字段值不缺：parse_intent 的规则
+            # 交叉校正（_apply_provenance_correction）会在 LLM 自报缺失时
+            # 按 schema 默认值兜底补全，field_provenance 依然会被正确写入，
+            # 不需要 stub 显式给出这个键。
         }
         return LLMChatResponse(
             content=json.dumps(sample_intent, ensure_ascii=False),

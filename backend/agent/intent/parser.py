@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ from .prompts.intent_parser_prompt import (
     INTENT_PARSER_FEW_SHOTS,
     INTENT_PARSER_SYSTEM_PROMPT,
     build_intent_parser_system_prompt_with_priors,
+    compute_injected_priors,
 )
 
 
@@ -100,6 +102,125 @@ def _parse_json(text: str | None) -> dict:
     return data
 
 
+# ============================================================
+# ADR-0014 决策 1（G-1）：首轮出处——LLM 自报 + 规则交叉校正
+# ============================================================
+#
+# 先验注入集是已知的（`compute_injected_priors`，与实际拼进 prompt 的
+# `build_intent_parser_system_prompt_with_priors` 用同一份 `data.memory_store.
+# compute_priors` 计算，不重复定义一份"哪些算先验"——真相源声明纪律）。
+# 校正只做一个方向的纠偏："LLM 自报的出处 = 先验值本身、但原话确实没提"，
+# 这是 ADR 证实的唯一失配方向（先验拼进输出后 LLM 把它当 user_stated 交差）；
+# 反方向（自报 prior 但原话其实提了）不做规则纠正，ADR 未要求，也没有同等
+# 强度的证据支撑。冲突时规则赢——不管 LLM 自报什么，命中条件就强制 prior。
+
+_SCALAR_PROVENANCE_FIELDS: tuple[str, ...] = (
+    "start_time",
+    "start_weekday",
+    "duration_hours",
+    "distance_max_km",
+    "social_context",
+    "capacity_requirement",
+)
+
+# 列表字段里"有先验注入通道"的三类受控词典（先验可能把值塞进这三个字段）。
+_LIST_FIELDS_WITH_PRIOR: tuple[str, ...] = (
+    "physical_constraints",
+    "dietary_constraints",
+    "experience_tags",
+)
+
+# extra_services 无先验注入通道（persona/memory 都不会喂它），只做自报兜底，
+# 不做 prior 强制纠偏。preferred_poi_types / companions 不在 field_provenance
+# 覆盖范围内（见 schemas/intent.py::IntentExtraction.field_provenance 字段
+# docstring 的范围拍板），不在这里处理。
+_LIST_FIELDS_NO_PRIOR: tuple[str, ...] = ("extra_services",)
+
+# 标量字段的 schema 默认值（用于自报缺失时的 default/user_stated 兜底判断）。
+# 没有"自然默认值"的字段（start_time/start_weekday/capacity_requirement）不登记，
+# 缺自报时一律兜底 user_stated（这几个字段只要有值，几乎总是来自用户或明确推断，
+# 不存在"随手给个默认数字"的情况）。
+_SCALAR_SCHEMA_DEFAULTS: dict[str, object] = {
+    "duration_hours": [4, 6],
+    "distance_max_km": 5.0,
+    "social_context": "家庭日常",
+}
+
+_DISTANCE_HINT_RE = re.compile(
+    r"\d+\s*(公里|千米|km|米)|太远|远一点|远点|近一点|近些|别太远|靠近|不限距离"
+)
+
+
+def _floats_equal(a: float, b: float, tol: float = 1e-6) -> bool:
+    return abs(float(a) - float(b)) < tol
+
+
+def _distance_stated_in_raw(raw: str) -> bool:
+    """raw_input 里是否有"用户自己提过距离"的文字线索（数字+单位，或远近措辞）。
+
+    只用于："输出的 distance_max_km 恰好等于先验建议距离"时，判断这个巧合
+    是先验补的还是用户自己也说了同一个数——有线索就不强制纠正为 prior
+    （宁可信自报，不误伤真正的用户输入）。
+    """
+    return bool(_DISTANCE_HINT_RE.search(raw or ""))
+
+
+def _apply_provenance_correction(
+    intent: IntentExtraction, user_id: str | None
+) -> IntentExtraction:
+    """首轮出处：LLM 自报 + 规则交叉校正（ADR-0014 决策 1）。
+
+    覆盖范围与键规范见 `schemas.intent.IntentExtraction.field_provenance`
+    字段 docstring。规则：
+    - 命中"值 == 先验值 且原话未提"→ 机械回标 `prior`（覆盖自报，规则赢）。
+    - 否则沿用 LLM 自报；自报缺失时按 schema 默认值兜底（等于默认值→
+      `default`，否则 `user_stated`）。
+    """
+    priors = compute_injected_priors(user_id)
+    self_reported = dict(intent.field_provenance or {})
+    raw = intent.raw_input or ""
+    corrected: dict[str, str] = {}
+
+    for field in _SCALAR_PROVENANCE_FIELDS:
+        value = getattr(intent, field)
+        if value is None:
+            continue
+
+        forced_prior = False
+        if field == "social_context" and priors.social_context is not None:
+            forced_prior = value == priors.social_context and value not in raw
+        elif field == "distance_max_km" and priors.distance_max_km is not None:
+            forced_prior = _floats_equal(
+                value, priors.distance_max_km
+            ) and not _distance_stated_in_raw(raw)
+
+        if forced_prior:
+            corrected[field] = "prior"
+            continue
+
+        reported = self_reported.get(field)
+        if reported:
+            corrected[field] = reported
+        else:
+            default_val = _SCALAR_SCHEMA_DEFAULTS.get(field)
+            corrected[field] = "default" if value == default_val else "user_stated"
+
+    for field in _LIST_FIELDS_WITH_PRIOR:
+        for value in getattr(intent, field) or []:
+            key = f"{field}:{value}"
+            if value in priors.tags and value not in raw:
+                corrected[key] = "prior"
+            else:
+                corrected[key] = self_reported.get(key) or "user_stated"
+
+    for field in _LIST_FIELDS_NO_PRIOR:
+        for value in getattr(intent, field) or []:
+            key = f"{field}:{value}"
+            corrected[key] = self_reported.get(key) or "user_stated"
+
+    return intent.model_copy(update={"field_provenance": corrected})
+
+
 def parse_intent(
     user_input: str,
     *,
@@ -152,6 +273,9 @@ def parse_intent(
         # 规则修正：raw_input 兜底；ambiguous_fields 缺失时按 confidence 推断
         if not intent.raw_input:
             intent = intent.model_copy(update={"raw_input": user_input})
+        # ADR-0014 决策 1（G-1）：出处交叉校正（必须在 raw_input 兜底之后——
+        # 校正要用最终 raw_input 判断"原话有没有提到"）
+        intent = _apply_provenance_correction(intent, user_id)
         return intent
 
     # 不应到达

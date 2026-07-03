@@ -233,6 +233,79 @@ def detect_unmet_poi_preference(
 
 
 # ============================================================
+# ADR-0014 决策 1（G-1）：出处诚实告知（narration 两个消费方之一）
+# ============================================================
+
+_PROVENANCE_TAG_FIELDS_FOR_DISCLOSURE = (
+    "dietary_constraints",
+    "physical_constraints",
+    "experience_tags",
+)
+
+
+def _provenance_hints(intent: IntentExtraction) -> dict:
+    """从 intent.field_provenance 提炼"值得跟用户说一声"的出处信号。
+
+    只挑两类信号（其余出处值 user_stated/prior 对本消费方没有"讲出来有用"
+    的价值——G-2 才会引入 hard×prior 的告知口径区分，本期不做）：
+    - distance_max_km 出处为 default（用户没提距离、也没有先验）
+    - 三类受控标签里第一个出处为 inferred 的元素（按 dietary→physical→
+      experience 顺序取第一个命中，避免同一句话堆一串标签）
+
+    intent.field_provenance 为 None/空（旧数据、stub、未跑校正）→ 返回 {}，
+    模板路径/LLM 路径都天然不产生这句话，不影响既有 narration 回归。
+    """
+    provenance = intent.field_provenance
+    if not provenance:
+        return {}
+
+    hints: dict = {}
+    if provenance.get("distance_max_km") == "default":
+        hints["distance_default"] = True
+        hints["distance_km"] = intent.distance_max_km
+
+    for field in _PROVENANCE_TAG_FIELDS_FOR_DISCLOSURE:
+        values = getattr(intent, field) or []
+        inferred_value = next(
+            (v for v in values if provenance.get(f"{field}:{v}") == "inferred"),
+            None,
+        )
+        if inferred_value is not None:
+            hints["inferred_tag"] = inferred_value
+            break
+
+    return hints
+
+
+def _provenance_honest_clause(intent: IntentExtraction) -> str:
+    """出处诚实告知一句话——模板路径确定性生成（LLM 路径走 prompt 指令，
+    见 `_call_llm_narrator` 传的 provenance_hints + narrator_prompt.py
+    【出处诚实告知】段；两条路径各自生成文案，不共享文本，同 unmet_cuisines/
+    advisories 的"模板确定性、LLM 走指令"分工）。
+
+    返回空串 = 无信号（intent.field_provenance 为 None，或没有 default/
+    inferred 命中）——不影响既有 narration 回归（旧数据 field_provenance
+    默认 None，本函数天然跳过）。
+    """
+    hints = _provenance_hints(intent)
+    if not hints:
+        return ""
+
+    parts: list[str] = []
+    if hints.get("distance_default"):
+        dist = hints["distance_km"]
+        dist_str = f"{dist:.0f}" if float(dist).is_integer() else f"{dist}"
+        parts.append(f"距离你没提，我按默认 {dist_str} 公里安排的")
+    inferred_tag = hints.get("inferred_tag")
+    if inferred_tag:
+        parts.append(f"我从你的话里猜你可能想要「{inferred_tag}」，不合适可以跟我说")
+
+    if not parts:
+        return ""
+    return "，".join(parts) + "。"
+
+
+# ============================================================
 # ADR-0013 F-3：节点调整按钮（模板确定性生成器 + LLM 输出校验）
 # ============================================================
 #
@@ -785,6 +858,11 @@ def _template_narration(
         # 现实上限 ~4 句），这里全量渲染——「绝不默默忽略」的通道自己因 [:2]
         # 吞掉第三句告知，是本末倒置。
         honest_segments.extend(advisories)
+    # ADR-0014 决策 1（G-1）：出处诚实告知——"距离你没提我按默认" /
+    # "我从你的话里猜你想要 X"，与上面两类同属"诚实"语义，并入同一段。
+    provenance_clause = _provenance_honest_clause(intent)
+    if provenance_clause:
+        honest_segments.append(provenance_clause)
     honest_text = ("说明一下，" + "".join(honest_segments)) if honest_segments else ""
 
     # ADR-0010 边界节：活动数 ≥3 时追加"为什么选这几个、为什么这样排"一句话
@@ -1007,6 +1085,11 @@ def _call_llm_narrator(
         want_title=want_title,
         node_chip_context=node_chip_context,
         plan_recap=plan_recap,
+        # ADR-0014 决策 1（G-1）：出处诚实告知信号（distance 默认 / 首个
+        # inferred 标签），LLM 路径走 prompt 指令自行组词（narrator_prompt.py
+        # 【出处诚实告知】段），不复用模板路径 `_provenance_honest_clause` 的
+        # 现成句子。
+        provenance_hints=_provenance_hints(intent),
     )
 
     try:

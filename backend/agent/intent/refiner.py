@@ -158,6 +158,104 @@ def summarize_itinerary(itinerary: object) -> str | None:
     return (header + "\n".join(lines)).strip()
 
 
+# ============================================================
+# ADR-0014 决策 1（G-1）：反馈轮出处传播——纯规则，不要 LLM 自报
+# ============================================================
+#
+# 与 parser 首轮（LLM 自报 + 规则交叉校正）不同：反馈轮不要求 refiner 的
+# LLM 自己判断出处，而是对 (original, refined) 两份 IntentExtraction 做
+# 结构化 diff 现算——"changed_fields 对应的字段/新元素" 就是这个 diff 的
+# 直接结果，不解析 changed_fields 的中文自由文本（那是给用户看的，不是给
+# 程序判断用的信号源）。两条产出路径（LLM 成功 / _rule_fallback 兜底）都
+# 在各自返回前调用同一个函数，保证无论走哪条路径出处传播规则一致。
+
+_SCALAR_PROVENANCE_FIELDS: tuple[str, ...] = (
+    "start_time",
+    "start_weekday",
+    "duration_hours",
+    "distance_max_km",
+    "social_context",
+    "capacity_requirement",
+)
+
+_LIST_PROVENANCE_FIELDS: tuple[str, ...] = (
+    "physical_constraints",
+    "dietary_constraints",
+    "experience_tags",
+    "extra_services",
+)
+
+# "重申升级"（值没变，但反馈原话又重新提了一遍 → 升级 user_stated）只对
+# "值是可读中文短语、可能直接出现在反馈原话里"的字段做字面核对。数字类标量
+# （distance_max_km/duration_hours/capacity_requirement）子串匹配噪声太大
+# （"5"这种短数字极易在无关文本里假阳性命中），排除，只保留"继承原出处"语义。
+_REASSERT_CHECKABLE_SCALAR_FIELDS: frozenset[str] = frozenset({"social_context", "start_weekday"})
+
+
+def _propagate_field_provenance(
+    original: IntentExtraction,
+    refined: IntentExtraction,
+    feedback_text: str,
+) -> dict[str, str]:
+    """反馈轮出处传播——纯规则，不依赖 LLM 自报（ADR-0014 决策 1）。
+
+    对 original/refined 两份 IntentExtraction 做结构化 diff：
+    - 标量字段：值变了 → `user_stated`；值未变 → 继承原出处（若原出处非
+      `user_stated` 且反馈原话字面重申了该值 → 升级 `user_stated`，仅对
+      `_REASSERT_CHECKABLE_SCALAR_FIELDS` 做重申检测）。
+    - 列表字段：新元素（refined 有、original 没有）→ `user_stated`；仍存在
+      的元素继承原出处（同上重申升级检测，列表元素都是中文短语，天然适用）；
+      撤回的元素（original 有、refined 没有）不写回 key——出处键同步清理。
+    - 原本没有 provenance 记录的字段/键（老数据 / 首轮未标）在未变更时也
+      不写回（保持 Optional 语义，不无中生有）。
+    """
+    old_prov = dict(original.field_provenance or {})
+    new_prov: dict[str, str] = {}
+    fb = feedback_text or ""
+
+    for field in _SCALAR_PROVENANCE_FIELDS:
+        old_val = getattr(original, field)
+        new_val = getattr(refined, field)
+        if new_val != old_val:
+            new_prov[field] = "user_stated"
+            continue
+        old_p = old_prov.get(field)
+        if old_p is None:
+            continue
+        if (
+            old_p != "user_stated"
+            and field in _REASSERT_CHECKABLE_SCALAR_FIELDS
+            and isinstance(new_val, str)
+            and new_val
+            and new_val in fb
+        ):
+            new_prov[field] = "user_stated"
+        else:
+            new_prov[field] = old_p
+
+    for field in _LIST_PROVENANCE_FIELDS:
+        old_list = list(getattr(original, field) or [])
+        new_list = list(getattr(refined, field) or [])
+        old_set = set(old_list)
+        for value in new_list:
+            key = f"{field}:{value}"
+            if value not in old_set:
+                new_prov[key] = "user_stated"
+                continue
+            old_p = old_prov.get(key)
+            if old_p is None:
+                continue
+            if old_p != "user_stated" and value in fb:
+                new_prov[key] = "user_stated"
+            else:
+                new_prov[key] = old_p
+        # 撤回元素（old_set 里有、new_list 没有）：对应 key 不写入 new_prov，
+        # 即"出处键同步清理"——上面的循环天然只遍历 new_list，撤回的元素
+        # 根本不会进入这一轮，键就此消失。
+
+    return new_prov
+
+
 def _compose_raw_input(original_raw: str, feedback: str) -> str:
     """决定 refined.raw_input 的拼法（下游 preference_scorer / 重规划 message 都读它）。
 
@@ -288,6 +386,16 @@ def _llm_refine(
     # 字段没真改。强制对齐反馈里的具体小时数。
     refined_intent, fixed_changed = _enforce_duration_consistency(
         refined_intent, raw_changed, feedback_text
+    )
+
+    # ADR-0014 决策 1（G-1）：反馈轮纯规则传播出处，覆盖/忽略 LLM 在
+    # refined_intent.field_provenance 里可能自报的任何值（"不要 LLM 自报"）。
+    refined_intent = refined_intent.model_copy(
+        update={
+            "field_provenance": _propagate_field_provenance(
+                original, refined_intent, feedback_text
+            )
+        }
     )
 
     return RefinementOutput(
@@ -539,6 +647,15 @@ def _rule_fallback(
         updates["raw_input"] = _compose_raw_input(original.raw_input, feedback)
 
     refined = original.model_copy(update=updates)
+    # ADR-0014 决策 1（G-1）："_rule_fallback 路径同样维护"——它改
+    # distance_max_km / duration_hours / dietary_constraints / experience_tags
+    # 时同样要走纯规则出处传播（如"太久了"命中 SESSION_TOO_LONG 缩
+    # duration_hours 时标 user_stated）。
+    refined = refined.model_copy(
+        update={
+            "field_provenance": _propagate_field_provenance(original, refined, feedback)
+        }
+    )
     if changed:
         note = "已基于反馈关键词做轻量调整（LLM 不可用，走规则化兜底）。"
     elif is_scenario:

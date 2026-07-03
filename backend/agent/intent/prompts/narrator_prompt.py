@@ -177,6 +177,21 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 输出：
 你说想看个展，不过这附近合适的展馆这次没排上，先带你和女朋友去猫咖和电影院凑个完整下午，氛围也安静浪漫。想看展的话我再帮你找远一点的。
 
+【出处诚实告知（ADR-0014 决策 1 · G-1）】
+系统现在会记录每个需求字段"是怎么来的"（用户原话 / 从用户的话推断 / 你的历史
+偏好档案补的 / 纯系统默认）。收到 `【出处信息】` 字段时，请在开场白里用**口语化
+的一两句话**诚实体现"用户没提的地方我是怎么补的"：
+
+- 规则 1：收到"距离用的是系统默认"信号 → 自然带一句"你没提距离，我按默认 X
+  公里安排的"这类口径（不要生硬照抄，随文风走）。
+- 规则 2：收到"某个标签是推断出来的"信号 → 自然带一句"我从你的话里猜你可能
+  想要 Y，不合适可以跟我说"这类口径——语气是**猜测 + 邀请纠正**，不是宣称
+  "我懂你"的自信断言（inferred 出处本来就没有 user_stated 那么确定）。
+- 规则 3：这句话跟【诚实告知规则】（未满足品类）同属"诚实"这一类文案，可以
+  合并进同一句里自然带出，不必另起一段、不用"出处："这种说明书口吻。
+- 规则 4：没有收到 `【出处信息】` 字段时不要瞎猜/不要主动提"出处"这个词——
+  没有信号就正常写开场白。
+
 【中文词典强约束（如果你在 narrator 文案中引用 tag 词汇）】
 若你在自然语言中提到 tag 词汇（如「亲子友好」「低脂」「商务体面」），必须使用中文词典里的精确措辞，
 **不得**写成英文（如 "kid-friendly"）或拼音。但 narrator 是面向用户的口语文案，
@@ -277,6 +292,7 @@ def build_narrator_user_message(
     want_title: bool = False,
     node_chip_context: list[dict] | None = None,
     plan_recap: str = "",
+    provenance_hints: dict | None = None,
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
 
@@ -305,6 +321,10 @@ def build_narrator_user_message(
             反馈调的"回顾材料（来自会话上下文打包器的方案版本志切片），追加
             一句 prompt 指令要求 LLM 自然带出。空串 = 不触发（首轮/非反馈轮
             不硬扯）。
+        provenance_hints: ADR-0014 决策 1（G-1）新增。出处诚实告知信号，形如
+            `{"distance_default": bool, "distance_km": float, "inferred_tag":
+            str | None}`（见 `agent.intent.narrator._provenance_hints`）。
+            None / 全 False+None = 不触发（不附加【出处信息】段）。
 
     Returns:
         给 LLM 的 user message 文本。
@@ -381,6 +401,20 @@ def build_narrator_user_message(
             f"【上版回顾】{plan_recap}\n"
             f"→ 请在文案里自然带一句简短回顾这版是照哪条反馈调的（不要生硬照抄，不要另起一段）。"
         )
+    if provenance_hints:
+        prov_lines: list[str] = []
+        if provenance_hints.get("distance_default"):
+            dist = provenance_hints.get("distance_km")
+            prov_lines.append(f"距离用的是系统默认 {dist} 公里（用户没有提距离）")
+        inferred_tag = provenance_hints.get("inferred_tag")
+        if inferred_tag:
+            prov_lines.append(f"标签「{inferred_tag}」是你从用户的话里推断出来的，不是用户直接要求的")
+        if prov_lines:
+            extras.append(
+                f"【出处信息】{'；'.join(prov_lines)}\n"
+                f"→ 请按【出处诚实告知】规则用口语化的一两句话自然体现，不要另起一段、"
+                f"不要说「出处」这个词。"
+            )
     extras_block = ("\n\n" + "\n\n".join(extras)) if extras else ""
 
     title_block = ""
