@@ -50,4 +50,6 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 
 ## 落地状态
 
-⏳ 待实施(bug 修复批——氛围词漏传/桌型精确匹配守门——2026-07-03 已先行派出,不占 G 编号)。
+🔁 部分落地。bug 修复批(氛围词漏传/桌型守门)已落地 e70c6c1。
+**G-0 已完成**(2026-07-03):"太久了"收缩契约迁移到 duration_hours(探针红转绿,用户可见效果兑现)+pace_profile/PaceProfile/gender_mix 全链砍除;超任务书排雷三处(personas.json 死键 extra=forbid 隐患/migrate_mock_v2 幂等复活步骤/verify_planning_quality 失效检查);redis 旧 checkpoint 兼容代价已声明接受(demo memory 模式)。1355 passed。
+余 G-1→G-4。
