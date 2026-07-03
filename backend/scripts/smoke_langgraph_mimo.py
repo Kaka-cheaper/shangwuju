@@ -28,6 +28,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 共享 extra_body 常量：见 agent.core.llm_client.MIMO_THINKING_DISABLED_EXTRA_BODY
+# docstring——冒烟修复批核实，MiMo 关闭「深度思考」走的是官方文档 mimo.mi.com/docs
+# "Deep Thinking Mode" 的 `extra_body={"thinking": {"type": "disabled"}}`；OpenAI
+# SDK/官方文档均无 `enable_thinking` 这个字段或别名（本脚本原先用的
+# `{"enable_thinking": False}` 是误用，`agent/intent/narrator.py` 顶部注释早已
+# 点名此处待修，本次改动就是那个修复）。延迟到函数内部再 import，与下方
+# `langchain_openai` 同款按需 import 保持一致（模块顶层不引入 agent 包依赖，
+# 避免 stub 模式下不需要真 LLM 时也强制拉起 agent 层）。
+
 
 # ============================================================
 # Stub 模式跳过
@@ -58,6 +67,8 @@ async def smoke_test() -> int:
         print(f"[FAIL] langchain_openai import 失败：{e}")
         return 1
 
+    from agent.core.llm_client import MIMO_THINKING_DISABLED_EXTRA_BODY
+
     api_key = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY") or ""
     base_url = os.getenv("LLM_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL") or ""
     model = os.getenv("LLM_MODEL") or os.getenv("DEEPSEEK_MODEL") or "mimo-v2.5-pro"
@@ -80,8 +91,11 @@ async def smoke_test() -> int:
             max_retries=2,
             # MiMo / DeepSeek-R1 / Kimi 等 thinking 模型在多轮工具调用时
             # 会要求把 reasoning_content 回传 API。LangGraph 默认不携带，
-            # 关掉 thinking 模式规避（参考 MiMo 官方 vllm recipe + LiteLLM #23828）
-            extra_body={"enable_thinking": False},
+            # 关掉 thinking 模式规避（参考 MiMo 官方 vllm recipe + LiteLLM #23828）。
+            # 共享常量而非本地字面量：见 agent.core.llm_client.
+            # MIMO_THINKING_DISABLED_EXTRA_BODY docstring（冒烟修复批核实：
+            # `enable_thinking` 不是 MiMo/OpenAI SDK 的合法字段，之前是误用）。
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         print("      ✓ ChatOpenAI 初始化成功")
     except Exception as e:
