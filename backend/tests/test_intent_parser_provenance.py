@@ -5,7 +5,9 @@ correction`）：
 1. 无 user_id（无先验注入）→ 自报原样通过，不误伤。
 2. 先验值命中 + 原话未提 → 机械回标 prior，覆盖 LLM 自报（"冲突时规则赢"）。
 3. 值虽等于先验值，但原话确实提到 → 不强制纠正，保留自报。
-4. distance_max_km / social_context 标量字段同样适用先验强制纠正。
+4. distance_max_km 标量字段同样适用先验强制纠正；social_context 自
+   ADR-0014 横向深审 P1 起豁免这条强纠正（该字段本就"几乎总是 inferred"，
+   字面等值不是"抄了先验"的可靠信号，见下方对应测试）。
 5. 自报缺失时按 schema 默认值兜底（default / user_stated）。
 
 用固定 JSON 假 client（不复用全局 StubLLMClient——那份 fixture 内容固定，
@@ -148,15 +150,37 @@ def test_distance_not_forced_when_raw_input_mentions_distance():
     assert intent.field_provenance["distance_max_km"] == "user_stated"
 
 
-def test_social_context_equal_to_prior_and_unmentioned_forced_to_prior():
+def test_social_context_self_reported_inferred_and_equal_to_persona_default_stays_inferred():
+    """ADR-0014 横向深审 P1：`social_context` 已从 forced_prior 校正中豁免——
+    LLM 自报 `inferred`（"我猜你想要…"旗舰话术依赖的出处），即使推断值恰好
+    等于 persona 先验首选（u_dad 的 `suitable_for_priority[0]` == "家庭日常"），
+    也不该被机械纠正成 `prior`。`social_context` 本就"几乎总是 inferred"
+    （从整句话综合推断场景，原话不会逐字出现"家庭日常"四个字），字面等值
+    不是"抄了先验"的可靠信号——豁免前这里会被强纠正成 `prior`，压制旗舰
+    话术；豁免后原样保留 LLM 自报。"""
     raw = "今天下午想出去转转"
     payload = _full_payload(
         raw,
         social_context="家庭日常",  # u_dad persona 的 suitable_for_priority[0]
+        field_provenance={"social_context": "inferred"},
+    )
+    intent = parse_intent(raw, client=_FixedJsonClient(payload), user_id="u_dad")
+    assert intent.field_provenance["social_context"] == "inferred"
+
+
+def test_social_context_self_reported_user_stated_and_equal_to_persona_default_stays_user_stated():
+    """同上，覆盖自报 `user_stated` 的情形——`social_context` 豁免后无论
+    LLM 自报什么出处，只要原话没有可疑的自相矛盾，一律信任自报，不再有任何
+    "字面等于先验值就强纠正"的分支（同 distance_max_km 的既有分支相区分，
+    该分支保留不动，见下方测试 4）。"""
+    raw = "今天下午想出去转转"
+    payload = _full_payload(
+        raw,
+        social_context="家庭日常",
         field_provenance={"social_context": "user_stated"},
     )
     intent = parse_intent(raw, client=_FixedJsonClient(payload), user_id="u_dad")
-    assert intent.field_provenance["social_context"] == "prior"
+    assert intent.field_provenance["social_context"] == "user_stated"
 
 
 # ============================================================

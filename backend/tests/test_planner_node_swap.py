@@ -49,19 +49,23 @@ def _intent(
     *,
     start_time: str = "2026-07-02T14:00",
     duration_hours: list[int] | None = None,
+    dietary_constraints: list[str] | None = None,
+    physical_constraints: list[str] | None = None,
+    field_provenance: dict[str, str] | None = None,
 ) -> IntentExtraction:
     return IntentExtraction(
         start_time=start_time,
         duration_hours=duration_hours if duration_hours is not None else [1, 10],
         distance_max_km=50.0,
         companions=[],
-        physical_constraints=[],
-        dietary_constraints=[],
+        physical_constraints=physical_constraints or [],
+        dietary_constraints=dietary_constraints or [],
         experience_tags=[],
         social_context="独处放空",
         raw_input="测试",
         parse_confidence=0.9,
         ambiguous_fields=[],
+        field_provenance=field_provenance,
     )
 
 
@@ -358,6 +362,34 @@ def test_feasible_alternatives_excludes_time_infeasible_candidates():
     assert picked.kind == "restaurant"
 
 
+def test_feasible_alternatives_excludes_entities_already_placed_elsewhere_in_itinerary():
+    """深审追加发现（冒烟 harness 实测炸出的真实 bug，非推测）：
+    `feasible_alternatives` 用 `try_insert` 直接预验证，`try_insert` 不检查
+    候选是否已经是方案里**另一个**节点在用的实体；而真正执行换菜的
+    `resolve_node_swap` 走 `route_builder.repair_route`，其 `kept_keys` 去重
+    会自动把"已在场实体"从候选池里剔除。两条路径若不对齐，`feasible_
+    alternatives` 会把"方案里另一个节点正在用的这个 POI"展示成"可行备选"，
+    用户点了之后 `resolve_node_swap` 却会因为"新候选"其实是空的而以
+    `SWAP_NO_ALTERNATIVE_FOUND` 拒绝——违反 ADR-0013"预验证可行才展示"的
+    字面承诺。这里用两个 POI 节点（PA1 已在场、PB1 是目标）验证：真正的新
+    候选 PC1 该出现，PA1（另一个节点正在用）绝不该出现。
+    """
+    intent = _intent()
+    poi_a = _poi(poi_id="PA1")  # 已在方案里占着另一个节点
+    poi_b = _poi(poi_id="PB1", poi_type="博物馆")  # 目标节点
+    itinerary = _build_itinerary(intent, [poi_a, poi_b], depart_min=14 * 60)
+    assert _node_ids(itinerary) == ["home", "PA1", "PB1", "home"]
+
+    poi_new = _poi(poi_id="PC1", poi_type="博物馆")  # 真正的新候选
+
+    alternatives = node_swap.feasible_alternatives(
+        itinerary, intent, pois=[poi_a, poi_b, poi_new], restaurants=[], target_node_id="PB1", k=5
+    )
+    ids = {a.target_id for a in alternatives}
+    assert "PA1" not in ids, "PA1 是方案里另一个节点正在用的实体，不该被展示为 PB1 的备选"
+    assert "PC1" in ids
+
+
 # ============================================================
 # 7. advisory 人话（自包含中文，不泄漏内部字段名/id）
 # ============================================================
@@ -474,3 +506,149 @@ def test_node_adjustment_accepts_valid_combinations():
     NodeAdjustment(dimension=NodeAdjustmentDimension.AMBIENCE, value="安静聊天")
     NodeAdjustment(dimension=NodeAdjustmentDimension.CROWD_FIT, value="亲子友好")
     NodeAdjustment(dimension=NodeAdjustmentDimension.CUISINE_OR_TYPE, value="粤菜")
+
+
+# ============================================================
+# 11. ADR-0014 横向深审 P0：候选池 hard 恒定过滤——绝不换入违反 hard 约束的候选
+# ============================================================
+#
+# 三条路径（点踩 / 定向调整 / 具名备选）各来一条：candidate 池里刻意放一个
+# "评分更高/更满足调整方向，但违反用户 hard 约束（不辣）"的辣店，验证正确
+# 实现绝不会因为它"矮子里拔将军"更优就选中它。
+
+
+def test_hard_dietary_constraint_filters_spicy_candidate_on_dislike():
+    """无方向换（点踩）：评分极高的辣店违反 hard「不辣」，必须被恒定过滤
+    掉——不过滤的话它会凭评分优势胜出（已用探针验证：`rest_tag_hit` 命中
+    「不辣」带来的 comfort 加分，本可以被够大的评分差抵消，rating=5.0 vs
+    1.0 时确凿会让辣店在 `_utility` 打分上反超，见 `ils_planner._utility`
+    的 comfort 分量）。"""
+    intent = _intent(dietary_constraints=["不辣"])
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    rb_spicy = _rest(rest_id="RB_SPICY", cuisine="火锅", rating=5.0, tags=[])  # 无「不辣」tag，真违反 hard
+    rb_safe = _rest(rest_id="RB_SAFE", cuisine="火锅", rating=1.0, tags=["不辣"])
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_spicy, rb_safe], target_node_id="RB1", adjustment=None
+    )
+    assert result.success
+    assert result.swapped_to == "RB_SAFE", "评分更高的辣店违反 hard 约束，绝不该被选中"
+
+
+def test_hard_dietary_constraint_filters_spicy_candidate_on_directed_price_adjustment():
+    """定向调整「更便宜」：更便宜、评分极高的辣店违反 hard「不辣」，即使它
+    完美满足 adjustment 的方向谓词，也必须被过滤——不能因为"满足了用户这次
+    点的调整方向"就绕过一票否决的安全底线（评分差同上一测试同一理由，用
+    探针验证过不过滤会反转选择）。"""
+    intent = _intent(dietary_constraints=["不辣"])
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", avg_price=100.0, tags=["高人均"])
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    adjustment = NodeAdjustment(dimension=NodeAdjustmentDimension.PRICE, value="cheaper")
+    rb_spicy_cheap = _rest(rest_id="RB_SPICY", cuisine="火锅", avg_price=50.0, rating=5.0, tags=[])  # 更便宜但违反 hard
+    rb_safe_cheap = _rest(rest_id="RB_SAFE", cuisine="火锅", avg_price=60.0, rating=1.0, tags=["不辣"])  # 更便宜且满足 hard
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_spicy_cheap, rb_safe_cheap],
+        target_node_id="RB1", adjustment=adjustment,
+    )
+    assert result.success
+    assert result.swapped_to == "RB_SAFE", "更便宜的辣店违反 hard 约束，绝不该被选中"
+    assert result.degrade_tier == 1
+
+
+def test_hard_dietary_constraint_rejects_named_alternative_that_violates_hard_constraint():
+    """具名备选：用户点选的这一个若违反 hard 约束，`resolve_node_swap` 必须
+    拒绝换入（业务性失败 `SWAP_NO_ALTERNATIVE_FOUND`），不能因为 `narrow_
+    pool_to_single_alternative` 已经把候选池收窄到"只此一个"就绕过引擎自己
+    的 hard 过滤——收窄后候选池里"当前已在场实体"仍覆盖前置条件 2（不触发
+    ValueError），过滤只会剔除这一个违规的新候选，最终归于业务性失败。"""
+    from agent.planning.planners.node_swap_support import narrow_pool_to_single_alternative
+
+    intent = _intent(dietary_constraints=["不辣"])
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+    rb_spicy = _rest(rest_id="RB_SPICY", cuisine="日料", tags=[])  # 用户明确点了这个，但违反 hard
+
+    call_pois, call_rests = narrow_pool_to_single_alternative(
+        itinerary, [poi_a], [rb1, rb_spicy], "restaurant", rb_spicy
+    )
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, call_pois, call_rests, target_node_id="RB1", adjustment=None, ledger_slice=()
+    )
+    assert not result.success
+    assert any(a.code == AdvisoryCode.SWAP_NO_ALTERNATIVE_FOUND for a in result.advisories)
+    assert _node_ids(result.new_itinerary) == _node_ids(itinerary)
+
+
+def test_hard_physical_constraint_filters_violating_poi_candidate():
+    """POI 侧对称覆盖：hard 物理约束（无障碍）过滤"距离更近、评分更占优"但
+    违反它的候选——`dist=1.0` 的 `PA_BAD` 若不过滤，在无 hard 约束时确凿会
+    凭距离优势胜出（已用探针验证：同样两个候选、intent 无 physical_
+    constraints 时 `resolve_node_swap` 选中的正是 `PA_BAD`），加上 hard
+    约束后必须改选 `PA_OK`。"""
+    intent = _intent(physical_constraints=["无障碍"])
+    poi_a = _poi(poi_id="PA1", poi_type="博物馆", tags=[])
+    rb1 = _rest(rest_id="RB1")
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    poi_violates = _poi(poi_id="PA_BAD", poi_type="博物馆", tags=[], dist=1.0)  # 无「无障碍」tag，违反 hard
+    poi_safe = _poi(poi_id="PA_OK", poi_type="博物馆", tags=["无障碍"], dist=20.0)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a, poi_violates, poi_safe], restaurants=[rb1],
+        target_node_id="PA1", adjustment=None,
+    )
+    assert result.success
+    assert result.swapped_to == "PA_OK", "距离更近的候选违反 hard 约束，绝不该被选中"
+
+
+# ============================================================
+# 12. ADR-0014 横向深审 P0：换后单点审计——soft 未满足 → CONSTRAINT_RELAXED
+# ============================================================
+
+
+def test_soft_dietary_constraint_unmet_after_swap_produces_constraint_relaxed_advisory():
+    """换后单点审计（P0 修法 2）：新换入节点若未满足 soft 约束（出处非
+    default），换菜仍成功但要带 `CONSTRAINT_RELAXED` advisory 如实告知——
+    不是静默换了个不完全对味的上去。"""
+    intent = _intent(
+        dietary_constraints=["低脂"],
+        field_provenance={"dietary_constraints:低脂": "user_stated"},
+    )
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+    rb_new = _rest(rest_id="RB_NEW", cuisine="火锅", tags=[])  # 不含「低脂」（soft，非 hard）
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_new], target_node_id="RB1", adjustment=None
+    )
+    assert result.success
+    assert result.swapped_to == "RB_NEW"
+    relaxed = [a for a in result.advisories if a.code == AdvisoryCode.CONSTRAINT_RELAXED]
+    assert relaxed, result.advisories
+    assert "低脂" in relaxed[0].message
+    assert "你说的" in relaxed[0].message  # user_stated 出处口径
+
+
+def test_soft_constraint_unmet_with_default_provenance_produces_no_advisory():
+    """出处口径对称覆盖：`default`（无出处数据）不产生告知——同
+    `exit_audit.audit_constraint_relaxation` 的既定口径（模块 docstring
+    「出处口径」节），不是本步新引入的例外。"""
+    intent = _intent(dietary_constraints=["低脂"])  # 无 field_provenance
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+    rb_new = _rest(rest_id="RB_NEW", cuisine="火锅", tags=[])
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_new], target_node_id="RB1", adjustment=None
+    )
+    assert result.success
+    assert not any(a.code == AdvisoryCode.CONSTRAINT_RELAXED for a in result.advisories)

@@ -180,7 +180,11 @@ def _apply_provenance_correction(
 
     覆盖范围与键规范见 `schemas.intent.IntentExtraction.field_provenance`
     字段 docstring。规则：
-    - 命中"值 == 先验值 且原话未提"→ 机械回标 `prior`（覆盖自报，规则赢）。
+    - `distance_max_km` 命中"值 == 先验值 且原话未提"→ 机械回标 `prior`
+      （覆盖自报，规则赢）。`social_context` 豁免这条机械纠正（ADR-0014
+      横向深审 P1，见下方循环体内注释）——该字段本就"几乎总是 inferred"，
+      字面等值不是"抄了先验"的可靠信号，强纠正会系统性掐掉 LLM 正确自报的
+      `inferred` 出处。
     - 否则沿用 LLM 自报；自报缺失时按 schema 默认值兜底（等于默认值→
       `default`，否则 `user_stated`）。
     """
@@ -194,10 +198,20 @@ def _apply_provenance_correction(
         if value is None:
             continue
 
+        # ADR-0014 横向深审 P1：`social_context` 豁免 forced_prior 规则（此处
+        # 曾有与 distance_max_km 对称的一个分支：`value == priors.
+        # social_context and value not in raw` → 机械回标 prior）。豁免理由：
+        # `social_context` 是 LLM 对整句话语境的**综合推断**结果（"一家三口
+        # 周末出游" → "家庭日常"），不是像 distance_max_km 那样"数字恰好
+        # 抄一份先验默认值"的字面搬运——原话没有逐字出现"家庭日常"四个字是
+        # 这个字段的**常态**而非"抄了先验"的信号，用"字面是否出现在 raw
+        # 里"这把尺子去纠正一个"本就该几乎总是 inferred"的推断型字段，系统性
+        # 把 LLM 正确的"我猜你想要…"自报出处误纠成 prior，直接压制了 D-7
+        # 依赖 inferred 出处触发的旗舰话术。distance_max_km 的字面等值信号
+        # 仍然有效（用户确有可能就是没提距离、恰好与先验数字一致），故只豁免
+        # `social_context`，不动 `distance_max_km` 分支。
         forced_prior = False
-        if field == "social_context" and priors.social_context is not None:
-            forced_prior = value == priors.social_context and value not in raw
-        elif field == "distance_max_km" and priors.distance_max_km is not None:
+        if field == "distance_max_km" and priors.distance_max_km is not None:
             forced_prior = _floats_equal(
                 value, priors.distance_max_km
             ) and not _distance_stated_in_raw(raw)

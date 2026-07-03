@@ -39,6 +39,7 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 from collab import RoomManager  # noqa: E402
+from agent.planning.planners import ils_planner  # noqa: E402
 from api._streams.models import (  # noqa: E402
     AdjustActionAdjust,
     AdjustActionAlternative,
@@ -47,6 +48,7 @@ from api._streams.models import (  # noqa: E402
 from schemas.demand_ledger import LedgerEntryStatus  # noqa: E402
 from schemas.node_adjustment import NodeAdjustment, NodeAdjustmentDimension  # noqa: E402
 from tests.test_critics_v2 import _make_intent, _make_legal_itinerary  # noqa: E402
+from tests.test_planner_node_swap import _build_itinerary, _intent, _poi, _rest  # noqa: E402
 
 
 class _FakeWebSocket:
@@ -505,3 +507,67 @@ def test_ws_adjust_action_adapter_discriminates_all_three_action_shapes():
 
     with pytest.raises(ValidationError):
         _ADJUST_ACTION_ADAPTER.validate_python({"type": "not_a_real_action"})
+
+
+# ============================================================
+# 8. ADR-0014 横向深审 P0：房间路径同款——候选池 hard 恒定过滤（引擎级防线）
+# ============================================================
+#
+# 房间平时靠 `_query_pois`/`_query_restaurants`（`ils_planner.py`）现场重查，
+# 这两个 Tool 内部本就会按 `intent.dietary_constraints`/`physical_constraints`
+# 的 hard 子集恒定过滤（`tools._helpers.relax_tag_search`）——这是**搜索期**
+# 的一层防线。但"具名备选"点击后走 `node_swap_support.narrow_pool_to_single_
+# alternative` 收窄，收窄出的候选池不再经过那次搜索；且 `resolve_node_swap`
+# 本身不该把"守住 hard 不变量"这件事寄望于调用方（房间/单人）记得先筛一遍
+# ——这正是 P0 深审的结论："引擎自己守不变量"。本测试用 monkeypatch 直接
+# 顶替 `_query_pois`/`_query_restaurants` 的返回值（绕开它们自身的搜索期
+# 过滤），验证的是 `resolve_node_swap` 这一层**引擎级**防线，不是搜索期那层
+# ——两者是纵深防御的两道独立防线，测试意图不能混为一谈。
+
+
+def _seed_synthetic_room(owner_id: str, *, intent, itinerary) -> tuple[RoomManager, "Room"]:  # noqa: F821
+    """同 `_seed_room`，但用 `test_planner_node_swap` 的全合成 fixture（而非
+    真实 mock 数据集），配合下方 monkeypatch 顶替候选池——全合成让评分差能
+    精确摆到"不过滤就会反选辣店"的边界上（同 `test_planner_node_swap.py`
+    P0 系列测试的做法/理由）。"""
+    manager = RoomManager()
+    room = manager.create_room(owner_id=owner_id, nickname="发起人")
+    room.current_intent_dict = intent.model_dump()
+    room.current_itinerary_dict = itinerary.model_dump()
+    return manager, room
+
+
+def test_room_adjust_hard_dietary_constraint_never_swaps_in_spicy_candidate_on_dislike(monkeypatch):
+    """房间路径同款一条（ADR-0014 横向深审 P0）：即便候选池现场重查这次
+    意外混进了违反 hard「不辣」的候选（用 monkeypatch 顶替 `_query_
+    restaurants`，越过它自身的搜索期过滤），`resolve_node_swap` 也必须守住
+    这条不变量，不能靠"房间候选池现场重查已经替它筛过一遍"这个偶然属性。
+    """
+
+    async def scenario():
+        intent = _intent(dietary_constraints=["不辣"])
+        poi_a = _poi(poi_id="PA1")
+        rb1 = _rest(rest_id="RB1", cuisine="火锅", tags=["高人均"])
+        itinerary = _build_itinerary(intent, [poi_a, rb1], depart_min=14 * 60)
+
+        rb_spicy = _rest(rest_id="RB_SPICY", cuisine="火锅", rating=5.0, tags=[])  # 违反 hard，评分极高
+        rb_safe = _rest(rest_id="RB_SAFE", cuisine="火锅", rating=1.0, tags=["不辣"])
+
+        monkeypatch.setattr(ils_planner, "_query_pois", lambda intent, tracer: [poi_a])
+        monkeypatch.setattr(ils_planner, "_query_restaurants", lambda intent, tracer: [rb1, rb_spicy, rb_safe])
+
+        manager, room = _seed_synthetic_room("owner_room_hard_test", intent=intent, itinerary=itinerary)
+        ws = _FakeWebSocket()
+        await manager.join(room, "owner_room_hard_test", "发起人", ws)
+        ws.sent.clear()
+
+        await manager.adjust(room, "owner_room_hard_test", "RB1", AdjustActionDislike())
+
+        new_ids = [n["target_id"] for n in room.current_itinerary_dict["nodes"]]
+        assert "RB_SPICY" not in new_ids, "评分更高的辣店违反 hard 约束，绝不该被换入"
+        assert "RB_SAFE" in new_ids
+
+        narration = _planning_event_payloads(ws, "agent_narration")[0]
+        assert "换成" in narration["text"]
+
+    asyncio.run(scenario())
