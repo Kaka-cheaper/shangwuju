@@ -39,19 +39,11 @@ _MIN_CANDIDATES = 3
 # 读码核实（2026-07-03，ADR-0014 决策 2 · G-2）：以下 hard tag 当前 mock 数据
 # 候选数低于阈值——不改 mock 数据（红线），登记为已知缺口，附真实计数，交
 # 报告/后续排期定夺是否需要补数据。
-_KNOWN_INSUFFICIENT_HARD_TAGS: dict[str, str] = {
-    "无障碍": (
-        "physical hard tag，mock_data/pois.json 里挂此 tag 的 POI 实测 0 家——"
-        "用户一旦要「轮椅可达」类无障碍诉求，search_pois 全程无候选可给，"
-        "会直接触发 hard 卡死（give_up 疏导），需要产品侧决定是否补数据或"
-        "接受当前 demo 不覆盖该诉求。"
-    ),
-    "无牛肉": (
-        "dietary hard tag，mock_data/restaurants.json 里挂此 tag 的餐厅实测"
-        "0 家——用户一旦要「无牛肉」忌口，search_restaurants 全程无候选可给，"
-        "同上需要产品侧决定。"
-    ),
-}
+# 2026-07-03 用户拍板补数据后已清空:无障碍→P005/P006/P009/P040(公共建筑与
+# 无台阶场馆,P040 名字本就叫"无障碍亲子博物馆");无牛肉→R002/R010(海鲜烧腊
+# 为主的粤菜)/R050(猪骨味噌拉面)。语义原则:tag=该店/该馆可稳定满足此硬诉求,
+# 逐家按业态核过,不是随机撒标签。
+_KNOWN_INSUFFICIENT_HARD_TAGS: dict[str, str] = {}
 
 
 def _tag_candidate_counts(entities, hard_tags: frozenset[str]) -> dict[str, int]:
