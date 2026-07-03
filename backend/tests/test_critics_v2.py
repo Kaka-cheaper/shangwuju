@@ -55,6 +55,7 @@ from agent.planning.critic.critics_v2 import (  # noqa: E402
     format_violations_for_llm,
     validate_itinerary,
 )
+from agent.planning.critic._rules.checks import check_budget  # noqa: E402
 from schemas.intent import IntentExtraction  # noqa: E402
 from schemas.itinerary import (  # noqa: E402
     ActivityNode,
@@ -76,6 +77,7 @@ def _make_intent(
     dietary_constraints: list[str] | None = None,
     physical_constraints: list[str] | None = None,
     social_context: str = "家庭日常",
+    budget_per_person: float | None = None,
 ) -> IntentExtraction:
     return IntentExtraction(
         start_time="2026-05-22T14:00",
@@ -88,6 +90,7 @@ def _make_intent(
         social_context=social_context,
         raw_input="测试输入",
         parse_confidence=0.9,
+        budget_per_person=budget_per_person,
     )
 
 
@@ -650,6 +653,71 @@ def test_physical_violation_soft_only_mismatch_does_not_gate():
     assert not physical_codes, (
         f"G-2：soft-only physical 未满足不应产生 PHYSICAL_VIOLATION，实际={physical_codes}"
     )
+
+
+# ============================================================
+# 测试 9c：BUDGET_EXCEEDED（ADR-0014 决策 3 · G-3 新增）
+# ============================================================
+#
+# `_make_legal_itinerary()` 默认 poi_id=P040（price_range=[80,120]，起步价 80）
+# + restaurant_id=R001（avg_price=75）→ 总人均花费 155 元（真实 mock 值，不是
+# 本文件自造）。
+
+
+def test_budget_exceeded_soft_when_total_cost_over_stated_budget():
+    """intent.budget_per_person=50（明说数字）/ 默认合法行程总花费 155 元
+    → 触发 BUDGET_EXCEEDED，SOFT（不 gate），message 含超出金额 + 最贵一站
+    （P040 起步价 80 > R001 的 75，"贵在哪一站"应点名 P040 的真实名字）。
+    """
+    from agent.planning.critic._rules.helpers import safe_load_pois
+
+    intent = _make_intent(budget_per_person=50)
+    itinerary = _make_legal_itinerary()  # P040(80) + R001(75) = 155
+    p040_name = next(p.name for p in safe_load_pois() if p.id == "P040")
+
+    violations = check_budget(itinerary, intent)
+    assert len(violations) == 1, violations
+    v = violations[0]
+    assert v.code == ViolationCode.BUDGET_EXCEEDED
+    assert v.severity == Severity.SOFT
+    assert "155" in v.message, v.message
+    assert "50" in v.message, v.message
+    assert "105" in v.message, f"超出金额（155-50=105）应出现在文案里：{v.message}"
+    assert "最贵" in v.message, v.message
+    assert p040_name in v.message, f"应点名最贵一站（P040）：{v.message}"
+
+
+def test_budget_exceeded_does_not_gate_through_validate_itinerary():
+    """透过完整 `validate_itinerary` 管线：BUDGET_EXCEEDED 只在 SOFT 里出现，
+    不产生任何 HARD 违规（不 gate 整条修复闭环，与 check_distance 同一纪律）。
+    """
+    intent = _make_intent(budget_per_person=50)
+    itinerary = _make_legal_itinerary()
+
+    violations = validate_itinerary(itinerary, intent)
+    hard = [v for v in violations if v.severity == Severity.HARD]
+    assert hard == [], f"BUDGET_EXCEEDED 不应产生 HARD 违规：{hard}"
+    budget_violations = [v for v in violations if v.code == ViolationCode.BUDGET_EXCEEDED]
+    assert budget_violations and budget_violations[0].severity == Severity.SOFT
+
+
+def test_budget_not_exceeded_within_stated_budget():
+    """预算 500 ≥ 总花费 155 → 不触发。"""
+    intent = _make_intent(budget_per_person=500)
+    itinerary = _make_legal_itinerary()
+
+    violations = check_budget(itinerary, intent)
+    assert violations == []
+
+
+def test_budget_check_skipped_when_not_stated():
+    """budget_per_person=None（用户没明说数字，含"别太贵"这类定性表达）→
+    系统不编造比较基准，直接跳过，不产生任何违规（ADR-0014 决策 3）。"""
+    intent = _make_intent(budget_per_person=None)
+    itinerary = _make_legal_itinerary()  # 总花费 155，若真的比较会触发，但不该比较
+
+    violations = check_budget(itinerary, intent)
+    assert violations == []
 
 
 def test_demo_full_check_enabled_triggers_at_17_00(monkeypatch):

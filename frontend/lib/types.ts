@@ -462,6 +462,12 @@ export interface IntentExtraction {
   capacity_requirement?: number | null;
   extra_services: string[];
   preferred_poi_types: string[];
+  /**
+   * 用户明说的人均预算（元，ADR-0014 决策 3 · G-3）。仅当原话明确给出数字才
+   * 有值（如"人均 50"→50）；定性表达（"别太贵"）不映射数字，留 null——
+   * 系统不编造用户没说的话。
+   */
+  budget_per_person?: number | null;
   raw_input: string;
   parse_confidence: number;
   ambiguous_fields: string[];
@@ -469,11 +475,11 @@ export interface IntentExtraction {
    * 字段/元素出处标注（ADR-0014 决策 1）。标量字段键=字段名本身（如
    * "distance_max_km"）；列表字段键="字段名:元素值"（如
    * "dietary_constraints:不辣"）。覆盖范围：start_time / start_weekday /
-   * duration_hours / distance_max_km / social_context / capacity_requirement
-   * （标量）+ physical_constraints / dietary_constraints / experience_tags /
-   * extra_services（列表，元素级）。companions / preferred_poi_types 不在
-   * 覆盖范围内（见 backend/schemas/intent.py 字段 docstring）。
-   * Optional，旧数据 / 未跑校正时为 null——前端不应假设它总是存在。
+   * duration_hours / distance_max_km / social_context / capacity_requirement /
+   * budget_per_person（标量）+ physical_constraints / dietary_constraints /
+   * experience_tags / extra_services（列表，元素级）。companions /
+   * preferred_poi_types 不在覆盖范围内（见 backend/schemas/intent.py 字段
+   * docstring）。Optional，旧数据 / 未跑校正时为 null——前端不应假设它总是存在。
    */
   field_provenance?: Record<string, FieldProvenance> | null;
 }

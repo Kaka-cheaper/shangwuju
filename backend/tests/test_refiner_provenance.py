@@ -150,3 +150,70 @@ def test_llm_path_also_propagates_provenance_by_diff_not_llm_self_report():
     assert out.refined_intent.field_provenance["distance_max_km"] == "user_stated"
     # 未变字段仍然继承原出处（不是被 LLM 自报的 {"distance_max_km":"prior"} 那份污染）
     assert out.refined_intent.field_provenance.get("physical_constraints:亲子友好") == "prior"
+
+
+# ============================================================
+# 7. ADR-0014 决策 3（G-3）：反馈里明说预算数字 → budget_per_person 更新 + user_stated
+# ============================================================
+
+
+def test_rule_fallback_extracts_explicit_budget_number_from_feedback():
+    """"预算提到 200"这类原话明说数字的反馈 → `_rule_fallback` 用
+    `_extract_budget_from_feedback` 抽出数字更新 budget_per_person，出处
+    走通用 changed→user_stated 传播规则（G-1 已覆盖，不需要专属分支）。"""
+    intent = _intent(budget_per_person=None)
+    out = _rule_fallback(intent, "预算提到 200 吧")
+    assert out.refined_intent.budget_per_person == 200.0
+    assert out.refined_intent.field_provenance["budget_per_person"] == "user_stated"
+    assert any("预算" in c for c in out.changed_fields)
+
+
+def test_rule_fallback_recognizes_ren_jun_budget_phrasing():
+    """"人均 150"式表达同样能被抽取（与 parser 首轮的定量规则同一批模式）。"""
+    intent = _intent(budget_per_person=None)
+    out = _rule_fallback(intent, "人均 150 差不多")
+    assert out.refined_intent.budget_per_person == 150.0
+
+
+def test_rule_fallback_does_not_fabricate_budget_from_qualitative_feedback():
+    """"太贵了，便宜点"没有具体数字 → budget_per_person 不被编造，维持原值
+    （None 或原有数字都不应被凭空替换成一个猜的数字）。既有"去高人均/加健康
+    轻食"逻辑不受影响（仍照旧触发）。"""
+    intent = _intent(budget_per_person=None)
+    out = _rule_fallback(intent, "太贵了，便宜点")
+    assert out.refined_intent.budget_per_person is None
+    assert "高人均" not in out.refined_intent.dietary_constraints
+
+
+def test_rule_fallback_budget_update_does_not_overwrite_with_same_value():
+    """反馈数字与原值相同 → 不产生"改动"（changed_fields 不应出现预算条目，
+    field_provenance 走"未变→继承原出处"分支，不被误判成本轮新变更）。"""
+    intent = _intent(budget_per_person=200.0)
+    intent = intent.model_copy(
+        update={
+            "field_provenance": {
+                **(intent.field_provenance or {}),
+                "budget_per_person": "user_stated",
+            }
+        }
+    )
+    out = _rule_fallback(intent, "预算就 200")
+    assert out.refined_intent.budget_per_person == 200.0
+    assert not any("预算" in c for c in out.changed_fields)
+
+
+def test_llm_path_budget_field_change_propagates_via_generic_scalar_diff():
+    """LLM 路径同样吃到通用标量 diff 传播——budget_per_person 加进
+    `_SCALAR_PROVENANCE_FIELDS` 后不需要任何专属代码，changed→user_stated
+    自动生效（同 test_llm_path_also_propagates_provenance_by_diff_not_llm_
+    self_report 的验证手法）。"""
+    intent = _intent(budget_per_person=None)
+    refined_payload = intent.model_dump()
+    refined_payload["budget_per_person"] = 200.0  # 唯一改动
+    refined_payload["field_provenance"] = {}  # LLM 什么都没自报，规则应照样补上
+
+    client = _FixedRefineClient(refined_payload, ["预算：未设定 → 200 元/人"])
+    out = refine_intent(intent, "预算给到 200", client=client)
+
+    assert out.refined_intent.budget_per_person == 200.0
+    assert out.refined_intent.field_provenance["budget_per_person"] == "user_stated"

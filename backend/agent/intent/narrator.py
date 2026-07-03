@@ -246,19 +246,19 @@ _PROVENANCE_TAG_FIELDS_FOR_DISCLOSURE = (
 def _provenance_hints(intent: IntentExtraction) -> dict:
     """从 intent.field_provenance 提炼"值得跟用户说一声"的出处信号。
 
-    只挑两类信号（其余出处值 user_stated/prior 对本消费方没有"讲出来有用"
+    只挑这几类信号（其余出处值 user_stated/prior 对本消费方没有"讲出来有用"
     的价值——G-2 才会引入 hard×prior 的告知口径区分，本期不做）：
     - distance_max_km 出处为 default（用户没提距离、也没有先验）
     - 三类受控标签里第一个出处为 inferred 的元素（按 dietary→physical→
       experience 顺序取第一个命中，避免同一句话堆一串标签）
+    - budget_per_person 听到但没法量化（ADR-0014 决策 3·G-3："别太贵"类定性
+      预算表达——见下方独立判断）
 
-    intent.field_provenance 为 None/空（旧数据、stub、未跑校正）→ 返回 {}，
-    模板路径/LLM 路径都天然不产生这句话，不影响既有 narration 回归。
+    intent.field_provenance 为 None/空（旧数据、stub、未跑校正）→ 距离/标签
+    两类信号返回 {}；budget 信号只依赖 `ambiguous_fields`，不依赖
+    field_provenance，两者独立判断（不因为没有 provenance 数据就连这条也吞掉）。
     """
-    provenance = intent.field_provenance
-    if not provenance:
-        return {}
-
+    provenance = intent.field_provenance or {}
     hints: dict = {}
     if provenance.get("distance_max_km") == "default":
         hints["distance_default"] = True
@@ -273,6 +273,17 @@ def _provenance_hints(intent: IntentExtraction) -> dict:
         if inferred_value is not None:
             hints["inferred_tag"] = inferred_value
             break
+
+    # ADR-0014 决策 3（G-3）：S1"预算别太贵"类定性表达——系统不编造一个
+    # budget_per_person 数字，但也不能让"用户提过预算"这件事凭空消失。
+    # parser 把这类表达自报进 ambiguous_fields（见 intent_parser_prompt.py
+    # 【预算抽取规则】），本函数据此产出"听到了但没法量化"的诚实信号——
+    # 只在 budget_per_person 确实是 None 时才触发（若已经有具体数字，说明
+    # 这轮/上轮已经量化过，不再需要这句"没法量化"的说明）。
+    if intent.budget_per_person is None and "budget_per_person" in (
+        intent.ambiguous_fields or []
+    ):
+        hints["budget_ambiguous"] = True
 
     return hints
 
@@ -299,6 +310,8 @@ def _provenance_honest_clause(intent: IntentExtraction) -> str:
     inferred_tag = hints.get("inferred_tag")
     if inferred_tag:
         parts.append(f"我从你的话里猜你可能想要「{inferred_tag}」，不合适可以跟我说")
+    if hints.get("budget_ambiguous"):
+        parts.append("你提到预算别太贵，但没给具体数字，我没法编一个卡预算，这次尽量控制着来")
 
     if not parts:
         return ""

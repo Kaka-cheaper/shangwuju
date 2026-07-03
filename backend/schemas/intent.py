@@ -169,6 +169,19 @@ class IntentExtraction(BaseModel):
         default_factory=list, description="用户明示 POI 类型，如 [展览, 美术馆]"
     )
 
+    # ===== 预算（ADR-0014 决策 3，G-3）=====
+    budget_per_person: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "用户明说的人均预算（元）。仅当原话**明确给出数字**时才填（如"
+            "「人均 50」「预算 100 一个人」「一人一百以内」→ 50/100/100）；"
+            "定性表达（「别太贵」「便宜点」「穷游」等，没有具体数字）**禁止**"
+            "编造一个数字——一律留 null。Optional 默认 None：旧 checkpoint"
+            "（无此字段）免迁移。"
+        ),
+    )
+
     # ===== 元数据 =====
     raw_input: str = Field(..., description="原始用户输入字符串")
     parse_confidence: float = Field(
@@ -185,9 +198,11 @@ class IntentExtraction(BaseModel):
             "字段/元素出处标注。标量字段键=字段名本身（如 'distance_max_km'）；"
             "列表字段键='字段名:元素值'（如 'dietary_constraints:不辣'），逐元素标——"
             "一个 dietary 列表里可能'不辣'是用户说的、'日料'是先验注入的，字段级一个"
-            "标签盖不住。覆盖范围（G-1 拍板，非全字段）：标量 start_time/"
+            "标签盖不住。覆盖范围（G-1 拍板，非全字段；budget_per_person 为 G-3"
+            "追加，同款标量规范——None 时不写键，非 None 时几乎恒为 user_stated，"
+            "因为该字段唯一的产出路径就是原话明说数字）：标量 start_time/"
             "start_weekday/duration_hours/distance_max_km/social_context/"
-            "capacity_requirement；列表 physical_constraints/dietary_constraints/"
+            "capacity_requirement/budget_per_person；列表 physical_constraints/dietary_constraints/"
             "experience_tags/extra_services。companions（自由文本、无先验注入通道）、"
             "preferred_poi_types（自由文本、无 canonical 化正向函数、且当前 prompt"
             "设计下只有 user_stated 一条来源路径，标了也恒为 user_stated）、"

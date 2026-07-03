@@ -73,6 +73,7 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
   "capacity_requirement": int | null, // 同行 ≥ 4 人时填总人数
   "extra_services": list[str],        // 仪式场景填 ["蛋糕"] 等
   "preferred_poi_types": list[str],   // 用户明示的 POI 类型，如 ["展览", "美术馆"]
+  "budget_per_person": float | null,  // 仅当原话**明说具体数字**才填，见下方【预算抽取规则】；定性表达一律 null
   "raw_input": str,                   // 原样回填用户输入
   "parse_confidence": float,          // 0-1，对自身抽取的信心；不确定字段越多越低
   "ambiguous_fields": list[str],      // 自报"哪些字段我不确定"
@@ -109,6 +110,23 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - **禁止凭空添加**：用户没提的活动/品类（如真人 CS、密室、看展）**禁止添加**到 preferred_poi_types 或 experience_tags。
   用户只说「撸串喝酒」→ preferred_poi_types=["烧烤"]，**不要**自作主张加任何主活动。
   没点名任何活动品类时 preferred_poi_types 保持空数组 []。
+
+【预算抽取规则（ADR-0014 决策 3 · G-3，关键 · 定量定性分轨）】
+- **定量**：原话明说具体数字才填 `budget_per_person`——
+  「人均 50」「人均 50 左右就行」→ 50；「预算 100 一个人」「一人一百以内」→ 100；
+  「200 块钱搞定」→ 200。取"每人"口径的数字（人均 X 直接用 X；总预算需除以人数的场景，
+  没有明确总人数就不要自己算，按"每人"字面数字填，算不出来就留 null，不要猜）。
+- **定性（禁止编造数字）**：「别太贵」「便宜点」「穷游」「预算有限」「经济点就行」这类
+  **没有具体数字**的表达 → `budget_per_person` 必须留 `null`，**绝不**换算成一个数字
+  （系统不能编造用户没说的话）。同时把 `"budget_per_person"` 写进 `ambiguous_fields`，
+  如实自报"听到了预算顾虑但没法量化"——这是"听懂但不瞎猜"的诚实做法。
+- **冲突消解（"高人均"取反）**：定性预算表达出现时，即使同句里还有其它通常会触发
+  `dietary_constraints` 加 "高人均" 的线索（如"商务客户"），也**不要**加 "高人均"——
+  用户已经明确表示不想要高消费，与"高人均"字面矛盾，这条判断优先于其它机械触发规则。
+- 正例（S2）："今晚和兄弟出来撸串喝点酒，人均 50 左右就行" → `budget_per_person=50`，
+  且这是原话明说的数字，`field_provenance` 里 `"budget_per_person"` 标 `user_stated`。
+- 反例（S1）："周五晚上和室友 4 个人想去 K 歌，预算别太贵" → `budget_per_person=null`，
+  `ambiguous_fields` 含 `"budget_per_person"`，`dietary_constraints` 不含 "高人均"。
 
 【独处场景反例（关键 · 自相矛盾约束）】
 当 social_context = "独处放空"（一个人放空 / 加班想透气 / 想自己待会）时：
@@ -159,13 +177,15 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - `default`：用户完全没提、也没有可用先验，纯粹是 schema 兜底默认值（如没提距离时
   的 5 公里、没提时长时的 [4,6]）。
 
-`field_provenance` 格式：dict，键=标量字段名本身（如 "distance_max_km"）或
-"列表字段名:元素值"（如 "dietary_constraints:不辣"，"physical_constraints:适合老人"）；
-值=上面四选一。**对本次输出里每一个非空标量字段 + 每一个非空列表元素都要给一条**
-（companions / preferred_poi_types / extra_services / raw_input / parse_confidence /
-ambiguous_fields 不需要标）。老实自报比自己藏着掖着更有用——下游有规则会交叉核对，
-自报错了也不会白白背锅，但**不自报**等于放弃了自己最了解的信息（你知道哪句话对应
-哪个推断，规则只能靠事后猜）。
+`field_provenance` 格式：dict，键=标量字段名本身（如 "distance_max_km"、
+"budget_per_person"）或"列表字段名:元素值"（如 "dietary_constraints:不辣"，
+"physical_constraints:适合老人"）；值=上面四选一。**对本次输出里每一个非空标量
+字段 + 每一个非空列表元素都要给一条**（companions / preferred_poi_types /
+extra_services / raw_input / parse_confidence / ambiguous_fields 不需要标）。
+`budget_per_person` 为 null 时不需要标（没有值就没有出处可言）；非 null 时几乎
+恒为 `user_stated`——这个字段唯一的填值来源就是原话明说的数字。老实自报比自己
+藏着掖着更有用——下游有规则会交叉核对，自报错了也不会白白背锅，但**不自报**
+等于放弃了自己最了解的信息（你知道哪句话对应哪个推断，规则只能靠事后猜）。
 
 【中文词典强约束（关键 · 违反 = 任务失败）】
 `physical_constraints` / `dietary_constraints` / `experience_tags` **只能从下列中文词典选词**：
@@ -226,6 +246,41 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"duration_hours":"inferred","distance_max_km":"inferred","social_context":"inferred",'
         '"physical_constraints:适合老人":"inferred","physical_constraints:无台阶":"inferred",'
         '"physical_constraints:可休息":"inferred","dietary_constraints:软烂":"inferred"}}',
+    ),
+    (
+        # 预算正例（ADR-0014 决策 3·G-3）：原话明说数字 → budget_per_person 填数字 + user_stated
+        "今晚和兄弟出来撸串喝点酒，人均 50 左右就行",
+        '{"start_time":"today_evening","start_weekday":null,"duration_hours":[3,4],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"兄弟","age":null,"count":2,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["热闹"],"social_context":"朋友热闹",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["烧烤"],'
+        '"budget_per_person":50,'
+        '"raw_input":"今晚和兄弟出来撸串喝点酒，人均 50 左右就行",'
+        '"parse_confidence":0.86,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","duration_hours":"inferred",'
+        '"distance_max_km":"default","social_context":"inferred",'
+        '"experience_tags:热闹":"inferred","budget_per_person":"user_stated"}}',
+    ),
+    (
+        # 预算反例（ADR-0014 决策 3·G-3）：定性"别太贵"不映射数字，留 null +
+        # ambiguous_fields 如实自报 + 不加"高人均"（无其它触发线索，天然不加）
+        "周五晚上和室友 4 个人想去 K 歌，预算别太贵",
+        '{"start_time":"friday_evening","start_weekday":"friday","duration_hours":[3,4],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"室友","age":null,"count":3,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["热闹"],"social_context":"朋友热闹",'
+        '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":["KTV"],'
+        '"budget_per_person":null,'
+        '"raw_input":"周五晚上和室友 4 个人想去 K 歌，预算别太贵",'
+        '"parse_confidence":0.82,"ambiguous_fields":["budget_per_person"],'
+        '"field_provenance":{"start_time":"user_stated","start_weekday":"user_stated",'
+        '"duration_hours":"inferred","distance_max_km":"default","social_context":"inferred",'
+        '"capacity_requirement":"user_stated","experience_tags:热闹":"inferred"}}',
     ),
 ]
 

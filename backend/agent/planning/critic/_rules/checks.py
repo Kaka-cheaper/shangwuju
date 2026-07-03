@@ -680,6 +680,124 @@ def check_distance(
     return out
 
 
+def _node_unit_price(
+    node, pois_by_id: dict, restaurants_by_id: dict
+) -> Optional[tuple[float, str]]:
+    """单个 node 的人均花费（元）+ 展示名，查不到目标实体返回 None。
+
+    公式与 `agent.planning.planners.activity_pool.build_visit_from_poi` /
+    `build_visit_from_restaurant` 的 `Visit.cost` 字段、`agent.planning.
+    planners.node_swap._unit_price` 完全相同（POI 用起步价 `price_range[0]`，
+    无则 0；餐厅用 `avg_price`）——三处独立实现同一个"人均花费怎么算"的
+    公式，是本仓已有的既存状态（`node_swap._unit_price` 早于本 check 落地）。
+    这里不做跨模块抽取合并：那三处分属规划期选择打分（越低越好的软惩罚）与
+    本 check 的事后核验（对最终 itinerary 算总花费）两种不同调用语境，抽取
+    需要新增一个三方共享的公开接口、改两个既有模块的既定调用点，收益（去重
+    一个 4 行公式）不足以覆盖风险（G-3 单任务范围之外的联动改动）；只在此
+    注明公式出处一致，供未来真要合并时按图索骥。
+    """
+    if node.target_kind == "poi" and node.target_id in pois_by_id:
+        poi = pois_by_id[node.target_id]
+        cost = float(poi.price_range[0]) if poi.price_range else 0.0
+        return cost, poi.name
+    if node.target_kind == "restaurant" and node.target_id in restaurants_by_id:
+        rest = restaurants_by_id[node.target_id]
+        return float(rest.avg_price), rest.name
+    return None
+
+
+def check_budget(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
+    """方案总人均花费 vs `intent.budget_per_person` → SOFT（ADR-0014 决策 3 · G-3）。
+
+    【为什么 SOFT 不 HARD】mock 价格粒度粗（餐厅/POI 价格是离散 mock 值，不是
+    连续可议价的真实报价），超一点就触发整条 ILS 重搜/backprompt 修复闭环，
+    体验反而更差——用户拍板：只告知"超了多少、贵在哪一站"，让用户自己决定
+    要不要接受，不强制系统推倒重来（与既有 `AdvisoryCode.OVER_BUDGET`
+    在 `ils_planner._build_success_advisories` 里的既定语义完全一致，本
+    check 是把同一语义补到"critic 层"，覆盖主 LLM 蓝图路径——该路径此前
+    完全没有预算校验，`intent.budget_per_person` 加进 schema 后无消费方；
+    见 `agent.graph.nodes.narrate._SOFT_VIOLATION_CODE_TO_ADVISORY_CODE`
+    的 code 映射，narration 层不分裂出两套"超预算"话术）。
+
+    【前置核查结论：POI 价格数据可用，餐厅+POI 都参与算钱】
+    mock_data/pois.json 45/51 家有 `price_range`（`schemas/domain.py::Poi.
+    price_range` docstring："None 表示免费"——另外 6 家是公园/图书馆/city
+    walk 等本就免费的公共场所，不是数据缺失）；餐厅 `avg_price` 覆盖率
+    100%。ADR-0014 决策 3 原文"POI 票价若可用"的前置条件成立，故本 check
+    不降级为"只管餐厅"——按 `_node_unit_price` 同一公式把 POI 起步价也计入
+    总花费，与既有 `route_total_cost`/`AdvisoryCode.OVER_BUDGET` 口径一致。
+
+    【只在用户明说数字时比较，绝不编造】`intent.budget_per_person is None`
+    （用户没提预算，或只提了定性表达如"别太贵"——ADR-0014 决策 3：系统不
+    编造用户没说的话）→ 直接放行，不产生任何违规；只有明说数字时才有比较
+    基准，这也意味着本 check 触发的 severity 恒为 `user_stated`
+    口径的"你说的预算"（budget_per_person 唯一的产出路径就是原话明说数字，
+    见 `schemas/intent.py::IntentExtraction.budget_per_person` docstring），
+    不需要像 `agent.planning.critic.exit_audit` 那样按出处分支措辞。
+
+    - intent 为 None / budget_per_person 为 None 或 ≤0 → 跳过
+    - 无任何可定价节点（load 失败 / 全是 home）→ 跳过（无从比较）
+    - 总花费 ≤ 预算 → 不触发
+    - 超出 → 单条 SOFT，message 含超出金额 + 最贵一站（"贵在哪一站"）
+    """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None:
+        return []
+    budget = getattr(intent, "budget_per_person", None)
+    if budget is None or budget <= 0:
+        return []
+
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    restaurants_by_id = (
+        ctx.restaurants_by_id
+        if ctx is not None
+        else {r.id: r for r in safe_load_restaurants()}
+    )
+
+    total_cost = 0.0
+    priciest_cost = -1.0
+    priciest_label = ""
+    found_any = False
+    for node in itinerary.nodes:
+        priced = _node_unit_price(node, pois_by_id, restaurants_by_id)
+        if priced is None:
+            continue
+        found_any = True
+        cost, label = priced
+        total_cost += cost
+        if cost > priciest_cost:
+            priciest_cost = cost
+            priciest_label = label
+
+    if not found_any or total_cost <= budget:
+        return []
+
+    over_amount = total_cost - budget
+    priciest_clause = (
+        f"，其中「{priciest_label}」（约 {priciest_cost:.0f} 元/人）最贵"
+        if priciest_label
+        else ""
+    )
+    return [
+        Violation(
+            code=ViolationCode.BUDGET_EXCEEDED,
+            severity=Severity.SOFT,
+            message=(
+                f"这次预估人均花费约 {total_cost:.0f} 元，比你说的 {budget:.0f} 元"
+                f"预算超了约 {over_amount:.0f} 元{priciest_clause}——不介意的话可以"
+                "直接用，想省钱也可以告诉我砍掉哪一站。"
+            ),
+            field_path="nodes",
+        )
+    ]
+
+
 def _available_slots_hint(rest: "Restaurant") -> str:
     """把该店 `reservation_slots` 里 `available=True` 的时段整理成人话提示，
     拼进 `RESTAURANT_FULL_UNRESOLVED` 违规文本（c′批 任务三：backprompt 槽位

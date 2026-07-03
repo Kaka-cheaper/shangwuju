@@ -176,6 +176,9 @@ _SCALAR_PROVENANCE_FIELDS: tuple[str, ...] = (
     "distance_max_km",
     "social_context",
     "capacity_requirement",
+    # ADR-0014 决策 3（G-3）：budget_per_person 同款标量 diff 传播——changed→
+    # user_stated 已由下方通用循环覆盖，不需要专属分支。
+    "budget_per_person",
 )
 
 _LIST_PROVENANCE_FIELDS: tuple[str, ...] = (
@@ -558,6 +561,45 @@ def _enforce_duration_consistency(
     return fixed, fixed_changed
 
 
+# ============================================================
+# ADR-0014 决策 3（G-3）：反馈里明说的预算数字 → budget_per_person
+# ============================================================
+
+_BUDGET_NUMBER_RE_PATTERNS: tuple[re.Pattern, ...] = (
+    # "人均 150" / "人均150元" / "人均差不多150" —— 最具体，优先匹配；
+    # [^\d]{0,6} 容忍"提到/给到/定在/就/是/差不多/大概/控制在"等任意短连接词
+    re.compile(r"人均[^\d]{0,6}(\d+(?:\.\d+)?)"),
+    # "预算 200" / "预算给到200" / "预算提到200" / "预算定在200" / "预算就200"
+    re.compile(r"预算[^\d]{0,6}(\d+(?:\.\d+)?)"),
+    # 兜底："200 元/块（以内/左右/上下/一个人/每人）" —— 泛化数字+货币单位
+    re.compile(r"(\d+(?:\.\d+)?)\s*(?:元|块钱?)(?:以内|左右|上下|一个人|每人)?"),
+)
+
+
+def _extract_budget_from_feedback(feedback: str) -> float | None:
+    """从反馈文本里抽取用户明说的人均预算数字（ADR-0014 决策 3，与
+    `_extract_duration_from_feedback` 同款设计：定量表达才提取，不编造）。
+
+    只在原话**明确给出数字**时返回值——"太贵了/便宜点"这类定性反馈不含数字，
+    本函数天然返回 None（不硬映射），budget_per_person 保持原值或 None，
+    与 parser 首轮"定性不映射数字"同一条纪律的反馈轮镜像。
+
+    模式按具体到泛化排序（"人均" > "预算" > 泛化"元/块"），避免"预算紧张，
+    这次五公里以内"这类句子里的"5"被泛化模式误吞——泛化模式要求"元/块"
+    货币单位紧跟数字，公里数不会误命中。
+    """
+    if not feedback:
+        return None
+    for pattern in _BUDGET_NUMBER_RE_PATTERNS:
+        m = pattern.search(feedback)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:  # pragma: no cover 防御性
+                continue
+    return None
+
+
 def _rule_fallback(
     original: IntentExtraction, feedback_text: str
 ) -> RefinementOutput:
@@ -599,6 +641,18 @@ def _rule_fallback(
         if new_exp != original.experience_tags:
             updates["experience_tags"] = new_exp
             changed.append("去掉体验：商务体面")
+
+    # 预算——明说具体数字（ADR-0014 决策 3，G-3）：独立于上面的 CHEAPER 关键词
+    # 判断（"预算给到 200"本身不含"贵/便宜"字样，需要单独识别，与
+    # _extract_duration_from_feedback 独立于 TIME_TIGHT/TIME_LOOSE 关键词同一
+    # 设计）。只在原话明说数字时才更新，不编造。
+    extracted_budget = _extract_budget_from_feedback(feedback)
+    if extracted_budget is not None and extracted_budget != original.budget_per_person:
+        old_budget_label = (
+            f"{original.budget_per_person:.0f}" if original.budget_per_person else "未设定"
+        )
+        updates["budget_per_person"] = extracted_budget
+        changed.append(f"预算：{old_budget_label} → {extracted_budget:.0f} 元/人")
 
     # 时间——精确数字优先（"我只有 1 小时" / "两小时" / "2 到 3 小时"）
     extracted_duration = _extract_duration_from_feedback(feedback)

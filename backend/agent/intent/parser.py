@@ -121,6 +121,14 @@ _SCALAR_PROVENANCE_FIELDS: tuple[str, ...] = (
     "distance_max_km",
     "social_context",
     "capacity_requirement",
+    # ADR-0014 决策 3（G-3）：budget_per_person 同款标量规范。已经是 Optional，
+    # 循环体 `if value is None: continue` 天然处理"用户没明说数字"——不写
+    # provenance 键（与 start_weekday 的 None 处理完全同款，非新增分支）。
+    # 无先验注入通道（compute_injected_priors 不产 budget 值），故不需要在下方
+    # forced_prior 分支加 budget 特判；非 None 时落到"自报缺失兜底 user_stated"
+    # 分支——该字段没有"随手给个默认数字"的 schema 默认值可比对，任何非空值
+    # 几乎恒为 user_stated（唯一产出路径是原话明说数字，见 schema 字段 docstring）。
+    "budget_per_person",
 )
 
 # 列表字段里"有先验注入通道"的三类受控词典（先验可能把值塞进这三个字段）。

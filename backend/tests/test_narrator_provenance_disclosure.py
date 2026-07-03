@@ -141,6 +141,60 @@ def test_provenance_hints_picks_first_inferred_tag_only():
 
 
 # ============================================================
+# 5. budget_ambiguous（ADR-0014 决策 3 · G-3）："别太贵"类定性预算表达
+# ============================================================
+
+
+def test_provenance_hints_picks_up_budget_ambiguous_signal():
+    """budget_per_person=None + ambiguous_fields 含 "budget_per_person"
+    （parser 对定性预算表达的自报，见 intent_parser_prompt.py【预算抽取规则】）
+    → hints 里出现 budget_ambiguous 信号，即使 field_provenance 全空
+    （budget 信号不依赖 field_provenance，只依赖 ambiguous_fields）。"""
+    intent = _base_intent(ambiguous_fields=["budget_per_person"])
+    hints = _provenance_hints(intent)
+    assert hints.get("budget_ambiguous") is True
+
+
+def test_provenance_hints_silent_when_budget_already_quantified():
+    """budget_per_person 已经有具体数字（哪怕 ambiguous_fields 里还留着旧
+    标记）→ 不触发 budget_ambiguous，避免"已经量化了却还说没法量化"的
+    自相矛盾文案。"""
+    intent = _base_intent(
+        budget_per_person=50.0, ambiguous_fields=["budget_per_person"]
+    )
+    hints = _provenance_hints(intent)
+    assert "budget_ambiguous" not in hints
+
+
+def test_provenance_hints_silent_when_no_budget_ambiguity():
+    """没有预算相关的自报信号 → 不触发（不误报）。"""
+    intent = _base_intent()
+    hints = _provenance_hints(intent)
+    assert "budget_ambiguous" not in hints
+
+
+def test_template_narration_discloses_budget_ambiguous():
+    intent = _base_intent(ambiguous_fields=["budget_per_person"])
+    text = _template_narration(intent, _make_itinerary(), "stream")
+    assert "预算" in text and "没法" in text, f"应出现预算听到但没法量化的告知：{text}"
+
+
+def test_prompt_includes_budget_ambiguous_instruction():
+    msg = build_narrator_user_message(
+        intent_dict=_base_intent().model_dump(),
+        itinerary_dict=_make_itinerary().model_dump(),
+        stage_label="stream",
+        provenance_hints={"budget_ambiguous": True},
+    )
+    assert "【出处信息】" in msg
+    assert "预算" in msg
+
+
+def test_system_prompt_has_budget_ambiguous_disclosure_rule():
+    assert "预算顾虑" in NARRATOR_SYSTEM_PROMPT or "没法精确卡预算" in NARRATOR_SYSTEM_PROMPT
+
+
+# ============================================================
 # 4. LLM 路径 prompt 接线：build_narrator_user_message(provenance_hints=...)
 # ============================================================
 

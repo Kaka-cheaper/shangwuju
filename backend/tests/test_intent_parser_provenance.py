@@ -23,6 +23,7 @@ import pytest
 
 from agent.core.llm_client import LLMChatResponse
 from agent.intent.parser import parse_intent
+from agent.routing.canonical_shortcut import DEMO_SCENARIOS
 from data.memory_store import reset_all_memory
 
 
@@ -60,6 +61,7 @@ def _full_payload(raw_input: str, **overrides) -> dict:
         "capacity_requirement": None,
         "extra_services": [],
         "preferred_poi_types": [],
+        "budget_per_person": None,
         "raw_input": raw_input,
         "parse_confidence": 0.8,
         "ambiguous_fields": [],
@@ -175,3 +177,64 @@ def test_missing_self_report_backfills_user_stated_for_non_default_value():
     payload = _full_payload(raw, distance_max_km=3.0, field_provenance={})
     intent = parse_intent(raw, client=_FixedJsonClient(payload))
     assert intent.field_provenance["distance_max_km"] == "user_stated"
+
+
+# ============================================================
+# 6. ADR-0014 决策 3（G-3）：预算一等字段——定量/定性分轨
+# ============================================================
+#
+# 用固定 JSON 假 client 模拟"LLM 已经按 intent_parser_prompt.py【预算抽取
+# 规则】正确抽取"的输出（同本文件其它测试的手法：不测 LLM 的自然语言理解
+# 能力，只测 parse_intent 的规则交叉校正 + provenance 管道对 budget_per_person
+# 的处理是否正确接线）。canonical 原句取自 `DEMO_SCENARIOS`（单一真相源，
+# 不在测试里另起一份重复文案）。
+
+
+def test_s2_canonical_quantitative_budget_becomes_user_stated():
+    """S2"今晚和兄弟出来撸串喝点酒，人均 50 左右就行"——原话明说数字 →
+    budget_per_person=50 且出处 user_stated（G-3 完整解决 S2，见 ADR 诚实声明）。
+    """
+    raw = DEMO_SCENARIOS[1]["input"]
+    assert raw == "今晚和兄弟出来撸串喝点酒，人均 50 左右就行"
+    payload = _full_payload(
+        raw,
+        budget_per_person=50,
+        field_provenance={"budget_per_person": "user_stated"},
+    )
+    intent = parse_intent(raw, client=_FixedJsonClient(payload))
+    assert intent.budget_per_person == 50
+    assert intent.field_provenance["budget_per_person"] == "user_stated"
+
+
+def test_s1_canonical_qualitative_budget_stays_none_and_is_heard():
+    """S1"周五晚上和室友 4 个人想去 K 歌，预算别太贵"——定性表达，系统不编造
+    数字：budget_per_person 应为 None（不硬映射），"budget_per_person" 键
+    不应出现在 field_provenance 里（没有值就没有出处可言，见 parser 通用
+    None-guard：`_apply_provenance_correction` 循环对 None 值直接 continue）。
+    "被听见"体现在 ambiguous_fields 自报（G-3：S1 只解决"被听见"，不解决精确
+    匹配——见 ADR 诚实声明），narration 层的消费见
+    `tests/test_narrator_provenance_disclosure.py` 的 budget_ambiguous 测试。
+    """
+    raw = DEMO_SCENARIOS[0]["input"]
+    assert raw == "周五晚上和室友 4 个人想去 K 歌，预算别太贵"
+    payload = _full_payload(
+        raw,
+        budget_per_person=None,
+        ambiguous_fields=["budget_per_person"],
+        field_provenance={},
+    )
+    intent = parse_intent(raw, client=_FixedJsonClient(payload))
+    assert intent.budget_per_person is None
+    assert "budget_per_person" not in intent.field_provenance
+    assert "budget_per_person" in intent.ambiguous_fields
+
+
+def test_budget_missing_self_report_backfills_user_stated():
+    """自报缺失时（LLM 没给 field_provenance 键，只给了数字）→ 按通用兜底
+    规则落 user_stated（budget_per_person 没有"自然默认值"可比对，任何非
+    None 值都走 else 分支得到 user_stated，同 distance_max_km 非默认值场景）。
+    """
+    raw = "人均 80 就行"
+    payload = _full_payload(raw, budget_per_person=80, field_provenance={})
+    intent = parse_intent(raw, client=_FixedJsonClient(payload))
+    assert intent.field_provenance["budget_per_person"] == "user_stated"

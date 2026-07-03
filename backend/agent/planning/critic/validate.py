@@ -24,7 +24,7 @@ ADR-0008 B-2a 对 B-1 的增量改变：
   check_social_context / check_age_aware_duration / check_capacity /
   check_dietary（B-2a 升 HARD）/ check_meal_time（B-2a 升 HARD）
 
-- Stage 2（soft 建议，narration only）：check_distance
+- Stage 2（soft 建议，narration only）：check_distance / check_budget（ADR-0014 决策 3 · G-3 新增）
 
 Stage 0 无违规时，Stage 1 + Stage 2 **collect-all 跨两阶段**（soft 建议与 hard
 诊断并列——LLM-Modulo 原则：soft 不 gate，但要让 LLM 看到）。
@@ -81,6 +81,7 @@ from schemas.itinerary import Itinerary
 
 from ._rules.checks import (
     check_age_aware_duration,
+    check_budget,
     check_capacity,
     check_demo_restaurant_full,
     check_dietary,
@@ -147,6 +148,8 @@ REGISTRY: list[CheckSpec] = [
     CheckSpec(ViolationCode.MEAL_TIME_UNREASONABLE, 1, "hard", check_meal_time),
     # ── Stage 2: soft 建议（narration only，不 gate） ──────────────────────
     CheckSpec(ViolationCode.DISTANCE_EXCEEDED, 2, "soft", check_distance),
+    # ADR-0014 决策 3（G-3）：预算超出，mock 价格粒度粗，只告知不 gate（见 check_budget docstring）
+    CheckSpec(ViolationCode.BUDGET_EXCEEDED, 2, "soft", check_budget),
 ]
 
 

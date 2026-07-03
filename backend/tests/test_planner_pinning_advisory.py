@@ -45,6 +45,7 @@ def _intent(
     companions: tuple[Companion, ...] = (),
     duration_hours: list[int] | None = None,
     start_time: str = "2026-07-02T14:00",
+    budget_per_person: float | None = None,
 ) -> IntentExtraction:
     return IntentExtraction(
         start_time=start_time,
@@ -58,6 +59,7 @@ def _intent(
         raw_input="测试",
         parse_confidence=0.9,
         ambiguous_fields=[],
+        budget_per_person=budget_per_person,
     )
 
 
@@ -194,6 +196,8 @@ def test_shorter_than_requested_advisory_when_candidate_pool_too_thin(monkeypatc
 
 
 def test_over_budget_advisory_when_total_cost_exceeds_default_budget(monkeypatch):
+    """intent.budget_per_person 缺省（None，未明说数字）→ 退回 persona
+    default_budget，措辞口径为"你档案里的默认"（ADR-0014 决策 3·G-3）。"""
     budget = load_user_profile().default_budget
     expensive_poi = _poi(
         poi_id="PZ4", suggested=60, price_range=(int(budget) + 500, int(budget) + 600)
@@ -207,6 +211,29 @@ def test_over_budget_advisory_when_total_cost_exceeds_default_budget(monkeypatch
     over = [a for a in result.advisories if a.code == AdvisoryCode.OVER_BUDGET]
     assert over, [a.code for a in result.advisories]
     assert "预算" in over[0].message
+    assert "你档案里的默认" in over[0].message, over[0].message
+
+
+def test_over_budget_advisory_prefers_stated_budget_over_persona_default(monkeypatch):
+    """intent.budget_per_person 本轮明说（如 50 元）→ 优先于 persona
+    default_budget（300 元）做比较对象，即使花费远低于 300 也照样告知；
+    措辞口径为"你说的"（ADR-0014 决策 3·G-3）。"""
+    budget = load_user_profile().default_budget
+    assert budget > 100, "本测试假设 persona 默认预算显著高于 50 元的探针预算"
+
+    # 候选花费 120 元：低于 persona 默认 300（旧逻辑不会告知），但高于本轮
+    # 明说的 50 元预算（新逻辑应该告知）。
+    modest_poi = _poi(poi_id="PZ4B", suggested=60, price_range=(120, 140))
+    _mock_query(monkeypatch, pois=[modest_poi])
+
+    intent = _intent(duration_hours=[1, 2], budget_per_person=50)
+    result = plan_hybrid(intent, client=StubLLMClient())
+
+    assert result.success, f"应成功交付（只是超预算）：{result.failure_detail}"
+    over = [a for a in result.advisories if a.code == AdvisoryCode.OVER_BUDGET]
+    assert over, [a.code for a in result.advisories]
+    assert "你说的" in over[0].message, over[0].message
+    assert "50" in over[0].message, over[0].message
 
 
 # ============================================================

@@ -83,6 +83,10 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
 - "太远了" / "近一点"           → distance_max_km 缩到原值 60%（最低 2km）
 - "再远一点也行" / "不限距离"   → distance_max_km × 1.5（最高 15km）
 - "太贵了" / "便宜点"           → 加 dietary "健康轻食"；去 "高人均"；experience 去 "商务体面"
+- 预算说了具体数字（"预算 200" / "人均 150" / "200 块钱以内"）
+                                → budget_per_person 设为该数字（float）；只说"贵/便宜"没给
+                                  数字时**不要编造**，budget_per_person 保持原值不变（ADR-0014
+                                  决策 3：系统不编造用户没说的话）
 - "想吃 X"（X 是菜系）          → dietary 加对应菜系 tag（必须在词典内）
 - "不想吃 X"                    → dietary 加忌口 tag（如"不辣"，必须词典内）
 - "换个氛围"                    → experience 调整（如安静聊天 ↔ 热闹）
@@ -222,6 +226,29 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"ambiguous_fields":["上次推荐的『椰林餐厅』不行，换一家"]},'
         '"changed_fields":["避开上次的椰林餐厅"],'
         '"refiner_note":"知道了，这次避开椰林餐厅，给你换一家，其余保持不变。"}',
+    ),
+    # 6. 预算说了具体数字（ADR-0014 决策 3·G-3）：budget_per_person 从 null 更新为明说的数字
+    (
+        '原 intent={"start_time":"today_evening","duration_hours":[3,4],'
+        '"distance_max_km":5,"companions":[{"role":"室友","count":3}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["热闹"],"social_context":"朋友热闹",'
+        '"capacity_requirement":4,"raw_input":"周五晚上和室友 4 个人想去 K 歌，预算别太贵",'
+        '"parse_confidence":0.82,"ambiguous_fields":["budget_per_person"],'
+        '"budget_per_person":null,'
+        '"start_weekday":"friday","extra_services":[],"preferred_poi_types":["KTV"]}'
+        ' | feedback="预算给到 200 吧"',
+        '{"refined_intent":{"start_time":"today_evening","start_weekday":"friday",'
+        '"duration_hours":[3,4],"distance_max_km":5,'
+        '"companions":[{"role":"室友","age":null,"count":3,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["热闹"],"social_context":"朋友热闹",'
+        '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":["KTV"],'
+        '"raw_input":"周五晚上和室友 4 个人想去 K 歌，预算别太贵","parse_confidence":0.82,'
+        '"ambiguous_fields":["budget_per_person"],"budget_per_person":200},'
+        '"changed_fields":["预算：未设定 → 200 元/人"],'
+        '"refiner_note":"明白，预算按 200 元/人给你安排。"}',
     ),
 ]
 

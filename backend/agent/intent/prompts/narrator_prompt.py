@@ -191,6 +191,10 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
   合并进同一句里自然带出，不必另起一段、不用"出处："这种说明书口吻。
 - 规则 4：没有收到 `【出处信息】` 字段时不要瞎猜/不要主动提"出处"这个词——
   没有信号就正常写开场白。
+- 规则 5（ADR-0014 决策 3 · G-3）：收到"用户提到预算顾虑但没给具体数字"信号 →
+  自然带一句"没法精确卡预算、这次尽量控制着来"这类口径——**绝不**编造一个
+  具体的预算数字（用户没说过的数字不能凭空出现在文案里），只诚实说明听到了
+  这个顾虑、但只能尽量而非精确满足。
 
 【中文词典强约束（如果你在 narrator 文案中引用 tag 词汇）】
 若你在自然语言中提到 tag 词汇（如「亲子友好」「低脂」「商务体面」），必须使用中文词典里的精确措辞，
@@ -321,9 +325,10 @@ def build_narrator_user_message(
             反馈调的"回顾材料（来自会话上下文打包器的方案版本志切片），追加
             一句 prompt 指令要求 LLM 自然带出。空串 = 不触发（首轮/非反馈轮
             不硬扯）。
-        provenance_hints: ADR-0014 决策 1（G-1）新增。出处诚实告知信号，形如
-            `{"distance_default": bool, "distance_km": float, "inferred_tag":
-            str | None}`（见 `agent.intent.narrator._provenance_hints`）。
+        provenance_hints: ADR-0014 决策 1（G-1）新增，决策 3（G-3）追加
+            `budget_ambiguous`。形如 `{"distance_default": bool, "distance_km":
+            float, "inferred_tag": str | None, "budget_ambiguous": bool}`
+            （见 `agent.intent.narrator._provenance_hints`）。
             None / 全 False+None = 不触发（不附加【出处信息】段）。
 
     Returns:
@@ -409,6 +414,11 @@ def build_narrator_user_message(
         inferred_tag = provenance_hints.get("inferred_tag")
         if inferred_tag:
             prov_lines.append(f"标签「{inferred_tag}」是你从用户的话里推断出来的，不是用户直接要求的")
+        if provenance_hints.get("budget_ambiguous"):
+            prov_lines.append(
+                "用户提到了预算顾虑（比如「别太贵」），但没有给出具体数字——"
+                "不要编造一个预算数字，只需诚实说一句「没法精确卡预算、会尽量控制」"
+            )
         if prov_lines:
             extras.append(
                 f"【出处信息】{'；'.join(prov_lines)}\n"

@@ -174,8 +174,17 @@ def _extract_advisories(state: AgentState) -> list[dict]:
 #    未见枚举强校验（若未来前端要枚举校验，再补 AdvisoryCode 扩员，成本仍是
 #    加成员而非破坏性变更）——选 b 侵入面最小，且不引入"胖枚举"
 #    （为一次性 3 码新增就扩一个跨层共享的 public API）。
+#
+# ADR-0014 决策 3（G-3）：BUDGET_EXCEEDED 是 DURATION_OUT_OF_RANGE 同款情形——
+# `AdvisoryCode.OVER_BUDGET` 已经是 D-7 立项时预留好的既有码（ILS 路径
+# `ils_planner._build_success_advisories` 的既定生产点），本 check 是把同一
+# "超预算"语义补到主 LLM 蓝图路径的 critic 层，理应映射到同一个 code——不这样
+# 做的话，同一件事（超预算）在两条规划路径下会呈现两个不同的 advisory code，
+# 下游（前端 / 未来的告警聚合）要跟着分裂成两套判断，与 check_duration→
+# SHORTER_THAN_REQUESTED 这条既有映射同一纪律。
 _SOFT_VIOLATION_CODE_TO_ADVISORY_CODE: dict[str, str] = {
     ViolationCode.DURATION_OUT_OF_RANGE.value: AdvisoryCode.SHORTER_THAN_REQUESTED.value,
+    ViolationCode.BUDGET_EXCEEDED.value: AdvisoryCode.OVER_BUDGET.value,
 }
 
 
@@ -211,11 +220,12 @@ def _extract_soft_violation_advisories(state: AgentState) -> list[dict]:
 
     【不挑 code，全部转】覆盖 `state.violations` 里所有 `severity == SOFT`
     的条目（决策 11 原文「任何没完全如你所愿都要告知」，不是只挑时长）。
-    当前产 SOFT 的 3 个 check（`agent/planning/critic/_rules/checks.py`）：
+    当前产 SOFT 的 4 个 check（`agent/planning/critic/_rules/checks.py`）：
     `check_duration`（时长不足，`DURATION_OUT_OF_RANGE`）、`check_distance`
     （`DISTANCE_EXCEEDED`）、`check_social_context`（POOR 档，
-    `SOCIAL_CONTEXT_MISMATCH`）。`Violation.message` 本就是自包含中文人话
-    （同 D-7 纪律），直接复用，不重写文案。
+    `SOCIAL_CONTEXT_MISMATCH`）、`check_budget`（ADR-0014 决策 3 · G-3 新增，
+    `BUDGET_EXCEEDED`）。`Violation.message` 本就是自包含中文人话（同 D-7
+    纪律），直接复用，不重写文案。
 
     【为什么读 state.violations 不会带出"已作废方案"的旧告知】
     `violations` 是 EPISODE_SCOPED 字段且无自定义 reducer（默认整体覆盖，

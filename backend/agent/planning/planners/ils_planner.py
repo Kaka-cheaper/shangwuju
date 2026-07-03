@@ -389,12 +389,19 @@ def _build_success_advisories(
     violations: list[Violation],
     current_scheduled: Sequence[Any],
     money_budget: float,
+    budget_source_clause: str = "你平时",
 ) -> list[Advisory]:
     """把这一路收集到的告知拼成**最终交付方案**的 advisories 列表。
 
     只在 `plan_hybrid` 判定 `success=True`（`report.passed`）那一刻被调用——
     ADR-0010 决策 11 语义铁律："advisories 描述最终交付的方案"，hybrid 尝试
     期间任何中间态（未收敛的重排轮次、最终仍失败落地板的尝试）都不产 advisory。
+
+    `budget_source_clause`（ADR-0014 决策 3·G-3 新增）：`money_budget` 到底
+    是"本轮用户明说的数"还是"退回 persona 默认"，由调用方（`plan_hybrid`）
+    判定后传入对应措辞——"你说的"/"你档案里的默认"，与 G-2 出处口径
+    （`exit_audit._PROVENANCE_CLAUSE`）"哪个口径讲清楚"同一纪律。默认值
+    "你平时"保留 G-3 之前的旧文案，向后兼容不传参的调用点（如测试直调）。
     """
     from .activity_pool import route_total_cost
 
@@ -458,8 +465,9 @@ def _build_success_advisories(
             Advisory(
                 code=AdvisoryCode.OVER_BUDGET,
                 message=(
-                    f"这次预估花费约 {total_cost:.0f} 元，比你平时 {money_budget:.0f} 元"
-                    "左右的预算高一些——不介意的话可以直接用，想省钱也可以告诉我砍掉哪一站。"
+                    f"这次预估花费约 {total_cost:.0f} 元，比{budget_source_clause} "
+                    f"{money_budget:.0f} 元左右的预算高一些——不介意的话可以直接用，"
+                    "想省钱也可以告诉我砍掉哪一站。"
                 ),
             )
         )
@@ -569,7 +577,17 @@ def plan_hybrid(
     depart_min = _resolve_depart_min(intent.start_time)
     user_profile = load_user_profile()
     commute_fn = make_commute_fn(user_profile)
-    money_budget = user_profile.default_budget
+    # ADR-0014 决策 3（G-3）：OVER_BUDGET 比较对象——本轮用户明说的数优先，
+    # 缺省（None/未明说，含"别太贵"这类定性表达）才退回 persona 默认预算。
+    # 与 G-2 出处口径（"你说的"/"你档案里的默认"）同一措辞纪律，见
+    # `_build_success_advisories` docstring。
+    intent_budget = getattr(intent, "budget_per_person", None)
+    if intent_budget is not None and intent_budget > 0:
+        money_budget = intent_budget
+        budget_source_clause = "你说的"
+    else:
+        money_budget = user_profile.default_budget
+        budget_source_clause = "你档案里的默认"
 
     pinned_visits, pin_advisories = _resolve_pinned(
         pinned, pois, restaurants, intent, weights, semantic_scores
@@ -659,6 +677,7 @@ def plan_hybrid(
                 violations=report.violations,
                 current_scheduled=current_scheduled,
                 money_budget=money_budget,
+                budget_source_clause=budget_source_clause,
             )
             return HybridResult(
                 success=True,
