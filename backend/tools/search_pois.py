@@ -9,10 +9,12 @@
 **仍可作为候选返回**——是否触发售罄异常由调用方在 buy_ticket 阶段判断。
 这与 search_restaurants 同理：查询类 Tool 返回候选清单，可用性由专用 Tool 校验。
 
-Step 6：tag relaxation
+Step 6：tag relaxation（ADR-0014 决策 2 · G-2 改造）
 - physical_constraints 全命中打到空集时自动渐进放宽（_helpers.relax_tag_search）
-- 放宽后的 tag 列表写入 output.relaxed_tags，让 LLM 知道实际过滤路径
-- 物理硬约束（亲子友好 / 适合老人 / 无台阶）最后才被丢
+- hard tag（无台阶 / 无障碍 / 适合老人 / 可休息，见 schemas.tags.
+  PHYSICAL_HARD_TAGS）永不放宽；soft tag 按 inp.tag_provenance 出处降级序丢弃
+- output.relaxed_tags 只列实际丢弃的 soft tag，是纯调试信息（不再驱动用户
+  可见告知，见 schemas.tools.SearchPoisOutput.relaxed_tags docstring）
 """
 
 from __future__ import annotations
@@ -82,6 +84,7 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
         extract_tags=lambda p: p.tags,
         additional_filter=_non_tag_filter,
         max_relax_levels=3,
+        tag_provenance=inp.tag_provenance,
     )
 
     # 按 rating 倒序，取 limit

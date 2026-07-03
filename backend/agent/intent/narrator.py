@@ -854,9 +854,12 @@ def _template_narration(
             f"先帮你选了方案里的替代，不满意我再换。"
         )
     if advisories:
-        # 不截断（深审修正）：advisory 在 planner 侧已按码合并（每码至多一句，
-        # 现实上限 ~4 句），这里全量渲染——「绝不默默忽略」的通道自己因 [:2]
-        # 吞掉第三句告知，是本末倒置。
+        # 不在这里截断：本函数收到的 advisories 已经是调用方
+        # （generate_narration/generate_title_and_narration）用
+        # `_apply_advisory_disclosure_cap` 限额过的列表（ADR-0014 决策 2·
+        # G-2：≤2 条 + 折叠句），全量渲染即可，不必二次截断（旧「不截断」
+        # 深审修正的结论仍成立，只是"为什么不必截断"的前提从"天然只有几句"
+        # 换成了"已经在更上游被限额"）。
         honest_segments.extend(advisories)
     # ADR-0014 决策 1（G-1）：出处诚实告知——"距离你没提我按默认" /
     # "我从你的话里猜你想要 X"，与上面两类同属"诚实"语义，并入同一段。
@@ -1212,6 +1215,41 @@ def stream_llm_narrator(
 
 
 # ============================================================
+# ADR-0014 决策 2（G-2）：advisory 告知限额——多路合并去重后≤2 条 + 折叠句
+# ============================================================
+#
+# 【与旧「不截断」决策的关系】`_template_narration` 内部拼 honest_text 那段
+# 曾明确"不截断（深审修正）"，理由是"advisory 在 planner 侧已按码合并，每码
+# 至多一句，现实上限 ~4 句"——这个假设在 D-7 五个码的年代成立，但 ADR-0014
+# 决策 2 引入的 `CONSTRAINT_RELAXED` 一个 tag 一条、上限跟着 intent 里 soft
+# tag 的数量走，"~4 句封顶"的前提不再成立。本函数在 D-7 既有 advisory 与
+# CONSTRAINT_RELAXED 合并去重**之后**（调用方——`agent/graph/nodes/
+# narrate.py`——先做 `_merge_advisories` 去重，再传本函数）统一限额，
+# `_template_narration` 内部那句"不截断"依然成立（它确实不再对本函数已经
+# 限额过的列表做二次截断），只是"不必再截断"的前提从"天然只有几句"变成
+# "已经在更上游被限额过"。
+
+_ADVISORY_DISCLOSURE_LIMIT = 2
+
+
+def _apply_advisory_disclosure_cap(advisories: list[str]) -> list[str]:
+    """多路 advisory 合并去重后限额：最多呈现 `_ADVISORY_DISCLOSURE_LIMIT`
+    条，余下折叠为一句"还有 N 处小取舍"。
+
+    措辞纪律（任务拍板）：自信的取舍说明，不是道歉——不用"抱歉"/"不好意思"
+    之类的歉意措辞，用"取舍"/"顶上了"这类确定性、掌控感强的表达。
+
+    条数 ≤ 限额 → 原样返回（不折叠，不产生"还有 0 处"这种废话）。
+    """
+    if len(advisories) <= _ADVISORY_DISCLOSURE_LIMIT:
+        return advisories
+    kept = advisories[:_ADVISORY_DISCLOSURE_LIMIT]
+    remainder = len(advisories) - _ADVISORY_DISCLOSURE_LIMIT
+    folded = f"另外还有 {remainder} 处按实际情况做了些取舍，方案细节里都能看到。"
+    return kept + [folded]
+
+
+# ============================================================
 # 公共入口
 # ============================================================
 
@@ -1259,6 +1297,9 @@ def generate_title_and_narration(
         (title, narration, node_chips)；title/narration 永远非空，
         node_chips 可能是空列表（itinerary 没有非 home 节点这种边界情况）。
     """
+    # ADR-0014 决策 2（G-2）：告知限额——LLM 路径与模板路径共用同一份已限额
+    # 列表，保证两条路径呈现的告知条数一致（见 `_apply_advisory_disclosure_cap`）。
+    advisories = _apply_advisory_disclosure_cap(list(advisories or []))
     llm_title: Optional[str] = None
     llm_narration: Optional[str] = None
     llm_node_chips: list[NodeChip] = []
@@ -1327,6 +1368,8 @@ def generate_narration(
     注：本函数只产 narration（不要 title）；需要同次产 title 的调用方用
     generate_title_and_narration（narrate 节点写回 itinerary.summary 用）。
     """
+    # ADR-0014 决策 2（G-2）：告知限额，见 generate_title_and_narration 同款注释。
+    advisories = _apply_advisory_disclosure_cap(list(advisories or []))
     if use_llm:
         out = _call_llm_narrator(
             intent=intent,

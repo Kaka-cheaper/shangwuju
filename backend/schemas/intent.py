@@ -27,7 +27,7 @@ ADR-0014 G-0（2026-07-03）砍除记录：
 - LLM Prompt 设计（在 backend/prompts）。
 """
 
-from typing import Literal, Optional
+from typing import Iterable, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeInt, conint, conlist
 
@@ -197,3 +197,37 @@ class IntentExtraction(BaseModel):
             "当『无出处信息』处理，不强行倒推。"
         ),
     )
+
+
+def extract_tag_provenance(
+    intent: IntentExtraction, field: str, tags: Iterable[str]
+) -> Optional[dict[str, str]]:
+    """从 `intent.field_provenance` 摘取某个受控词典字段的逐 tag 出处子集。
+
+    ADR-0014 决策 2（G-2）：`tools._helpers.relax_tag_search` 的 soft tag
+    降级序需要按出处排序，但它只关心"这次 required_tags 里每个 tag 的出处"，
+    不关心整份 `field_provenance` 的其它字段——本函数做这次收窄，键从
+    `field_provenance` 的复合键（`"字段名:元素值"`）降级成裸 tag 值（单个
+    SearchXxxInput 调用里 tag 值本身已无歧义，不需要复合键）。
+
+    三条 `SearchXxxInput` 构造点共用（改一处查三处，与既有"三处
+    SearchRestaurantsInput 构造点"注释同一纪律）：
+    - `agent/runtime/tools/search_adapter.py::search_pois_for_intent` /
+      `search_restaurants_for_intent`
+    - `agent/planning/planners/rule_planner.py::_query_pois` / `_query_restaurants`
+    - `agent/planning/planners/ils_planner.py::_query_pois` / `_query_restaurants`
+
+    Returns:
+        `{tag值: 出处}`；`intent.field_provenance` 为 None（旧 checkpoint /
+        未跑校正）或本次 tags 一个都没有出处记录 → 返回 None（而非空 dict），
+        让 `relax_tag_search` 的默认降级序接管，不强行编造出处信息。
+    """
+    provenance = intent.field_provenance
+    if not provenance:
+        return None
+    out: dict[str, str] = {}
+    for tag in tags:
+        key = f"{field}:{tag}"
+        if key in provenance:
+            out[tag] = provenance[key]
+    return out or None

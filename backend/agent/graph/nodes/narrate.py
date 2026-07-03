@@ -432,8 +432,28 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     intent = state.get("intent")
     itinerary = state.get("itinerary")
 
-    if intent is None or itinerary is None:
+    if intent is None:
         return {"narration": None}
+
+    if itinerary is None:
+        # ADR-0014 决策 2（G-2）配套三件：真正"hard 卡死"——replan 链条（LLM
+        # backprompt → ILS → rule 地板）全部失败，从未成功产出过方案（与
+        # finalize_plan_node 的同名早退分支对称，见该文件 docstring「不负责」
+        # 节）。旧行为是裸返回 `{"narration": None}`——emit_narrate 只在
+        # `diff.get("narration")` 真值时才推 AGENT_NARRATION（见该函数），
+        # 于是用户在这个分支上什么反馈都收不到，界面上像是"卡住了"。
+        # 这里补一句诚实的兜底文案 + `give_up_chips`（`replan.py::
+        # ils_replan_node` 最终失败分支写入，`relax_suggestion_chips` 产出）
+        # ——不重新规划、不硬凑一个假方案，只是把"为什么、能怎么办"说清楚。
+        give_up_chips = state.get("give_up_chips") or []
+        if give_up_chips:
+            text = (
+                "这次的条件有点严格，附近没能找到同时满足的候选，暂时排不出"
+                "方案——可以点下面的建议调整一下，我再试一次。"
+            )
+        else:
+            text = "这次没能找到合适的候选，暂时排不出方案，换个条件再试试？"
+        return {"narration": text, "give_up_chips": give_up_chips}
 
     client = get_llm_client()
     # spec interaction-experience-review：规则模式下 narrate **不调 LLM 润色**，

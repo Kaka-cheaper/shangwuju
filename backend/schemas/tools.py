@@ -59,6 +59,18 @@ class SearchPoisInput(BaseModel):
     distance_max_km: float = Field(default=5.0, ge=0, le=100)
     physical_constraints: list[PhysicalTag] = Field(default_factory=list)
     experience_tags: list[ExperienceTag] = Field(default_factory=list)
+    tag_provenance: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "ADR-0014 决策 2（G-2）：`physical_constraints` 里每个 tag 的出处"
+            "（`{tag值: user_stated/prior/inferred/default}`），供 `tools."
+            "_helpers.relax_tag_search` 的 soft tag 降级序排序用——不覆盖"
+            "hard tag（hard 全程恒定过滤，出处不影响是否放宽）。调用方从 "
+            "`intent.field_provenance` 经 `schemas.intent.extract_tag_"
+            "provenance` 摘取；缺省 None（旧调用点未接线 / 无出处数据）时"
+            "退化为按原始顺序稳定丢弃，不强行编造。"
+        ),
+    )
     social_context: Optional[SocialContext] = Field(
         default=None, description="若提供则按 suitable_for 过滤"
     )
@@ -95,9 +107,16 @@ class SearchPoisOutput(ToolOutputBase):
     relaxed_tags: list[str] = Field(
         default_factory=list,
         description=(
-            "Tag relaxation 实际放弃的 physical_constraints tag 列表（按丢弃顺序）。"
-            "空 = 严格匹配通过；非空 = 候选源在严格 tag 下打到 0，按软优先级"
-            "渐进放宽得到候选。LLM 应在 rationale 中解释这一点。"
+            "Tag relaxation 实际放弃的 physical_constraints **soft** tag 列表"
+            "（按丢弃顺序；hard tag 从不出现在这里，见 `tools._helpers."
+            "relax_tag_search`）。空 = 严格匹配通过，或 hard tag 全程不满足"
+            "（无安全候选，也不算「放宽」）；非空 = 候选源在严格 tag 下打到 0，"
+            "按出处降级序渐进丢 soft tag 得到候选。"
+            "ADR-0014 决策 2（G-2）：**纯调试信息**，不再驱动任何用户可见的"
+            "「哪些约束被放宽了」告知——该职责已收口到出口满足度审计"
+            "（`agent.planning.critic.exit_audit`，比对最终方案 vs intent 全部"
+            "约束，产出 `AdvisoryCode.CONSTRAINT_RELAXED`）。本字段只留给"
+            "SSE `tool_call_end`/调试面板展示实际过滤路径，不再承担告知职责。"
         ),
     )
     effective_distance_max_km: Optional[float] = Field(
@@ -121,6 +140,13 @@ class SearchRestaurantsInput(BaseModel):
     distance_max_km: float = Field(default=5.0, ge=0, le=100)
     dietary_constraints: list[DietaryTag] = Field(default_factory=list)
     experience_tags: list[ExperienceTag] = Field(default_factory=list)
+    tag_provenance: Optional[dict[str, str]] = Field(
+        default=None,
+        description=(
+            "ADR-0014 决策 2（G-2）：`dietary_constraints` 里每个 tag 的出处"
+            "（同 `SearchPoisInput.tag_provenance`，见该字段 docstring）。"
+        ),
+    )
     social_context: Optional[SocialContext] = None
     capacity_requirement: Optional[NonNegativeInt] = Field(
         default=None,
@@ -152,8 +178,9 @@ class SearchRestaurantsOutput(ToolOutputBase):
     relaxed_tags: list[str] = Field(
         default_factory=list,
         description=(
-            "Tag relaxation 实际放弃的 dietary_constraints tag 列表（按丢弃顺序）。"
-            "空 = 严格匹配；非空 = 严格 tag 下打到 0，按软优先级渐进放宽得到候选。"
+            "Tag relaxation 实际放弃的 dietary_constraints **soft** tag 列表"
+            "（同 `SearchPoisOutput.relaxed_tags` 纪律：hard tag 从不出现在"
+            "这里；纯调试信息，不再驱动用户可见告知，见该字段 docstring）。"
         ),
     )
 

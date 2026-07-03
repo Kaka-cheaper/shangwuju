@@ -36,6 +36,12 @@
    `fallback_chain` 最后一跳）+ 把上一条未 resolved 的 `critic_attempt`
    标 resolved（能走到这里说明 critic 已放行，反馈已被消化）。这段逻辑
    原样从 narrate.py 挪来，字面不变——只是执行时机提前。
+5. 出口满足度审计（ADR-0014 决策 2 · G-2）：`agent.planning.critic.
+   exit_audit.audit_constraint_relaxation` 统一比对最终 itinerary vs
+   intent 全部约束，soft 未满足产出 `AdvisoryCode.CONSTRAINT_RELAXED`
+   追加进 `state.advisories`——本节点是"方案已定稿"的确定性时机，天然
+   覆盖 LLM 主路径/ILS/rule 三条规划路径的最终产物，不必在三处规划入口
+   各自重复比对（见该模块 docstring「这是什么问题」节）。
 
 不负责：
 - 叙事 LLM 调用 / LLM 标题 / narration 文案 / node_chips（在 narrate_node）。
@@ -218,4 +224,27 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
     version_n = len(existing_log) + 1
     version_entry = _version_log_entry(state, version_n=version_n)
 
-    return {"itinerary": new_itinerary, "plan_version_log": [version_entry]}
+    # ---- 5. 出口满足度审计（ADR-0014 决策 2 · G-2：单点挂点）----
+    # 方案在这里已经定稿（决策 trace / pending_actions 都已收尾）——是"最终
+    # itinerary vs intent 全部约束"这个比对唯一该发生的时机（比对搜索期中间
+    # 尝试没有意义，见 `agent.planning.critic.exit_audit` 模块 docstring）。
+    # 天然覆盖 LLM 主路径 / ILS / rule 三条规划路径的最终产物——它们都会经过
+    # 本节点才进 narrate，不需要在三处规划入口各自重复这个比对。
+    # 追加而非覆盖：state.advisories 此刻可能已有 ils_replan_node 写入的
+    # D-7 告知（PINNED_UNSATISFIABLE 等），本轮新增的 CONSTRAINT_RELAXED 只
+    # 追加在其后，narrate.py 的 _extract_advisories/_merge_advisories 读到的
+    # 是包含两者的完整列表。
+    from agent.planning.critic.exit_audit import audit_constraint_relaxation
+
+    existing_advisories = list(state.get("advisories") or [])
+    new_advisories = audit_constraint_relaxation(new_itinerary, intent)
+    if new_advisories:
+        existing_advisories = existing_advisories + [
+            a.model_dump() for a in new_advisories
+        ]
+
+    return {
+        "itinerary": new_itinerary,
+        "plan_version_log": [version_entry],
+        "advisories": existing_advisories,
+    }

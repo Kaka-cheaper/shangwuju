@@ -56,6 +56,20 @@ node.start_time，含 hop 通勤耗时），注册在 Stage 1 hard——填补 A
   hop/buffer 对齐 → Stage 1 check_temporal_alignment。
 - nodes_incomplete (D-8a 再修订)：改为「≥1 个非 home 活动节点」结构底线——多活动模型下组成由搜索层决定，B-2a 时代「对照 decide_nodes 逐种要求 kind」已废（见 _rules/checks.py:check_nodes_incomplete docstring）。
 - opening_hours (B-2b 新增)：Stage 1 hard，None-guard 防重蹈 O4 的 TypeError。
+
+【ADR-0014 决策 2（G-2，2026-07-03）：硬/软分层改判】
+
+- `check_dietary` 改判：只核验 `dietary_constraints` 里的 hard 子集（不辣/
+  无牛肉/软烂），ALL-match（曾经是"整个列表 ANY-match"，会漏拦"满足其一
+  但另一个 hard 排除仍违反"的场景，也会误拦"纯 soft 风格标签没满足"的
+  场景——soft 未满足不该 gate，见下方出口审计）。
+- `check_physical`（新增）：与 `check_dietary` 对称，核验 `physical_
+  constraints` 里的 hard 子集（无台阶/无障碍/适合老人/可休息），Stage 1
+  hard，注册紧邻 check_dietary。
+- soft tag 未满足不再由任何 critic 拦截——`agent.planning.critic.
+  exit_audit`（方案定稿处 `finalize_plan_node` 单点调用）统一比对最终
+  itinerary vs intent 全部约束，产出 `AdvisoryCode.CONSTRAINT_RELAXED`
+  advisory（narration 诚实告知，不 gate）。
 """
 
 from __future__ import annotations
@@ -77,6 +91,7 @@ from ._rules.checks import (
     check_meal_time,
     check_nodes_incomplete,
     check_opening_hours,
+    check_physical,
     check_social_context,
     check_temporal_alignment,
     check_temporal_feasibility,  # noqa: F401  保留兼容：critics_v2 别名仍用
@@ -127,6 +142,8 @@ REGISTRY: list[CheckSpec] = [
     CheckSpec(ViolationCode.CAPACITY_REQUIREMENT_VIOLATED, 1, "hard", check_capacity),
     # B-2a: dietary / meal_time 升 HARD → 移入 Stage 1，驱动修复闭环
     CheckSpec(ViolationCode.DIETARY_VIOLATION, 1, "hard", check_dietary),
+    # ADR-0014 决策 2（G-2）：与 check_dietary 对称的 POI 侧 hard 物理约束核验
+    CheckSpec(ViolationCode.PHYSICAL_VIOLATION, 1, "hard", check_physical),
     CheckSpec(ViolationCode.MEAL_TIME_UNREASONABLE, 1, "hard", check_meal_time),
     # ── Stage 2: soft 建议（narration only，不 gate） ──────────────────────
     CheckSpec(ViolationCode.DISTANCE_EXCEEDED, 2, "soft", check_distance),

@@ -163,8 +163,12 @@ _BATTERY = [
         [("nodes_incomplete", "hard")]),
     ("distance_exceeded", _legal(), _mk_intent(distance_max_km=0.1), "demo_user", None,
         [("distance_exceeded", "soft"), ("distance_exceeded", "soft")]),
-    # B-2a: dietary → HARD（gate 修复）
-    ("dietary_violation", _legal(rest_id="R001"), _mk_intent(dietary_constraints=["粤菜"]), "demo_user", None,
+    # B-2a: dietary → HARD（gate 修复）；ADR-0014 决策 2（G-2）改判后
+    # check_dietary 只核验 hard 忌口子集——"粤菜"是风格型 soft tag，改判后
+    # 不再触发本 check（见 test_critics_v2.py::
+    # test_dietary_violation_soft_only_mismatch_does_not_gate），本处改用
+    # 真正的 hard 忌口 tag「不辣」保持"确实拦住了"这条 golden 契约成立。
+    ("dietary_violation", _legal(rest_id="R001"), _mk_intent(dietary_constraints=["不辣"]), "demo_user", None,
         [("dietary_violation", "hard")]),
     ("capacity_violated", _legal(rest_id="R001"), _capacity_intent(), "demo_user", None,
         [("capacity_requirement_violated", "hard")]),

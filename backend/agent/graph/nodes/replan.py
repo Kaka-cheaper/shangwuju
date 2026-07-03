@@ -175,6 +175,7 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
             reason="ILS 不适用或未给出有效方案，回 rule planner 兜底",
         ).model_dump()
     )
+    rule_failure_reason = None
     try:
         from agent.planning.planners.rule_planner import plan_itinerary
         from agent.core.trace import Tracer
@@ -190,6 +191,10 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
                 "replan_strategy": "give_up",  # 标记已用完所有策略
                 "fallback_chain": chain,
             }
+        # ADR-0014 决策 2（G-2）配套三件：rule 地板未成功——留痕失败原因，
+        # 供下方"全部失败"分支判断要不要生成放宽建议 chips（真正的
+        # "hard 卡死"：EMPTY_CANDIDATES 才给建议，其它失败原因文不对题）。
+        rule_failure_reason = rule_result.failure_reason
     except Exception:  # noqa: BLE001
         pass
 
@@ -201,8 +206,23 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
             reason="rule planner 也未能产出方案，停止重试",
         ).model_dump()
     )
+    # ADR-0014 决策 2（G-2）配套三件：真正"hard 卡死"（候选彻底耗尽，rule
+    # 地板也救不回来）时，给用户具体的、点了就能继续走下去的放宽建议 chips
+    # （见 `rule_planner.relax_suggestion_chips` docstring），而不是让
+    # narrate_node 对 itinerary=None 的兜底分支只吐一句干巴巴的道歉。
+    give_up_chips: list[Any] = []
+    try:
+        from agent.planning.planners.rule_planner import relax_suggestion_chips
+
+        give_up_chips = [
+            c.model_dump() for c in relax_suggestion_chips(intent, rule_failure_reason)
+        ]
+    except Exception:  # noqa: BLE001
+        give_up_chips = []
+
     return {
         "replan_strategy": "give_up",
         "has_critical": False,
         "fallback_chain": chain,
+        "give_up_chips": give_up_chips,
     }

@@ -42,13 +42,17 @@ import math
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from data.loader import load_pois, load_restaurants
 from schemas.domain import Poi, Restaurant
 from schemas.errors import FailureReason
-from schemas.intent import IntentExtraction
+from schemas.intent import IntentExtraction, extract_tag_provenance
+from schemas.tags import is_hard_tag
 from schemas.itinerary import Itinerary
+
+if TYPE_CHECKING:
+    from schemas.router import CtaChip
 from schemas.tools import (
     CheckRestaurantAvailabilityInput,
     CheckRestaurantAvailabilityOutput,
@@ -396,6 +400,61 @@ def _enforce_intent_duration_from_raw(
     return fixed
 
 
+def relax_suggestion_chips(
+    intent: IntentExtraction, reason: FailureReason | None
+) -> list["CtaChip"]:
+    """"hard 卡死"（候选彻底耗尽、rule 地板也失败）时的放宽建议 chips。
+
+    ADR-0014 决策 2（G-2）配套三件之一。背景：hard tag（不辣/无牛肉/软烂/
+    无台阶/无障碍/适合老人/可休息）永不放宽（见 `_hard_subset`/`tools.
+    _helpers.relax_tag_search`）——这是刻意的安全语义，但代价是若 mock 数据
+    里某个 hard tag 压根没有满足它的候选（见 `tests.
+    test_hard_tag_mock_completeness` 已量出「无障碍」「无牛肉」当前 0 家），
+    候选会一路降级到底仍打空，最终 rule 地板也 `_abort`——用户此刻不该只
+    看到一句冷冰冰的报错，需要具体的、点了就能继续走下去的出路（读 FLOOR
+    chips 先例：`agent/intent/prompts/router_prompt.py::FLOOR_CLARIFY_CTAS`
+    ——同样是"给结构化按钮而非干等用户自己想措辞"）。
+
+    只在候选耗尽（`FailureReason.EMPTY_CANDIDATES`）时给建议——其它失败
+    原因（画像加载失败/工具调用超限等）不是"约束太严"，放宽建议文不对题。
+
+    Returns:
+        ≤2 个 `CtaChip`：
+        1. 距离建议（恒定）：refiner 已有现成关键词识别（`_KEYWORDS_
+           DISTANCE_FAR`），点击即走已验证的距离放宽路径。
+        2. 若 intent 命中的 hard tag 不为空，追加一条"去掉这条要求"建议，
+           点名第一个命中的 hard tag（自信取舍：给一个具体、可执行的选项，
+           不是含糊的"要不放宽点？"）。
+        `reason` 不是 EMPTY_CANDIDATES → 返回空列表（不是"约束太严"，建议
+        文不对题）。
+    """
+    from schemas.router import CtaChip
+
+    if reason != FailureReason.EMPTY_CANDIDATES:
+        return []
+
+    chips: list[CtaChip] = [
+        CtaChip(label="放宽距离范围", send="距离可以再远一点"),
+    ]
+
+    hard_hit = next(
+        (
+            t
+            for t in [*intent.physical_constraints, *intent.dietary_constraints]
+            if is_hard_tag(t)
+        ),
+        None,
+    )
+    if hard_hit is not None:
+        chips.append(
+            CtaChip(
+                label=f"去掉『{hard_hit}』试试"[:24],
+                send=f"这次先不要{hard_hit}这个要求了",
+            )
+        )
+    return chips
+
+
 def _abort(tracer: Tracer, reason: FailureReason | None, detail: str) -> PlannerResult:
     tracer.emit(
         "stream_error",
@@ -409,6 +468,22 @@ def _abort(tracer: Tracer, reason: FailureReason | None, detail: str) -> Planner
     )
 
 
+def _hard_subset(tags: list[str]) -> list[str]:
+    """摘出 tags 里的 hard 子集（ADR-0014 决策 2）。
+
+    rule_planner 自己这条"整体剥离弱约束"的外层降级链（第 4/5 级）曾经
+    直接把整个 tag 列表清空（`physical=[]` / `dietary=[]`）——这在 hard/soft
+    分层之前没问题（那时没有"一票否决"这个概念），但分层后会把 hard tag
+    也一并剥掉，绕开 `tools._helpers.relax_tag_search` 的"hard 永不放宽"
+    保护（外层在调 Tool *之前* 就把 hard tag 从入参里抹掉了，Tool 内部的
+    hard 保护根本看不到它）。改为只剥 soft、保留 hard，让"忌口/无障碍类
+    约束永不因候选紧张而被放宽"这条不变量在外层降级链与 Tool 内部降级
+    两层都成立，不因调用路径不同而出现"这条路径保护、那条路径没保护"的
+    双标行为（结构对齐测试 `test_search_planning_parity.py` 的存在意义）。
+    """
+    return [t for t in tags if is_hard_tag(t)]
+
+
 def _query_pois(
     intent: IntentExtraction,
     call,
@@ -420,9 +495,14 @@ def _query_pois(
     1. 原约束（distance + tags + social_context + preferred_types）
     2. 放宽距离 +2km
     3. 剥 preferred_types（用户没明示 POI 类型时该字段是 prior 注入，可去）
-    4. 剥 physical_constraints + experience_tags（prior 注入的偏好让步）
-    5. 仅按 distance + social_context（最宽松，仍有调性匹配）
-    任一级命中候选立即返回。
+    4. 剥 physical_constraints 里的 soft 部分（hard 部分——无台阶/无障碍/
+       适合老人/可休息——保留，见 `_hard_subset`）+ experience_tags（全 soft，
+       整体让步）
+    5. 仅按 distance + social_context + physical_constraints 的 hard 部分
+       （最宽松，仍有调性匹配 + 安全底线）
+    任一级命中候选立即返回。ADR-0014 决策 2（G-2）：hard tag 全程不参与
+    "让步"，即使因此打到 0 候选也如实返回（不是这里的 bug，是没有安全
+    候选这件事本身需要被看见——give_up 疏导见任务报告"配套三件"）。
     """
     age_in_party = [c.age for c in intent.companions if c.age is not None]
     # c′批留痕收口：传 home 坐标,与 execute 侧/ILS 侧走同一个距离真相接缝
@@ -441,15 +521,22 @@ def _query_pois(
         preferred_types: list[str] | None = None,
         social_context: str | None = None,
     ) -> SearchPoisOutput:
+        active_physical = (
+            physical if physical is not None else list(intent.physical_constraints)
+        )
         result = call(
             "search_pois",
             SearchPoisInput(
                 distance_max_km=distance,
                 user_lat=home.lat,
                 user_lng=home.lng,
-                physical_constraints=physical
-                if physical is not None
-                else list(intent.physical_constraints),
+                physical_constraints=active_physical,
+                # ADR-0014 决策 2（G-2）：出处透传三处构造点之一（改一处查
+                # 三处，另两处见 agent/runtime/tools/search_adapter.py::
+                # search_pois_for_intent / ils_planner.py::_query_pois）。
+                tag_provenance=extract_tag_provenance(
+                    intent, "physical_constraints", active_physical
+                ),
                 experience_tags=experience
                 if experience is not None
                 else list(intent.experience_tags),
@@ -502,7 +589,8 @@ def _query_pois(
         if out.success and out.candidates:
             return list(out.candidates)
 
-    # 第 4 级：剥 physical + experience tag（prior 注入的偏好让步）
+    # 第 4 级：剥 physical/experience 里的 soft 部分（hard physical 保留）
+    hard_physical = _hard_subset(list(intent.physical_constraints))
     if intent.physical_constraints or intent.experience_tags:
         tracer.emit(
             "replan_triggered",
@@ -514,14 +602,15 @@ def _query_pois(
         )
         out = _do(
             intent.distance_max_km + 2,
-            physical=[],
+            physical=hard_physical,
             experience=[],
             preferred_types=[],
         )
         if out.success and out.candidates:
             return list(out.candidates)
 
-    # 第 5 级：仅 distance + social_context（最宽松，仍有调性匹配）
+    # 第 5 级：仅 distance + social_context + hard physical（最宽松，仍有
+    # 调性匹配 + 安全底线）
     tracer.emit(
         "replan_triggered",
         {
@@ -532,7 +621,7 @@ def _query_pois(
     )
     out = _do(
         intent.distance_max_km + 4,
-        physical=[],
+        physical=hard_physical,
         experience=[],
         preferred_types=[],
     )
@@ -552,9 +641,14 @@ def _query_restaurants(
     降级链（顺序尝试）：
     1. 原约束（distance + dietary + experience + social_context + capacity）
     2. 放宽距离 +2km
-    3. 剥 experience_tags（prior 注入的弱约束）
-    4. 剥 dietary 中 prior 注入的偏好（保留用户明示的）
-    5. 仅 distance + social_context（最宽松，但仍调性匹配）
+    3. 剥 experience_tags（全 soft，整体让步）
+    4. 剥 dietary 里的 soft 部分（hard 部分——不辣/无牛肉/软烂——保留，见
+       `_hard_subset`）
+    5. 仅 distance + social_context + dietary 的 hard 部分（最宽松，但仍
+       调性匹配 + 忌口底线）
+
+    ADR-0014 决策 2（G-2）：hard dietary tag 全程不参与"让步"，即使因此打到
+    0 候选也如实返回（见 `_hard_subset` docstring）。
     """
     # c′批留痕收口：同 `_query_pois` 上方注释——传 home 坐标走同一距离接缝。
     from data.loader import load_user_profile
@@ -575,15 +669,21 @@ def _query_restaurants(
         social_context: str | None = None,
         capacity: int | None = None,
     ) -> SearchRestaurantsOutput:
+        active_dietary = (
+            dietary if dietary is not None else list(intent.dietary_constraints)
+        )
         result = call(
             "search_restaurants",
             SearchRestaurantsInput(
                 distance_max_km=distance,
                 user_lat=home.lat,
                 user_lng=home.lng,
-                dietary_constraints=dietary
-                if dietary is not None
-                else list(intent.dietary_constraints),
+                dietary_constraints=active_dietary,
+                # ADR-0014 决策 2（G-2）：出处透传三处构造点之一，见
+                # `_query_pois` 同款注释。
+                tag_provenance=extract_tag_provenance(
+                    intent, "dietary_constraints", active_dietary
+                ),
                 experience_tags=experience
                 if experience is not None
                 else list(intent.experience_tags),
@@ -633,7 +733,8 @@ def _query_restaurants(
         if out.success and out.candidates:
             return list(out.candidates)
 
-    # 第 4 级：剥 dietary（仅当有 dietary）
+    # 第 4 级：剥 dietary 里的 soft 部分（hard 保留）
+    hard_dietary = _hard_subset(list(intent.dietary_constraints))
     if intent.dietary_constraints:
         tracer.emit(
             "replan_triggered",
@@ -643,11 +744,11 @@ def _query_restaurants(
                 "action": "drop_dietary",
             },
         )
-        out = _do(intent.distance_max_km + 2, experience=[], dietary=[])
+        out = _do(intent.distance_max_km + 2, experience=[], dietary=hard_dietary)
         if out.success and out.candidates:
             return list(out.candidates)
 
-    # 第 5 级：最宽松
+    # 第 5 级：最宽松（仍保留 hard dietary 底线）
     tracer.emit(
         "replan_triggered",
         {
@@ -659,7 +760,7 @@ def _query_restaurants(
     out = _do(
         intent.distance_max_km + 4,
         experience=[],
-        dietary=[],
+        dietary=hard_dietary,
         capacity=None,
     )
     if out.success and out.candidates:

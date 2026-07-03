@@ -149,10 +149,11 @@ def validate_itinerary(
       10. SOCIAL_CONTEXT_MISMATCH（hard / soft 分级）
       11. AGE_DURATION_MISMATCH（spec planning-quality-deep-review R4）
       12. CAPACITY_REQUIREMENT_VIOLATED（spec innovation-review M3：≥5 人桌型不够）
-      13. DIETARY_VIOLATION（B-2a 升 HARD，gate 修复）
-      14. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
+      13. DIETARY_VIOLATION（B-2a 升 HARD；ADR-0014 G-2 改判为只核验 hard 忌口子集）
+      14. PHYSICAL_VIOLATION（ADR-0014 决策 2 · G-2 新增：与 DIETARY_VIOLATION 对称）
+      15. MEAL_TIME_UNREASONABLE（B-2a 升 HARD，gate 修复）
     Stage 2（soft 建议，narration only）：
-      15. DISTANCE_EXCEEDED（soft）
+      16. DISTANCE_EXCEEDED（soft）
 
     Args:
         itinerary:    要校验的方案（已通过 Pydantic 构造）。

@@ -10,9 +10,13 @@
 
 座位时段可用性 *不在* 本 Tool 里判断——交给 check_restaurant_availability。
 
-Step 6：tag relaxation
+Step 6：tag relaxation（ADR-0014 决策 2 · G-2 改造）
 - dietary_constraints 全命中打到空集时自动渐进放宽
-- 物理硬约束（低脂 / 不辣 / 有儿童餐 等）最后才被丢
+- hard tag（不辣 / 无牛肉 / 软烂，见 schemas.tags.DIETARY_HARD_TAGS）永不
+  放宽；soft tag（低脂 / 日料 / 高人均 等风格型）按 inp.tag_provenance 出处
+  降级序丢弃
+- output.relaxed_tags 只列实际丢弃的 soft tag，是纯调试信息（见
+  schemas.tools.SearchRestaurantsOutput.relaxed_tags docstring）
 """
 
 from __future__ import annotations
@@ -92,6 +96,7 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
         extract_tags=lambda r: r.tags,
         additional_filter=_non_tag_filter,
         max_relax_levels=3,
+        tag_provenance=inp.tag_provenance,
     )
 
     candidates.sort(key=lambda x: x.rating, reverse=True)

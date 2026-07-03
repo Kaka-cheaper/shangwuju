@@ -74,6 +74,13 @@ class AdvisoryCode(str, Enum):
     # 方案保持原样未变。
     SWAP_NO_ALTERNATIVE_FOUND = "swap_no_alternative_found"
 
+    # ---- ADR-0014 决策 2（G-2）：出口满足度审计 ----
+    # 方案定稿处统一比对最终 itinerary 每个节点 vs intent 全部约束产出——软约束
+    # （soft tag）未在最终方案里满足时的诚实告知（哪条约束、按出处的口径）。
+    # 与本文件其它码同一语义分工：不 gate 任何东西，方案本身可能已经是"这组
+    # 约束下能做到的最好结果"，见 `agent.planning.critic.exit_audit` 模块 docstring。
+    CONSTRAINT_RELAXED = "constraint_relaxed"
+
 
 class Advisory(BaseModel):
     """一条「限制/建议」告知——不 gate 方案，只如实说明（区别于 Violation，见模块 docstring）。"""

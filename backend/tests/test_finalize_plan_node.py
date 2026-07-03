@@ -185,6 +185,48 @@ def test_finalize_plan_node_decision_trace_no_fallback_chain_defaults_llm_first(
 
 
 # ============================================================
+# 1b. finalize_plan_node：出口满足度审计单点挂点（ADR-0014 决策 2 · G-2）
+# ============================================================
+
+
+def test_finalize_plan_node_appends_constraint_relaxed_advisory():
+    """intent 含未满足 soft tag（附出处）→ finalize_plan_node 追加
+    CONSTRAINT_RELAXED advisory 进 state.advisories，与 exit_audit 单测
+    （test_exit_audit.py）同一断言口径，这里只验证"单点挂点确实接线了"。
+    """
+    intent = IntentExtraction(
+        start_time="2026-07-02T14:00",
+        duration_hours=[3, 5],
+        distance_max_km=10.0,
+        companions=[Companion(role="自己", count=1)],
+        physical_constraints=[],
+        dietary_constraints=["日料"],  # R001 tags=[低脂]，不含日料
+        experience_tags=[],
+        social_context="家庭日常",
+        raw_input="测试",
+        parse_confidence=0.9,
+        field_provenance={"dietary_constraints:日料": "user_stated"},
+    )
+    itin = assemble_from_blueprint(intent, _blueprint(), load_user_profile())
+
+    out = finalize_plan_node({"intent": intent, "itinerary": itin, "advisories": []})
+    advisories = out["advisories"]
+
+    assert any(a["code"] == "constraint_relaxed" for a in advisories)
+    msg = next(a["message"] for a in advisories if a["code"] == "constraint_relaxed")
+    assert "你说的" in msg and "日料" in msg
+
+
+def test_finalize_plan_node_preserves_existing_advisories():
+    """已有 advisories（如 ils_replan_node 写入的 D-7 告知）不被覆盖，只追加。"""
+    intent, itin = _itinerary()  # 无约束，exit_audit 不产生新 advisory
+    existing = [{"code": "over_budget", "message": "这次预估花费高一些。"}]
+
+    out = finalize_plan_node({"intent": intent, "itinerary": itin, "advisories": existing})
+    assert out["advisories"] == existing
+
+
+# ============================================================
 # 2. emit_finalize_plan：去重契约
 # ============================================================
 

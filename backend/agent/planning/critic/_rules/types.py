@@ -41,6 +41,7 @@ class ViolationCode(str, Enum):
     DISTANCE_EXCEEDED = "distance_exceeded"
     RESTAURANT_FULL_UNRESOLVED = "restaurant_full_unresolved"
     DIETARY_VIOLATION = "dietary_violation"
+    PHYSICAL_VIOLATION = "physical_violation"  # ADR-0014 决策 2（G-2）：与 DIETARY_VIOLATION 对称，见 check_physical
     SOCIAL_CONTEXT_MISMATCH = "social_context_mismatch"
     AGE_DURATION_MISMATCH = "age_duration_mismatch"  # spec planning-quality-deep-review R4
     TOOL_RESPONSE_INCONSISTENCY = "tool_response_inconsistency"  # spec algorithm-redesign R2

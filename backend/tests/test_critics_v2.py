@@ -74,6 +74,7 @@ def _make_intent(
     duration_hours: list[int] = [4, 6],
     distance_max_km: float = 10.0,
     dietary_constraints: list[str] | None = None,
+    physical_constraints: list[str] | None = None,
     social_context: str = "家庭日常",
 ) -> IntentExtraction:
     return IntentExtraction(
@@ -81,7 +82,7 @@ def _make_intent(
         duration_hours=duration_hours,  # type: ignore[arg-type]
         distance_max_km=distance_max_km,
         companions=[],
-        physical_constraints=[],
+        physical_constraints=physical_constraints or [],
         dietary_constraints=dietary_constraints or [],
         experience_tags=[],
         social_context=social_context,
@@ -550,9 +551,16 @@ def test_format_violations_no_expected_range_no_extra_text():
 
 
 def test_dietary_violation_hard_when_restaurant_tags_miss():
-    """intent dietary=['粤菜'] / 餐厅 R001（低脂）不含粤菜 → B-2a 升 HARD（gate 修复）。"""
-    intent = _make_intent(dietary_constraints=["粤菜"])
-    itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001 tags 不含粤菜
+    """ADR-0014 决策 2（G-2）改判：intent dietary=['不辣']（hard 忌口）/ 餐厅
+    R001（低脂，不含不辣）→ 仍触发 DIETARY_VIOLATION HARD（gate 修复）。
+
+    改判前本测试用 dietary=['粤菜']（风格型 soft tag）断言 HARD；G-2 把
+    check_dietary 收窄成只核验 hard 子集（粤菜是 soft，不再由本 check
+    gate，见 `test_dietary_violation_soft_only_mismatch_does_not_gate`），
+    故本测试改用真正的 hard 忌口 tag 覆盖"该拦的确实拦住了"这条契约。
+    """
+    intent = _make_intent(dietary_constraints=["不辣"])
+    itinerary = _make_legal_itinerary(restaurant_id="R001")  # R001 tags=[低脂]，不含不辣
 
     violations = validate_itinerary(itinerary, intent)
     dietary_hard = [
@@ -561,8 +569,26 @@ def test_dietary_violation_hard_when_restaurant_tags_miss():
     ]
 
     assert dietary_hard, (
-        f"B-2a：R001 不含粤菜 tag 应触发 DIETARY_VIOLATION HARD（升级自 warning），"
+        f"G-2：R001 不满足 hard 忌口 tag「不辣」应触发 DIETARY_VIOLATION HARD，"
         f"实际 violations={[(v.code, v.severity) for v in violations]}"
+    )
+
+
+def test_dietary_violation_soft_only_mismatch_does_not_gate():
+    """ADR-0014 决策 2（G-2）：intent dietary=['粤菜']（风格型 soft tag，非
+    忌口）/ 餐厅 R001（低脂，不含粤菜）→ **不**触发 DIETARY_VIOLATION。
+
+    soft 约束未满足不该 gate 整条修复闭环——那是"这组约束下能做到的最好
+    结果"，应该走出口满足度审计的 CONSTRAINT_RELAXED advisory 告知（见
+    `agent.planning.critic.exit_audit`），不是 critic HARD 违规。
+    """
+    intent = _make_intent(dietary_constraints=["粤菜"])
+    itinerary = _make_legal_itinerary(restaurant_id="R001")
+
+    violations = validate_itinerary(itinerary, intent)
+    dietary_codes = [v.code for v in violations if v.code == ViolationCode.DIETARY_VIOLATION]
+    assert not dietary_codes, (
+        f"G-2：soft-only dietary 未满足不应产生 DIETARY_VIOLATION，实际={dietary_codes}"
     )
 
 
@@ -574,6 +600,56 @@ def test_dietary_violation_no_trigger_when_tag_match():
     violations = validate_itinerary(itinerary, intent)
     dietary_codes = [v.code for v in violations if v.code == ViolationCode.DIETARY_VIOLATION]
     assert not dietary_codes
+
+
+# ============================================================
+# 测试 9b：PHYSICAL_VIOLATION（ADR-0014 决策 2 · G-2 新增，与 DIETARY_VIOLATION 对称）
+# ============================================================
+
+
+def test_physical_violation_hard_when_poi_tags_miss():
+    """intent physical=['无障碍']（hard 安全型）/ P040（无该 tag）→ 触发
+    PHYSICAL_VIOLATION HARD。
+
+    P040 tags 含 适合老人/无台阶/可休息（同属 hard 安全簇）但不含"无障碍"，
+    刻意验证 ALL-match（缺其中任一 hard 项即违规，不是"满足其它几个就算过关"）。
+    """
+    intent = _make_intent(physical_constraints=["无障碍"])
+    itinerary = _make_legal_itinerary(poi_id="P040")
+
+    violations = validate_itinerary(itinerary, intent)
+    physical_hard = [
+        v for v in violations
+        if v.code == ViolationCode.PHYSICAL_VIOLATION and v.severity == Severity.HARD
+    ]
+    assert physical_hard, (
+        f"G-2：P040 不满足 hard 物理 tag「无障碍」应触发 PHYSICAL_VIOLATION HARD，"
+        f"实际 violations={[(v.code, v.severity) for v in violations]}"
+    )
+
+
+def test_physical_violation_no_trigger_when_tag_match():
+    """intent physical=['适合老人']（hard，P040 已含）→ 不触发 PHYSICAL_VIOLATION。"""
+    intent = _make_intent(physical_constraints=["适合老人"])
+    itinerary = _make_legal_itinerary(poi_id="P040")
+
+    violations = validate_itinerary(itinerary, intent)
+    physical_codes = [v.code for v in violations if v.code == ViolationCode.PHYSICAL_VIOLATION]
+    assert not physical_codes
+
+
+def test_physical_violation_soft_only_mismatch_does_not_gate():
+    """intent physical=['适合青少年']（soft，P040 不含）→ **不**触发
+    PHYSICAL_VIOLATION——soft 未满足走出口满足度审计告知，不是 critic HARD。
+    """
+    intent = _make_intent(physical_constraints=["适合青少年"])
+    itinerary = _make_legal_itinerary(poi_id="P040")
+
+    violations = validate_itinerary(itinerary, intent)
+    physical_codes = [v.code for v in violations if v.code == ViolationCode.PHYSICAL_VIOLATION]
+    assert not physical_codes, (
+        f"G-2：soft-only physical 未满足不应产生 PHYSICAL_VIOLATION，实际={physical_codes}"
+    )
 
 
 def test_demo_full_check_enabled_triggers_at_17_00(monkeypatch):

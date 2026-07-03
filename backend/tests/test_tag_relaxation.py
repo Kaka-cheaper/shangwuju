@@ -1,12 +1,16 @@
-"""tests.test_tag_relaxation —— Step 6：tag 渐进放宽。
+"""tests.test_tag_relaxation —— Step 6：tag 渐进放宽（ADR-0014 决策 2 · G-2 改造）。
 
 覆盖：
 1. relax_tag_search 严格匹配通过场景（不放宽）
-2. 严格匹配空集时按软优先级降级
-3. 物理硬约束（亲子友好 / 适合老人 / 无台阶）最后才被丢
+2. 严格匹配空集时按 soft/hard 分层降级：soft 会被丢，hard 永不进入 relaxed 列表
+3. hard tag（适合老人 / 无台阶 等，见 schemas.tags.PHYSICAL_HARD_TAGS）即使
+   候选紧张到底也绝不放宽——不满足就如实返回空候选，不接受"仅
+   additional_filter"的兜底降级
 4. 空 required tags 直接返回所有过滤通过的候选
 5. search_pois 端到端：祖孙三代约束 → 命中复合 POI（P040）或放宽找候选
-6. relaxed_tags 写入 Output
+6. relaxed_tags 写入 Output（纯调试信息，见 schemas.tools 字段 docstring）
+7. soft tag 降级序按出处（tag_provenance）排序：default 最先丢、user_stated
+   最后丢
 
 不调 LLM；用 mock 真实数据。
 """
@@ -39,31 +43,33 @@ def test_relax_tag_strict_match_no_relaxation():
     assert relaxed == []
 
 
-def test_relax_tag_drops_low_priority_first():
-    """物理硬约束（亲子友好）应该最后丢；非高优 tag「室内」先丢。"""
+def test_relax_tag_hard_never_dropped_soft_dropped_first():
+    """hard tag（适合老人）永不进 relaxed；soft tag（室内）先被丢。"""
 
     class _Item:
         def __init__(self, tags):
             self.tags = tags
 
-    # 没有任何候选同时挂 [亲子友好 + 室内]
+    # 没有任何候选同时挂 [适合老人 + 室内]
     src = [
-        _Item(["亲子友好", "户外"]),
-        _Item(["亲子友好", "高端"]),
+        _Item(["适合老人", "户外"]),
+        _Item(["适合老人", "高端"]),
     ]
     cands, relaxed = relax_tag_search(
-        ["亲子友好", "室内"],
+        ["适合老人", "室内"],
         src,
         extract_tags=lambda x: x.tags,
     )
-    # 应该丢"室内"保"亲子友好"（高优先级）
+    # 应该丢 soft 的"室内"，保 hard 的"适合老人"
     assert len(cands) == 2
     assert "室内" in relaxed
-    assert "亲子友好" not in relaxed
+    assert "适合老人" not in relaxed
 
 
-def test_relax_tag_high_priority_dropped_only_when_necessary():
-    """所有 tag 都丢完才返回纯 additional_filter 的候选。"""
+def test_relax_tag_hard_unsatisfiable_returns_empty_not_bare_filter():
+    """hard tag（适合老人/无台阶）候选池里一个都不满足 → 照常返回空，不接受
+    「仅 additional_filter」的兜底降级；relaxed 只报告实际被丢的 soft tag。
+    """
 
     class _Item:
         def __init__(self, tags):
@@ -76,9 +82,67 @@ def test_relax_tag_high_priority_dropped_only_when_necessary():
         extract_tags=lambda x: x.tags,
         max_relax_levels=3,
     )
-    # 候选都没有这些 tag → 全丢；relaxed 应包含全部 3 个
-    assert len(relaxed) == 3
-    # 且物理硬约束应该是「最后被加进 relaxed」（实现细节：drop_order priority 0 排在最后）
+    # hard（适合老人/无台阶）不满足 → 空候选，不做"仅 additional_filter"兜底
+    assert cands == []
+    # relaxed 只含 soft（亲子友好）；hard 从不被"丢"，不出现在这里
+    assert relaxed == ["亲子友好"]
+    assert "适合老人" not in relaxed
+    assert "无台阶" not in relaxed
+
+
+def test_relax_tag_hard_tight_candidates_never_relaxed():
+    """ADR-0014 决策 2 探针：忌口类 hard tag 在候选紧张时绝不被放宽。
+
+    构造一个窄 mock 场景——候选池里没有任何一条同时满足 hard（不辣）+ soft
+    （日料）——断言最终返回空候选（而非拿一条带牛肉/辣的候选破防凑数）。
+    """
+
+    class _Item:
+        def __init__(self, tags):
+            self.tags = tags
+
+    # 候选只有辣的日料 / 不辣的粤菜——没有「不辣 + 日料」同时满足的
+    src = [_Item(["日料"]), _Item(["粤菜", "不辣"])]
+    cands, relaxed = relax_tag_search(
+        ["不辣", "日料"],
+        src,
+        extract_tags=lambda x: x.tags,
+    )
+    # Level 0（不辣+日料同时满足）没有候选；soft（日料）被丢后，"不辣"仍要求
+    # 全部候选满足——_Item(["粤菜","不辣"]) 满足 hard，构成非空候选集
+    assert len(cands) == 1
+    assert cands[0].tags == ["粤菜", "不辣"]
+    assert relaxed == ["日料"]
+
+    # 反例：候选池里连"不辣"都没有任何一条满足 → 必须返回空，不能拿辣的顶替
+    src_no_hard_match = [_Item(["日料"]), _Item(["粤菜"])]
+    cands2, relaxed2 = relax_tag_search(
+        ["不辣", "日料"],
+        src_no_hard_match,
+        extract_tags=lambda x: x.tags,
+    )
+    assert cands2 == []
+    assert relaxed2 == ["日料"]
+
+
+def test_relax_tag_soft_drop_order_follows_provenance():
+    """soft tag 降级序按出处：default 最先丢，user_stated 最后丢（2×2 矩阵降级序）。"""
+
+    class _Item:
+        def __init__(self, tags):
+            self.tags = tags
+
+    # 候选只满足其中一个 soft tag，逼迫降级——用 provenance 决定先丢谁
+    src = [_Item(["日料"])]
+    cands, relaxed = relax_tag_search(
+        ["日料", "粤菜"],
+        src,
+        extract_tags=lambda x: x.tags,
+        tag_provenance={"日料": "user_stated", "粤菜": "default"},
+    )
+    # "粤菜"出处 default，应先丢；"日料"出处 user_stated，应保留到最后
+    assert relaxed == ["粤菜"]
+    assert len(cands) == 1
 
 
 def test_relax_tag_empty_required_passes_all():

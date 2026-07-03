@@ -9,7 +9,8 @@
 - _check_hop_feasibility       HOP_INFEASIBLE（hop.minutes vs lookup_hop）
 - _check_distance              DISTANCE_EXCEEDED（distance_max_km）
 - _check_demo_restaurant_full  RESTAURANT_FULL_UNRESOLVED（mock 满座埋点）
-- _check_dietary               DIETARY_VIOLATION（饮食约束）
+- _check_dietary               DIETARY_VIOLATION（饮食约束 hard 子集）
+- _check_physical               PHYSICAL_VIOLATION（物理约束 hard 子集，ADR-0014 决策 2）
 - _check_social_context        SOCIAL_CONTEXT_MISMATCH（social_compat 矩阵）
 - _check_age_aware_duration    AGE_DURATION_MISMATCH（年龄感知时长 cap）
 - _check_tool_consistency      TOOL_RESPONSE_INCONSISTENCY（hallucination 防护）
@@ -28,6 +29,7 @@ from typing import TYPE_CHECKING, Optional
 
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
+from schemas.tags import is_hard_tag
 
 from ..age_caps import cap_for_age
 from .helpers import (
@@ -932,15 +934,36 @@ def check_dietary(
     *,
     ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
-    """用餐 node 餐厅 tags 是否覆盖 intent.dietary_constraints。
+    """用餐 node 餐厅 tags 是否覆盖 intent.dietary_constraints 的 **hard** 子集。
 
-    - intent 没饮食约束 → 跳过
+    ADR-0014 决策 2（G-2）改判：本 check 曾经对 `dietary_constraints`
+    整个（不分 hard/soft）列表做 ANY-match（命中其一即算过关），severity
+    恒 HARD——这在 hard/soft 分层前是合理的（那时所有 dietary tag 语义等重）；
+    分层后会产生两个真实问题：
+    1）**该拦的没拦严**：用户同时要"不辣"+"无牛肉"两个 hard 排除，餐厅只
+       满足其中一个（比如无牛肉但很辣）时，ANY-match 会误判"过关"——一票
+       否决的安全语义需要 ALL-match（该缺失子集见下方 `missing`）。
+    2）**不该拦的拦太严**：用户只要了纯风格标签（如"日料"），mock 池经过
+       `relax_tag_search` 合法降级后压根没有该菜系候选——soft 未满足不该
+       再触发 HARD 拦截 gate 整条修复闭环（那本就是"能做到的最好结果"，
+       不是缺陷），该由出口满足度审计的 `CONSTRAINT_RELAXED` advisory 告知，
+       不该在这里再判一次 HARD（`agent.planning.critic.exit_audit`）。
+
+    改判后：只核验 `dietary_constraints` 里的 **hard** 子集（`is_hard_tag`）
+    是否被最终餐厅 tags 全部（ALL-match）覆盖；hard 子集为空（用户只要了
+    soft 风格标签）→ 本 check 直接放行，交给出口审计处理。
+
+    - intent 没饮食约束 / 没有 hard 子集 → 跳过
     - node 不是 restaurant → 跳过
     - load 失败 → 跳过
     """
     if intent is None and ctx is not None:
         intent = ctx.intent
     if intent is None or not intent.dietary_constraints:
+        return []
+
+    hard_required = [t for t in intent.dietary_constraints if is_hard_tag(t)]
+    if not hard_required:
         return []
 
     restaurants_by_id = (
@@ -951,7 +974,7 @@ def check_dietary(
     if not restaurants_by_id:
         return []
 
-    constraints_set = set(intent.dietary_constraints)
+    hard_set = set(hard_required)
     out: list[Violation] = []
 
     for idx, node in enumerate(itinerary.nodes):
@@ -962,15 +985,81 @@ def check_dietary(
             continue
         rest = restaurants_by_id[rid]
         rest_tags = set(rest.tags or [])
-        if rest_tags & constraints_set:
-            continue  # 至少命中一项，OK
+        missing = hard_set - rest_tags
+        if not missing:
+            continue  # hard 子集全部满足，OK
         out.append(
             Violation(
                 code=ViolationCode.DIETARY_VIOLATION,
-                severity=Severity.HARD,  # B-2a: 升级为 HARD（gate 修复）
+                severity=Severity.HARD,
                 message=(
-                    f"{humanize_node(idx, node)}（{rest.name}）的标签不含用户饮食约束 "
-                    f"{sorted(constraints_set)} 中任何一项。请换符合饮食偏好的餐厅。"
+                    f"{humanize_node(idx, node)}（{rest.name}）不满足忌口硬约束 "
+                    f"{sorted(missing)}。这类忌口不接受妥协，请换能同时满足的餐厅。"
+                ),
+                field_path=f"nodes[{idx}].target_id",
+            )
+        )
+    return out
+
+
+def check_physical(
+    itinerary: Itinerary,
+    intent: Optional[IntentExtraction] = None,
+    *,
+    ctx: "CriticContext | None" = None,
+) -> list[Violation]:
+    """活动 node POI tags 是否覆盖 intent.physical_constraints 的 **hard** 子集。
+
+    ADR-0014 决策 2（G-2）新增，与 `check_dietary` 对称（同一严重度分层
+    模型的另一半：一个管餐厅忌口，一个管 POI 无障碍/适老安全底线），实现
+    结构相同（load 候选 → 逐 node 核对 hard 子集 → ALL-match 缺失即 HARD）。
+
+    与 `check_dietary` 的一处刻意不同：ALL-match（而非 check_dietary 历史
+    上的 ANY-match）——physical hard tag（无台阶/无障碍/适合老人/可休息）
+    描述的是各自独立的安全底线（轮椅用户既需要无台阶、也可能同时需要
+    无障碍设施，满足其一不代表满足全部），每一项都是独立的一票否决，
+    ALL-match 才是正确语义（`check_dietary` 已同步改判为同一语义，见其
+    docstring 改判说明）。
+
+    - intent 没物理约束 / 没有 hard 子集 → 跳过
+    - node 不是 poi → 跳过
+    - load 失败 → 跳过
+    """
+    if intent is None and ctx is not None:
+        intent = ctx.intent
+    if intent is None or not intent.physical_constraints:
+        return []
+
+    hard_required = [t for t in intent.physical_constraints if is_hard_tag(t)]
+    if not hard_required:
+        return []
+
+    pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
+    if not pois_by_id:
+        return []
+
+    hard_set = set(hard_required)
+    out: list[Violation] = []
+
+    for idx, node in enumerate(itinerary.nodes):
+        if node.target_kind != "poi":
+            continue
+        pid = node.target_id
+        if not pid or pid not in pois_by_id:
+            continue
+        poi = pois_by_id[pid]
+        poi_tags = set(poi.tags or [])
+        missing = hard_set - poi_tags
+        if not missing:
+            continue  # hard 子集全部满足，OK
+        out.append(
+            Violation(
+                code=ViolationCode.PHYSICAL_VIOLATION,
+                severity=Severity.HARD,
+                message=(
+                    f"{humanize_node(idx, node)}（{poi.name}）不满足物理安全硬约束 "
+                    f"{sorted(missing)}。这类约束关系到能不能去/能不能用，"
+                    "不接受妥协，请换能同时满足的候选。"
                 ),
                 field_path=f"nodes[{idx}].target_id",
             )

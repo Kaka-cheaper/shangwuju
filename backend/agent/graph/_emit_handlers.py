@@ -421,6 +421,12 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         node_actions = diff.get("node_actions")
         if node_actions:
             narration_payload["node_actions"] = node_actions
+        # ADR-0014 决策 2（G-2）配套三件：真正"hard 卡死"（itinerary=None，
+        # 见 `nodes.narrate.narrate_node` 的 give_up 兜底分支）时的放宽建议
+        # chips——"无内容不加字段"同一纪律，只在非空时才挂。
+        give_up_chips = diff.get("give_up_chips")
+        if give_up_chips:
+            narration_payload["chips"] = give_up_chips
         # 体感编排批 P1：LLM 标题更新（说明见本函数 docstring）
         new_summary = getattr(diff.get("itinerary"), "summary", None)
         prev_summary = getattr(ctx.final_itinerary, "summary", None)

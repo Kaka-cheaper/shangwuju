@@ -161,7 +161,7 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 from schemas.advisory import Advisory, AdvisoryCode
 from schemas.domain import Poi, Restaurant, SuggestedDuration
 from schemas.errors import FailureReason
-from schemas.intent import IntentExtraction
+from schemas.intent import IntentExtraction, extract_tag_provenance
 from schemas.itinerary import Itinerary
 from schemas.pin import PinSpec
 from schemas.tools import (
@@ -969,6 +969,12 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
         distance_max_km=intent.distance_max_km,
         physical_constraints=list(intent.physical_constraints),
         experience_tags=list(intent.experience_tags),
+        # ADR-0014 决策 2（G-2）：出处透传三处构造点之一（改一处查三处，另两
+        # 处见 agent/runtime/tools/search_adapter.py::search_pois_for_intent /
+        # rule_planner.py::_query_pois）。
+        tag_provenance=extract_tag_provenance(
+            intent, "physical_constraints", intent.physical_constraints
+        ),
         social_context=intent.social_context,
         age_in_party=[c.age for c in intent.companions if c.age is not None] or None,
         user_lat=home.lat,
@@ -1013,6 +1019,11 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
         distance_max_km=intent.distance_max_km,
         dietary_constraints=list(intent.dietary_constraints),
         experience_tags=list(intent.experience_tags),
+        # ADR-0014 决策 2（G-2）：出处透传三处构造点之一，见上方 _query_pois
+        # 同款注释。
+        tag_provenance=extract_tag_provenance(
+            intent, "dietary_constraints", intent.dietary_constraints
+        ),
         social_context=intent.social_context,
         capacity_requirement=intent.capacity_requirement,
         user_lat=home.lat,
@@ -1230,6 +1241,7 @@ def _utility(
 # | 闭环重搜       | DIETARY_VIOLATION                 | 拉黑整店 → 换饮食兼容                  |
 # | 闭环重搜       | CAPACITY_REQUIREMENT_VIOLATED     | 拉黑整店 → 换大桌/包间                 |
 # | 闭环重搜       | SOCIAL_CONTEXT_MISMATCH（HARD）   | 按 field_path 定向拉黑肇事那一个实体   |
+# | 闭环重搜       | PHYSICAL_VIOLATION（ADR-0014 G-2）| 按 field_path 定向拉黑肇事那一个 POI（与 SOCIAL_CONTEXT_MISMATCH 同桶：单一肇事节点，不必整类实体拉黑） |
 # | 闭环重搜       | OPENING_HOURS_VIOLATION           | 餐厅侧：封 (餐厅,时段)；POI 侧：拉黑整个 POI（start_time 非搜索变量） |
 # | 闭环重搜       | MEAL_TIME_UNREASONABLE            | 封 (餐厅,时段) → 挖窗后移到饭点窗      |
 # | 弱杠杆         | DURATION_OUT_OF_RANGE             | 不产生动作（见下方「判断点」，field_path 恒为 "total_minutes"，无法定位到具体节点） |
@@ -1274,7 +1286,9 @@ def _classify_violation(v: Violation) -> set[str]:
       （RESTAURANT_FULL_UNRESOLVED / MEAL_TIME_UNREASONABLE）
     - "restaurant_swap"：整店拉黑，逼重搜换店
       （DIETARY_VIOLATION / CAPACITY_REQUIREMENT_VIOLATED）
-    - "directed_swap"：需要 field_path 定向解析出的实体拉黑（SOCIAL_CONTEXT_MISMATCH hard）
+    - "directed_swap"：需要 field_path 定向解析出的实体拉黑（SOCIAL_CONTEXT_MISMATCH
+      hard / PHYSICAL_VIOLATION，ADR-0014 决策 2——POI 侧 hard 物理约束核验，
+      只关系到肇事那一个 POI，不必像 DIETARY_VIOLATION 那样整类拉黑）
     - "opening_hours"：需要 field_path 定向解析「是 POI 还是餐厅」，两侧动作不同
       （POI 拉黑整个 POI；餐厅按 restaurant_time 处理）
     - "distance_lever"：弱杠杆——路线模型下恒不产生黑名单动作，见上方模块级注释
@@ -1288,7 +1302,7 @@ def _classify_violation(v: Violation) -> set[str]:
         return {"restaurant_time"}
     if v.code in (ViolationCode.DIETARY_VIOLATION, ViolationCode.CAPACITY_REQUIREMENT_VIOLATED):
         return {"restaurant_swap"}
-    if v.code == ViolationCode.SOCIAL_CONTEXT_MISMATCH:
+    if v.code in (ViolationCode.SOCIAL_CONTEXT_MISMATCH, ViolationCode.PHYSICAL_VIOLATION):
         return {"directed_swap"}
     if v.code == ViolationCode.OPENING_HOURS_VIOLATION:
         return {"opening_hours"}

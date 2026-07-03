@@ -16,7 +16,7 @@ from typing import Optional
 
 from schemas.category_vocab import canonical_equivalent
 from schemas.domain import Poi, Restaurant
-from schemas.intent import IntentExtraction
+from schemas.intent import IntentExtraction, extract_tag_provenance
 from schemas.tools import (
     GetUserProfileInput,
     GetUserProfileOutput,
@@ -112,6 +112,12 @@ def search_pois_for_intent(
         distance_max_km=intent.distance_max_km or 5.0,
         physical_constraints=list(intent.physical_constraints),
         experience_tags=list(intent.experience_tags),
+        # ADR-0014 决策 2（G-2）：出处透传三处构造点之一（改一处查三处，另两
+        # 处见 rule_planner.py / ils_planner.py 的 _query_pois），供
+        # relax_tag_search 的 soft tag 降级序排序。
+        tag_provenance=extract_tag_provenance(
+            intent, "physical_constraints", intent.physical_constraints
+        ),
         social_context=intent.social_context,
         age_in_party=list(age_in_party),
         user_lat=user_lat,
@@ -252,6 +258,11 @@ def search_restaurants_for_intent(
         distance_max_km=intent.distance_max_km or 5.0,
         dietary_constraints=list(intent.dietary_constraints),
         experience_tags=list(intent.experience_tags),
+        # ADR-0014 决策 2（G-2）：出处透传三处构造点之一，见上方
+        # search_pois_for_intent 同款注释。
+        tag_provenance=extract_tag_provenance(
+            intent, "dietary_constraints", intent.dietary_constraints
+        ),
         social_context=intent.social_context,
         capacity_requirement=party_size,
         user_lat=user_lat,

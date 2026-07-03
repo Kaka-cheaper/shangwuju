@@ -174,6 +174,11 @@ class AgentState(TypedDict, total=False):
     advisories: list[Any]          # EPISODE_SCOPED：list[dict]（Advisory.model_dump()）：D-7「绝不默默
     # 忽略」的结构化告知——ils_replan_node 在 hybrid 成功时写入（见 replan.py），
     # narrate_node 消费并透传进 SSE（见 _emit_handlers.emit_narrate）。
+    give_up_chips: list[Any]       # EPISODE_SCOPED：list[dict]（CtaChip.model_dump()）。
+    # ADR-0014 决策 2（G-2）配套三件之一：ILS + rule planner 都彻底失败（真正
+    # "hard 卡死"，无任何方案可交付）时，`ils_replan_node` 写入"放宽建议"结构化
+    # chips（见 `agent.planning.planners.rule_planner.relax_suggestion_chips`），
+    # narrate_node 在 itinerary=None 的兜底分支消费，emit_narrate 透传进 SSE。
     node_actions: dict[str, Any]   # EPISODE_SCOPED：{target_id: {chips, alternatives}}
     # (ADR-0013 F-3):narrate_node 唯一写手,emit_narrate 装进 ITINERARY_READY
     # payload 兄弟字段;绑定"这一版方案",换方案即失效。F-3 实测:LangGraph 1.2
@@ -300,6 +305,7 @@ EPISODE_SCOPED: frozenset[str] = frozenset({
     "alternatives",
     "quality_issues",
     "advisories",
+    "give_up_chips",
     "node_actions",
     "narration",
     "memory_status",
@@ -354,6 +360,7 @@ def reset_for_new_episode() -> dict[str, Any]:
         "alternatives": [],
         "quality_issues": [],
         "advisories": [],
+        "give_up_chips": [],
         "node_actions": {},
         "narration": None,
         "memory_status": None,
