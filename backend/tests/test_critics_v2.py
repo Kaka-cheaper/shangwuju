@@ -611,14 +611,18 @@ def test_dietary_violation_no_trigger_when_tag_match():
 
 
 def test_physical_violation_hard_when_poi_tags_miss():
-    """intent physical=['无障碍']（hard 安全型）/ P040（无该 tag）→ 触发
-    PHYSICAL_VIOLATION HARD。
+    """intent physical=['无障碍']（hard 安全型）/ P018 西湖游船码头（无该 tag）
+    → 触发 PHYSICAL_VIOLATION HARD。
 
-    P040 tags 含 适合老人/无台阶/可休息（同属 hard 安全簇）但不含"无障碍"，
-    刻意验证 ALL-match（缺其中任一 hard 项即违规，不是"满足其它几个就算过关"）。
+    P018 tags 含"可休息"（hard 安全簇成员）但不含"无障碍"——验证 ALL-match
+    （缺任一 hard 项即违规，不是"满足其它几个就算过关"）。
+    fixture 依赖声明：原用 P040 当反例，但 P040 名字就叫"无障碍亲子博物馆"，
+    2026-07-03 补数据时理所当然地挂上了"无障碍"标签，测试前提被打破——改用
+    游船码头（登船栈道语义上就不宜承诺无障碍）。若未来 P018 也补此标签，
+    应改造 _make_legal_itinerary 支持合成 POI 而不是再换一家。
     """
     intent = _make_intent(physical_constraints=["无障碍"])
-    itinerary = _make_legal_itinerary(poi_id="P040")
+    itinerary = _make_legal_itinerary(poi_id="P018")
 
     violations = validate_itinerary(itinerary, intent)
     physical_hard = [
