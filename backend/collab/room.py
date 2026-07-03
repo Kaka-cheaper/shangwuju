@@ -322,20 +322,22 @@ class RoomManager:
         主聊天在 ADR-0011（一脑三壳）后已是"任何输入先过路由脑子，判出义务再分发"，
         房间此前是唯一还在裸接文本、不经判定直连重排的入口，本函数补上这层薄壳。
 
-        义务分发表（route_turn 的 RouteKind → 房内动作）：
+        义务分发表（route_turn 的 RouteKind → 房内动作；ADR-0011 E-2-c 6 标签闭集：
+        planning/feedback/chitchat/confirm/clarify/defense）：
         - feedback              → 现有约束池 + 重排路径（原样保留；诉求台账是 F-2/F-5
                                    的事，本步不建，`room.constraints` 仍是唯一台账）
         - planning               → 全新规划（`_trigger_fresh_plan`，与单人 `_plan_fresh`
                                    同款一次性 session_id；**不**进约束池、不经 refiner
                                    合并——这是一句完整规划请求，不是"追加约束"）
-        - 其余（chitchat/emotional/meta/off_topic/ambiguous，decision 必然非空）
+        - 其余（chitchat/confirm/clarify/defense，decision 必然非空）
                                  → 气泡广播：把 RouterDecision 原样以 `chitchat_reply`
                                    事件推给全员（复用主聊天已有的事件形状，前端
                                    `handleEvent` 的 `chitchat_reply` case 零改动即可渲染）；
                                    不碰方案、不碰约束池、不中断在跑的规划任务。
-                                   安全婉拒（off_topic + 注入防御）与澄清引导（ambiguous +
-                                   地板 chips）走的是同一条分支——它们只是 decision 内容
-                                   不同，不需要单独判支。
+                                   安全婉拒（defense，含注入防御）与澄清引导（clarify +
+                                   地板 chips）、确认引导（confirm + 确认预约 chip）走的
+                                   是同一条分支——它们只是 decision 内容不同，不需要
+                                   单独判支。
 
         归名：无论义务判成什么，成员的原始发言都无条件走既有归名机制（nickname 前缀
         + `constraint_added` 事件广播 + 追加进 `room.chat_messages`）——"大家在同一个
@@ -359,11 +361,18 @@ class RoomManager:
         """
         async with room.lock:
             room.last_activity_at = time.time()
+            from agent.context.sources import RoomSource
             from agent.core.llm_client import get_llm_client
             from agent.routing.route_turn import route_turn
 
             outcome = route_turn(
-                text, room.current_itinerary_dict, user_id, client=get_llm_client()
+                text,
+                room.current_itinerary_dict,
+                user_id,
+                client=get_llm_client(),
+                # ADR-0011 决策 3 底座无关增补：房间与单人主聊天共用同一个打包器，
+                # 只是来源实现不同（RoomSource 读 Room 既有字段，见 agent/context/sources.py）。
+                context_source=RoomSource(room),
             )
 
             timestamp = time.time()

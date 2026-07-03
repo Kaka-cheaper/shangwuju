@@ -24,7 +24,14 @@ class RouteOutcome:
         kind:     路由目标，决定 graph 走哪条边。
         decision: LLM 分类器产出的回复 payload；
                   feedback / planning fast-path 等不经 LLM 的路径为 None。
+        injection_blocked: 本轮是否命中壳1 提示词注入检测（ADR-0011 E-2-c 新增，
+            收敛 `graph/nodes/router.py` 原本重复调用 `detect_injection` 的问题——
+            route_turn.py Layer 0 判定过一次，这里把判定结果原样带出去，adapter
+            不必为了"写会话日志要不要打码"这一件事而重新跑一遍检测。默认 False；
+            只有 Layer 0 命中时才置 True，其余所有分支（含壳2/Layer 1/脑子/壳3）
+            都不改这个字段。
     """
 
     kind: RouteKind
     decision: Optional[RouterDecision]
+    injection_blocked: bool = False

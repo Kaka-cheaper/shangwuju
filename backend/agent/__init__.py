@@ -23,7 +23,7 @@ from .planning.planners.rule_planner import (
     MAX_TOTAL_TOOL_CALLS,
 )
 from .intent.refiner import refine_intent, RefinementError
-from .intent.router import classify_input, fallback_decision, RouterError
+from .intent.router import fallback_decision, make_planning_decision
 from .intent.parser import parse_intent, IntentParseError
 from .core.trace import Tracer, TraceRecord
 
@@ -37,10 +37,10 @@ __all__ = [
     # refiner
     "refine_intent",
     "RefinementError",
-    # router (Phase 0.8)
-    "classify_input",
+    # router 壳2/壳3 决策构造器（ADR-0011 E-2-c：classify_input/RouterError 随
+    # Layer 2 退役已删除，见 agent/intent/router.py 模块 docstring）
     "fallback_decision",
-    "RouterError",
+    "make_planning_decision",
     # intent
     "parse_intent",
     "IntentParseError",

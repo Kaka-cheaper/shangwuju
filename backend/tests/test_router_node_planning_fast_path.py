@@ -23,7 +23,7 @@ from agent.routing.canonical_shortcut import DEMO_SCENARIOS
 
 
 def _classify_should_not_run(*args, **kwargs):
-    raise AssertionError("壳2 canonical 短路命中不应再调 classify_input")
+    raise AssertionError("壳2 canonical 短路命中不应再调脑子")
 
 
 # ============================================================
@@ -33,7 +33,7 @@ def _classify_should_not_run(*args, **kwargs):
 
 @pytest.mark.parametrize("send", [c["send"] for c in PRIMARY_CTAS])
 def test_primary_cta_literal_routes_to_planning_without_llm(monkeypatch, send):
-    monkeypatch.setattr(router_mod, "classify_input", _classify_should_not_run)
+    monkeypatch.setattr(router_mod, "classify_turn", _classify_should_not_run)
 
     out = router_mod.router_node(
         make_initial_state(user_input=send, session_id="canonical-cta")
@@ -51,7 +51,7 @@ def test_primary_cta_literal_routes_to_planning_without_llm(monkeypatch, send):
 
 @pytest.mark.parametrize("scenario", DEMO_SCENARIOS, ids=lambda s: s["id"])
 def test_demo_scenario_literal_routes_to_planning_without_llm(monkeypatch, scenario):
-    monkeypatch.setattr(router_mod, "classify_input", _classify_should_not_run)
+    monkeypatch.setattr(router_mod, "classify_turn", _classify_should_not_run)
 
     out = router_mod.router_node(
         make_initial_state(user_input=scenario["input"], session_id=f"canonical-{scenario['id']}")
@@ -70,7 +70,7 @@ def test_demo_scenario_literal_routes_to_planning_even_with_itinerary(monkeypatc
       ——系统发出的精确全串确定性高于启发式强信号;修正前这条会被 Layer 1
       吞成 feedback,演示后果=有方案时点场景卡不开新局反而去改旧方案。
     """
-    monkeypatch.setattr(router_mod, "classify_input", _classify_should_not_run)
+    monkeypatch.setattr(router_mod, "classify_turn", _classify_should_not_run)
 
     st = make_initial_state(
         user_input=DEMO_SCENARIOS[scenario_idx]["input"],
@@ -99,12 +99,12 @@ def test_demo_scenario_literal_routes_to_planning_even_with_itinerary(monkeypatc
     ],
 )
 def test_near_miss_text_does_not_shortcut(monkeypatch, near_miss):
-    """壳2 是 FP≈0 精确字面匹配，近似文本一律不命中，落回 Layer 2 LLM 分类。"""
-    from schemas.router import InputKind, RouterDecision
+    """壳2 是 FP≈0 精确字面匹配，近似文本一律不命中，落回脑子判定。"""
+    from agent.routing.brain import RouteJudgment
 
     def _classify_chitchat(*args, **kwargs):
-        return RouterDecision(
-            input_kind=InputKind.CHITCHAT,
+        return RouteJudgment(
+            label="chitchat",
             confidence=0.9,
             reply_text="没听太懂，要不要试试下面的场景？",
             tone="warm",
@@ -112,14 +112,14 @@ def test_near_miss_text_does_not_shortcut(monkeypatch, near_miss):
             rationale="test-near-miss",
         )
 
-    monkeypatch.setattr(router_mod, "classify_input", _classify_chitchat)
+    monkeypatch.setattr(router_mod, "classify_turn", _classify_chitchat)
 
     out = router_mod.router_node(
         make_initial_state(user_input=near_miss, session_id="near-miss")
     )
 
     assert out["route_kind"] == "chitchat", (
-        f"{near_miss!r} 不是精确 canonical 文本，应交给 Layer 2 LLM 分类，不应被壳2短路"
+        f"{near_miss!r} 不是精确 canonical 文本，应交给脑子判定，不应被壳2短路"
     )
 
 
@@ -144,21 +144,22 @@ def test_floor_clarify_replan_routes_to_planning():
     assert out["route_kind"] == "planning"
 
 
-def test_floor_clarify_keep_routes_to_chitchat():
-    """「就这样挺好」命中 → chitchat（纯确认，不改方案、不重规划）。"""
+def test_floor_clarify_keep_routes_to_confirm():
+    """「就这样挺好」命中 → confirm（ADR-0011 决策 1：确认独立出口，纯认可，
+    不改方案、不重规划；原断言"chitchat"随 7→6 塌缩改名）。"""
     st = make_initial_state(user_input="就这样挺好", session_id="floor-keep")
     st["itinerary"] = {"summary": "上一轮方案"}
     out = router_mod.router_node(st)
-    assert out["route_kind"] == "chitchat"
+    assert out["route_kind"] == "confirm"
 
 
 def test_floor_clarify_chips_do_not_shortcut_without_itinerary(monkeypatch):
     """无方案时这三句字面出现属巧合，不强行短路（防御性校验，见 canonical_shortcut 设计取舍）。"""
-    from schemas.router import InputKind, RouterDecision
+    from agent.routing.brain import RouteJudgment
 
-    def _classify_ambiguous(*args, **kwargs):
-        return RouterDecision(
-            input_kind=InputKind.AMBIGUOUS,
+    def _classify_clarify(*args, **kwargs):
+        return RouteJudgment(
+            label="clarify",
             confidence=0.7,
             reply_text="?",
             tone="warm",
@@ -166,7 +167,7 @@ def test_floor_clarify_chips_do_not_shortcut_without_itinerary(monkeypatch):
             rationale="test",
         )
 
-    monkeypatch.setattr(router_mod, "classify_input", _classify_ambiguous)
+    monkeypatch.setattr(router_mod, "classify_turn", _classify_clarify)
     st = make_initial_state(user_input="调整一下方案", session_id="floor-adjust-no-itin")
     out = router_mod.router_node(st)
-    assert out["route_kind"] == "ambiguous", "无方案时不应被壳2的地板 chip 短路"
+    assert out["route_kind"] == "clarify", "无方案时不应被壳2的地板 chip 短路"

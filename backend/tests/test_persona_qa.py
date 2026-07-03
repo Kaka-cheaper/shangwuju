@@ -23,7 +23,7 @@ def test_persona_question_recognition():
 
 
 def test_persona_excludes_neighbors():
-    assert not looks_like_persona_question("你是谁"), "问 AI 身份 → meta，不是 persona"
+    assert not looks_like_persona_question("你是谁"), "问 AI 身份 → chitchat（原 meta 已塌缩），不是 persona"
     assert not looks_like_persona_question("我喜欢热闹"), "陈述偏好 → 提约束，不是问画像"
     assert not looks_like_persona_question("这家贵吗"), "方案提问 → itinerary QA"
 

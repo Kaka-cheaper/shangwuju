@@ -132,13 +132,16 @@ export interface RefinementDonePayload {
 // 输入域路由（schemas/router.py，Phase 0.8）
 // ============================================================
 
+// ADR-0011 E-2-c：路由标签闭集 7→6 塌缩后的前端投影（后端 schemas/router.py::
+// InputKind 同步改）。meta/emotional 併入 chitchat（语气差异交 tone 字段承载，
+// 不再是独立分类）；off_topic 改名 defense；ambiguous 改名 clarify；新增
+// confirm（原先塞进 chitchat 的"确认/预约"表态独立成一类）。
 export type InputKind =
   | "planning"
   | "chitchat"
-  | "meta"
-  | "emotional"
-  | "off_topic"
-  | "ambiguous";
+  | "confirm"
+  | "clarify"
+  | "defense";
 
 export type ReplyTone = "warm" | "neutral" | "empathetic" | "playful";
 

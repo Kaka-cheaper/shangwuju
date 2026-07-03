@@ -25,9 +25,10 @@ FP≈0 精确字面匹配「系统自己发出的 chips send 文本」→ 对应
     只在 has_itinerary=True 时才会发出这三个 chip），锁 has_itinerary 是防御性
     校验，不是功能依赖。
 
-不负责：LLM 分类（agent/intent/router.py:classify_input）、降级地板语义构造
-（同上 fallback_decision）、对话行为判定（agent/core/dialogue_acts.py，Layer 3，
-在壳2 之后才跑——"就这样挺好"字面命中即被壳2 拦下，不会重复触达 Layer 3）。
+不负责：路由脑子调用（agent/routing/brain.py）、降级地板语义构造（同上
+fallback_decision）、对话行为规则判定（agent/core/dialogue_acts.py，跑在壳2
+之后、脑子之前——"就这样挺好"字面命中即被壳2 拦下，不会重复触达 dialogue_acts
+的确认词表判定）。
 """
 
 from __future__ import annotations
@@ -130,7 +131,12 @@ def canonical_shortcut_decision(
         if text == "就这样挺好":
             decision = build_confirm_decision(text)
             if decision is not None:
-                return RouteOutcome(kind="chitchat", decision=decision)
+                # ADR-0011 E-2-c：确认独立成路由标签（决策 1），build_confirm_decision
+                # 本身已把 input_kind 改成 InputKind.CONFIRM——这里的 kind 跟着改，
+                # 否则 route_after_router 虽仍走 catch-all chitchat 节点（行为不受影响），
+                # 但 route_kind 会跟 decision.input_kind 不一致，误导任何按 route_kind
+                # 做统计/日志的下游。
+                return RouteOutcome(kind="confirm", decision=decision)
 
     return None
 

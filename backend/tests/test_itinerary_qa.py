@@ -104,21 +104,20 @@ def test_build_question_decision_none_for_constraint():
     assert build_question_decision("我妈膝盖不好", _itin()) is None
 
 
-# ---- 6. router L3 集成：ambiguous + 提问 → chitchat 回答（不重规划）----
+# ---- 6. route_turn 集成：提问 → chitchat 回答（不重规划，不触达脑子）----
+# ADR-0011 E-2-c：QA 判定从旧 Layer 3（跑在 Layer 2 LLM 分类之后）前移到脑子
+# 调用之前（见 route_turn.py Layer 1.8），本用例改为钉住"脑子不会被调用"。
+
 
 def test_router_l3_question_becomes_chitchat_answer(monkeypatch):
     from agent.graph.nodes import router as router_mod
     from agent.graph.state import make_initial_state
-    from schemas.router import InputKind, RouterDecision
 
-    def _ambiguous(*a, **k):
-        return RouterDecision(
-            input_kind=InputKind("ambiguous"), confidence=0.7,
-            reply_text="?", tone="warm", cta_chips=[], rationale="t",
-        )
+    def _brain_should_not_run(*a, **k):
+        raise AssertionError("提问应在规则层被 QA 接住，不该触达脑子")
 
     monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
-    monkeypatch.setattr(router_mod, "classify_input", _ambiguous)
+    monkeypatch.setattr(router_mod, "classify_turn", _brain_should_not_run)
     st = make_initial_state(user_input="这家餐厅贵不贵", session_id="s1")
     st["itinerary"] = _itin()
 

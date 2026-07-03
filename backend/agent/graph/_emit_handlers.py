@@ -38,7 +38,8 @@ def emit_router(ctx: EmitContext, diff: dict[str, Any], user_input: str) -> list
             )
         )
     elif decision is not None and route_kind != "planning":
-        # chitchat / meta / emotional / off_topic / ambiguous → 直接推
+        # chitchat / confirm / clarify / defense（ADR-0011 6 标签闭集，除
+        # planning/feedback 外的其余 4 类）→ 直接推
         out.append(ctx.emit(SseEventType.CHITCHAT_REPLY, decision.model_dump()))
         ctx.chitchat_emitted = True
     return out

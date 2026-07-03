@@ -1,15 +1,18 @@
-"""nodes.router —— LangGraph 输入域路由节点（V3 adapter）。
+"""nodes.router —— LangGraph 输入域路由节点（V3 adapter；ADR-0011 E-2-c 更新）。
 
-V3 退薄：业务级联已迁至 agent.routing.route_turn（T2）。
+V3 退薄：业务级联已迁至 agent.routing.route_turn。
 本模块只做 graph adapter：把 AgentState 展平 → 调 route_turn → 展平回 dict。
 
-route_after_router 不动。
+route_after_router 不动（ADR-0011 前置核实②核实：本函数只显式判
+"planning"/"feedback"，其余 catch-all 送 chitchat，6→7 塌缩对本函数零改动）。
 
 测试 monkeypatch 兼容性说明：
-  现有测试通过 monkeypatch.setattr(router_mod, "classify_input", ...) 和
-  monkeypatch.setattr(router_mod, "get_llm_client", ...) 注入 stub LLM。
+  现有测试通过 monkeypatch.setattr(router_mod, "classify_turn", ...) 和
+  monkeypatch.setattr(router_mod, "get_llm_client", ...) 注入 stub 判定。
   为保兼容，两个名字保留在本模块命名空间，router_node 调用它们并经由
-  classify_fn 参数传入 route_turn，使 stub 仍能生效。
+  classify_fn 参数传入 route_turn，使 stub 仍能生效（E-2-c 前是
+  `classify_input`，塌缩为统一脑子后改为 `classify_turn`，签名也随之改变：
+  `classify_turn(context_text, user_input, has_itinerary, *, client) -> RouteJudgment | None`）。
 
 【ADR-0011 前置核实①：会话日志基础设施，E-2 第一块砖】
 本节点是"轮次日志"（messages 通道，见 agent/graph/state.py 字段注释）的唯一
@@ -29,8 +32,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.graph.state import AgentState, RouteKind  # noqa: F401 RouteKind re-exported for any importers
-from agent.core.injection_detector import detect_injection
-from agent.intent.router import classify_input
+from agent.context.sources import GraphStateSource
+from agent.routing.brain import classify_turn
 from agent.core.llm_client import get_llm_client
 from agent.routing.route_turn import route_turn
 
@@ -65,23 +68,22 @@ def router_node(state: AgentState) -> dict[str, Any]:
         itinerary=state.get("itinerary"),
         user_id=state.get("user_id"),
         client=get_llm_client(),
-        classify_fn=classify_input,
+        context_source=GraphStateSource(state),
+        classify_fn=classify_turn,
     )
 
     result: dict[str, Any] = {"route_kind": outcome.kind, "router_decision": outcome.decision}
 
     # ---- 会话日志（messages 通道，SESSION_SCOPED，add_messages 现成 reducer）----
-    # 是否命中壳1 与 route_turn.py Layer 0 内部判据同一条件（is_injection and
-    # severity=="high"）——本节点范围纪律限定不改 route_turn.py（并行批次 c′
-    # 正改的相邻文件之外的边界；那批不含 route_turn.py，但本次任务书明确划定
-    # "你的地盘"只有 graph/nodes(router/narrate/finalize_plan) + state.py +
-    # graph_confirm.py + 测试，route_turn.py 不在其中），代价是这条件在两处
-    # 各写一份；detect_injection 零 LLM、纯正则、无副作用，重算一次成本可
-    # 忽略，不是这里的权衡重点（详见任务报告"拍板点"）。
-    verdict = detect_injection(raw_input)
-    injection_blocked = verdict.is_injection and verdict.severity == "high"
+    # 是否命中壳1 直接读 `outcome.injection_blocked`（ADR-0011 E-2-c 新增字段）——
+    # 不再重新调用一次 `detect_injection`。E-2-a 那批 route_turn.py 不在改动
+    # 范围内，只能在这里重算一遍；E-2-c 把 route_turn.py 纳入范围后，让
+    # route_turn 把 Layer 0 判定结果通过 RouteOutcome 原样带出来，两处重复判定
+    # 收敛成一处（壳1 判一次，其余消费方读字段，不二次调用）。
     logged_text = (
-        _INJECTION_LOG_PLACEHOLDER if injection_blocked else _sanitize_for_log(raw_input)
+        _INJECTION_LOG_PLACEHOLDER
+        if outcome.injection_blocked
+        else _sanitize_for_log(raw_input)
     )
     new_messages: list[Any] = [HumanMessage(content=logged_text)]
 
@@ -106,5 +108,6 @@ def route_after_router(state: AgentState) -> str:
         return "intent"
     if kind == "feedback":
         return "refiner"
-    # chitchat / meta / emotional / off_topic / ambiguous
+    # chitchat / confirm / clarify / defense（ADR-0011 6 标签闭集里除
+    # planning/feedback 外的其余 4 类，catch-all 送 chitchat 节点渲染气泡）
     return "chitchat"

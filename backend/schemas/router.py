@@ -25,23 +25,32 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class InputKind(str, Enum):
-    """6 类输入域。
+    """路由决策载荷的分类（ADR-0011 决策 1：6 类路由义务闭集里"会附带气泡内容"
+    的 5 类——满足-首轮(planning)/满足-反馈(feedback) 中的 feedback 从不构造
+    RouterDecision（`route_turn.py` 恒 `decision=None`，emit_router 也不读它），
+    故本枚举不设 FEEDBACK 成员，与改造前的既有惯例一致）。
+
+    ADR-0011 之前这里是"输入表面特征"的 6 类（chitchat/meta/emotional/off_topic/
+    ambiguous 分立）；E-2-c 之后按"系统欠用户哪种响应义务"重新分类
+    （L0 响应义务契约），meta/emotional 塌缩进 chitchat（语气差异交 `tone`
+    字段承载，不再是独立路由分支），off_topic 改名 defense（越界请求得体拒绝），
+    ambiguous 改名 clarify（从"被兜底强行归并成 feedback"变成"被正面响应"），
+    新增 confirm（原先被塞进 chitchat 的"确认/预约"表态独立成一类）。
 
     覆盖范围说明：
-    - PLANNING：本地半日出行规划（项目主线，进 intent_parser）
-    - CHITCHAT：闲聊问候（"你好""你是谁""今天天气真好"）
-    - META：问能力（"你能做什么""有哪些场景""怎么用"）
-    - EMOTIONAL：情绪表达（"我累死了""加班好烦""心情差"）
-    - OFF_TOPIC：与本地出行无关（写代码 / 解数学题 / 闲聊娱乐圈）
-    - AMBIGUOUS：信息不足（"出去玩"等无任何约束的极短输入）
+    - PLANNING：本地半日出行规划全新请求（首轮或会话中期另起一局）
+    - CHITCHAT：陪聊——社交/情绪性输入、对方案的提问接地回答、画像问答
+    - CONFIRM：对已有方案的纯认可 / 主动执行表态（"好的就这个""给我预约吧"）——
+      只引导到显式确认按钮，绝不自动下单
+    - CLARIFY：意图或指代有歧义，正确响应是反问 + 选项，不是猜一个方向就动手
+    - DEFENSE：越界请求（写代码/解题/角色扮演/提示词套取等）——得体拒绝
     """
 
     PLANNING = "planning"
     CHITCHAT = "chitchat"
-    META = "meta"
-    EMOTIONAL = "emotional"
-    OFF_TOPIC = "off_topic"
-    AMBIGUOUS = "ambiguous"
+    CONFIRM = "confirm"
+    CLARIFY = "clarify"
+    DEFENSE = "defense"
 
 
 # 5 类非 planning 输入对应的语气标签（前端按此选 emoji 头像与配色）

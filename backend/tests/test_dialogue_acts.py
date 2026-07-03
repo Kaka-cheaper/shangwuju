@@ -1,21 +1,30 @@
-"""test_dialogue_acts —— 会话内对话行为收口（确认识别 + classify_dialogue_act 统一判定）。
+"""test_dialogue_acts —— 确认/预约规则识别 + route_turn 内的优先级顺序（ADR-0011 E-2-c）。
 
-确定性测试。验证：确认识别及其排除（反馈/疑问/追加不算确认）、分类的优先级顺序
-（提问 > 确认 > 提约束）、router 集成（确认不重规划、追加走 feedback）。
+`classify_dialogue_act`/`DialogueAct`/`DialogueActResult` 已随"Layer 2 + Layer 3
+塌缩为一次脑子调用"整体退役（见 `agent/core/dialogue_acts.py` 模块 docstring）：
+- 提问（QUESTION）/ 提约束（SOFT_CONSTRAINT）本就是各自模块（itinerary_qa /
+  soft_constraint_sniffer）的规则判定，现直接从 `route_turn.py` 调用；
+- 预约（BOOKING）/ 确认（CONFIRM）仍留在本模块，是本模块现在唯一"自己拥有"的
+  逻辑，两者现在都路由到 "confirm"（ADR-0011 决策 1，不再是旧世界的 "chitchat"）。
 
-行为契约不变：同输入得同对话行为（DialogueAct），同路由目标（由 route_turn 映射）。
+原"提问 > 预约 > 确认 > 提约束"优先级顺序现直接编码在 `route_turn.py` 的
+Layer 1.8 级联里（不再有一个居中的 `classify_dialogue_act` 函数可单独测试
+"顺序"），故行为契约测试改为直接驱动 `route_turn.route_turn()` 集成断言——
+这也顺带验证这 4 个规则命中时确实不会触达脑子调用（省一次 LLM）。
 """
 
 from __future__ import annotations
 
+from agent.context.sources import GraphStateSource
 from agent.core.dialogue_acts import (
-    DialogueAct,
     build_booking_decision,
     build_confirm_decision,
-    classify_dialogue_act,
     looks_like_booking,
     looks_like_confirm,
 )
+from agent.graph.state import make_initial_state
+from agent.routing.brain import RouteJudgment
+from agent.routing.route_turn import route_turn
 
 
 def _itin() -> dict:
@@ -28,7 +37,10 @@ def _itin() -> dict:
     }
 
 
-# ---- 确认识别（CONFIRM 对话行为）----
+# ============================================================
+# 确认识别（CONFIRM）
+# ============================================================
+
 
 def test_confirm_pure_yes():
     assert looks_like_confirm("好的，就这个")
@@ -45,27 +57,16 @@ def test_confirm_excludes_feedback_question_add():
 
 def test_build_confirm_decision():
     d = build_confirm_decision("就这个")
-    assert d is not None and d.input_kind.value == "chitchat"
+    assert d is not None and d.input_kind.value == "confirm", (
+        "ADR-0011 决策 1：确认独立出口，不再是 chitchat"
+    )
     assert build_confirm_decision("太远了") is None
 
 
-# ---- classify_dialogue_act 优先级：提问 > 确认 > 提约束 ----
+# ============================================================
+# 预约指令（BOOKING）：给我预约吧 → 确认 chip，不重规划
+# ============================================================
 
-def test_classify_question_first():
-    result = classify_dialogue_act("这家餐厅贵不贵", _itin(), client=None)
-    assert result is not None
-    assert result.act == DialogueAct.QUESTION
-    assert "人均" in result.decision.reply_text
-
-
-def test_classify_confirm():
-    result = classify_dialogue_act("好的就这个", _itin(), client=None)
-    assert result is not None
-    assert result.act == DialogueAct.CONFIRM
-    assert result.decision.rationale == "dialogue_act_confirm"
-
-
-# ---- 预约指令（BOOKING）：给我预约吧 → 确认 chip，不重规划 ----
 
 def test_booking_recognition():
     assert looks_like_booking("给我预约吧")
@@ -78,93 +79,79 @@ def test_booking_recognition():
 
 def test_build_booking_decision_has_confirm_chip():
     d = build_booking_decision("给我预约吧")
-    assert d is not None and d.input_kind.value == "chitchat"
+    assert d is not None and d.input_kind.value == "confirm"
     assert d.rationale == "dialogue_act_booking"
     assert len(d.cta_chips) == 1 and d.cta_chips[0].action == "confirm"
 
 
-def test_classify_booking_before_confirm():
-    # 预约指令走 BOOKING（chitchat + confirm chip），不落 feedback
-    result = classify_dialogue_act("给我预约吧", _itin(), client=None)
-    assert result is not None
-    assert result.act == DialogueAct.BOOKING
-    assert result.decision.rationale == "dialogue_act_booking"
-    assert any(c.action == "confirm" for c in result.decision.cta_chips)
+# ============================================================
+# route_turn 集成：规则命中不触达脑子，且路由到正确标签
+# ============================================================
 
 
-def test_router_booking_not_feedback(monkeypatch):
-    from agent.graph.state import make_initial_state
-
-    router_mod = _patch_ambiguous(monkeypatch)
-    st = make_initial_state(user_input="给我预约吧", session_id="sb")
-    st["itinerary"] = _itin()
-    out = router_mod.router_node(st)
-    assert out["route_kind"] == "chitchat", f"预约指令不该重规划，实际 {out['route_kind']}"
-    assert any(c.action == "confirm" for c in out["router_decision"].cta_chips)
+def _brain_should_not_run(*args, **kwargs):
+    raise AssertionError("规则命中不应再调脑子")
 
 
-def test_classify_soft_constraint():
-    result = classify_dialogue_act("我妈膝盖不好走不远", _itin(), client=None)
-    assert result is not None
-    assert result.act == DialogueAct.SOFT_CONSTRAINT
-    assert any("适合老人" in c.label for c in result.decision.cta_chips)
+def _route(text: str, itinerary):
+    state = make_initial_state(user_input=text, session_id="s")
+    state["itinerary"] = itinerary
+    return route_turn(
+        text,
+        itinerary,
+        state.get("user_id"),
+        client=object(),
+        context_source=GraphStateSource(state),
+        classify_fn=_brain_should_not_run,
+    )
 
 
-def test_classify_none_for_real_feedback():
-    assert classify_dialogue_act("这版太赶了", _itin(), client=None) is None
+def test_route_turn_booking_not_feedback():
+    out = _route("给我预约吧", _itin())
+    assert out.kind == "confirm", f"预约指令不该重规划，实际 {out.kind}"
+    assert any(c.action == "confirm" for c in out.decision.cta_chips)
 
 
-def test_classify_none_for_add():
-    # 追加不在这里拦，交回兜底（→ feedback → refiner 增量合并）
-    assert classify_dialogue_act("还想加个喝咖啡的地方", _itin(), client=None) is None
+def test_route_turn_confirm_not_replan():
+    out = _route("好的，就这个", _itin())
+    assert out.kind == "confirm", f"确认不该重规划，实际 {out.kind}"
 
 
-# ---- router 集成：确认→chitchat 不重规划；追加→feedback ----
+def test_route_turn_question_runs_before_booking_confirm():
+    out = _route("这家餐厅贵不贵", _itin())
+    assert out.kind == "chitchat"
+    assert "人均" in out.decision.reply_text
 
-def _patch_ambiguous(monkeypatch):
-    from agent.graph.nodes import router as router_mod
-    from schemas.router import InputKind, RouterDecision
 
-    def _amb(*a, **k):
-        return RouterDecision(
-            input_kind=InputKind("ambiguous"), confidence=0.7,
-            reply_text="?", tone="warm", cta_chips=[], rationale="t",
+def test_route_turn_soft_constraint_runs_before_brain():
+    out = _route("我妈膝盖不好走不远", _itin())
+    assert out.kind == "chitchat"
+    assert any("适合老人" in c.label for c in out.decision.cta_chips)
+
+
+def test_route_turn_no_dialogue_act_rule_reaches_brain():
+    """"还想加个喝咖啡的地方"不是提问/预约/确认/软约束，规则层都不该误吞它——
+    真到达脑子调用，交给脑子判定（ADR-0011 决策 2 意图：这类"追加"现在该由
+    脑子直接判 feedback，见 `agent/routing/brain_prompt.py` 少样本，不再依赖
+    "识别不出就兜底"的间接路径）。本用例只验证规则层放行、请求真的传到了脑子，
+    脑子本身的判断质量由 `test_routing_brain_real_llm.py` 冒烟验证。
+    """
+
+    def _fake_brain(context_text, user_input, has_itinerary, *, client):
+        assert user_input == "还想加个喝咖啡的地方"
+        assert has_itinerary is True
+        return RouteJudgment(
+            label="feedback", confidence=0.85, reply_text="收到，正在调整……", tone="warm"
         )
 
-    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
-    monkeypatch.setattr(router_mod, "classify_input", _amb)
-    return router_mod
-
-
-def test_router_confirm_not_replan(monkeypatch):
-    from agent.graph.state import make_initial_state
-
-    router_mod = _patch_ambiguous(monkeypatch)
-    st = make_initial_state(user_input="好的，就这个", session_id="s1")
-    st["itinerary"] = _itin()
-    out = router_mod.router_node(st)
-    assert out["route_kind"] == "chitchat", f"确认不该重规划，实际 {out['route_kind']}"
-
-
-def test_router_add_goes_ambiguous_when_llm_unclassified(monkeypatch):
-    """ADR-0011 决策 2（E-1）行为反转：本用例原名 test_router_add_goes_feedback，
-
-    旧断言依赖 route_turn.py:300-302 的"有方案 + planning/ambiguous → 强制
-    feedback"兜底归并——该归并已被 E-1 删除（ADR-0011 决策 2：没有任何下游会
-    "问"，实测"我不想玩这个了"被硬猜重规划，违反 L0 禁令 1）。classify_dialogue_act
-    本身识别不出"还想加个喝咖啡的地方"是哪种对话行为（不是提问/预约/确认/软约束，
-    见 test_classify_none_for_add），归并删除后不再有下游把裸 ambiguous 强行
-    掰成 feedback——变成走 chitchat 气泡通道询问，而不是默默重规划，这正是
-    ADR-0011 意图的行为（该"追加"场景真正的解法在 E-2：LLM 一次调用应该能
-    直接识别出这是"加一项"而不是笼统的 ambiguous；E-1 阶段先如实反映"识别不出
-    就问，不默默动手"）。
-    """
-    from agent.graph.state import make_initial_state
-
-    router_mod = _patch_ambiguous(monkeypatch)
-    st = make_initial_state(user_input="还想加个喝咖啡的地方", session_id="s2")
-    st["itinerary"] = _itin()
-    out = router_mod.router_node(st)
-    assert out["route_kind"] == "ambiguous", (
-        "归并已删：识别不出具体对话行为时，裸 ambiguous 不再被强行掰成 feedback"
+    state = make_initial_state(user_input="还想加个喝咖啡的地方", session_id="s2")
+    state["itinerary"] = _itin()
+    out = route_turn(
+        "还想加个喝咖啡的地方",
+        _itin(),
+        state.get("user_id"),
+        client=object(),
+        context_source=GraphStateSource(state),
+        classify_fn=_fake_brain,
     )
+    assert out.kind == "feedback"

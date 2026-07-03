@@ -25,21 +25,29 @@ def test_core_imports() -> None:
 
 
 def test_intent_imports() -> None:
-    """agent/intent/ 含 parser / refiner / router / narrator + prompts。"""
+    """agent/intent/ 含 parser / refiner / router / narrator + prompts。
+
+    ADR-0011 E-2-c：`classify_input`/`ROUTER_SYSTEM_PROMPT` 随 Layer 2 退役已
+    整体删除（统一路由脑子取代，见 `agent/intent/router.py` 模块 docstring），
+    改为断言其壳2/壳3 决策构造器 `fallback_decision`/`make_planning_decision`
+    仍可 import。
+    """
     from agent.intent.parser import parse_intent  # noqa: F401
     from agent.intent.refiner import refine_intent  # noqa: F401
-    from agent.intent.router import classify_input  # noqa: F401
+    from agent.intent.router import fallback_decision, make_planning_decision  # noqa: F401
     from agent.intent.narrator import generate_narration  # noqa: F401
     from agent.intent.prompts.intent_parser_prompt import (  # noqa: F401
         INTENT_PARSER_SYSTEM_PROMPT,
     )
     from agent.intent.prompts.refiner_prompt import REFINER_SYSTEM_PROMPT  # noqa: F401
     from agent.intent.prompts.router_prompt import (  # noqa: F401
-        ROUTER_SYSTEM_PROMPT,
+        PRIMARY_CTAS,
     )
     from agent.intent.prompts.narrator_prompt import (  # noqa: F401
         NARRATOR_SYSTEM_PROMPT,
     )
+    from agent.routing.brain import classify_turn  # noqa: F401
+    from agent.routing.brain_prompt import BRAIN_SYSTEM_PROMPT  # noqa: F401
 
 
 def test_planning_imports() -> None:

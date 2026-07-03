@@ -1,180 +1,33 @@
-﻿"""agent.router —— 输入域 LLM 前置分类器（Phase 0.8）。
+﻿"""agent.intent.router —— 壳2/壳3 的决策构造器（ADR-0011 E-2-c 精简）。
 
-定位：
-- 在 intent_parser **之前**对用户输入做 6 类分类
-- 一次 LLM 调用同时产出：input_kind + 暖心回话 + 引导按钮（不再二次调 LLM 生成回话）
-- 失败时降级为**保守地板**（ADR-0011 决策 2）：无方案→陪聊引导，有方案→澄清引导，
-  绝不再假设 PLANNING（旧「听不懂就动手」违反 L0 禁令 1，见 `fallback_decision` docstring）
+历史：Phase 0.8 时本模块是"输入域 LLM 前置分类器"（`classify_input`），在
+intent_parser 之前对用户输入做 6 类分类，一次 LLM 调用产出 input_kind + 暖心
+回话 + 引导按钮。
 
-设计取舍（与方案 D 关键词 fast path 的对比）：
-- 关键词 fast path 覆盖窄、对「我累死了」这类情绪表达不敏感
-- 方案 A LLM 前置分类通用性强，新类别只加 prompt 不改代码
-- 代价：每次多 1 次 LLM 调用（约 +1-3 秒）；首字节超时由调用方推 agent_thought 心跳兜底
+ADR-0011 E-2-c 改造：`classify_input` 连同它的 6 旧类 prompt（`ROUTER_SYSTEM_
+PROMPT`/`ROUTER_FEW_SHOTS`/`FEEDBACK_CONTEXT_HINT`）整体退役——它是"输入表面
+特征"分类，被"系统欠用户哪种响应义务"分类的统一路由脑子（`agent.routing.
+brain.classify_turn`）取代，不是简单改名（分类轴变了），继续维护一份平行的
+旧分类器只会制造两套判断口径的漂移，故整体删除而非保留死代码。
+
+本模块现在只剩两个"不调 LLM、构造决策"的入口，两者服务完全不同的语义（各自
+docstring 有详细拒因）：
+- `make_planning_decision`：壳2 canonical 字面短路命中时构造 PLANNING（`agent.
+  routing.canonical_shortcut` 消费）。
+- `fallback_decision`：壳3 保守地板，LLM 不可用/低置信度时的降级（`agent.
+  routing.brain` 与 `agent.routing.route_turn` 消费）。
 
 不负责：
-- LLM 客户端实现（在 agent/llm_client.py）
-- prompt 文案与 cta 白名单（在 agent/prompts/router_prompt.py）
+- LLM 客户端实现（在 agent/core/llm_client.py）
+- 路由脑子的 prompt 与调用（在 agent/routing/brain.py + brain_prompt.py）
 - SSE 序列化（在 backend/main.py）
 """
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
-
-from pydantic import ValidationError
-
 from schemas.router import CtaChip, InputKind, RouterDecision
 
-from ..core.llm_client import LLMClient, LLMMessage, strip_json_fence
-from ..core.prompt_guard import wrap_user_input
-from .prompts.router_prompt import (
-    FEEDBACK_CONTEXT_HINT,
-    FLOOR_CLARIFY_CTAS,
-    PRIMARY_CTAS,
-    ROUTER_FEW_SHOTS,
-    ROUTER_SYSTEM_PROMPT,
-)
-
-
-# 白名单：cta_chips.send 必须精确等于其中一条
-_WHITELIST_SENDS: frozenset[str] = frozenset(c["send"] for c in PRIMARY_CTAS)
-
-
-@dataclass
-class RouterError(Exception):
-    """路由分类失败。调用方应按 PLANNING 兜底。"""
-
-    reason: str
-    raw_text: str | None = None
-
-    def __str__(self) -> str:  # pragma: no cover
-        return f"RouterError({self.reason})"
-
-
-def _build_messages(user_input: str, *, has_itinerary: bool = False) -> list[LLMMessage]:
-    # spec prompt-injection-defense L3：用边界标记包裹用户输入，防指令/数据混淆
-    wrapped = wrap_user_input(user_input)
-    messages: list[LLMMessage] = [
-        LLMMessage(role="system", content=ROUTER_SYSTEM_PROMPT),
-    ]
-    for fs_user, fs_assistant in ROUTER_FEW_SHOTS:
-        messages.append(LLMMessage(role="user", content=fs_user))
-        messages.append(LLMMessage(role="assistant", content=fs_assistant))
-    # spec feedback-routing-fix R3：已有方案时注入反馈上下文，让 LLM 区分反馈 vs 新需求
-    if has_itinerary:
-        messages.append(
-            LLMMessage(role="user", content=f"{FEEDBACK_CONTEXT_HINT}\n{wrapped}")
-        )
-    else:
-        messages.append(LLMMessage(role="user", content=wrapped))
-    return messages
-
-
-def _sanitize_cta_chips(chips_raw: list[dict]) -> list[CtaChip]:
-    """白名单校验 + 去重 + 截断到 4 个。
-
-    防 LLM 发明 send 文本：任何不在白名单里的 chip 直接丢弃。
-    """
-    seen: set[str] = set()
-    out: list[CtaChip] = []
-    for raw in chips_raw or []:
-        if not isinstance(raw, dict):
-            continue
-        send = (raw.get("send") or "").strip()
-        if send not in _WHITELIST_SENDS:
-            continue  # 丢弃发明的 send
-        if send in seen:
-            continue  # 去重
-        seen.add(send)
-        try:
-            chip = CtaChip(
-                label=(raw.get("label") or "")[:24] or "试试看",
-                send=send,
-                icon=raw.get("icon"),
-            )
-        except ValidationError:
-            continue
-        out.append(chip)
-        if len(out) >= 4:
-            break
-    return out
-
-
-def classify_input(
-    user_input: str,
-    *,
-    client: LLMClient,
-    has_itinerary: bool = False,
-) -> RouterDecision:
-    """主入口：用 LLM 对用户输入做 6 类分类。
-
-    Args:
-        user_input: 用户原文。
-        client: LLM 客户端（同 intent_parser 共用）。
-        has_itinerary: 当前 session 是否已有行程方案（spec feedback-routing-fix R3）。
-            True 时注入反馈上下文提示，让 LLM 把反馈措辞判为 ambiguous，
-            由 router_node Layer 3 接管为 feedback；不影响无方案时的分类行为。
-
-    Returns:
-        RouterDecision；cta_chips 中的 send 已经过白名单校验。
-
-    Raises:
-        RouterError: LLM 多次失败 / JSON 解析失败 / Pydantic 校验失败。
-            调用方（main.py）应捕获并按 PLANNING 兜底。
-    """
-    messages = _build_messages(user_input, has_itinerary=has_itinerary)
-    response = client.chat(
-        messages,
-        temperature=0.3,  # 比 intent_parser 高一些，让暖心回话更自然
-        response_format={"type": "json_object"},
-    )
-
-    if not response.content:
-        raise RouterError(reason="empty_response")
-
-    cleaned = strip_json_fence(response.content) or ""
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise RouterError(
-            reason="json_decode_failed",
-            raw_text=response.content,
-        ) from e
-
-    if not isinstance(payload, dict):
-        raise RouterError(reason="not_a_json_object", raw_text=response.content)
-
-    # 容错：把 cta_chips 单独抽出过白名单，再回灌到 payload
-    chips_raw = payload.get("cta_chips") or []
-    sanitized_chips = _sanitize_cta_chips(chips_raw)
-    payload["cta_chips"] = [chip.model_dump() for chip in sanitized_chips]
-
-    # 容错：confidence 缺失时按 0.7 兜底
-    if "confidence" not in payload:
-        payload["confidence"] = 0.7
-    # 容错：tone 缺失时按 input_kind 给默认值
-    if "tone" not in payload:
-        kind = (payload.get("input_kind") or "").lower()
-        payload["tone"] = {
-            "emotional": "empathetic",
-            "off_topic": "playful",
-            "meta": "neutral",
-        }.get(kind, "warm")
-
-    try:
-        decision = RouterDecision.model_validate(payload)
-    except ValidationError as ve:
-        raise RouterError(
-            reason="schema_validation_failed",
-            raw_text=str(ve),
-        ) from ve
-
-    # planning 类强制清空 chips（防 LLM 没读懂硬约束）
-    if decision.input_kind == InputKind.PLANNING and decision.cta_chips:
-        decision = decision.model_copy(update={"cta_chips": []})
-
-    return decision
+from .prompts.router_prompt import FLOOR_CLARIFY_CTAS, PRIMARY_CTAS
 
 
 def fallback_decision(
@@ -193,8 +46,14 @@ def fallback_decision(
     新行为（**绝不返回 PLANNING**）：
     - 无方案 → 暖引导陪聊气泡（CHITCHAT + PRIMARY_CTAS 引导 chips，复用
       `_safe_refusal_decision` 的 chips 构造手法）：听不懂就问，不动手规划。
-    - 有方案 → 澄清式引导（AMBIGUOUS + 三个 FLOOR_CLARIFY_CTAS chips）：不确定是要
-      调整现有方案还是聊别的，问一句，不默默重规划、也不默默无视。
+    - 有方案 → 澄清式引导（CLARIFY + 三个 FLOOR_CLARIFY_CTAS chips，原
+      AMBIGUOUS 改名，E-2-c 7→6 塌缩）：不确定是要调整现有方案还是聊别的，
+      问一句，不默默重规划、也不默默无视。
+
+    E-2-c 新增消费方：`agent.routing.brain._apply_confidence_floor` 在脑子
+    低置信度时也复用本函数的文案（`reason="brain_low_confidence"`），只是把
+    最终 label 钉成 "clarify"——本函数自身行为不因此改变，仍是纯粹的"给定
+    has_itinerary，返回哪套保守文案"，不感知调用方是壳3 兜底还是脑子降级。
 
     Args:
         user_input: 用户原文（仅供未来 rationale/日志扩展，当前不影响分支）。
@@ -210,7 +69,7 @@ def fallback_decision(
             for c in FLOOR_CLARIFY_CTAS
         ]
         return RouterDecision(
-            input_kind=InputKind.AMBIGUOUS,
+            input_kind=InputKind.CLARIFY,
             confidence=0.5,
             reply_text="你是想调整现在的方案，还是聊点别的？",
             tone="warm",

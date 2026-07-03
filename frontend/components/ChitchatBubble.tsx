@@ -57,13 +57,14 @@ const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
   },
 };
 
+// ADR-0011 E-2-c：6→5 InputKind 塌缩（meta/emotional 併入 chitchat，off_topic
+// 改名 defense，ambiguous 改名 clarify，新增 confirm）。
 const KIND_LABELS: Record<ChitchatReplyPayload["input_kind"], string> = {
   planning: "规划",
   chitchat: "闲聊",
-  meta: "问能力",
-  emotional: "情绪",
-  off_topic: "无关",
-  ambiguous: "模糊",
+  confirm: "确认",
+  clarify: "澄清",
+  defense: "婉拒",
 };
 
 export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayload }) {

@@ -3,15 +3,18 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 业务逻辑（锁定，先想清楚再写代码 —— 改实现前先改这段）：
 
-  问题：用户已有方案后随口一句「我妈膝盖不好」「我不太能吃辣」——这类话被路由判成
-        emotional / chitchat 走了闲聊气泡，里面藏的硬约束（适合老人 / 不辣）就被一刀
-        切丢了。但它们恰恰是最真实的偏好。
+  问题：用户已有方案后随口一句「我妈膝盖不好」「我不太能吃辣」——这类话若被路由判成
+        chitchat 走了闲聊气泡，里面藏的硬约束（适合老人 / 不辣）就被一刀切丢了。但它们
+        恰恰是最真实的偏好。
 
   为什么不直接进 refiner：那句话用户**没明说要改方案**，直接重算（refiner 立刻改）
         可能过激。正确的分寸是「听懂、但不擅自改」——主动**问一句**，把决定权交回用户。
 
   做法（主动建议 chip → 用户一键转正）：
-    1) 对判成 emotional / chitchat 的输入跑本嗅探器，抽出**词典内**的隐含硬约束 tag；
+    1) 有方案时，`route_turn.py` 在调用统一路由脑子**之前**先跑本嗅探器（ADR-0011
+       E-2-c，零成本规则层，命中即返，省一次 LLM 调用），抽出**词典内**的隐含硬
+       约束 tag；命中即挂在 chitchat 标签下出气泡（原挂点 emotional 已随 6 标签
+       塌缩机械换名，见 `build_soft_constraint_decision` 调用点）；
     2) 把 tag 拼成一个针对性引导 chip（「换成适合老人的」），追加进 chitchat 气泡；
     3) 用户点 chip → chip.send 文案带着「不太合适 / 换 + 词典原词」重入路由 →
        L1 强反馈命中 → feedback → refiner 在原 intent 上并入该 tag（**复用现有链路，
@@ -306,7 +309,10 @@ def build_soft_constraint_decision(
         return None
     reply = compose_soft_constraint_reply(hits, has_itinerary=has_itinerary)
     return RouterDecision(
-        input_kind=InputKind.EMOTIONAL,
+        # ADR-0011 E-2-c：挂点从 emotional 机械换挂陪聊标签（决策 1 陪聊塌缩吸收
+        # emotional），行为语义不变——仍是"主动问、不擅自改"的气泡，只是路由
+        # 目标的名字从已退役的 emotional 换成 chitchat。
+        input_kind=InputKind.CHITCHAT,
         confidence=0.8,
         reply_text=reply or "我记下了，要不要照这个帮你调整一下？",
         tone="empathetic",

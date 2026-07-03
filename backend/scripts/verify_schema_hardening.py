@@ -85,10 +85,12 @@ INTENT_SAMPLES: list[dict[str, Any]] = [
 
 ROUTER_SAMPLES: list[dict[str, Any]] = [
     {
-        "id": "S-meta",
+        "id": "S-chitchat",
         "input": "你是谁",
         "asserts": {
-            "input_kind": "meta",
+            # ADR-0011 E-2-c：6→5 InputKind 塌缩，meta 併入 chitchat（语气差异
+            # 交 tone 字段承载）。
+            "input_kind": "chitchat",
         },
     },
 ]
@@ -266,8 +268,10 @@ def _verify_intent_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def _verify_router_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
+    """ADR-0011 E-2-c：验证对象从退役的 `classify_input` 换成统一路由脑子
+    `agent.routing.brain.classify_turn`（无方案场景，context_text 给最小占位）。"""
     from agent.core.llm_client import get_llm_client
-    from agent.intent.router import RouterError, classify_input
+    from agent.routing.brain import classify_turn
 
     sid = sample["id"]
     user_input = sample["input"]
@@ -276,13 +280,13 @@ def _verify_router_sample(sample: dict[str, Any]) -> tuple[bool, list[str]]:
     lines.append(f"\n[Sample {sid}] input={user_input!r}")
 
     client = get_llm_client()
-    try:
-        decision = classify_input(user_input, client=client)
-    except RouterError as e:
-        lines.append(_bullet(False, f"classify_input 失败：reason={e.reason}"))
+    judgment = classify_turn("（无会话历史）", user_input, False, client=client)
+    if judgment is None:
+        lines.append(_bullet(False, "classify_turn 失败：返回哨兵 None"))
         return False, lines
 
-    payload = decision.model_dump()
+    payload = judgment.model_dump()
+    payload["input_kind"] = payload.pop("label")
 
     # cta_chips 必须存在（即使空数组）
     chips_present = "cta_chips" in payload
