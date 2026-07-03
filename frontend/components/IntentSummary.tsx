@@ -90,6 +90,11 @@ export default function IntentSummary({
         <SummaryField label="距离">
           {intent.distance_max_km} km
         </SummaryField>
+        {intent.budget_per_person != null && (
+          <SummaryField label="预算">
+            人均 ¥{intent.budget_per_person}
+          </SummaryField>
+        )}
         {companions && <SummaryField label="同行">{companions}</SummaryField>}
         <SummaryField label="社交">
           <span className="chip px-2 py-0.5 text-sm font-medium">

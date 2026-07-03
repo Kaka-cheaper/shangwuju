@@ -7,6 +7,7 @@
 
 import type {
   AdjustAction,
+  AgentNarrationMessage,
   ChitchatReplyPayload,
   CriticViolation,
   DemandLedgerEntry,
@@ -187,6 +188,14 @@ export interface ChatState {
   previousItinerary: Itinerary | null;
   /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
   narration: { text: string; stage: "stream" | "confirm" } | null;
+  /** D-7（ADR-0010 决策 11 / ADR-0011 决策 5「统一 agent 消息面」）：
+   * agent_narration payload 的 messages 兄弟字段——narrate 文字里被限额折叠的
+   * 完整结构化告知列表（"还有 N 处小取舍"的"点开看全部"落点）。
+   * 生命周期绑定"这一版叙事"，同 narration 本身：每次 agent_narration 事件
+   * 整体替换（缺省时清成 null，不是像 nodeActions/demandLedger 那样保留上一
+   * 版）——因为 messages 是这一版 narration.text 的详情展开，text 换了而
+   * messages 还留着上一版会牛头不对马嘴。 */
+  narrationMessages: AgentNarrationMessage[] | null;
   /** ADR-0013 F-3/F-4：节点行的「调整按钮 + 具名备选」，随每次
    * itinerary_ready/换菜成功的 agent_narration 整体刷新（"无内容不加字段"，
    * 缺省时保留上一版直到下一次真正刷新——同 narration 字段的持久语义）。 */

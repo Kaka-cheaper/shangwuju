@@ -46,6 +46,10 @@ function clearForReplanIfPending(set: Setter, get: Getter): void {
     intent: null,
     itinerary: null,
     narration: null,
+    // messages 是 narration.text 这一版的详情展开（见 store/types.ts 字段
+    // docstring）——narration 清空时必须跟着清，否则上一轮的"点开看全部"
+    // 列表会挂在这一轮还没产出内容的 narration 上，牛头不对马嘴。
+    narrationMessages: null,
     lastRefinement: null,
     // ADR-0013：node_actions 绑定"这一版方案"，换方案即失效——同 itinerary 一起
     // 清空，等新一轮 narrate 产出前不展示指向已作废节点的按钮。demandLedger 是
@@ -255,6 +259,11 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
       // 保留上一版（同 narration 本身"绑定这一版方案"的持久语义），不是清空。
       set((s) => ({
         narration: { text: p.text, stage: p.stage },
+        // D-7：messages 绑定"这一版叙事"（同 narration.text 一起整体替换），
+        // 不套 node_actions/demand_ledger 的"缺省保留上一版"——上一版 messages
+        // 讲的是上一版 text 里折叠的取舍，这一版 text 换了就该跟着换，缺省即
+        // 清空为 null（没有可展开的内容），不是沿用旧值。
+        narrationMessages: p.messages ?? null,
         nodeActions: p.node_actions ?? s.nodeActions,
         demandLedger: p.demand_ledger ?? s.demandLedger,
         // 体感编排批 P1："从能用到精彩"——ITINERARY_READY 早已推过规则标题

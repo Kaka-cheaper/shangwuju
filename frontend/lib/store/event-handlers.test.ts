@@ -39,6 +39,7 @@ function baseState(): Partial<ChatState> {
     thoughts: [],
     chitchatReplies: [],
     narration: null,
+    narrationMessages: null,
     lastRefinement: null,
     criticReport: { violationRounds: [], fixAttempts: [], fallbackHops: [] },
   };
@@ -174,6 +175,74 @@ describe("agent_narration：体感编排批 P1 标题更新（从能用到精彩
       payload: { text: "暖场文案", stage: "stream", title: "标题" },
     } as never);
     expect(store.getState().itinerary).toBeNull();
+  });
+});
+
+describe("agent_narration.messages（D-7：结构化告知通道——'点开看全部'的落点）", () => {
+  it("payload.messages 存在时原样落 narrationMessages", () => {
+    const store = makeStore(baseState());
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: {
+        text: "已避开 2 处偏远候选，还有 1 处小取舍",
+        stage: "stream",
+        messages: [
+          { kind: "advisory", code: "distance_relaxed", text: "为满足时长，把最远候选换成了近一点的" },
+        ],
+      },
+    } as never);
+    expect(store.getState().narrationMessages).toEqual([
+      { kind: "advisory", code: "distance_relaxed", text: "为满足时长，把最远候选换成了近一点的" },
+    ]);
+  });
+
+  it("payload.messages 缺省时清成 null——不是 node_actions/demand_ledger 那种保留上一版", () => {
+    const store = makeStore({
+      ...baseState(),
+      narrationMessages: [{ kind: "advisory", code: "x", text: "上一版的取舍" }],
+    });
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: { text: "这一版暖场文案（没有需要折叠的取舍）", stage: "stream" },
+    } as never);
+    // narration.text 已经换成新版本，旧版本的展开列表不该继续挂着
+    expect(store.getState().narration?.text).toBe("这一版暖场文案（没有需要折叠的取舍）");
+    expect(store.getState().narrationMessages).toBeNull();
+  });
+
+  it("重跑信号（intent_parsed）清空腾位时一并清空 narrationMessages，防上一轮取舍串场", () => {
+    const store = makeStore(baseState());
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: {
+        text: "暖场文案",
+        stage: "stream",
+        messages: [{ kind: "advisory", code: "c1", text: "取舍说明" }],
+      },
+    } as never);
+    expect(store.getState().narrationMessages).toHaveLength(1);
+    handleEvent(store.set, store.get, {
+      type: "intent_parsed",
+      seq: 2,
+      payload: { raw_input: "new" },
+    } as never);
+    expect(store.getState().narrationMessages).toBeNull();
+  });
+
+  it("反馈重规划（refinement_start）清空腾位时一并清空 narrationMessages", () => {
+    const store = makeStore({
+      ...baseState(),
+      narrationMessages: [{ kind: "advisory", code: "c1", text: "上一轮的取舍" }],
+    });
+    handleEvent(store.set, store.get, {
+      type: "refinement_start",
+      seq: 1,
+      payload: { feedback_text: "太远了" },
+    } as never);
+    expect(store.getState().narrationMessages).toBeNull();
   });
 });
 

@@ -93,6 +93,7 @@ export type CollabChatStateSnapshot = Partial<
     | "itinerary"
     | "previousItinerary"
     | "narration"
+    | "narrationMessages"
     | "cancelled"
     | "lastRefinement"
     | "chitchatReplies"
@@ -262,6 +263,10 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           previousItinerary: (msg.previous_itinerary as any) || null,
           intent: (msg.intent as any) || null,
           narration: null,
+          // narrationMessages 绑定 narration 这一版（见 store/types.ts）——没有
+          // chat_state 快照可回放时，同 narration 一起清空，不留上个会话的
+          // "点开看全部"列表串场到新加入者看到的这个空白房间态。
+          narrationMessages: null,
           lastRefinement: null,
           chitchatReplies: [],
           memoryPersisted: null,
@@ -420,6 +425,9 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           itinerary: null,
           previousItinerary: currentItinerary ? cloneForCollab(currentItinerary) : null,
           narration: null,
+          // 同 store.ts refine() 的既有清空手法——新一轮规划开始，上一轮
+          // narration 的展开列表不该挂在这一轮还没产出内容的 narration 上。
+          narrationMessages: null,
           streaming: true,
           streamError: null,
           streamPhase: "refine",
@@ -519,6 +527,7 @@ function hydrateChatStateSnapshot(snapshot: CollabChatStateSnapshot): void {
     itinerary: snapshot.itinerary ?? null,
     previousItinerary: snapshot.previousItinerary ?? null,
     narration: snapshot.narration ?? null,
+    narrationMessages: snapshot.narrationMessages ?? null,
     cancelled: Boolean(snapshot.cancelled),
     lastRefinement: snapshot.lastRefinement ?? null,
     chitchatReplies: snapshot.chitchatReplies ?? [],
@@ -540,6 +549,7 @@ export function buildCollabChatStateSnapshot(state: ChatState): CollabChatStateS
     itinerary: state.itinerary,
     previousItinerary: state.previousItinerary,
     narration: state.narration,
+    narrationMessages: state.narrationMessages,
     cancelled: state.cancelled,
     lastRefinement: state.lastRefinement,
     chitchatReplies: state.chitchatReplies,
@@ -626,7 +636,14 @@ export function buildCollabPlanningEvents(state: ChatState): Record<string, unkn
 
   if (state.narration) {
     maxSeq += 1;
-    events.push({ type: "agent_narration", seq: maxSeq, payload: state.narration, timestamp_ms: now });
+    // narrationMessages 是 narration.text 这一版折叠内容的展开详情（D-7），
+    // 不是 agent_narration payload 自带字段——重建回放事件时要拼回去，否则
+    // 新加入者回放到的这条 narration 会丢失"点开看全部"的数据源。
+    const payload =
+      state.narrationMessages && state.narrationMessages.length > 0
+        ? { ...state.narration, messages: state.narrationMessages }
+        : state.narration;
+    events.push({ type: "agent_narration", seq: maxSeq, payload, timestamp_ms: now });
   }
 
   if (state.memoryPersisted) {

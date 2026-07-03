@@ -300,6 +300,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       itinerary: null,
       previousItinerary: previousSnapshot,
       narration: null,
+      // narrationMessages 绑定 narration.text 这一版（见 store/types.ts），
+      // 同一起清，防上一版的"点开看全部"列表串场到这一轮反馈重规划。
+      narrationMessages: null,
       cancelled: false,
       lastRefinement: null,
       // Step 2：refine() 走自己的同步清空（不经 clearForReplanIfPending——本

@@ -34,6 +34,7 @@ export const initialState: InitialChatState = {
   toasts: [],
   commandPaletteOpen: false,
   narration: null,
+  narrationMessages: null,
   memoryPersisted: null,
   nodeActions: null,
   demandLedger: null,

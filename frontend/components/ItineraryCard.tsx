@@ -1,11 +1,13 @@
 ﻿"use client";
 
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import type {
+  AgentNarrationMessage,
   AlternativeOption,
   HopMode,
   IntentExtraction,
@@ -27,6 +29,7 @@ export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const intent = useChatStore((s) => s.intent);
   const narration = useChatStore((s) => s.narration);
+  const narrationMessages = useChatStore((s) => s.narrationMessages);
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
@@ -273,7 +276,11 @@ export default function ItineraryCard() {
       {/* Agent 暖心开场白（导游口播） */}
       {narration?.text && (
         <div className="px-4 pt-3">
-          <NarrationBlock text={narration.text} stage={narration.stage} />
+          <NarrationBlock
+            text={narration.text}
+            stage={narration.stage}
+            messages={narrationMessages}
+          />
         </div>
       )}
 
@@ -717,11 +724,17 @@ function ShareMessage({ text }: { text: string }) {
 function NarrationBlock({
   text,
   stage,
+  messages,
 }: {
   text: string;
   stage: "stream" | "confirm";
+  /** D-7：narrate 文字里被限额折叠的完整取舍列表（"还有 N 处小取舍"的
+   * "点开看全部"落点）。非空时在暖场文案下方挂一个可展开小节；null/[] 不渲染。 */
+  messages?: AgentNarrationMessage[] | null;
 }) {
   const isConfirm = stage === "confirm";
+  const [expanded, setExpanded] = useState(false);
+  const hasMessages = !!messages && messages.length > 0;
   return (
     <div
       className="relative rounded-md px-3.5 py-3 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
@@ -745,6 +758,36 @@ function NarrationBlock({
         />
         <p className="whitespace-pre-wrap"><HighlightText text={text} /></p>
       </div>
+
+      {/* D-7：全部取舍说明——narrate 文字里折叠的"还有 N 处小取舍"在这里展开看全部 */}
+      {hasMessages && (
+        <div className="mt-2 ml-[22px]">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1 text-sm font-medium transition-colors",
+              isConfirm ? "text-emerald-600 hover:text-emerald-700" : "text-brand-600 hover:text-brand-700",
+            )}
+            aria-expanded={expanded}
+          >
+            <span>{expanded ? "收起取舍说明" : `查看全部取舍说明（${messages!.length}）`}</span>
+            <ChevronDown
+              className={cn("w-3 h-3 transition-transform duration-200", !expanded && "-rotate-90")}
+              strokeWidth={2.5}
+            />
+          </button>
+          {expanded && (
+            <ul className="mt-1.5 space-y-1 list-disc list-outside ml-4 animate-collapse-in">
+              {messages!.map((m, i) => (
+                <li key={`${m.code ?? "advisory"}-${i}`} className="text-sm leading-relaxed text-ink-700">
+                  {m.text}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
