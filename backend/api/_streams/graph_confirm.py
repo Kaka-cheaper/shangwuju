@@ -32,6 +32,7 @@ import asyncio
 import logging
 from typing import Any, AsyncIterator
 
+from agent.graph._emit_context import now_ms
 from agent.graph.nodes.execute_finalize import (
     _persist_memory_side_effect,
     execute_finalize_node,
@@ -307,6 +308,18 @@ async def _writeback_graph_state(
     topology 上「进入确认前」的最后一个真实节点，语义上最贴近"confirm 发生在
     narrate 之后"，且是确定性选择（不依赖 langgraph 对 versions_seen 的启发式
     消歧，避免小概率 InvalidUpdateError("Ambiguous update")）。
+
+    ADR-0011 前置核实①决策 2 联动（E-2 第一块砖）：本函数同笔追加一行方案
+    版本志——"vN: 已确认下单"。治的是 ADR-0012 决策 4 原文记录的"已知丢失
+    窗口"：user_decision/orders 是 EPISODE_SCOPED，反馈触发新一轮规划事件时
+    会被 `reset_for_new_episode()` 清空，"用户下过单"这一事实在那之后无处
+    可寻；`plan_version_log` 是 SESSION_SCOPED（operator.add 归并器），不会
+    被那次重置动到——这笔"已确认下单"的记录从此不随下一次反馈消失。
+    version_n 续着 aget_state 读到的既有版本志编号（不是另起一套计数），与
+    `aupdate_state` 里 `itinerary`/`user_decision` 的写入同一次调用完成
+    （LangGraph 对 update_state 的 diff 同样按 as_node 应用各 channel 的
+    reducer，这一条目因此和其余两个字段一样，是这次 checkpoint 提交里的
+    一部分，不是分两笔写）。
     """
     try:
         from agent.graph.build import get_compiled_graph
@@ -321,15 +334,31 @@ async def _writeback_graph_state(
                 session_id,
             )
             return
+
+        existing_log = list(snapshot.values.get("plan_version_log") or [])
+        confirm_version_n = len(existing_log) + 1
+        confirm_entry = {
+            "version_n": confirm_version_n,
+            "summary": f"v{confirm_version_n}: 已确认下单",
+            "trigger": "confirm",
+            "timestamp": now_ms(),
+        }
+
         await graph.aupdate_state(
             config,
-            {"itinerary": itinerary, "user_decision": "confirm"},
+            {
+                "itinerary": itinerary,
+                "user_decision": "confirm",
+                "plan_version_log": [confirm_entry],
+            },
             as_node="narrate",
         )
         logger.info(
-            "graph_confirm: session %s 图状态回写成功（orders=%d，user_decision=confirm）",
+            "graph_confirm: session %s 图状态回写成功（orders=%d，user_decision=confirm，"
+            "plan_version_log +1 → v%d）",
             session_id,
             len(itinerary.orders or []),
+            confirm_version_n,
         )
     except Exception:  # noqa: BLE001
         logger.warning(

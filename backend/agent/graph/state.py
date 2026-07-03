@@ -24,6 +24,7 @@ schema，不发明新结构。
 
 from __future__ import annotations
 
+import operator
 from typing import Annotated, Any, Literal, Optional, TypedDict
 
 from langchain_core.messages import BaseMessage
@@ -113,6 +114,23 @@ class AgentState(TypedDict, total=False):
     planner_mode: Optional[Literal["rule", "llm"]]  # SESSION_SCOPED：会话级范式开关
 
     # ---- 跨 turn 消息历史（Pydantic AI / LangGraph 标准） ----
+    # ADR-0011 前置核实①（会话日志基础设施，E-2 第一块砖）：轮次日志接的就是
+    # 这个既有通道——HumanMessage=用户原话（router_node 写；壳1 拦截的轮次写
+    # 占位文本，不回灌攻击原文，见 nodes/router.py 护栏注释）/AIMessage=agent
+    # 侧发言（router_node 写 chitchat 类气泡回复；narrate_node 写规划/反馈轮
+    # 叙事文案）。
+    # 【护栏4·存储无界，二选一显式拍板】demo 规模显式接受：messages 通道与
+    # checkpointer 历史本身无界增长（InMemorySaver 每 checkpoint 全留，从不
+    # 修剪），本砖不在这里加修剪。修剪方向留给 E-2 会话上下文打包器那层的
+    # "上下文包"保险丝（ADR-0011 决策 3：约最近 40 轮/8K token，钉锚永不丢）
+    # ——那层护的是"喂给路由脑子的切片"，不是存储本身。存储层修剪待真实多
+    # 租户场景（有真实 TTL/归档需求时）再补，不在 demo 阶段假装解决一个还不
+    # 存在的问题。
+    # 【护栏5·换 persona 不换 session】日志随 session（thread_id）持续追加，
+    # 不因同一 session 中途 user_id（persona）切换而清空/分叉——`resolve_
+    # user_id` 每请求可变，但 messages 通道只认 thread_id；画像相关字段
+    # （scenario_id / user_profile 等）才按当轮 user_id 现取，两者语义不同，
+    # 不因为"看起来都是会话状态"就混为一谈。
     messages: Annotated[list[BaseMessage], add_messages]  # SESSION_SCOPED：add_messages 累积通道，天然跨轮
 
     # ---- 路由结果 ----
@@ -198,6 +216,25 @@ class AgentState(TypedDict, total=False):
     # 非空=整体替换(record_demand 返回含顶替改写的全量列表,append 语义不适用)。
     # 写入/消费接线归 F-4/F-5,但存活性从此是结构保障,不依赖任何调用方自觉。
 
+    # ---- 方案版本志（ADR-0011 前置核实①/决策 3：会话上下文打包器的版本
+    # 摘要素材，E-2 第一块砖第二件）----
+    plan_version_log: Annotated[list[dict], operator.add]  # SESSION_SCOPED：
+    # list[dict]，条目形状 {version_n, summary, trigger, timestamp}——纯 dict，
+    # 免 build.py serde 白名单（护栏1「非纯类型须补白名单」的另一面：纯类型
+    # 天然不用补）。
+    # 【reducer 选型，对照 _merge_demand_ledger 先例，二选一后的拍板】
+    # demand_ledger 的写手语义是"整体替换成全量重写后的列表"（条目会被顶替/
+    # 改写，如满足状态翻转），因此需要自定义合并器区分"空更新=保留旧值"与
+    # "非空=整体替换"。plan_version_log 的写手语义相反——finalize_plan_node
+    # / _writeback_graph_state 每次只返回**本轮新增的那一条**，历史条目永远
+    # 不被改写/删除，是纯追加日志（更接近 messages 的 add_messages 先例，只是
+    # 不需要它那套按 message id 去重合并的复杂度）。纯追加语义下 `operator.add`
+    # （list 拼接）就是完整答案：`old + []`（每轮初始化写的空列表）在数学上
+    # 恒等于 `old`本身——不需要像 _merge_demand_ledger 那样手写"空更新短路"，
+    # 拼接空列表天然就是幺元操作。这也是 ADR-0011 护栏1 原文举例直接写
+    # `Annotated[list, operator.add]` 的原因（LangGraph 标准累加器模式，见
+    # 官方文档 state-reducers 一节，非本改动发明）。
+
 
 # ============================================================
 # 字段生命周期表（ADR-0012 决策 4）—— 真值来源
@@ -227,13 +264,19 @@ SESSION_SCOPED: frozenset[str] = frozenset({
     "planner_mode",
     "messages",
     "demand_ledger",
+    "plan_version_log",
 })
 """跨轮持久，从不被 make_initial_state 的"清零"语义覆盖：
 messages 靠 add_messages reducer 自身跨轮累积；user_id/session_id/scenario_id/
 planner_mode 由调用方（sse_adapter）每轮传入同一值透传进 state——是"确认"不是
 "重置"，多数轮次这一步是 no-op（值和上一轮相同）。demand_ledger 靠
 _merge_demand_ledger 归并器跨轮存活（空更新 no-op,同 messages 先例）——
-存活性是结构保障,不依赖调用方读回传参;写入/消费接线归 F-4/F-5。"""
+存活性是结构保障,不依赖调用方读回传参;写入/消费接线归 F-4/F-5。
+plan_version_log 靠 operator.add 归并器跨轮累积存活（ADR-0011 前置核实①）
+——尤其是 confirm 回写（graph_confirm._writeback_graph_state）追加的
+"已确认下单"条目：反馈触发新规划事件的 reset_for_new_episode() 只清
+EPISODE_SCOPED，够不着 SESSION_SCOPED 的本字段，这正是它被登记在这里而不是
+EPISODE_SCOPED 的唯一理由——治 user_decision/orders 那段"已知丢失窗口"。"""
 
 EPISODE_SCOPED: frozenset[str] = frozenset({
     "intent",
@@ -349,7 +392,9 @@ def make_initial_state(
 
     `demand_ledger` 无需形参（深审修正）：它挂 `_merge_demand_ledger` 归并器,
     此处的 `[]` 经归并器是 no-op(同 messages 先例)——存档里的台账天然跨轮
-    存活,不需要任何调用方"记得读回传参"。
+    存活,不需要任何调用方"记得读回传参"。`plan_version_log` 同理：挂
+    `operator.add` 归并器,此处的 `[]` 经拼接是幺元操作(no-op),版本志跨轮
+    存活不需要任何调用方"记得读回传参"（ADR-0011 前置核实①）。
     """
     state = AgentState(
         # ---- TURN_SCOPED：清零成本轮初值 ----
@@ -366,6 +411,7 @@ def make_initial_state(
         planner_mode=planner_mode if planner_mode in ("rule", "llm") else None,
         messages=[],
         demand_ledger=[],  # 经归并器 no-op,见字段注释
+        plan_version_log=[],  # 经 operator.add 归并器 no-op,见字段注释
     )
     assert set(state.keys()) == (TURN_SCOPED | SESSION_SCOPED), (
         "make_initial_state 只应覆盖 TURN_SCOPED ∪ SESSION_SCOPED"

@@ -43,13 +43,69 @@
 - itinerary=None（give_up 分支且从未成功产出过方案）时的兜底文案——narrate_node
   自己的 `if intent is None or itinerary is None: return {"narration": None}`
   短路已经覆盖，本节点对同样的输入同样短路成 `{}`（无 itinerary 可定稿）。
+
+【ADR-0011 前置核实①/决策 3：方案版本志（plan_version_log），E-2 第一块砖
+第二件】方案定稿即是"新版本诞生"的确定性时机——本节点纯规则、无 LLM 调用，
+比 narrate 的叙事 LLM 调用更早、更稳定地知道"这一版方案定型了"，是版本志
+天然的唯一常规写手（confirm 路径的额外一笔在 `api/_streams/graph_confirm.py
+::_writeback_graph_state`，见该函数 docstring）。
+
+条目形状 {version_n, summary, trigger, timestamp} 与选型见 `_version_log_
+entry` 的实现与其内联注释；trigger 判据是本任务的一个显式拍板点（未强制
+清单化，报告里会说明；**深审改判,主代理**）：trigger 只取**入口维度**——
+`route_kind == "feedback"`（经 refiner_node 走增量调整）→ "feedback"，
+否则（经 intent_node 走全新解析，含会话首轮与"重新规划一个"）→ "first"。
+子代理原方案让 `replan_strategy` 抢答（记"这版怎么解出来的"），被改判：
+求解路径这个事实已经住在 `itinerary.decision_trace.final_strategy`（真因
+修复批刚收口的那条链），版本志再存一份=同一事实两处存放、必然漂移——
+版本志的语义轴是"用户视角这版因何而生"，求解器内幕归 trace。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from agent.graph._emit_context import now_ms
 from agent.graph.state import AgentState
+
+# 版本志"一行人话" summary 里引用的原话片段长度上限——与 route_turn.py 里
+# `utterance[:40]`（注入日志截断）同一数量级的既有先例，供人读的一行摘要，
+# 不是完整存档（完整原话已经在 messages 通道里，见 nodes/router.py）。
+_SUMMARY_SNIPPET_CHARS = 40
+
+
+def _snippet(text: str) -> str:
+    t = (text or "").strip()
+    if len(t) <= _SUMMARY_SNIPPET_CHARS:
+        return t
+    return t[:_SUMMARY_SNIPPET_CHARS] + "…"
+
+
+def _version_log_trigger(state: AgentState) -> str:
+    """版本志 trigger 判据——只反映入口维度,见模块 docstring「显式拍板点」的改判说明。"""
+    return "feedback" if state.get("route_kind") == "feedback" else "first"
+
+
+def _version_log_entry(state: AgentState, *, version_n: int) -> dict[str, Any]:
+    """构造本次方案定稿要追加的版本志条目（纯 dict，免 serde 白名单）。
+
+    summary 的"首轮"/"反馈轮"两种措辞对应 route_kind（是否 == "feedback"）
+    ——反馈原话就取 state.user_input：refiner_node 不改写 user_input（它把
+    反馈原文和旧 intent 一起喂给 LLM 产出新 intent，但不回写 state["user_
+    input"]），finalize_plan 运行时 state.user_input 仍是本轮（refiner 那轮）
+    用户敲的原话，核实见 `agent/graph/nodes/refiner.py::refiner_node`。
+    """
+    raw = _snippet(state.get("user_input") or "")
+    if state.get("route_kind") == "feedback":
+        summary = f"v{version_n}: 应『{raw}』调整"
+    else:
+        summary = f"v{version_n}: 按『{raw}』出方案"
+    return {
+        "version_n": version_n,
+        "summary": summary,
+        "trigger": _version_log_trigger(state),
+        "timestamp": now_ms(),
+    }
 
 _FINAL_STRATEGY_BY_LAST_HOP: dict[str, str] = {
     "give_up": "give_up",
@@ -155,4 +211,11 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
         update={"pending_actions": build_confirm_actions(new_itinerary, intent)}
     )
 
-    return {"itinerary": new_itinerary}
+    # ---- 4. 方案版本志（ADR-0011 前置核实①：本节点是版本志的常规写手）----
+    # operator.add 归并器：这里只返回**本轮新增的这一条**，历史条目由 reducer
+    # 拼接保留（见 agent/graph/state.py plan_version_log 字段注释）。
+    existing_log = state.get("plan_version_log") or []
+    version_n = len(existing_log) + 1
+    version_entry = _version_log_entry(state, version_n=version_n)
+
+    return {"itinerary": new_itinerary, "plan_version_log": [version_entry]}

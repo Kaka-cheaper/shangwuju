@@ -64,6 +64,8 @@ import logging
 from dataclasses import asdict
 from typing import Any
 
+from langchain_core.messages import AIMessage
+
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
 from agent.intent.narrator import generate_title_and_narration
@@ -511,10 +513,19 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # new_itinerary 是"不假设两者恒等"的防御）。
     node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
 
+    # ADR-0011 前置核实①：规划/反馈轮的会话日志——本节点是这两类 route_kind
+    # 唯一走到、也唯一产出"agent 这轮到底说了什么"的地方（chitchat 类分支的
+    # 气泡回复在 router_node 里已经写过，见该文件 docstring；两者合起来覆盖
+    # 全部路由分支，不重不漏）。narration 就是同一份文案：既是推给前端的
+    # AGENT_NARRATION SSE 文案，也是会话日志里这一轮 agent 侧的发言记录
+    # （messages 通道，SESSION_SCOPED，add_messages 现成 reducer）。函数顶部
+    # `intent is None or itinerary is None` 的早退分支不产出 narration，
+    # 自然也没有可记录的 agent 发言，不写 messages。
     result: dict[str, Any] = {
         "narration": text,
         "itinerary": new_itinerary,
         "advisories": advisories,
         "node_actions": node_actions,
+        "messages": [AIMessage(content=text)],
     }
     return result
