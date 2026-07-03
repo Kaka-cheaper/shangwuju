@@ -42,8 +42,10 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 
 - **G-0 顺手清**:先迁"太久了"收缩契约到 duration_hours(探针先行)再砍 pace_profile;gender_mix 砍除;prompt 措辞。grep gate 防悬空。
 - **G-1 出处标注**:schema(四值枚举/元素级)+parser 自报+规则交叉校正+refiner 纯规则传播(含撤回清理/升级)+narration/refiner 两消费方+测试(先验注入/撤回/升级场景断言)。
-- **G-2 硬软分层+出口审计**:词典严重度分层(dietary+physical 逐词对照 mock)+relax_tag_search 改造(hard 永不放宽,含 2×2 矩阵降级序)+出口满足度审计(CONSTRAINT_RELAXED,unmet 同族单点)+physical critic 复核+mock 完备性测试+give_up 放宽建议 chips+告知限额。
+- **G-2 硬软分层+出口审计**:词典严重度分层(dietary+physical 逐词对照 mock)+relax_tag_search 改造(hard 永不放宽,含 2×2 矩阵降级序)+出口满足度审计(CONSTRAINT_RELAXED,unmet 同族单点——同时是"约束漏传"类 bug 的运行时天网)+physical critic 复核+mock 完备性测试+give_up 放宽建议 chips+告知限额+**结构对齐测试**(同一 intent 喂三条规划路径,断言搜索入参共享约束子集字段级相等——氛围词漏传类 bug 的静态网,不强扭代码结构)。
 - **G-3 预算**:字段+定量抽取规则+check_budget(SOFT)+OVER_BUDGET 改比较对象+POI 票价预检;S2 图级断言+S1 被听见断言。
+- **G-4 消费完备性 gate**(三轮拷问追加,2026-07-03 用户拍板——"有产无消"类 bug 的机器网,推广 ADR-0012 生命周期完备性测试先例):新测试文件三条断言——每个 SseEventType 在前端 event-handlers 有消费 case 或进"有意不消费"白名单(附理由,如 3 个 critic 闭环事件现状);IntentExtraction 每字段在 schema 外≥1 处读取或进白名单;AdvisoryCode 每码有生产点。本 ADR 挖出的十个"器官长了血管没接"缺陷(pace_profile/parse_confidence/ambiguous_fields/gender_mix/relaxed_tags/台账全局形态/3 SSE 事件/decision_trace/reject-modify/modifications)全属此类,gate 让此类 bug 出生当天即红。
+- **实施纪律(三轮拷问定)**:同一概念多点消费一律"真相源声明"手法(单一解析函数+显式声明,venue_distance_km 先例)——G 系列内对 capacity 口径(含不含自己)、private_room 认定不对称顺手套用;比较点用枚举成员不用字符串字面量(emit_critic "critical" 漂移教训)。
 - 总验收:S1-S8 结构测试不回归;真 LLM 冒烟含"5 人局+明说预算+忌口降级到底"三个新探针场景;narration 出现出处口径与放宽告知的人话。
 
 ## 落地状态
