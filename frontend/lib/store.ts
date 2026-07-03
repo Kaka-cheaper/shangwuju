@@ -316,7 +316,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       `${API_BASE}/chat/turn`,
       // 块C-2（spec planning-pipeline-consolidation R4）：反馈统一走 V3 /chat/turn。
       // V3 router 据 message + checkpointer 跨 turn 恢复的 itinerary 判定为 feedback，
-      // 触发 refiner 节点闭环（与首轮规划同路线）。后端 refine_real.py / /chat/refine 保留不动。
+      // 触发 refiner 节点闭环（与首轮规划同路线）。V1 /chat/refine 端点已退役删除。
       {
         message: feedbackText.trim(),
         session_id: get().sessionId,

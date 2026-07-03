@@ -139,7 +139,7 @@ def _heuristic_weights(intent: IntentExtraction) -> PlanningWeights:
         comfort += 0.05
         time_w -= 0.05
 
-    # 反馈关键词修正（应对 /chat/refine 后的迭代）
+    # 反馈关键词修正（应对反馈重规划后的迭代轮）
     raw = intent.raw_input or ""
     if any(kw in raw for kw in ("快", "赶时间", "急")):
         time_w += 0.1

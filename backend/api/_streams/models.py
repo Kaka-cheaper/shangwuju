@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Optional, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,7 +25,8 @@ class ChatConfirmRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     session_id: str = Field(..., min_length=1, max_length=128)
     decision: str = Field(..., pattern="^(confirm|reject|modify)$")
-    modifications: Optional[dict[str, Any]] = None
+    # modifications 字段已删（api_contract.md §10 曾记录的死字段：decision="modify"
+    # 分支与 reject 同路，只告知不消费改动；前端也从未发送过它）。
     user_id: Optional[str] = Field(default=None, max_length=64)
     # spec execution-quality-review R2：execution Tool 的 hallucination 防护白名单
     # 规划阶段 ItineraryReady 中所有 target_id 由 backend 写入；前端在 confirm 时回传

@@ -1,7 +1,7 @@
 """会话快照 + user_id 解析。
 
 `SESSION_STORE`：session_id → {"intent": dict, "itinerary": dict, "user_id": str,
-"planning_events": list[dict]}，供 /chat/confirm、/chat/refine、协作房间创建读取。
+"planning_events": list[dict]}，供 /chat/confirm、/chat/adjust、协作房间创建读取。
 
 存储行为按 env `SESSION_STORE` 切换（dict-like，调用点零改动）：
   - `memory`(默认 / 裸机)：纯进程内存 dict，行为与普通 dict **完全一致**，
@@ -13,7 +13,7 @@
 真正需要多实例一致的「跨 turn 对话上下文」由 LangGraph 的 Redis checkpointer 负责。
 注意：对 `SESSION_STORE[sid]` 返回的内层 dict 做**原地**修改（如
 `SESSION_STORE[sid]["planning_events"] = ...`）不会触发镜像，Redis 快照以整体赋值
-（`SESSION_STORE[sid] = {...}`）为准——这对 confirm/refine 所需的 intent/itinerary 无影响。
+（`SESSION_STORE[sid] = {...}`）为准——这对 confirm 所需的 intent/itinerary 无影响。
 
 `resolve_user_id`：body.user_id > X-User-Id header > "demo_user"。
 """

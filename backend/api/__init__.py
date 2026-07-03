@@ -9,11 +9,13 @@
 - `legal.py`         用户协议、隐私政策（/legal/*）
 - `oauth.py`         OAuth 接入位（/auth/*）
 - `collab.py`        多人协作房间（/room/*, WS /ws/{room_id}）
-- `chat.py`          对话核心 4 端点（/chat/stream, /chat/confirm, /chat/refine, /chat/turn）
-- `_session_store.py` _SESSION_STORE 内存级会话快照 + user_id 解析 helper
-- `_sse_helpers.py`   SSE 包装 + 兜底（_to_sse, _safe_stream, _delay, _now_ms）
-- `_stub_streams.py`  纯本地 stub fixture（_stub_stream, _stub_confirm, _stub_refine, _stub_route）
-- `_planner_streams.py` 真 planner 链路（_planner_stream, _refine_stream_real, _routed_stream_real）
+- `chat.py`          对话核心 2 端点（/chat/turn, /chat/confirm）——V1 legacy
+  /chat/stream 与 /chat/refine 已退役删除，反馈流并入 /chat/turn 统一路由
+- `adjust.py`        单人节点调整（POST /chat/adjust，ADR-0013 F-4）
+- `_session_store.py` SESSION_STORE 内存级会话快照 + user_id 解析 helper
+- `_sse_helpers.py`   SSE 包装 + 兜底（safe_stream, now_ms 等）
+- `_streams/`         SSE 流实现（graph_confirm / graph_adjust / memory +
+  Request 模型 models.py），V1 的 stub/planner 流已随退役删除
 
 main.py 通过 `app.include_router(...)` 接入；任何端点逻辑改动应在本目录文件内做，
 **不要往 main.py 加新端点**——main.py 仅保留 app 实例化、middleware、include_router。

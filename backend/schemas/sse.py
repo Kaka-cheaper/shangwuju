@@ -38,7 +38,8 @@ class SseEventType(str, Enum):
     AGENT_THOUGHT = "agent_thought"
     # 最终方案产出
     ITINERARY_READY = "itinerary_ready"
-    # ===== 用户反馈 → 重规划（/chat/refine 专用，Phase 0.6 新增） =====
+    # ===== 用户反馈 → 重规划（Phase 0.6 新增；今由 /chat/turn 统一路由的
+    # feedback 义务触发 refiner_node 时发出，V1 /chat/refine 端点已退役） =====
     # refiner 开始合并反馈
     REFINEMENT_START = "refinement_start"
     # refiner 合并完毕，下游进入完整 plan 流程；payload = RefinementOutput.model_dump()

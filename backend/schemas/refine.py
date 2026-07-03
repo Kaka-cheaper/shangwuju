@@ -1,10 +1,15 @@
-"""refine —— 用户拒绝方案 + 反馈 → 重规划的契约。
+"""refine —— 反馈合并（refiner）输出的契约。
 
-业务故事：
-- 用户面对 Itinerary 卡片，可以选 [确认] / [拒绝并说明原因] / [取消]
-- 选「拒绝并说明原因」时，前端把反馈文本（可空）发到 POST /chat/refine
+业务故事（2026-07 现况）：
+- 用户对方案卡说"太远了/换个安静的"这类反馈，经 /chat/stream 的统一路由
+  判为 feedback 义务 → 图内 refiner_node 调 `agent.intent.refiner.refine_intent`
 - refiner 把 (原 IntentExtraction + 反馈) 合并为新 IntentExtraction，让 planner 重算
-- 完整事件序列详见 backend/api_contract.md §7
+- 本模块只承载 refiner 的输出形状 `RefinementOutput`——它同时是 SSE
+  `REFINEMENT_DONE` 事件的 payload（见 schemas/sse.py）
+
+历史备注：早期存在独立的 POST /chat/refine 端点与其请求体 `RefinementInput`，
+端点随反馈流并入 /chat/stream 统一路由后删除，请求体类已一并移除
+（api_contract.md §10 曾记录这条文档-代码出入，现已收口）。
 
 字段命名硬约束：
 - 不引入 scene_type / relation_type 等枚举（D9）
@@ -12,9 +17,9 @@
 - changed_fields 是面向人类阅读的中文字段名描述（用于前端 toast 与日志）
 
 不负责：
-- 反馈合并算法（在 backend/agent/refiner.py，A 块实现）
-- HTTP 端点（在 backend/main.py，B 块实现）
-- UI（在 frontend/，C 块实现）
+- 反馈合并算法（在 backend/agent/intent/refiner.py）
+- 触发路由（在 agent/routing/route_turn.py 的 feedback 义务分发）
+- UI（在 frontend/）
 """
 
 from __future__ import annotations
@@ -26,25 +31,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from schemas.intent import IntentExtraction
 
 
-class RefinementInput(BaseModel):
-    """前端 POST /chat/refine 的请求体。"""
-
-    model_config = ConfigDict(extra="forbid")
-
-    session_id: str = Field(
-        ..., description="与 /chat/stream 同一会话；后端用此找原 intent + last itinerary"
-    )
-    feedback_text: str = Field(
-        default="",
-        description=(
-            "用户反馈（可空）。空时 refiner 走默认调整策略（如降级距离 / 替换备选）；"
-            "非空时 LLM 把反馈合并进原 intent。"
-        ),
-    )
-
-
 class RefinementOutput(BaseModel):
-    """refiner 的输出 + /chat/refine SSE 中 `refinement_done` 事件的 payload。
+    """refiner 的输出 + SSE `REFINEMENT_DONE` 事件的 payload。
 
     `changed_fields` 是「我把距离从 5 公里改到 3 公里」这种人话描述列表，
     前端拿去做 toast 提示。下游 planner 只看 `refined_intent`，不看 changed_fields。

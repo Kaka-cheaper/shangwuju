@@ -30,7 +30,7 @@
 - tools.py 274行                   9 个 Tool 的 Input / Output（OpenAI Function Calling spec 来源）
 - sse.py 90行                      SseEventType 枚举 + SseEvent（前端 EventSource 消费契约）
 - router.py 103行                  InputKind 6 类输入域路由 + RouterDecision + CtaChip
-- refine.py 68行                   RefinementInput / RefinementOutput（/chat/refine 端点）
+- refine.py                        RefinementOutput（refiner 输出 + REFINEMENT_DONE payload）
 - planner_mode.py 66行             rule / llm 切换 + os.getenv 解析 helper（含 resolve_planner_mode）
 
 [入口层]
@@ -78,10 +78,7 @@ from schemas.itinerary import (
     HopMode,
     HopPathType,
 )
-from schemas.refine import (
-    RefinementInput,
-    RefinementOutput,
-)
+from schemas.refine import RefinementOutput
 from schemas.router import (
     InputKind,
     CtaChip,
@@ -154,7 +151,6 @@ __all__ = [
     "HopMode",
     "HopPathType",
     # refine + planner mode (Phase 0.6)
-    "RefinementInput",
     "RefinementOutput",
     # router (Phase 0.8)
     "InputKind",

@@ -21,7 +21,7 @@ export const SseEventType = {
   PlanFallback: "plan_fallback",
   AgentThought: "agent_thought",
   ItineraryReady: "itinerary_ready",
-  // 用户反馈 → 重规划（Phase 0.6 /chat/refine 专用）
+  // 用户反馈 → 重规划（反馈经 /chat/turn 统一路由触发 refiner）
   RefinementStart: "refinement_start",
   RefinementDone: "refinement_done",
   // Phase 0.8 输入域路由（非 planning 输入的暖心回话气泡）
@@ -490,16 +490,6 @@ export interface ChatStreamRequest {
 export interface ChatConfirmRequest {
   session_id: string;
   decision: "confirm" | "reject" | "modify";
-  modifications?: Record<string, unknown> | null;
-}
-
-// ============================================================
-// 拒绝 + 反馈重规划（schemas/refine.py，POST /chat/refine）
-// ============================================================
-
-export interface ChatRefineRequest {
-  session_id: string;
-  feedback_text: string;
 }
 
 // ============================================================
