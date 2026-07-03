@@ -50,10 +50,11 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 
 ## 落地状态
 
-🔁 部分落地。bug 修复批(氛围词漏传/桌型守门)已落地 e70c6c1。
+✅ **全落地**(2026-07-03,单日完成)。bug 修复批(氛围词漏传/桌型守门)e70c6c1。
 **G-0 已完成**(2026-07-03):"太久了"收缩契约迁移到 duration_hours(探针红转绿,用户可见效果兑现)+pace_profile/PaceProfile/gender_mix 全链砍除;超任务书排雷三处(personas.json 死键 extra=forbid 隐患/migrate_mock_v2 幂等复活步骤/verify_planning_quality 失效检查);redis 旧 checkpoint 兼容代价已声明接受(demo memory 模式)。1355 passed。
 **G-4a 已完成**(2ce0341):SSE/Advisory 消费完备性 gate 三轴+白名单防腐(登记项被消费即红);IntentExtraction 字段轴留待 G-3 后(字段集仍在变)。
 **G-1 已完成**(2026-07-03):field_provenance 四值/元素级(companions/preferred_poi_types 拍板排除);交叉校正规则赢;refiner 纯规则 diff 传播(变→user_stated/继承/重申升级/撤回清理,数字标量不做重申防假阳性);narration 诚实段真 LLM 实测口径兑现;打包器不透传(读码确认 provenance 随 intent 对象流转,三消费方不需字段级出处)。1394 passed。
 **G-2 已完成**(2026-07-03):词典分层证据法(prompt 触发规则+mock 分布逐词定)/hard 永不放宽+出处降级序+tag_provenance 三路径透传/出口审计挂 finalize_plan(CONSTRAINT_RELAXED 三口径,default 不告知拍板)/告知限额 2+折叠/check_physical 新增+check_dietary 改判 hard-only ALL-match(主动修正)/give_up 死寂补洞(诚实文案+放宽 chips)/parity 静态网。联动真 bug×2: rule_planner 外层降级绕过 hard 保护已修;三引擎全败前端无反馈已修。mock 缺口登记: 无障碍 POI=0/无牛肉餐厅=0(待补数据)。1430 passed。
 **G-3 已完成**(2026-07-03):budget_per_person 定量定性分轨(定性压制"高人均"冲突消解真 LLM 实测)/check_budget SOFT 映射既有 OVER_BUDGET(两路径同语义)/比较对象改本轮明说优先/S1 被听见=ambiguous_fields 第一个真实消费方(narration"尽量控制着来");POI 票价核查推翻降级预设,全量校验。1449 passed。
-余 G-4b(IntentExtraction 字段轴消费 gate,字段集已随 G 系列定型)。
+**G-4b 已完成**(60f6130):字段轴 gate——17 顶层+5 嵌套字段逐一核实消费面,白名单仅 parse_confidence(E-3);判据避开 few-shot 字符串与跨 schema 同名两类实测假阳性;防腐牙齿经临时探针验证。
+**✅ G 系列全落地(G-0→G-4b,2026-07-03,1454 passed)。** 余 E-3 挂钩两项(置信度接澄清/台账收全局诉求)随 E-3 排期;mock 缺口(无障碍 POI=0/无牛肉餐厅=0)待用户拍板补数据。
