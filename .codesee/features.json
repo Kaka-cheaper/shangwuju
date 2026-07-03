@@ -4949,6 +4949,169 @@
       "provenance": "ai",
       "tags": [],
       "updated_at": "2026-05-23T00:00:00Z"
+    },
+    {
+      "id": "f-mobile-h5-interface",
+      "name": "移动端 H5 界面",
+      "summary": "/m 移动端入口复用现有 chat store、SSE、行程、确认和反馈动作，用手机优先布局承载扫码进入后的完整规划流程。",
+      "epicId": "interface",
+      "triggers": [
+        {
+          "kind": "http",
+          "detail": "GET /m"
+        },
+        {
+          "kind": "ui",
+          "detail": "用户扫码打开移动端 H5 页面"
+        }
+      ],
+      "steps": [
+        {
+          "id": "mount_route",
+          "name": "挂载移动入口",
+          "role": "input",
+          "refs": [
+            {
+              "file": "frontend/app/m/page.tsx"
+            }
+          ]
+        },
+        {
+          "id": "bootstrap_state",
+          "name": "初始化会话状态",
+          "role": "side-effect",
+          "note": "复用桌面端 session、persona、scenario 和 preference 加载逻辑。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "render_scenarios",
+          "name": "展示演示场景",
+          "role": "output",
+          "note": "首次进入时显示双列场景卡，激活后收为横向快速试试栏。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "submit_input",
+          "name": "提交移动输入",
+          "role": "side-effect",
+          "note": "底部固定输入框调用 sendMessage，场景卡调用 sendScenario。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "render_stream",
+          "name": "渲染规划过程",
+          "role": "output",
+          "note": "移动端对话流展示用户消息、暖心回复、意图摘要和 Agent 链路预览。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "render_plan",
+          "name": "展示移动行程卡",
+          "role": "output",
+          "note": "用紧凑时间线展示通勤、活动、用餐和终点，并保留确认、反馈和取消动作。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "open_sheets",
+          "name": "展开底部弹层",
+          "role": "output",
+          "note": "地图路线、Agent 链路、调整对比、用户画像和反馈输入都通过底部 Sheet 承载。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
+          "id": "avoid_toast_overlap",
+          "name": "避让底部输入",
+          "role": "output",
+          "note": "小屏 Toast 上移到输入框上方，桌面端保持右下角。",
+          "refs": [
+            {
+              "file": "frontend/components/ToastStack.tsx"
+            }
+          ]
+        }
+      ],
+      "flow": [
+        {
+          "from": "mount_route",
+          "to": "bootstrap_state",
+          "kind": "next"
+        },
+        {
+          "from": "bootstrap_state",
+          "to": "render_scenarios",
+          "kind": "next"
+        },
+        {
+          "from": "render_scenarios",
+          "to": "submit_input",
+          "kind": "conditional",
+          "condition": "用户点击场景或输入需求"
+        },
+        {
+          "from": "submit_input",
+          "to": "render_stream",
+          "kind": "async"
+        },
+        {
+          "from": "render_stream",
+          "to": "render_plan",
+          "kind": "conditional",
+          "condition": "收到 itinerary_ready"
+        },
+        {
+          "from": "render_plan",
+          "to": "open_sheets",
+          "kind": "conditional",
+          "condition": "用户查看地图、链路、对比或反馈"
+        },
+        {
+          "from": "render_stream",
+          "to": "avoid_toast_overlap",
+          "kind": "async"
+        }
+      ],
+      "refs": [
+        {
+          "file": "frontend/app/m/page.tsx"
+        },
+        {
+          "file": "frontend/components/mobile/MobileHomeView.tsx"
+        },
+        {
+          "file": "frontend/components/ToastStack.tsx"
+        },
+        {
+          "file": "frontend/app/globals.css"
+        }
+      ],
+      "confidence": 0.9,
+      "provenance": "ai",
+      "tags": [],
+      "updated_at": "2026-07-02T00:00:00Z"
     }
   ],
   "cross_feature": [
@@ -5236,6 +5399,37 @@
       "to": "f-chat-turn-entry",
       "kind": "depends_on",
       "note": "X-Planner-Mode header 透传给主入口"
+    },
+    {
+      "from": "f-mobile-h5-interface",
+      "to": "f-chat-turn-entry",
+      "kind": "triggers",
+      "note": "移动端场景卡和输入框复用 sendScenario / sendMessage 触发 /chat/turn"
+    },
+    {
+      "from": "f-sse-stream-client",
+      "to": "f-mobile-h5-interface",
+      "kind": "flow",
+      "mode": "async",
+      "note": "移动端界面消费同一份 SSE store 状态渲染意图、链路和行程"
+    },
+    {
+      "from": "f-mobile-h5-interface",
+      "to": "f-itinerary-card",
+      "kind": "depends_on",
+      "note": "移动端行程卡复用 Itinerary schema 和确认 / 反馈 / 取消动作"
+    },
+    {
+      "from": "f-mobile-h5-interface",
+      "to": "f-tool-trace-panel",
+      "kind": "depends_on",
+      "note": "移动端底部 Sheet 复用桌面端 ToolTracePanel 展示完整链路"
+    },
+    {
+      "from": "f-mobile-h5-interface",
+      "to": "f-amap-overlay",
+      "kind": "depends_on",
+      "note": "移动端地图 Sheet 复用 MapOverlay 展示路线"
     }
   ],
   "epic_flow": [

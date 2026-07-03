@@ -1,35 +1,8 @@
 ﻿"use client";
 
 import { Icons } from "@/lib/icon-map";
+import { formatStartTimeLabel } from "@/lib/time-labels";
 import type { IntentExtraction } from "@/lib/types";
-
-const START_TIME_LABELS: Record<string, string> = {
-  today_morning: "今天上午",
-  today_noon: "今天中午",
-  today_lunch: "今天中午",
-  today_afternoon: "今天下午",
-  today_evening: "今天晚上",
-  tomorrow_morning: "明天上午",
-  tomorrow_noon: "明天中午",
-  tomorrow_lunch: "明天中午",
-  tomorrow_afternoon: "明天下午",
-  tomorrow_evening: "明天晚上",
-  saturday_morning: "周六上午",
-  saturday_noon: "周六中午",
-  saturday_lunch: "周六中午",
-  saturday_afternoon: "周六下午",
-  saturday_evening: "周六晚上",
-  sunday_morning: "周日上午",
-  sunday_noon: "周日中午",
-  sunday_lunch: "周日中午",
-  sunday_afternoon: "周日下午",
-  sunday_evening: "周日晚上",
-  weekend_morning: "周末上午",
-  weekend_noon: "周末中午",
-  weekend_lunch: "周末中午",
-  weekend_afternoon: "周末下午",
-  weekend_evening: "周末晚上",
-};
 
 /** 意图解析结果摘要（黄昏深色主题：暖橙图标 + glass 进度槽）。 */
 export default function IntentSummary({
@@ -85,7 +58,7 @@ export default function IntentSummary({
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm text-ink-800 lg:grid-cols-4">
         <SummaryField label="时间">
-          {formatStartTime(intent.start_time)} · {dur}
+          {formatStartTimeLabel(intent.start_time)} · {dur}
         </SummaryField>
         <SummaryField label="距离">
           {intent.distance_max_km} km
@@ -113,12 +86,6 @@ export default function IntentSummary({
       )}
     </div>
   );
-}
-
-function formatStartTime(value: string): string {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return "时间待定";
-  return START_TIME_LABELS[normalized] ?? value;
 }
 
 function SummaryField({
