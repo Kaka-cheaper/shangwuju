@@ -14,12 +14,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Iterable, Mapping, Sequence, TypeVar
 
 from data.loader import load_routes
 from schemas.domain import Route
 from schemas.tags import is_hard_tag
 
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -202,5 +204,21 @@ def relax_tag_search(
         ]
         if candidates:
             return candidates, list(soft_required)
+
+    if hard_set:
+        # 卫生债补丁（ADR-0014 横向深审 P3）：hard tag 一票否决打空候选是
+        # 关键决策（意味着"没有安全的替代品"），此前零日志痕迹——补一条
+        # 结构化 info，供事后排障对照"这次是哪些 hard tag、什么出处、
+        # soft 侧已经放宽到什么程度仍然不够"。soft 出处只是诊断性描述
+        # （调用方通常不会为 hard tag 传出处，get 不到时记 None，不代表
+        # hard tag 本身有"出处驱动放宽"的语义——hard 永不放宽，见本函数
+        # 顶部设计纪律）。
+        logger.info(
+            "[relax_tag_search] hard 集非空但渐进放宽后仍打空候选："
+            "hard_tags=%s provenance=%s soft_relaxed=%s",
+            sorted(hard_set),
+            {t: (tag_provenance or {}).get(t) for t in sorted(hard_set)},
+            soft_required,
+        )
 
     return [], list(soft_required)
