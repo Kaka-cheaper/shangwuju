@@ -181,6 +181,13 @@ export interface AgentNarrationPayload {
   node_actions?: NodeActionsMap;
   /** ADR-0013 F-4：诉求台账展示投影（仅 /chat/adjust 换菜成功时携带）。 */
   demand_ledger?: DemandLedgerEntry[];
+  /**
+   * 体感编排批 P1："先出方案，后出文案"。ITINERARY_READY 已由更早的
+   * finalize_plan 节点推过（携带规则标题），narrate 节点的叙事 LLM 若换出
+   * 一个更精彩的标题，就在这里带上新值（与入参 summary 不同才出现）——
+   * 前端据此原地更新已展示的方案卡大标题，不必等一整份新的 itinerary。
+   */
+  title?: string;
 }
 
 // ============================================================

@@ -17,11 +17,18 @@ execute 阶段（并行 worker）：
 execute_collect → planner（出 weights + blueprint）
                 → assemble（蓝图→Itinerary）
                 → critic（验证）
-                  ├── 通过 → narrate → END
+                  ├── 通过 → finalize_plan → narrate → END
                   └── 硬违规 → replan_router
                               ├── llm_backprompt → planner（带 critic_feedback）
-                              ├── ils_fallback → ils_replan → narrate
-                              └── give_up → narrate
+                              ├── ils_fallback → ils_replan → finalize_plan → narrate
+                              └── give_up → finalize_plan → narrate
+
+【体感编排批 P1："先出方案，后出文案"】三条入 narrate 的边（critic 通过 /
+replan give_up / ils 成功）统一先经 `finalize_plan`（纯规则：规则标题 /
+pending_actions / decision_trace 收尾，见 `agent.graph.nodes.finalize_plan`
+docstring），再进 `narrate`（叙事 LLM）。`ITINERARY_READY` 因此在 `finalize_plan`
+完成的那一刻就推给前端——不必等 narrate 的 LLM 调用（真实场景数秒到数十秒）跑完，
+方案本身早就定稿了，用户不该为一句锦上添花的文案多等一整轮 LLM 往返。
 
 narrate → END 是图的真实终点（不是虚构的图内 interrupt；ADR-0012 决策 2「结构
 诚实」）。前端的「三按钮」不靠图内 HITL 实现：
@@ -52,6 +59,7 @@ from agent.graph.nodes.execute import (
     search_pois_worker,
     search_restaurants_worker,
 )
+from agent.graph.nodes.finalize_plan import finalize_plan_node
 from agent.graph.nodes.intent import intent_node
 from agent.graph.nodes.narrate import narrate_node
 from agent.graph.nodes.planner import planner_node
@@ -66,20 +74,22 @@ from agent.graph.state import AgentState
 
 
 def _route_after_ils(state: AgentState) -> str:
-    """ils_replan 后总走 narrate，不再回 critic。
+    """ils_replan 后总走 finalize_plan → narrate，不再回 critic。
 
     设计原因（防 ILS 死循环 P1，2026-05-23）：
         ILS 自身不解决 commute_infeasible（蓝图段间通勤可达性约束，详见
         pitfalls P1-2026-05-22）。如果让 ILS 输出过 critic，遇到 commute
         违规会再次进 replan_router → ils_fallback → ils_replan，构成死循环。
-        这里硬性接到 narrate：ILS / rule fallback 已经尽力了，让用户先看到
-        方案，commute 问题由 narration 文案兜底（"实际通勤可能比预估稍长"）。
+        这里硬性接到 finalize_plan → narrate：ILS / rule fallback 已经尽力了，
+        让用户先看到方案，commute 问题由 narration 文案兜底（"实际通勤可能比
+        预估稍长"）。
 
     退化路径：
-        - replan_strategy="give_up" → 也走 narrate（兜底文案）
-        - itinerary=None → 也走 narrate（用户起码看到状态而不是无限转圈）
+        - replan_strategy="give_up" → 也走 finalize_plan → narrate（兜底文案）
+        - itinerary=None → 也走 finalize_plan → narrate（finalize_plan 对此
+          no-op，用户起码看到状态而不是无限转圈）
     """
-    return "narrate"
+    return "finalize_plan"
 
 
 # ============================================================
@@ -194,6 +204,7 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     # ---- D2 失败降级阶梯（output degradation ladder）----
     # 在「注册时」给规划主链节点挂 drain_on_error 安全网，把策略集中在此处一目了然：
     #   planner / assemble / critic / replan_*  → rule_floor（非预期异常 → 规则地板方案）
+    #   finalize_plan                           → passthrough（体感编排批 P1：原样透传现有 itinerary）
     #   narrate                                 → emit_plan（推已通过的方案、跳文案）
     #   3 个搜索 worker                          → empty（空候选继续）
     # 这些节点的【非预期】异常不再冒泡成裸 STREAM_ERROR；控制流异常（interrupt/command）
@@ -217,6 +228,9 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     g.add_node("critic", drain_on_error(critic_node, "rule_floor"))
     g.add_node("replan_router", drain_on_error(replan_router_node, "rule_floor"))
     g.add_node("ils_replan", drain_on_error(ils_replan_node, "rule_floor"))
+
+    # finalize_plan（体感编排批 P1：先出方案，后出文案——见节点/build 模块 docstring）
+    g.add_node("finalize_plan", drain_on_error(finalize_plan_node, "passthrough"))
 
     # narrate（异常 → 推已通过的方案、跳文案）
     # execute_finalize 不在这里注册（ADR-0012 决策 2「结构诚实」）：它是确认流
@@ -260,35 +274,42 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     g.add_edge("assemble", "critic")
 
     # critic 后分支
+    # 体感编排批 P1：route_after_critic（agent/graph/nodes/critic.py，本批范围外
+    # 不改）返回值字面仍是 "narrate"——这里把它重定向到 "finalize_plan"（path_map
+    # 只是 {返回值: 目标节点名}，键不必等于目标节点名），不必改 critic.py 本身。
     g.add_conditional_edges(
         "critic",
         route_after_critic,
         {
-            "narrate": "narrate",
+            "narrate": "finalize_plan",
             "replan_router": "replan_router",
         },
     )
 
-    # replan_router 后分支
+    # replan_router 后分支（route_after_replan 同上，返回值字面仍是 "narrate"，
+    # 本批不改 agent/graph/nodes/replan.py，只重定向 path_map 目标）
     g.add_conditional_edges(
         "replan_router",
         route_after_replan,
         {
             "planner": "planner",         # llm_backprompt 回 planner
             "ils_replan": "ils_replan",   # ils_fallback
-            "narrate": "narrate",          # give_up
+            "narrate": "finalize_plan",   # give_up → finalize_plan → narrate
         },
     )
 
-    # ils_replan → 条件分支：成功走 critic 验证，失败走 narrate（不再循环）
+    # ils_replan → 条件分支：成功走 critic 验证，失败走 finalize_plan → narrate（不再循环）
     g.add_conditional_edges(
         "ils_replan",
         _route_after_ils,
         {
             "critic": "critic",
-            "narrate": "narrate",
+            "finalize_plan": "finalize_plan",
         },
     )
+
+    # finalize_plan → narrate（体感编排批 P1：三条入 narrate 的边统一先经这里）
+    g.add_edge("finalize_plan", "narrate")
 
     # narrate → END（confirm 不在图内：HTTP 旁路 /chat/confirm 直调 execute_finalize_node
     # 函数体 + aupdate_state 写回图状态，见 api/_streams/graph_confirm.py；ADR-0012 决策 2）

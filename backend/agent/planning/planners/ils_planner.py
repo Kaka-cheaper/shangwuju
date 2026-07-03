@@ -23,7 +23,7 @@
     召回(_query_pois/_query_restaurants，含 grounding-first 前置过滤)
         ↓
     [LLM] 出 4 个权重 (comfort/time/cost/smoothness)
-        ↓
+        ∥（体感编排批 P2：与下一步并行发起，零数据依赖，省一轮串行 LLM 往返）
     [LLM] 语义打分（POI 维度，ItiNera 范式）
         ↓
     [Algo D-4] build_route：锚定两段贪心插入构造——选子集+顺序+时刻一步到位，
@@ -154,6 +154,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Sequence
 
@@ -502,37 +503,54 @@ def plan_hybrid(
             failure_detail="路线构造阶段：POI 和餐厅候选均为空",
         )
 
-    # ---- 步骤 2：LLM 出权重 ----
-    weights = get_planning_weights(intent, client=client)
+    # ---- 步骤 2 + 3：LLM 出权重 ∥ LLM 语义打分（体感编排批 P2）----
+    # 两次调用零数据依赖：get_planning_weights 只读 intent；score_pois_with_llm
+    # 只读 intent + 步骤 1 已产出的 pois，都不读对方的结果。并行发起省一轮串行
+    # LLM 往返的挂钟时间；计算并行，但 tracer.emit 仍按原代码顺序在两者都完成
+    # 后依次补发，保证 trace 事件顺序（先权重、后语义打分）与并行前完全一致，
+    # 不引入线程调度带来的事件顺序不确定性。
+    def _get_weights() -> PlanningWeights:
+        return get_planning_weights(intent, client=client)
+
+    def _get_semantic_scores() -> dict[str, float]:
+        from agent.planning.preference_scorer import score_pois_with_llm
+
+        return score_pois_with_llm(intent, pois, client=client)
+
+    semantic_scores: dict[str, float] = {}
+    semantic_score_exc: Exception | None = None
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        weights_future = pool.submit(_get_weights)
+        scores_future = pool.submit(_get_semantic_scores) if pois else None
+        weights = weights_future.result()
+        if scores_future is not None:
+            try:
+                semantic_scores = scores_future.result()
+            except Exception as exc:  # 防御性兜底（原 except 语义原样保留）
+                semantic_score_exc = exc
+
     tracer.emit(
         "agent_thought",
         {"text": f"权重（{weights.source}）：{weights.summary()}"},
     )
-
-    # ---- 步骤 3：LLM 语义打分（spec algorithm-redesign R4，ItiNera 范式）----
-    semantic_scores: dict[str, float] = {}
     if pois:
-        try:
-            from agent.planning.preference_scorer import score_pois_with_llm
-
-            semantic_scores = score_pois_with_llm(intent, pois, client=client)
-            if semantic_scores:
-                tracer.emit(
-                    "agent_thought",
-                    {
-                        "text": (
-                            f"LLM 语义打分（ItiNera 范式）：{len(semantic_scores)} 个 POI；"
-                            f"分数范围 [{min(semantic_scores.values()):.2f}, "
-                            f"{max(semantic_scores.values()):.2f}]"
-                        ),
-                    },
-                )
-        except Exception as exc:  # 防御性兜底
+        if semantic_score_exc is not None:
             tracer.emit(
                 "agent_thought",
-                {"text": f"LLM 语义打分失败（{exc}），fallback 全 0.5"},
+                {"text": f"LLM 语义打分失败（{semantic_score_exc}），fallback 全 0.5"},
             )
             semantic_scores = {p.id: 0.5 for p in pois}
+        elif semantic_scores:
+            tracer.emit(
+                "agent_thought",
+                {
+                    "text": (
+                        f"LLM 语义打分（ItiNera 范式）：{len(semantic_scores)} 个 POI；"
+                        f"分数范围 [{min(semantic_scores.values()):.2f}, "
+                        f"{max(semantic_scores.values()):.2f}]"
+                    ),
+                },
+            )
 
     # ---- 步骤 3.5：pinned 解析（D-7；resolve 不到 → NO_MATCHING_CANDIDATES）----
     from .activity_pool import (

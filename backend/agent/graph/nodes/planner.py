@@ -11,10 +11,27 @@
 - state["weights"] = PlanningWeights
 - state["blueprint"] = PlanBlueprint
 - state["plan_attempt"] += 1
+
+【体感编排批 P2：get_planning_weights ∥ generate_blueprint】
+两次调用都可能各自触发一次真实 LLM 往返（数秒到数十秒），且零数据依赖——
+`generate_blueprint` 签名不吃 `weights`（读其 `Args` 即知：只吃
+intent/pois/restaurants/client/critic_feedback/user_id），`get_planning_weights`
+也不读候选/蓝图，两者互不等待。本节点是同步 LangGraph 节点，用
+`concurrent.futures.ThreadPoolExecutor` 起两个线程并行发起，省一轮串行
+LLM 往返的挂钟时间。`OpenAICompatibleClient`（`agent/core/llm_client.py`）
+底层是 `httpx.Client` 连接池 + `openai` SDK，两个线程共享同一个 client 实例
+并发调 `.chat()` 是标准、受支持的用法（httpx.Client 本身线程安全）。
+异常语义严格保持各自独立（不因为并行就把两条异常路径混在一起）：
+- `get_planning_weights` 自身从不抛（LLM 失败会在内部走启发式兜底，
+  见该函数 docstring「优先级」），线程边界不改变这一点。
+- `generate_blueprint` 失败（`BlueprintGenError`）时 `blueprint=None`，
+  交给 `replan_router` 处理——这条 except 分支原样保留在各自的 worker
+  函数内部，不提到线程池外层合并处理。
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from agent.planning.blueprint.blueprint_llm import generate_blueprint, BlueprintGenError
@@ -47,27 +64,35 @@ def planner_node(state: AgentState) -> dict[str, Any]:
         }
 
     client = get_llm_client()
-
-    # 1. 出权重（LLM 决定主观偏好）
-    weights = get_planning_weights(intent, client=client)
-
-    # 2. 看候选 + 反馈 → 出蓝图
     feedback = state.get("critic_feedback_text")
     feedback_list = [feedback] if feedback else None
+    user_id = state.get("user_id") or "demo_user"
 
-    blueprint = None
-    try:
-        blueprint = generate_blueprint(
-            intent,
-            pois,
-            restaurants,
-            client=client,
-            critic_feedback=feedback_list,
-            user_id=state.get("user_id") or "demo_user",
-        )
-    except BlueprintGenError:
-        # 蓝图生成失败 → blueprint=None，由 replan_router 决定 fallback
-        blueprint = None
+    def _get_weights() -> Any:
+        # 出权重（LLM 决定主观偏好）——从不抛，失败自带启发式兜底
+        return get_planning_weights(intent, client=client)
+
+    def _get_blueprint() -> Any:
+        # 看候选 + 反馈 → 出蓝图；失败 → None，交给 replan_router 兜底
+        # （这条 except 分支就地保留，不提到线程池外层——见模块 docstring「异常语义」）
+        try:
+            return generate_blueprint(
+                intent,
+                pois,
+                restaurants,
+                client=client,
+                critic_feedback=feedback_list,
+                user_id=user_id,
+            )
+        except BlueprintGenError:
+            return None
+
+    # 体感编排批 P2：两次独立 LLM 调用并行发起（见模块 docstring）
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        weights_future = pool.submit(_get_weights)
+        blueprint_future = pool.submit(_get_blueprint)
+        weights = weights_future.result()
+        blueprint = blueprint_future.result()
 
     # Step 8：写候选「考虑过的备选」到 alternatives（top-2 ~ top-5）
     alternatives = _build_alternatives(blueprint, pois, restaurants)

@@ -134,3 +134,44 @@ describe("惰性清空", () => {
     expect(store.getState().intent).toMatchObject({ raw_input: "refined" });
   });
 });
+
+describe("agent_narration：体感编排批 P1 标题更新（从能用到精彩）", () => {
+  it("payload.title 存在时原地更新 itinerary.summary，其余字段不受影响", () => {
+    const store = makeStore(baseState());
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: {
+        text: "暖场文案",
+        stage: "stream",
+        title: "和室友撸串+唱K，4.5小时",
+      },
+    } as never);
+    const itin = store.getState().itinerary as unknown as { summary: string };
+    expect(itin.summary).toBe("和室友撸串+唱K，4.5小时");
+    // 其余 itinerary 字段原样保留（不是整份替换）
+    expect(itin).toMatchObject({ schema_version: "edge_v1", total_minutes: 0 });
+    expect(store.getState().narration).toEqual({ text: "暖场文案", stage: "stream" });
+  });
+
+  it("payload.title 缺省时 itinerary 保持不变（沿用 finalize_plan 已推送的规则标题）", () => {
+    const store = makeStore(baseState());
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: { text: "暖场文案", stage: "stream" },
+    } as never);
+    // 同一个对象引用，没有因为 title 缺省而产生多余的 itinerary 更新
+    expect(store.getState().itinerary).toBe(ITIN);
+  });
+
+  it("itinerary 尚未就绪（null）时即便带 title 也不报错、不凭空造一个 itinerary", () => {
+    const store = makeStore({ ...baseState(), itinerary: null });
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: { text: "暖场文案", stage: "stream", title: "标题" },
+    } as never);
+    expect(store.getState().itinerary).toBeNull();
+  });
+});

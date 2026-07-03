@@ -12,19 +12,21 @@
 3. `agent.graph._emit_handlers.emit_narrate`——SSE payload 组装契约：
    `node_actions` 作为 AGENT_NARRATION payload 的兄弟字段(深审改址,详见 emit 测试注释)、无内容不加字段。
 
-**已知集成缺口（图级测试的诚实记录，见本文件末尾）**：`node_actions` 目前
-是 `narrate_node` 计算好、放进自己返回 diff 的一个新键，但 LangGraph 的
-`StateGraph.astream(stream_mode="updates")` 只会把"在 `AgentState`
-（`agent/graph/state.py`）声明过的字段"透传进事件流——没有声明的键会被
-**静默丢弃**（本文件末尾的图级测试用真实编译图 + 对 `_build_node_actions`
-的 spy 实测验证了这一行为，不是猜测）。本次任务的并行纪律明确
-`agent/graph/state.py` 由另一条 F-2（诉求台账）子代理线并发编辑、本次
-绝不可碰——因此"在 AgentState 里补一行 `node_actions` 字段声明"这个动作
-本次故意不做，是已知、显式记录的后续收尾项，不是遗漏。narrate_node /
-emit_narrate 两层的逻辑已经写好、单测直接调用两者都能验证正确（见前两组
-测试），一旦 `node_actions` 字段被登记进 `AgentState`（+ EPISODE_SCOPED +
-`reset_for_new_episode()`），全链路会立即生效，不需要再改本文件涉及的任何
-代码。
+**历史集成缺口（已闭合）**：`node_actions` 曾是 `narrate_node` 计算好、放进
+自己返回 diff 的一个新键，但当时 LangGraph 的 `StateGraph.astream(stream_
+mode="updates")` 只会把"在 `AgentState`（`agent/graph/state.py`）声明过的
+字段"透传进事件流——没有声明的键会被静默丢弃。这道缺口已由后续批次补齐
+`AgentState` 登记（`node_actions` 现已是 EPISODE_SCOPED 字段，见
+`agent/graph/state.py` 与 `reset_for_new_episode()`），本文件末尾的图级测试
+断言的正是"已登记生效"的现状，不再是已知缺口。
+
+**体感编排批 ⑤**：`narrate_node` 反查 chips/alternatives 用的候选池已从
+`state.pois`/`state.restaurants`（execute 阶段窄池）改为
+`data.loader.load_pois()/load_restaurants()`（全量目录）——见第 2 组测试
+（`test_narrate_node_result_includes_node_actions_with_template_chips` /
+`test_narrate_node_node_actions_nonempty_when_selected_entity_missing_from_
+narrow_state_pool`）monkeypatch `narrate_mod.load_pois`/`load_restaurants`
+的手法，以及 narrate.py 模块 docstring「实体反查改用全量目录」一节。
 """
 
 from __future__ import annotations
@@ -35,7 +37,7 @@ import pytest
 
 from agent.graph import sse_adapter as sse
 from agent.graph._emit_context import EmitContext
-from agent.graph._emit_handlers import emit_narrate
+from agent.graph._emit_handlers import emit_finalize_plan, emit_narrate
 from agent.graph.nodes import narrate as narrate_mod
 from agent.graph.nodes.narrate import _build_node_actions, narrate_node
 from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
@@ -194,19 +196,29 @@ def test_build_node_actions_one_node_alternatives_failure_does_not_affect_others
 # ============================================================
 
 
-def test_narrate_node_result_includes_node_actions_with_template_chips():
+def test_narrate_node_result_includes_node_actions_with_template_chips(monkeypatch):
+    """narrate_node 现在从全量目录（`data.loader.load_pois/load_restaurants`）
+    反查实体，不再吃 `state.pois`/`state.restaurants`（体感编排批 ⑤，见
+    narrate.py 模块 docstring「实体反查改用全量目录」）——本测试 monkeypatch
+    这两个 loader（narrate_mod 顶层导入的名字）直接返回本文件的合成候选池，
+    等价于把它们当作"全量目录"，`state` 里故意不放 pois/restaurants 键
+    （证明 narrate_node 确实不读它们）。
+    """
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
     rb1 = _rest(rest_id="RB1")
     rb2 = _rest(rest_id="RB2")
     itinerary = _build_itinerary(intent, [poi_a, rb1])
 
+    monkeypatch.setattr(narrate_mod, "load_pois", lambda: [poi_a])
+    monkeypatch.setattr(narrate_mod, "load_restaurants", lambda: [rb1, rb2])
+
     state = {
         "intent": intent,
         "itinerary": itinerary,
         "user_id": "demo_user",
-        "pois": [poi_a],
-        "restaurants": [rb1, rb2],
+        # 故意不传 pois/restaurants：narrate_node 已改读全量目录（上面的
+        # monkeypatch），不再依赖这两个 state 键。
     }
     result = narrate_node(state)
 
@@ -220,31 +232,58 @@ def test_narrate_node_result_includes_node_actions_with_template_chips():
     assert any(a["target_id"] == "RB2" for a in node_actions["RB1"]["alternatives"])
 
 
-def test_narrate_node_node_actions_empty_dict_when_no_pools_given():
-    """候选池为空：模板生成器查不到任何节点对应的实体（`generate_
-    template_node_chips` 静默跳过查不到实体的节点，见其 docstring），
-    `feasible_alternatives` 也会因"目标实体本身在候选池里找不到"抛
-    `ValueError`（node_swap 的前置条件违反）——narrate.py 的节点级
-    try/except 应吞掉后者，最终两者都空 → `node_actions == {}`。
-    整个过程不应让 narrate_node 本身抛异常（不因为漏传候选池就整体崩溃）。
+def test_narrate_node_node_actions_nonempty_when_selected_entity_missing_from_narrow_state_pool(
+    monkeypatch,
+):
+    """体感编排批 ⑤ 冒烟回归：选中实体不在（execute 阶段留下的）窄池时，
+    chips/备选仍非空。
+
+    根因回顾：旧实现里 narrate_node 用 `state.pois`/`state.restaurants`
+    （execute 阶段搜索 worker 的候选池，可能比方案实际选中的实体窄）做实体
+    反查——真实 LLM 规划选中的实体不在这个窄池里时，模板 chips 反查落空、
+    `feasible_alternatives` 因前置条件被违反抛 `ValueError`（被节点级
+    try/except 吞掉），两者都空 → 该节点整个从 `node_actions` 消失（冒烟实测
+    S2 场景全灭）。
+
+    本测试直接模拟这个场景：`state["pois"]`/`state["restaurants"]` 是与方案
+    毫不相干的窄池（不含 PA1/RB1），但 narrate_node 现在从全量目录反查（这里
+    monkeypatch 成本文件的合成候选池，等价于"全量目录里确实有这两个实体"）
+    ——断言 chips/alternatives 仍非空，证明不再依赖 state 里的窄池。
     """
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
     rb1 = _rest(rest_id="RB1")
+    rb2 = _rest(rest_id="RB2")
     itinerary = _build_itinerary(intent, [poi_a, rb1])
 
+    # 全量目录：确实覆盖方案选中的 PA1/RB1（+ RB1 的同子类备选 RB2）。
+    monkeypatch.setattr(narrate_mod, "load_pois", lambda: [poi_a])
+    monkeypatch.setattr(narrate_mod, "load_restaurants", lambda: [rb1, rb2])
+
+    # execute 阶段窄池：与方案选中的实体完全不相干（模拟"选中实体不在窄池里"）。
+    unrelated_poi = _poi(poi_id="UNRELATED_POI")
+    unrelated_rest = _rest(rest_id="UNRELATED_REST")
     state = {
         "intent": intent,
         "itinerary": itinerary,
         "user_id": "demo_user",
-        # 故意不传 pois/restaurants（模拟 state 里没有候选池的边界情况）
+        "pois": [unrelated_poi],
+        "restaurants": [unrelated_rest],
     }
     result = narrate_node(state)  # 不应抛异常
-    assert result["node_actions"] == {}
+
+    node_actions = result["node_actions"]
+    assert node_actions, "选中实体不在窄池时 node_actions 不应全灭"
+    assert set(node_actions.keys()) >= {"PA1", "RB1"}
+    for node_id in ("PA1", "RB1"):
+        assert node_actions[node_id]["chips"], node_actions
+    assert any(a["target_id"] == "RB2" for a in node_actions["RB1"]["alternatives"])
 
 
 # ============================================================
-# 3. emit_narrate：SSE payload 兄弟字段组装契约
+# 3. emit_finalize_plan / emit_narrate：SSE payload 组装契约
+#    （体感编排批 P1：ITINERARY_READY 已挪到 emit_finalize_plan 推送，
+#    emit_narrate 只推 AGENT_NARRATION，见两者各自 docstring）
 # ============================================================
 
 
@@ -254,6 +293,27 @@ def _minimal_itinerary() -> Itinerary:
     return _build_itinerary(intent, [poi_a])
 
 
+def test_emit_finalize_plan_emits_pure_itinerary_dump():
+    """体感编排批 P1：ITINERARY_READY 由 emit_finalize_plan 推送，且必须保持
+    纯 Itinerary dump（不带 node_actions 等兄弟字段——它会被投影端口整体镜像、
+    被确认流/房间反序列化成 Itinerary(extra_forbidden)，混入兄弟字段会炸
+    确认，同 emit_narrate 曾经的深审教训）。finalize_plan_node 的返回 diff
+    里本就没有 node_actions 键（那是 narrate_node 才算的东西），这里显式断言
+    payload 形状，钉死"ITINERARY_READY 只认 itinerary 字段"这条契约。
+    """
+    ctx = EmitContext()
+    itin = _minimal_itinerary()
+    diff = {"itinerary": itin}
+
+    events = emit_finalize_plan(ctx, diff)
+    assert len(events) == 1
+    ready = events[0]
+    assert ready.type.value == "itinerary_ready"
+    assert "node_actions" not in ready.payload, "ITINERARY_READY 必须保持纯 Itinerary dump"
+    assert ready.payload["nodes"] == itin.model_dump()["nodes"]
+    assert ctx.itinerary_emitted is True
+
+
 def test_emit_narrate_attaches_node_actions_sibling_field_when_present():
     ctx = EmitContext()
     itin = _minimal_itinerary()
@@ -261,14 +321,14 @@ def test_emit_narrate_attaches_node_actions_sibling_field_when_present():
     diff = {"narration": "文案", "itinerary": itin, "advisories": [], "node_actions": node_actions}
 
     events = emit_narrate(ctx, diff)
-    # 深审改址:node_actions 挂 AGENT_NARRATION(附加通道先例);ITINERARY_READY
-    # 保持纯 Itinerary dump——它会被投影端口整体镜像、被确认流/房间反序列化成
-    # Itinerary(extra_forbidden),兄弟字段会炸确认(集成实测)。
-    narr = next(e for e in events if e.type.value == "agent_narration")
+    # 深审改址:node_actions 挂 AGENT_NARRATION(附加通道先例)。体感编排批 P1：
+    # emit_narrate 不再推 ITINERARY_READY（已由 emit_finalize_plan 推过，
+    # 见 test_emit_finalize_plan_emits_pure_itinerary_dump），这里只剩
+    # AGENT_NARRATION 一条事件。
+    assert len(events) == 1
+    narr = events[0]
+    assert narr.type.value == "agent_narration"
     assert narr.payload["node_actions"] == node_actions
-    ready = next(e for e in events if e.type.value == "itinerary_ready")
-    assert "node_actions" not in ready.payload, "ITINERARY_READY 必须保持纯 Itinerary dump"
-    assert ready.payload["nodes"] == itin.model_dump()["nodes"]
 
 
 def test_emit_narrate_omits_node_actions_when_missing():
@@ -292,8 +352,8 @@ def test_emit_narrate_omits_node_actions_when_empty_dict():
 
 
 # ============================================================
-# 4. 图级（stub）：narrate_node 在真实编译图里正确算出 node_actions
-#    + 诚实记录当前尚未透传到 SSE 的已知集成缺口（见本文件头部说明）
+# 4. 图级（stub）：narrate_node 在真实编译图里正确算出 node_actions，
+#    且经 AGENT_NARRATION 透传到 SSE（AgentState 登记见本文件头部说明）
 # ============================================================
 
 
@@ -321,12 +381,15 @@ def test_graph_level_node_actions_reach_itinerary_ready_payload(monkeypatch):
     餐厅/POI 节点恒产出 price/distance chip）。这证明 F-3 的业务逻辑本身
     在图里跑得通、没有被拓扑或 state 传递环节意外吞掉输入。
 
-    随后断言当前 ITINERARY_READY payload **还没有** `node_actions`
-    ——这是本文件头部说明的已知集成缺口（`AgentState` 尚未登记这个字段，
-    LangGraph 因此在 `stream_mode="updates"` 的事件流环节静默丢弃这个键；
-    `agent/graph/state.py` 本次任务范围内不可修改）。这一断言不是"这个功能
-    坏了"，而是精确钉住"现在到这一步为止"，防止未来有人在不知情的情况下
-    以为 node_actions 已经全链路生效。
+    随后断言 ITINERARY_READY payload 不含 `node_actions`（它挂在
+    AGENT_NARRATION 的兄弟字段，见 `emit_narrate`/`emit_finalize_plan`
+    docstring 的"深审改址"说明——ITINERARY_READY 必须保持纯 Itinerary dump，
+    投影端口整体镜像后确认流/房间要 `Itinerary.model_validate`
+    (extra_forbidden) 反序列化它，混入兄弟字段会直接炸掉确认）；
+    AGENT_NARRATION payload 携带非空 node_actions。体感编排批 P1 之后
+    ITINERARY_READY 由新节点 `finalize_plan` 推送、AGENT_NARRATION 仍由
+    `narrate` 推送——两条事件出自不同节点，但下面的断言只认事件类型，
+    不认哪个节点推的，故本测试对 P1 拓扑改动天然不变。
     """
     calls: list[dict] = []
     real_build = narrate_mod._build_node_actions

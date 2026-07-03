@@ -5,12 +5,25 @@
 输入：state["intent"] / state["itinerary"] / state["critic_attempts"]
 输出：
 - state["narration"] = str
-- state["itinerary"] = 新 Itinerary（不可变更新；trace.final_strategy 会被更新）
+- state["itinerary"] = 新 Itinerary（不可变更新；LLM 标题写回 summary 时才更新）
+- state["title"]（可选）= LLM 产出的更精彩标题；仅当它与入参 itinerary.summary
+  不同才出现，供 `emit_narrate` 挂 AGENT_NARRATION 兄弟字段（见该函数 docstring）
+
+【体感编排批 P1："先出方案，后出文案"——narrate 瘦身】
+`pending_actions` 生成 / 规则标题写回 summary / decision_trace 收尾（不依赖
+叙事的部分）三项已挪到新节点 `agent.graph.nodes.finalize_plan`（图拓扑上排在
+本节点之前，见 `agent/graph/build.py`）——它们全是纯规则计算，不该因为跟
+"narrate 是规划链最后一个节点"这个历史巧合绑在一起，就陪着叙事 LLM 调用一起
+让用户等。本节点现在只做「必须调 LLM 才能做」的事：叙事文案 / LLM 标题 /
+node_chips，以及为它们准备上下文（advisories/unmet_desires 组装）。
+`itinerary.summary` 进入本节点时已经是 `finalize_plan` 写好的规则标题
+（"能用"的地板）；本节点若能拿到更精彩的 LLM 标题会再替换一次（"精彩"的
+天花板），两者不冲突。
 
 【spec planning-quality-deep-review R6+R7（Task 6 + Agent H P1-H6）】
-- 用 itinerary.model_copy(update={"decision_trace": ...}) + 内嵌 trace.model_copy
-  替代原地 mutate（旧实现直接修改 itinerary.decision_trace.final_strategy 等
-  字段，副作用泄漏到上游 state，违背 LangGraph "节点返回 diff 不改输入" 原则）
+- 用 itinerary.model_copy(update={"summary": ...}) 做不可变更新（旧实现直接
+  修改 itinerary 字段，副作用泄漏到上游 state，违背 LangGraph "节点返回 diff
+  不改输入" 原则）
 - 把 state.critic_attempts 拼接成 critic_summary 字符串，喂给 narrator 触发
   「主动质疑规则」（R6 核心：让评委看到"AI 主动质疑方案"）
 
@@ -23,7 +36,26 @@ narrate 是"节点交互三元素"里"具名备选"与"定向调整按钮"两者
   alternatives`（k=2），与 F-1 点击换菜同一条候选池/预验证真相源。
 - 两者由 `_build_node_actions` 组装成 `{node_id: {chips, alternatives}}`，
   原样放进返回 diff 的 `node_actions` 字段，供 `emit_narrate` 挂
-  `ITINERARY_READY` payload 的兄弟字段（不进 `Itinerary` schema 本体）。
+  `AGENT_NARRATION` payload 的兄弟字段（不进 `Itinerary` schema 本体；
+  深审改址原因见 `emit_narrate` docstring）。
+
+【体感编排批 ⑤：实体反查改用全量目录，不再吃 execute 阶段窄池】
+`_build_node_actions`（本节点内部调用）与 `generate_title_and_narration` 的
+node_chips 生成都要按 `target_id` 反查实体（价格/标签/评分等字段）——旧实现
+喂的是 `state.pois`/`state.restaurants`（execute 阶段搜索 worker 的候选池，
+执行阶段出于性能考虑截到 limit=5 左右）。真实 LLM 规划时最终选中的实体常常
+不在这个窄池里（LLM 蓝图路径的候选来源与 execute 阶段搜索并非同一次截断），
+导致两个连锁失败：① `generate_template_node_chips`/`_node_chip_context` 反查
+不到实体只能静默跳过该节点 → chips 生成 0 个；② `feasible_alternatives` 的
+前置条件 2（候选池须覆盖当前方案全部已选节点，见 `node_swap.py` 模块
+docstring）被违反 → 抛 `ValueError`，被 `_build_node_actions` 的节点级
+try/except 吞掉 → alternatives 也清空。两者都空 → 该节点整个从 `node_actions`
+里消失（冒烟实测 S2 场景全灭）。
+改法：反查用的候选池换成 `data.loader.load_pois()/load_restaurants()`
+（全量目录，覆盖任何真实存在的实体，不再依赖 execute 阶段截断的窄池）——
+`_build_node_actions`/`feasible_alternatives`/模板生成器本身的逻辑不变，只是
+调用点传入的候选池变大。窄池（`state.pois`/`state.restaurants`）继续只服务
+"execute 阶段的候选搜索/规划打分"这一件事，不再兼职"事后实体反查"。
 """
 
 from __future__ import annotations
@@ -37,6 +69,7 @@ from agent.core.llm_client import get_llm_client
 from agent.intent.narrator import generate_title_and_narration
 from agent.planning.critic.critics_v2 import Severity, ViolationCode
 from agent.planning.planners.node_swap import feasible_alternatives
+from data.loader import load_pois, load_restaurants
 from schemas.advisory import AdvisoryCode
 from schemas.node_chip import NodeChip
 
@@ -405,16 +438,19 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # D-7 决策 G：advisory 已经提过的名词不在 unmet_desires 里重复说。
     unmet_desires = _dedupe_unmet_desires_against_advisories(unmet_desires, advisory_messages)
 
-    # ADR-0013 F-3：execute 阶段召回的候选池（EPISODE_SCOPED，与本次 itinerary
-    # 出自同一批候选，覆盖前置条件天然满足——见 node_swap 模块 docstring「前置
-    # 条件」2）；同时喂给 generate_title_and_narration（node_chips 的 LLM 上下文/
-    # 模板兜底）与 _build_node_actions（feasible_alternatives 的候选池）。
-    pois = state.get("pois") or []
-    restaurants = state.get("restaurants") or []
+    # 体感编排批 ⑤：实体反查改用全量目录（不再吃 execute 阶段窄池，见本文件
+    # 头部模块 docstring「实体反查改用全量目录」）——同时喂给
+    # generate_title_and_narration（node_chips 的 LLM 上下文/模板兜底）与
+    # _build_node_actions（feasible_alternatives 的候选池）。窄池
+    # （state.pois/state.restaurants）继续只服务 execute 阶段的候选搜索/规划
+    # 打分，不再兼职这里的实体反查。
+    pois = load_pois()
+    restaurants = load_restaurants()
 
-    # 同次产出：title（小红书风格大标题，写回 itinerary.summary）+ narration（开场白）
-    # + node_chips（ADR-0013 F-3：节点定向调整按钮，LLM 搭车或模板兜底）。
-    # title 必须覆盖所有主要站点（旧 bug：只取停留最久的单站）。
+    # 同次产出：title（小红书风格大标题，LLM 成功时比 finalize_plan 的规则
+    # 标题更精彩）+ narration（开场白）+ node_chips（ADR-0013 F-3：节点定向
+    # 调整按钮，LLM 搭车或模板兜底）。title 必须覆盖所有主要站点（旧 bug：
+    # 只取停留最久的单站）。
     title, text, node_chips = generate_title_and_narration(
         intent=intent,
         itinerary=itinerary,
@@ -431,48 +467,25 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
     update_fields: dict[str, Any] = {}
 
-    # 把同次产出的小红书风格 title 写回 summary（行程卡片大标题）。
-    # title 永远非空（LLM 解析失败也有规则兜底），覆盖所有主要站点。
+    # 体感编排批 P1：把同次产出的 LLM 标题写回 summary（行程卡片大标题）。
+    # 入参 itinerary.summary 此时已是 finalize_plan 写好的规则标题——只有当
+    # LLM 确实给出了不同（更精彩）的版本才更新。emit_narrate 靠比较
+    # "这次 itinerary.summary" 与 "上一个节点（finalize_plan）留下的
+    # summary"（EmitContext 里累积的 final_itinerary，见 _emit_context.py）
+    # 是否不同，判断要不要在 AGENT_NARRATION 里挂 title 兄弟字段——这样不必
+    # 在这里另开一个 state 顶层字段（AgentState 由并行任务共同维护，本批新增
+    # 字段的唯一必要性判断标准是"emit 层拿不到就做不了事"，这里靠 itinerary
+    # 这个既有字段本身就够，不需要）。rule/stub 路径 title 恒等于入参 summary
+    # （两者都调 build_template_title 同一逻辑），天然不触发这条更新。
     if title and title.strip() and title.strip() != (itinerary.summary or "").strip():
         update_fields["summary"] = title.strip()
 
-    if itinerary.decision_trace is not None:
-        old_trace = itinerary.decision_trace
-        chain = old_trace.fallback_chain
-        if chain:
-            last_to = chain[-1].to_stage
-            mapping = {
-                "give_up": "give_up",
-                "ils": "ils",
-                "rule": "rule",
-                "llm_backprompt": "llm_backprompt",
-            }
-            final_strategy = mapping.get(last_to, "llm_first")
-        else:
-            final_strategy = "llm_first"
-
-        # 把上一条 critic_attempt（如果存在且未 resolved）标 resolved
-        # ——能走到 narrate 说明 critic 已经放行，最后一次 attempt 的反馈被消化了
-        new_critic_attempts = list(old_trace.critic_attempts)
-        if new_critic_attempts:
-            last = new_critic_attempts[-1]
-            if not last.resolved:
-                new_critic_attempts[-1] = last.model_copy(update={"resolved": True})
-
-        new_trace = old_trace.model_copy(
-            update={
-                "final_strategy": final_strategy,
-                "critic_attempts": new_critic_attempts,
-            }
-        )
-        update_fields["decision_trace"] = new_trace
-
-    # 工具前移（spec dialogue-act-routing）：规划最后一步把「确认动作清单」算好挂上，
-    # confirm 时直接 replay、不再读 intent。narrate 是 LangGraph 规划的最后必经节点。
-    from agent.graph.nodes.execute_finalize import build_confirm_actions
-
-    update_fields["pending_actions"] = build_confirm_actions(itinerary, intent)
+    # decision_trace 收尾（不依赖叙事的部分）已挪到 finalize_plan（体感编排批
+    # P1），narrate 不再碰它——见 agent/graph/nodes/finalize_plan.py。
     new_itinerary = itinerary.model_copy(update=update_fields)
+
+    # pending_actions 生成已挪到 finalize_plan（纯规则，不必等 narrate 的 LLM
+    # 调用），narrate 不再碰它——见 agent/graph/nodes/finalize_plan.py。
 
     # spec algorithm-redesign R5：narrate 主逻辑末尾的副作用——回写 user_profile.json
     # 路径 B（design.md §Component 4 决策点 4）：不动 graph 拓扑（spec B 锁的编排冻结纪律）
@@ -494,8 +507,8 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # 模板，alternatives 现场调 feasible_alternatives），原样透传进返回 diff，
     # emit_narrate 只管组装 SSE payload、不重新计算业务逻辑。用 new_itinerary
     # （而非入参 itinerary）算，保证 node_id 集合与最终推给前端的方案完全一致
-    # （两者节点集合当前恒等——narrate 只改 summary/decision_trace/pending_
-    # actions，不改 nodes——但显式用 new_itinerary 是"不假设两者恒等"的防御）。
+    # （两者节点集合当前恒等——narrate 只改 summary，不改 nodes——但显式用
+    # new_itinerary 是"不假设两者恒等"的防御）。
     node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
 
     result: dict[str, Any] = {

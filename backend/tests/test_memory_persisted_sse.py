@@ -157,13 +157,19 @@ def test_finalize_node_fast_confirm_defers_llm_and_memory(monkeypatch):
     assert narration_use_llm == [False]
 
 
-def test_narrate_node_does_not_persist_memory(
-    mock_user_profile_path, monkeypatch
-):
+def test_narrate_node_does_not_persist_memory(monkeypatch):
     """narrate_node（方案就绪）**不应**触发 persist_memory 副作用——产品语义错误。
 
     防再犯：用户在 2026-05-25 反馈「已记住此次场景偏好应该是确认预约后才记住」，
     曾经的 narrate 节点提前触发 memory 写入是错误的产品语义。
+
+    不用 `mock_user_profile_path` fixture：narrate_node 本身不读写
+    user_profile.json（那是 assemble/execute_finalize 的事），这里只需要
+    conftest 全局 autouse 的 `_isolate_tools_and_loader_cache`（指向完整
+    mock_data/ 副本，含 pois.json/restaurants.json——体感编排批 ⑤ 后
+    narrate_node 会调 `data.loader.load_pois/load_restaurants` 反查实体，
+    需要真实存在的 mock 目录，`mock_user_profile_path` 那个只放
+    user_profile.json 的窄 tmp 目录会让这两个调用 FileNotFoundError）。
     """
     stub_client = MagicMock()
     stub_client.provider = "stub"

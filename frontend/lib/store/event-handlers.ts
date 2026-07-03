@@ -188,6 +188,13 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
         narration: { text: p.text, stage: p.stage },
         nodeActions: p.node_actions ?? s.nodeActions,
         demandLedger: p.demand_ledger ?? s.demandLedger,
+        // 体感编排批 P1："从能用到精彩"——ITINERARY_READY 早已推过规则标题
+        // （finalize_plan 节点），这里只在 narrate 换出更精彩的 LLM 标题时
+        // （payload.title 存在）原地更新已展示的方案卡大标题，不整份替换
+        // itinerary（title 缺省 = 本轮没有更好的标题，沿用已展示的版本）。
+        itinerary: p.title && s.itinerary
+          ? { ...s.itinerary, summary: p.title }
+          : s.itinerary,
       }));
       break;
     }

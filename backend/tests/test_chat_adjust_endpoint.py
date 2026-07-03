@@ -48,6 +48,7 @@ from agent.graph import sse_adapter as sse  # noqa: E402
 from agent.graph.build import get_compiled_graph  # noqa: E402
 from agent.routing.canonical_shortcut import DEMO_SCENARIOS  # noqa: E402
 from api._session_store import SESSION_STORE  # noqa: E402
+import api._streams.graph_adjust as graph_adjust_mod  # noqa: E402
 from api._streams.graph_adjust import _graph_adjust  # noqa: E402
 from api._streams.models import ChatAdjustRequest  # noqa: E402
 from api.adjust import chat_adjust  # noqa: E402
@@ -77,10 +78,30 @@ def _drive_turn(*, user_input: str, session_id: str) -> list:
     return _run(_go())
 
 
-def _seed_thread_with_scenario(session_id: str, *, itinerary, intent, pois, restaurants) -> tuple[Any, dict]:
-    """先跑一轮真实 turn 拿到合法 checkpoint，再覆盖成本文件确定性场景。"""
+def _seed_thread_with_scenario(
+    session_id: str, *, itinerary, intent, pois, restaurants, monkeypatch
+) -> tuple[Any, dict]:
+    """先跑一轮真实 turn 拿到合法 checkpoint，再覆盖成本文件确定性场景。
+
+    体感编排批 ⑤：`_graph_adjust` 的候选池来源已从 `state.get("pois")`/
+    `state.get("restaurants")` 改为 `data.loader.load_pois()/load_restaurants()`
+    （全量目录，见 `api/_streams/graph_adjust.py` 模块 docstring「候选池
+    来源」）——本文件历史上一直靠"往 graph 状态里塞几个自建的合成 Poi/
+    Restaurant，控制 resolve_node_swap 只看得到这几个"来钉死降级序列的分支
+    （tier1/tier2/tier3/无候选），这是 `test_planner_node_swap.py` 本就确立的
+    合成 fixture 风格（自建、确定性，不落 haversine 真实距离）。候选池改道后
+    这条注入路径失效，改为 monkeypatch `graph_adjust_mod.load_pois`/
+    `load_restaurants` 直接返回本文件想要的合成候选池——效果与"塞进 state"
+    完全等价（同样是把 `_graph_adjust` 实际读到的候选池锁定成这几个合成实体），
+    只是跟随调用点的迁移换了个注入点，同时把种子状态里的 pois/restaurants
+    改成明显不同的 `[]`——这样如果未来有人把调用点改回读 state（回归），
+    这批测试会因为"候选池变空"而真实失败，而不是巧合地继续通过。
+    """
     events = _drive_turn(user_input=_USER_INPUT, session_id=session_id)
     assert any(e.type == SseEventType.ITINERARY_READY for e in events), "前置：该 thread 应已有合法 checkpoint"
+
+    monkeypatch.setattr(graph_adjust_mod, "load_pois", lambda: list(pois))
+    monkeypatch.setattr(graph_adjust_mod, "load_restaurants", lambda: list(restaurants))
 
     graph = get_compiled_graph()
     config = {"configurable": {"thread_id": session_id}}
@@ -91,8 +112,10 @@ def _seed_thread_with_scenario(session_id: str, *, itinerary, intent, pois, rest
             {
                 "itinerary": itinerary,
                 "intent": intent,
-                "pois": pois,
-                "restaurants": restaurants,
+                # 故意置空（不是 pois/restaurants）：证明 _graph_adjust 实际吃的是
+                # 上面 monkeypatch 过的 load_pois/load_restaurants，不是这里的 state。
+                "pois": [],
+                "restaurants": [],
                 "weights": None,
                 "demand_ledger": [],
             },
@@ -125,7 +148,7 @@ def _collect_adjust(req: ChatAdjustRequest, *, graph, config, state) -> list:
 # ============================================================
 
 
-def test_adjust_success_changes_plan_records_satisfied_and_syncs_session_store():
+def test_adjust_success_changes_plan_records_satisfied_and_syncs_session_store(monkeypatch):
     session_id = "f4_adjust_success"
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
@@ -134,7 +157,8 @@ def test_adjust_success_changes_plan_records_satisfied_and_syncs_session_store()
     rb_t1 = _rest(rest_id="RB_T1", cuisine="火锅", tags=["不辣"])  # 同子类 + 满足 → tier1
 
     graph, config = _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_t1]
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_t1],
+        monkeypatch=monkeypatch,
     )
     state = _current_state(graph, config)
 
@@ -202,7 +226,7 @@ def test_adjust_success_changes_plan_records_satisfied_and_syncs_session_store()
 # ============================================================
 
 
-def test_adjust_tier3_degraded_success_keeps_active_not_satisfied_and_narration_carries_advisory():
+def test_adjust_tier3_degraded_success_keeps_active_not_satisfied_and_narration_carries_advisory(monkeypatch):
     session_id = "f4_adjust_tier3_degraded"
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
@@ -213,7 +237,8 @@ def test_adjust_tier3_degraded_success_keeps_active_not_satisfied_and_narration_
     rb_t3 = _rest(rest_id="RB_T3", cuisine="日料", tags=[])
 
     graph, config = _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_t3]
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_t3],
+        monkeypatch=monkeypatch,
     )
     state = _current_state(graph, config)
 
@@ -248,7 +273,7 @@ def test_adjust_tier3_degraded_success_keeps_active_not_satisfied_and_narration_
 # ============================================================
 
 
-def test_adjust_no_alternative_is_business_failure_not_stream_error_but_still_records_ledger():
+def test_adjust_no_alternative_is_business_failure_not_stream_error_but_still_records_ledger(monkeypatch):
     session_id = "f4_adjust_no_alternative"
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
@@ -256,7 +281,8 @@ def test_adjust_no_alternative_is_business_failure_not_stream_error_but_still_re
     itinerary = _build_itinerary(intent, [poi_a, rb1], depart_min=14 * 60)
 
     graph, config = _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1]  # 池里只有目标自己
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1],  # 池里只有目标自己
+        monkeypatch=monkeypatch,
     )
     state = _current_state(graph, config)
 
@@ -290,7 +316,7 @@ def test_adjust_no_alternative_is_business_failure_not_stream_error_but_still_re
 # ============================================================
 
 
-def test_alternative_swaps_to_exactly_the_chosen_target_not_the_highest_scoring_peer():
+def test_alternative_swaps_to_exactly_the_chosen_target_not_the_highest_scoring_peer(monkeypatch):
     session_id = "f4_adjust_alternative_pinned"
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
@@ -303,7 +329,8 @@ def test_alternative_swaps_to_exactly_the_chosen_target_not_the_highest_scoring_
     rb_lo = _rest(rest_id="RB_LO", cuisine="火锅", rating=2.0)
 
     graph, config = _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_hi, rb_lo]
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_hi, rb_lo],
+        monkeypatch=monkeypatch,
     )
     state = _current_state(graph, config)
 
@@ -326,7 +353,7 @@ def test_alternative_swaps_to_exactly_the_chosen_target_not_the_highest_scoring_
 # ============================================================
 
 
-def test_dislike_swaps_without_direction_and_does_not_record_ledger():
+def test_dislike_swaps_without_direction_and_does_not_record_ledger(monkeypatch):
     session_id = "f4_adjust_dislike"
     intent = _intent()
     poi_a = _poi(poi_id="PA1")
@@ -335,7 +362,8 @@ def test_dislike_swaps_without_direction_and_does_not_record_ledger():
     itinerary = _build_itinerary(intent, [poi_a, rb1], depart_min=14 * 60)
 
     graph, config = _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_better]
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_better],
+        monkeypatch=monkeypatch,
     )
     state = _current_state(graph, config)
 
@@ -366,7 +394,7 @@ def test_chat_adjust_endpoint_raises_404_when_session_has_no_plan():
     assert exc_info.value.status_code == 404
 
 
-def test_chat_adjust_endpoint_success_path_end_to_end():
+def test_chat_adjust_endpoint_success_path_end_to_end(monkeypatch):
     """端点整体验收（含 chat_adjust 自己的前置校验 + EventSourceResponse 包装）。"""
     session_id = "f4_adjust_endpoint_e2e"
     intent = _intent()
@@ -376,7 +404,8 @@ def test_chat_adjust_endpoint_success_path_end_to_end():
     rb_better = _rest(rest_id="RB_BETTER", cuisine="火锅", rating=4.9)
 
     _seed_thread_with_scenario(
-        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_better]
+        session_id, itinerary=itinerary, intent=intent, pois=[poi_a], restaurants=[rb1, rb_better],
+        monkeypatch=monkeypatch,
     )
 
     req = ChatAdjustRequest(session_id=session_id, node_id="RB1", action={"type": "dislike"})

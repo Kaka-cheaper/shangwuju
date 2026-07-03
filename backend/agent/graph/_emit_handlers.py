@@ -335,10 +335,39 @@ def emit_assemble(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     return out
 
 
-def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
-    """narrate 节点是流程的真正终点：critic 通过 → narrate / replan give_up → narrate。
+def emit_finalize_plan(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
+    """finalize_plan 节点（体感编排批 P1："先出方案，后出文案"）：critic 通过 /
+    replan give_up / ils 成功三条路径统一先到这里，再进 narrate。
 
-    只在这里推一次 ITINERARY_READY，让前端拿到的就是定稿（含完整 trace）。
+    在这里推 ITINERARY_READY——不必等后面的 narrate 把叙事 LLM（数秒到数十秒）
+    跑完，方案本身在 `finalize_plan` 完成的这一刻就已经定稿（含规则标题、
+    pending_actions、decision_trace 收尾，见 `agent.graph.nodes.finalize_plan`
+    docstring）。narrate 后面即便还会用 LLM 换一个更精彩的标题，也只走
+    AGENT_NARRATION 的 `title` 兄弟字段更新前端已展示的文本，不重推 READY。
+
+    契约不变：ITINERARY_READY 仍是纯 Itinerary dump（见 `emit_narrate` 曾经的
+    深审教训——该 payload 有"整体=Itinerary dump"的隐含契约，chat.py 会话同步
+    把它整体镜像进 SESSION_STORE 投影端口，确认流/房间快照拿
+    `Itinerary.model_validate`（extra_forbidden）反序列化，混入兄弟字段会直接
+    炸掉确认）。本函数只做"有 itinerary 才推"的组装，不重算业务逻辑。
+    """
+    itin = diff.get("itinerary")
+    out: list[SseEvent] = []
+    if itin is not None and not ctx.itinerary_emitted:
+        payload: dict[str, Any] = (
+            itin.model_dump() if hasattr(itin, "model_dump") else itin
+        )
+        out.append(ctx.emit(SseEventType.ITINERARY_READY, payload))
+        ctx.itinerary_emitted = True
+    return out
+
+
+def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
+    """narrate 节点：叙事 LLM（narration/LLM 标题/node_chips）+ AGENT_NARRATION 组装。
+
+    体感编排批 P1："先出方案，后出文案"——ITINERARY_READY 已由上一个节点
+    `finalize_plan`（见 `emit_finalize_plan`）推送，本函数不再重推（
+    `ctx.itinerary_emitted` 由它置位）。narrate 只在这里推 AGENT_NARRATION。
 
     ADR-0013 F-3：`node_actions`（narrate_node 算好的「节点调整按钮 + 具名
     备选」，见 `agent.graph.nodes.narrate._build_node_actions`）挂在
@@ -349,20 +378,22 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     `Itinerary.model_validate`(extra_forbidden)反序列化,兄弟字段直接
     ValidationError 炸掉确认。ITINERARY_READY 保持纯 Itinerary dump;一切
     附加通道走 AGENT_NARRATION,那里的 payload 无人反序列化成模型。】
+
+    体感编排批 P1（新增）：`title`——narrate_node 可能用 LLM 换出一个比
+    `finalize_plan` 的规则标题更精彩的版本（写进它自己 diff 里的
+    `itinerary.summary`）。ITINERARY_READY 已经推过一次（携带规则标题），
+    这里不重推整份方案，只在 summary 确实变了时，把新标题作为 `title` 兄弟
+    字段挂上，前端据此原地更新已展示的方案卡大标题（不需要 AgentState 新增
+    顶层字段——`itinerary` 本身已是声明过的 state 字段，比较"这次 diff 里的
+    summary" 与 "ctx.final_itinerary 里累积的上一版 summary"（即 finalize_plan
+    留下的值——dispatch 顺序保证 `ctx.final_itinerary` 在 narrate 的 emit 跑
+    时还没被 narrate 自己的 diff 更新，见 `sse_adapter.run_graph_stream`）
+    就够，不必在 narrate_node 的返回 diff 里另开一个"title"顶层键）。
+
     本函数只做"有内容才加字段"的组装,不重算业务逻辑。
     """
     text = diff.get("narration")
-    # 从最新 state 取 itinerary 推前端（narrate 自己不改 itinerary）
-    final_itin = diff.get("itinerary") or (
-        ctx.last_state.get("itinerary") if ctx.last_state else None
-    )
     out: list[SseEvent] = []
-    if final_itin is not None and not ctx.itinerary_emitted:
-        payload: dict[str, Any] = (
-            final_itin.model_dump() if hasattr(final_itin, "model_dump") else final_itin
-        )
-        out.append(ctx.emit(SseEventType.ITINERARY_READY, payload))
-        ctx.itinerary_emitted = True
     if text:
         narration_payload: dict[str, Any] = {"text": text, "stage": "stream"}
         # D-7（ADR-0010 决策 11 / ADR-0011 决策 5「统一 agent 消息面」）：
@@ -380,6 +411,11 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         node_actions = diff.get("node_actions")
         if node_actions:
             narration_payload["node_actions"] = node_actions
+        # 体感编排批 P1：LLM 标题更新（说明见本函数 docstring）
+        new_summary = getattr(diff.get("itinerary"), "summary", None)
+        prev_summary = getattr(ctx.final_itinerary, "summary", None)
+        if new_summary and new_summary != prev_summary:
+            narration_payload["title"] = new_summary
         out.append(ctx.emit(SseEventType.AGENT_NARRATION, narration_payload))
     # 注：MEMORY_PERSISTED 推送已迁到确认流（2026-05-25）——execute_finalize_node
     # 产出 memory_status，由 api/_streams/graph_confirm.py 直接拼 SSE 推送，不再

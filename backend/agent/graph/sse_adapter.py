@@ -32,6 +32,7 @@ from ._emit_handlers import (
     emit_assemble,
     emit_critic,
     emit_fanout_worker,
+    emit_finalize_plan,
     emit_ils_replan,
     emit_intent,
     emit_narrate,
@@ -119,6 +120,8 @@ async def run_graph_stream(
                     events = emit_ils_replan(ctx, node_diff)
                 elif node_name == "assemble":
                     events = emit_assemble(ctx, node_diff)
+                elif node_name == "finalize_plan":
+                    events = emit_finalize_plan(ctx, node_diff)
                 elif node_name == "narrate":
                     events = emit_narrate(ctx, node_diff)
                 else:
