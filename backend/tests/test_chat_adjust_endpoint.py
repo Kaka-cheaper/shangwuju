@@ -11,8 +11,8 @@
    `stream_error`，方案不动；`type=adjust` 即便失败也照常记账（诉求不因这次
    没能满足就消失）。
 3. `alternative`（具名备选）候选池收窄：验证点击的是"这一个"就真的换成"这
-   一个"，不是同池里评分更高的另一个（`_narrow_pool_to_single_alternative`
-   的存在意义——若不收窄，`test_planner_node_swap.
+   一个"，不是同池里评分更高的另一个（`node_swap_support.
+   narrow_pool_to_single_alternative` 的存在意义——若不收窄，`test_planner_node_swap.
    test_undirected_swap_picks_best_scoring_same_subtype_candidate` 已证明
    默认会选中评分更高的候选）。
 4. `dislike`：无方向换 + 不记账。

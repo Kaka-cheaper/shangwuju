@@ -103,7 +103,9 @@ class Room:
     demand_ledger: list[dict[str, Any]] = field(default_factory=list)
     # c′批 任务二（L0 禁令 2「绝不默默让已下单方案与订单脱钩」）：房间版
     # 「已确认下单」信号——单人模式读图状态 `user_decision == "confirm"`
-    # （见 api/_streams/graph_adjust.py 同名守门），房间没有图 checkpoint，
+    # （见 api/_streams/graph_adjust.py 同名守门；两侧共享的告知文案
+    # CONFIRMED_ADJUST_BLOCKED_MESSAGE 收在
+    # agent/planning/planners/node_swap_support.py），房间没有图 checkpoint，
     # 需要一个自己的一等信号。**没有**复用 `current_itinerary_dict.get(
     # "orders")` 非空这个更廉价的代理信号——它对"全免费活动、confirm 阶段
     # 一个订单都不产生"的方案会漏判（假阴性：明明已确认，orders 却是空
@@ -566,14 +568,14 @@ class RoomManager:
         from agent.intent.narrator import generate_template_node_chips
         from agent.planning.planners.ils_planner import _query_pois, _query_restaurants
         from agent.planning.planners.node_swap import resolve_node_swap
-        from api._streams.graph_adjust import (
+        from agent.planning.planners.node_swap_support import (
             CONFIRMED_ADJUST_BLOCKED_MESSAGE,
-            _compose_narration_text,
-            _find_entity,
-            _narrow_pool_to_single_alternative,
-            _node_title,
-            _synthesize_source_text,
-            _target_kind,
+            compose_narration_text,
+            find_entity,
+            narrow_pool_to_single_alternative,
+            node_title,
+            synthesize_source_text,
+            target_kind,
         )
         from api._streams.models import AdjustActionAdjust, AdjustActionAlternative, AdjustActionDislike
         from schemas import IntentExtraction, Itinerary
@@ -608,7 +610,7 @@ class RoomManager:
         intent = IntentExtraction.model_validate(room.current_intent_dict)
         ledger = [LedgerEntry.model_validate(d) for d in room.demand_ledger]
 
-        kind = _target_kind(itinerary, node_id)
+        kind = target_kind(itinerary, node_id)
         if kind is None:
             # 契约违反级别的边界（节点已不在方案里）——房间长连接下降级为告知，
             # 不抛异常（见 `adjust()` docstring）。多是并发下"方案在你点击的同时
@@ -616,7 +618,7 @@ class RoomManager:
             await _narrate_bubble("这个节点好像已经不在当前方案里了，方案可能刚被别的操作换过，刷新后再试试？")
             return
 
-        old_title = _node_title(itinerary, node_id)
+        old_title = node_title(itinerary, node_id)
         node_ref = NodeRef(kind=kind, target_id=node_id)  # type: ignore[arg-type]
 
         tracer = Tracer()
@@ -637,7 +639,7 @@ class RoomManager:
 
             elif isinstance(action, AdjustActionAdjust):
                 adjustment = action.adjustment
-                source_text = (action.label or "").strip() or _synthesize_source_text(adjustment)
+                source_text = (action.label or "").strip() or synthesize_source_text(adjustment)
                 new_entry = LedgerEntry(
                     member_id=user_id,
                     nickname=nickname,
@@ -660,11 +662,11 @@ class RoomManager:
 
             else:  # AdjustActionAlternative
                 assert isinstance(action, AdjustActionAlternative)
-                chosen_entity = _find_entity(kind, action.target_id, pois, restaurants)
+                chosen_entity = find_entity(kind, action.target_id, pois, restaurants)
                 if chosen_entity is None:
                     await _narrate_bubble("这个备选好像已经不在候选里了，我再帮你看看还有什么可以换。")
                     return
-                call_pois, call_rests = _narrow_pool_to_single_alternative(itinerary, pois, restaurants, kind, chosen_entity)
+                call_pois, call_rests = narrow_pool_to_single_alternative(itinerary, pois, restaurants, kind, chosen_entity)
                 result = resolve_node_swap(
                     itinerary, intent, call_pois, call_rests,
                     target_node_id=node_id,
@@ -700,9 +702,9 @@ class RoomManager:
 
         sync_snapshot(session_id, itinerary=new_itinerary.model_dump())
 
-        new_title = _node_title(new_itinerary, result.swapped_to or "")
+        new_title = node_title(new_itinerary, result.swapped_to or "")
         base_text = self._build_room_narration(action, nickname, old_title, new_title, adjustment)
-        narration_text = _compose_narration_text(base_text, advisory_dicts)
+        narration_text = compose_narration_text(base_text, advisory_dicts)
 
         narration_payload: dict[str, Any] = {"text": narration_text, "stage": "stream"}
         if advisory_dicts:
@@ -742,11 +744,11 @@ class RoomManager:
         `api/_streams/graph_adjust.py::_build_success_narration` 的"按你的
         要求"（房间是多人场景，必须点名是谁提的，不能含糊成"你"）。
         """
-        from api._streams.graph_adjust import _adjustment_descriptor
+        from agent.planning.planners.node_swap_support import adjustment_descriptor
         from api._streams.models import AdjustActionAdjust, AdjustActionAlternative
 
         if isinstance(action, AdjustActionAdjust) and adjustment is not None:
-            descriptor = _adjustment_descriptor(adjustment)
+            descriptor = adjustment_descriptor(adjustment)
             return f"按{nickname}的要求，把「{old_title}」换成了「{new_title}」，{descriptor}。"
         if isinstance(action, AdjustActionAlternative):
             return f"已经按{nickname}选的，把「{old_title}」换成了「{new_title}」。"
