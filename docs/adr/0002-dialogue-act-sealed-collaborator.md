@@ -1,6 +1,10 @@
 # ADR-0002 · 对话行为判定保留为密封协作者（classify_dialogue_act）
 
-- **状态**：Accepted（2026-06-22 · grilling 候选1·问题2）
+- **状态**：**Superseded by [ADR-0011](0011-llm-first-routing-obligations.md)**（2026-07-03,E-2-c 落地）
+  ——`classify_dialogue_act`/`DialogueAct` 已随统一路由脑子(`agent/routing/brain.py`)退役删除;
+  本 ADR 坚持的「独立可测 seam」以两种形态存续:确认/预约两条**字面规则**下放规则层保留在
+  `dialogue_acts.py`(BOOKING/CONFIRM 合流路由到 confirm 标签),其余判定合并进脑子的
+  6 义务标签断言面(`tests/test_routing_brain.py`)。原判:Accepted(2026-06-22 · grilling 候选1·问题2)。
 - **范围**：backend agent 路由层（见 `backend/agent/CONTEXT.md`，承接 ADR-0001）
 
 ## 背景

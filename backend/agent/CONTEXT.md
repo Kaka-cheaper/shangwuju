@@ -6,21 +6,23 @@
 ## 术语
 
 - **route_turn**（已落地 `agent/routing/route_turn.py`）— 路由层**唯一的 deep module / public 入口**：
-  `route_turn(utterance, itinerary, user_id, *, client) → RouteOutcome`。简单接口，内部藏整条分层级联。
+  `route_turn(utterance, itinerary, user_id, *, client, context_source, classify_fn=None) → RouteOutcome`（E-2-c 起必传
+  `context_source`——`SessionContextSource` 双底座之一，脑子吃打包器 render_text）。简单接口，内部藏整条分层级联。
   调用方（graph 边、各端点）只问"这一轮该干嘛"。见 ADR-0001 / 0003。
 - **RouteOutcome** — route_turn 的类型化产出：`RouteOutcome(kind: RouteKind, decision: RouterDecision | None)`，
   把"去哪 + 可选回复 payload"显式化；各 adapter 各自翻译。见 ADR-0003。
-- **分层级联（the cascade）**— route_turn 内部的**私有**判定顺序，每层命中即短路：
-  注入检测 → 强信号反馈 → 规划 fast-path → 画像问答 → LLM 分类 → 对话行为判定 → 兜底归并。
-- **RouteKind** — 路由结果枚举（planning / feedback / chitchat / emotional / meta / off_topic / ambiguous），决定下一节点。
+- **分层级联（the cascade）**— route_turn 内部的**私有**判定顺序，每层命中即短路（E-2-c 终形）：
+  壳1 注入检测 → 壳2 canonical 字面短路 → 强信号反馈 → 画像问答 → 会话内规则判定（提问/预约/确认/软约束）→ 统一路由脑子（一次 LLM）→ 壳3 保守地板。兜底归并已删除（E-1）。
+- **RouteKind** — 路由结果枚举（E-2-c 六标签闭集：planning / feedback / chitchat / confirm / clarify / defense，= L0 响应义务的路由投影），决定下一节点。
   收口后住 `agent/routing/`（从 `graph/state.py` 挪出以断循环依赖，见 ADR-0005）。
 - **agent/routing/（新包）** — 路由 bounded context 的家：route_turn + RouteOutcome + RouteKind + 信号表；积木留 `agent/core/`。见 ADR-0005。
 - **RouteDecision** — 路由产出的回复决策（input_kind / reply_text / cta_chips / rationale …）。
 - **adapter（入口适配器）**— graph node / HTTP 端点等调用点。收口后退成调 route_turn 的薄壳。
   收口已完成：`graph/nodes/router.py` 是唯一 adapter；V1 `_streams/route.py`、V2 `orchestrator.decide_turn_kind` 已随 ADR-0007 删除。
-- **classify_dialogue_act（密封协作者，旧名 `resolve_session_act`）**— 有方案后把一句话归为 提问 / 预约 / 确认 / 提约束没说改 等对话行为。
-  保留为独立可测的真 seam（route_turn 调它做一层），**返回自己的 act 类型**、由 route_turn 做 act→route 映射。见 ADR-0002。
-  **ADR-0011 已议定其被统一路由脑子吸收**（E-2 落地时 ADR-0002 标 Superseded；字面规则部分下放壳层保留）。
+- **统一路由脑子（brain）**— `agent/routing/brain.py::classify_turn`：一次 LLM 调用出 6 标签+槽位+置信度，
+  低置信度归并 clarify，失败返 None 走壳3。旧 `classify_input`+`classify_dialogue_act` 双调用已被其吸收
+  （E-2-c，ADR-0002 已标 Superseded）；`dialogue_acts.py` 只余确认/预约两条**字面规则**（下放规则层，
+  BOOKING/CONFIRM 合流路由到 confirm）。
 - **响应义务闭集（6 标签）** — 路由输出的唯一词汇：`满足-首轮 / 满足-反馈 / 澄清 / 防御 / 陪聊 / 确认`，
   是 [L0 响应义务契约](../../docs/L0-响应义务契约.md) 的路由投影（「告知」是 planner 侧附属输出，刻意不在闭集）。见 ADR-0011。
 - **一脑三壳** — 路由架构：壳1 安全规则（注入→防御，LLM 前）→ 壳2 字面短路（FP≈0 才配）→

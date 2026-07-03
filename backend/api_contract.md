@@ -102,15 +102,17 @@ seq 0  agent_thought  {"text": "正在理解你的需求……"}
 
 之后按图内 `router` 节点的判定分三条分支（`agent/graph/_emit_handlers.py::emit_router`）：
 
-**分支 A：闲聊 / 元问题 / 情绪 / 离题 / 模糊**（`route_kind` 既非 planning 也非 feedback）
+**分支 A：陪聊 / 确认引导 / 澄清引导 / 安全婉拒**（`route_kind` 既非 planning 也非 feedback；ADR-0011 E-2-c 六标签闭集）
 
 ```
 chitchat_reply  payload = RouterDecision.model_dump()   # schemas/router.py
 done            payload = 见 §1.4「DONE 恒 6 字段」
 ```
 
-不出现 `itinerary_ready`。`RouterDecision` 核心字段：`input_kind`（6 类之一，
-`schemas/router.py::InputKind`）/ `reply_text` / `tone` / `cta_chips`
+不出现 `itinerary_ready`。`RouterDecision` 核心字段：`input_kind`（`planning`/
+`chitchat`/`confirm`/`clarify`/`defense` 五值之一，`schemas/router.py::InputKind`；
+E-2-c 起 meta/emotional 併入 chitchat 由 tone 承载语气、off_topic→defense、
+ambiguous→clarify、confirm 独立成类）/ `reply_text` / `tone` / `cta_chips`
 （`CtaChip` 列表；`send` 字段是白名单字面文案，前端点击原样发回即可重入
 `/chat/turn` 主链路；`action="confirm"` 时表示点击应直接触发 `/chat/confirm`
 而非发文本消息）。
@@ -467,7 +469,7 @@ user_id）。房间不存在 → accept 后发一条 `error` + `close(code=4004)
 - `route_turn` 判 `feedback` → 进约束池 + 中断在跑规划 + 合并约束重新规划
 - `route_turn` 判 `planning`（如完整场景文本 / "重新规划一个"）→ **不进
   约束池**，直接全新规划
-- 其余（chitchat/emotional/meta/off_topic/ambiguous）→ 原样广播
+- 其余（chitchat/confirm/clarify/defense）→ 原样广播
   `chitchat_reply`（`RouterDecision.model_dump()`），不动方案、不动约束池、
   不中断在跑任务
 
