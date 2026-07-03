@@ -109,7 +109,10 @@ def build(standalone_out: Path | None = None) -> None:
  body {{ font-family: system-ui, sans-serif; margin: 24px; background: #fafafa; }}
  h1 {{ font-size: 20px; }} h2 {{ font-size: 16px; margin-top: 36px; border-left: 4px solid #f90; padding-left: 8px; }}
  .note {{ color: #444; font-size: 14px; line-height: 1.8; max-width: 900px; }}
- .diagram {{ background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-top: 12px; overflow-x: auto; }}
+ .diagram {{ background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; margin-top: 12px; height: 78vh; overflow: hidden; position: relative; }}
+ .diagram pre.mermaid {{ height: 100%; margin: 0; }}
+ .diagram svg {{ display: block; }}
+ .hint {{ color: #999; font-size: 12px; margin-top: 4px; }}
  .err {{ color: #c00; white-space: pre-wrap; font-family: monospace; }}
  table.gloss {{ border-collapse: collapse; font-size: 14px; max-width: 900px; }}
  table.gloss th, table.gloss td {{ border: 1px solid #ddd; padding: 6px 10px; text-align: left; line-height: 1.6; }}
@@ -119,6 +122,7 @@ def build(standalone_out: Path | None = None) -> None:
  .back {{ font-size: 12px; }} code {{ background: #eee; padding: 1px 4px; border-radius: 3px; }}
 </style>
 <script src="vendor/mermaid11.min.js"></script>
+<script src="vendor/svg-pan-zoom.min.js"></script>
 </head>
 <body id="top">
 <h1>晌午局 · 系统地图</h1>
@@ -131,7 +135,21 @@ mermaid.initialize({{ startOnLoad: false, theme: "neutral", securityLevel: "loos
 (async () => {{
   const fails = [];
   for (const d of document.querySelectorAll("div.sect")) {{
-    try {{ await mermaid.run({{ nodes: d.querySelectorAll(".mermaid") }}); }}
+    try {{
+      await mermaid.run({{ nodes: d.querySelectorAll(".mermaid") }});
+      for (const svg of d.querySelectorAll(".diagram svg")) {{
+        // mermaid 给的是固定像素宽;svg-pan-zoom 需要撑满容器的显式尺寸
+        svg.setAttribute("width", "100%");
+        svg.setAttribute("height", "100%");
+        svg.style.maxWidth = "none";
+        const inst = svgPanZoom(svg, {{
+          controlIconsEnabled: true, fit: true, center: true,
+          zoomScaleSensitivity: 0.4, minZoom: 0.05, maxZoom: 12, dblClickZoomEnabled: true,
+        }});
+        // 初始化时容器布局未必最终尺寸,fit 可能按错误基准算——下一帧强制重算
+        requestAnimationFrame(() => {{ inst.resize(); inst.fit(); inst.center(); }});
+      }}
+    }}
     catch (e) {{ fails.push(d.id + ": " + (e && e.message ? e.message : e)); }}
   }}
   if (fails.length) {{
@@ -148,7 +166,12 @@ mermaid.initialize({{ startOnLoad: false, theme: "neutral", securityLevel: "loos
     print("index.html written")
     if standalone_out is not None:
         lib = (HERE / "vendor" / "mermaid11.min.js").read_text(encoding="utf-8")
-        standalone = page.replace('<script src="vendor/mermaid11.min.js"></script>', "<script>" + lib + "</script>")
+        panzoom = (HERE / "vendor" / "svg-pan-zoom.min.js").read_text(encoding="utf-8")
+        standalone = page.replace(
+            '<script src="vendor/mermaid11.min.js"></script>', "<script>" + lib + "</script>"
+        ).replace(
+            '<script src="vendor/svg-pan-zoom.min.js"></script>', "<script>" + panzoom + "</script>"
+        )
         standalone_out.write_text(standalone, encoding="utf-8")
         print(f"standalone written: {standalone_out}")
 
