@@ -21,6 +21,9 @@
 - asyncio.Lock per room 保证约束/调整串行处理
 - planning_task 用 asyncio.Task.cancel() 实现中断
 - 规划事件通过回调广播给所有 WS 连接（复用现有 SseEvent 格式）
+- 房间规划走稳定持久 graph 线程 `collab_{room_id}`（房间重排根治批）：planning
+  义务重开一局、feedback 义务注入+续跑都落同一线程，messages/版本志/台账跨轮
+  延续，与单人多轮会话同构（见 `_replan_with_refiner` docstring）
 """
 
 from __future__ import annotations
@@ -647,7 +650,6 @@ class RoomManager:
         from agent.planning.planners.node_swap import resolve_node_swap
         from agent.planning.planners.node_swap_support import (
             CONFIRMED_ADJUST_BLOCKED_MESSAGE,
-            compose_narration_text,
             find_entity,
             narrow_pool_to_single_alternative,
             node_title,
@@ -781,7 +783,21 @@ class RoomManager:
 
         new_title = node_title(new_itinerary, result.swapped_to or "")
         base_text = self._build_room_narration(action, nickname, old_title, new_title, adjustment)
-        narration_text = compose_narration_text(base_text, advisory_dicts)
+        # 文案修缮批（G1 实锤，房间侧同款）：降级换菜时确认句+最接近告知合并
+        # 成一句诚实告知（归名版），店名不再说两遍——与单人 SSE 路径共用同一
+        # 收口（见 api/_streams/graph_adjust.py::compose_swap_success_narration
+        # docstring；理想归属地 node_swap_support 待收口批搬家）。
+        from agent.planning.planners.node_swap_support import adjustment_descriptor
+        from api._streams.graph_adjust import compose_swap_success_narration
+
+        narration_text = compose_swap_success_narration(
+            base_text,
+            advisory_dicts,
+            old_title=old_title,
+            new_title=new_title,
+            descriptor=adjustment_descriptor(adjustment) if adjustment is not None else "",
+            requester=nickname,
+        )
 
         narration_payload: dict[str, Any] = {"text": narration_text, "stage": "stream"}
         if advisory_dicts:
@@ -1006,8 +1022,9 @@ class RoomManager:
 
         策略：
         1. 合并所有约束文本为一个 feedback 字符串
-        2. 如果有 current_intent → 用 refiner 合并约束
-        3. 如果没有 current_intent → 用第一条约束作为初始输入走 planner
+        2. 如果有 current_intent → 持久线程注入+续跑（`_replan_with_refiner`，
+           房间重排根治批：refiner 直调 + aupdate_state + astream(None)）
+        3. 如果没有 current_intent → 用约束文本作为初始输入走 `_plan_fresh`
         4. 规划事件逐条广播给所有成员
         5. 维护 llm_context_messages：每次约束和规划结果都追加到上下文
         """
@@ -1039,47 +1056,166 @@ class RoomManager:
                 })
 
     async def _replan_with_refiner(self, room: Room, feedback: str) -> None:
-        """用 refiner 合并约束后重新规划，带完整 LLM 上下文。"""
+        """反馈轮重排——持久 graph 线程「状态注入 + 续跑」（房间重排根治批，方案 d）。
+
+        【病灶（治的是这个）】旧实现是降维复刻：图外调 `refine_intent` 合并反馈，
+        再把合并后文本塞进**全新一次性** graph session（`collab_{room_id}_{ts}`）跑
+        完整规划。五类损失：① 路由义务误判——新 session 的 router 对合成文本重新
+        判义务，真实 LLM 实测会判成非规划，整轮不出方案（点火冒烟 H3 实锤）；
+        ② 合并精度——refiner 只看到拼接文本，看不到图状态里的活上下文（版本志/
+        台账切片）；③ 出处链断；④ 诉求台账不延续；⑤ 版本志断。
+
+        【根治】房间维护稳定持久线程（thread_id=`collab_{room_id}`，同 `_plan_fresh`），
+        反馈轮用 LangGraph 原生 `aupdate_state(as_node="refiner")` 注入"反馈已合并"
+        状态，`astream(None)` 从 refiner 出边续跑——与单人反馈轮走同一条管线，router
+        不再执行（义务判定在房间层 `add_constraint` 的 route_turn 已经做过，不给它
+        第二次误判的机会）。配方经 `scripts/spike_room_resume.py` 实证：终态 43 键
+        与正常单人反馈轮全等、核心事件逐字节等价、连续注入稳定；固化断言见
+        `tests/test_room_persistent_resume.py`（金标准对比 + 取消坑自愈）。
+
+        【注入禁写清单（spike 实锤，违反即炸）】
+        - `intent` 必须是活 IntentExtraction 对象，绝不 `model_dump()`——spike 实测
+          dict-intent 让 planner 崩 AttributeError、连 rule_floor 兜底一起崩，且
+          checkpoint 从此永久污染；
+        - `plan_version_log` 绝不写（operator.add 通道，写了=追加垃圾）；
+        - `demand_ledger` 绝不写非空值（merge 语义"非空=整体替换"，会顶掉台账）；
+        - 旧 itinerary / 旧 episode 值绝不写（必须让 reset diff 的 None 落进去）；
+        - 白名单外 Pydantic 对象绝不注入——失败模式是**无声类型擦除**（读回静默变
+          dict、零告警）；若未来注入需要新业务类型，必须同步补
+          `agent/graph/build.py::_build_checkpoint_serde` 白名单并写测试钉住。
+        """
+        from langchain_core.messages import HumanMessage
+
+        from agent.graph.build import get_compiled_graph
+        from agent.graph.nodes.refiner import refiner_node
+        from agent.graph.sse_adapter import run_graph_resume_stream
         from schemas.intent import IntentExtraction
-        from agent.intent.refiner import refine_intent
+        from schemas.itinerary import Itinerary
 
-        # 还原 intent
-        intent = IntentExtraction.model_validate(room.current_intent_dict)
+        session_id = f"collab_{room.room_id}"
+        graph = get_compiled_graph()
+        config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
-        # 构建带上下文的 feedback（让 refiner 的 LLM 看到协作历史）
-        context_summary = self._build_llm_context_summary(room)
-        enriched_feedback = f"{context_summary}\n\n【本次约束】{feedback}" if context_summary else feedback
+        # ---- 步骤 1：先读——refiner 要看到旧 intent + 被拒的旧 itinerary ----
+        snap = await graph.aget_state(config)
+        base: dict[str, Any] = dict(snap.values) if snap is not None and snap.values else {}
 
-        # refiner 合并（传入带上下文的 feedback）
-        result = refine_intent(intent, enriched_feedback)
-        refined_intent = result.refined_intent
+        # 线程冷启动垫底（spike 未测、本批实证补上，见 test_room_persistent_resume）：
+        # 房间基线可能来自 HTTP 建房带入的 SESSION_STORE 快照 / 测试 fixture 直塞
+        # dict——此时 collab_{room_id} 线程还没有任何 checkpoint。用房间投影还原出
+        # **活的** Pydantic 对象垫进 base（IntentExtraction/Itinerary 均在 serde
+        # 白名单内，且 intent 会随注入落 checkpoint——见禁写清单第一条）。
+        if base.get("intent") is None and room.current_intent_dict:
+            base["intent"] = IntentExtraction.model_validate(room.current_intent_dict)
+        # refiner 的"被拒的上一版"摘要素材：房间投影优先，checkpoint 兜底。
+        # current_itinerary_dict 是"当前展示给成员的方案"的权威——两类场景下它比
+        # 图状态新：① 节点换菜 `adjust()` 只改投影、不回写图状态（与单人
+        # `/chat/adjust` 的 aupdate_state 回写不同）；② 中途取消坑（本批显式处理）：
+        # 上一轮反馈在注入后、续跑完成前被 planning_task.cancel() 打断，线程停在
+        # "episode 已 reset（itinerary=None）、方案未产出、next 非空"的中间态，
+        # 图状态里根本没有 itinerary 可读，refiner 会丢失判断素材。
+        # 纪律：只进 refiner 的读取层（base），绝不注入回图状态（注入 values 里
+        # itinerary 恒为 reset diff 的 None，见禁写清单）。
+        if room.current_itinerary_dict:
+            try:
+                base["itinerary"] = Itinerary.model_validate(room.current_itinerary_dict)
+            except Exception:  # noqa: BLE001 —— 摘要素材是判断辅料，坏投影不拦重排
+                logger.warning(
+                    "room replan: current_itinerary_dict 反序列化失败，refiner 退用"
+                    "checkpoint 里的上一版（可能略旧）：room_id=%s",
+                    room.room_id, exc_info=True,
+                )
+        if base.get("intent") is None:
+            # 防御兜底：无基线 intent（调用方 _run_planning 的分支保证不会到这）——
+            # refiner 无从合并，退回全新规划，不让反馈静默丢失。
+            await self._plan_fresh(room, feedback or "帮我规划一个下午")
+            return
+
+        # ---- 步骤 2：叠本轮反馈层 ----
+        base["user_input"] = feedback
+        base["messages"] = list(base.get("messages") or []) + [HumanMessage(content=feedback)]
+
+        # ---- 步骤 3：直调真节点函数（图外可调，spike 实证与图内零漂移）----
+        # 绝不手工挑子集：diff 含 reset_for_new_episode() 全部 EPISODE_SCOPED 键 +
+        # 精炼后 intent + refinement_changed_fields/note，漏键=旧 episode 残值污染
+        # 新一轮。asyncio.to_thread：refiner 内部是同步 LLM 调用（真实模式数秒），
+        # 不能挂死房间事件循环（广播/其它成员消息全停）——同 graph_confirm 对
+        # execute_finalize_node 的既有先例。
+        refiner_diff = await asyncio.to_thread(refiner_node, base)
+        refined_intent = refiner_diff.get("intent")
+        if refined_intent is None:
+            # refiner_node 对 intent/feedback 缺失返回 {}——同上防御兜底
+            await self._plan_fresh(room, feedback or "帮我规划一个下午")
+            return
+
+        # ---- 步骤 4+5：注入（as_node="refiner" = "router 判 feedback + refiner
+        # 跑完"两节点合起来对 state 的全部写入；禁写清单见 docstring）----
+        values: dict[str, Any] = {
+            **refiner_diff,
+            "user_input": feedback,       # finalize_plan 的版本志 snippet 读它
+            "route_kind": "feedback",     # 版本志 trigger 判据 + 事件生命周期语义
+            "router_decision": None,      # Layer 1 强信号路径 decision 本就是 None
+            "messages": [HumanMessage(content=feedback)],  # add_messages 通道：追加会话日志
+            # SESSION_SCOPED 透传（同 make_initial_state 对这两键"确认非重置"的语义）：
+            # 冷启动线程上它们从未被写过，续跑链路的读者（profile worker 等）需要之。
+            "user_id": room.owner_id,
+            "session_id": session_id,
+        }
+        await graph.aupdate_state(config, values, as_node="refiner")
+
+        # 房间投影同步（与旧实现同一时机：合并定稿即更新，不等续跑出方案）
         room.current_intent_dict = refined_intent.model_dump()
+        changed_fields = list(refiner_diff.get("refinement_changed_fields") or [])
+        refiner_note = refiner_diff.get("refinement_note") or "已合并你的反馈，正在重新规划。"
 
-        # 追加 refiner 结果到 LLM 上下文
+        # llm_context 三件套（本批不清退，路演后分期删）：保持既有摘要记账
         self._append_to_llm_context(
             room, role="assistant",
-            content=f"已合并约束：{'; '.join(result.changed_fields or ['无变更'])}。"
+            content=f"已合并约束：{'; '.join(changed_fields or ['无变更'])}。"
                     f"调整后意图：距离{refined_intent.distance_max_km}km，"
                     f"饮食约束{list(refined_intent.dietary_constraints)}。"
         )
 
-        # 广播 refinement 结果
-        await self._broadcast_planning_event(room, {
-                "type": "refinement_done",
-                "seq": 0,
-                "payload": {
+        # ---- 步骤 6：合成补发 4 条前奏事件 ----
+        # 续跑不再执行 router/refiner，这两个节点在单人 SSE 里的事件由房间侧按
+        # 同一 payload 形状补齐（emit_router feedback 分支 + emit_refiner，见
+        # agent/graph/_emit_handlers.py）：前端 dispatchPlanningEvent 靠它们
+        # 清屏/更新意图面板，中途加入者靠 planning_events_history 回放重建快照，
+        # 缺一条链就断。
+        prelude: list[tuple[str, dict[str, Any]]] = [
+            ("agent_thought", {"text": "收到反馈，正在调整……"}),
+            ("refinement_start", {"feedback_text": feedback}),
+            (
+                "refinement_done",
+                {
                     "refined_intent": refined_intent.model_dump(),
-                    "changed_fields": result.changed_fields,
-                    "refiner_note": result.refiner_note,
+                    "changed_fields": changed_fields,
+                    "refiner_note": refiner_note,
                 },
+            ),
+            # 新意图重推 intent_parsed，前端 IntentSummary 靠它刷新（同 emit_refiner）
+            ("intent_parsed", refined_intent.model_dump()),
+        ]
+        for event_type, payload in prelude:
+            await self._broadcast_planning_event(room, {
+                "type": event_type,
+                "seq": 0,
+                "payload": payload,
                 "timestamp_ms": int(time.time() * 1000),
             })
 
-        # 用 refined intent 重新规划
-        await self._run_planner_and_broadcast(room, refined_intent)
+        # ---- 步骤 7：astream(None) 续跑，走现有 emit dispatch ----
+        async for event in run_graph_resume_stream(session_id=session_id, user_input=feedback):
+            await self._broadcast_planning_event(room, event.model_dump())
+            if event.type.value == "itinerary_ready":
+                room.current_itinerary_dict = event.payload
+                summary = event.payload.get("summary", "行程已生成")
+                self._append_to_llm_context(
+                    room, role="assistant", content=f"已重新规划行程：{summary}"
+                )
 
     async def _plan_fresh(self, room: Room, user_input: str) -> None:
-        """无基线时走完整规划路径，带 LLM 上下文。"""
+        """全新规划路径（无基线开局 / planning 义务重开一局），带 LLM 上下文。"""
         # 尝试用 LangGraph 或 ReAct agent
         try:
             from agent.graph.sse_adapter import run_graph_stream
@@ -1087,8 +1223,13 @@ class RoomManager:
             get_compiled_graph()
 
             user_id = room.owner_id
-            # 每次重规划用新的 session_id，避免 LangGraph checkpoint 恢复旧 state
-            session_id = f"collab_{room.room_id}_{int(time.time() * 1000)}"
+            # 房间重排根治批：稳定持久线程。历史实现是一次性 `collab_{room_id}_{ts}`
+            # ——当年注释写"避免 LangGraph checkpoint 恢复旧 state"，如今整句反转为
+            # 特性：恢复旧 state 正是我们要的。反馈轮 `_replan_with_refiner` 对同一
+            # 线程注入+续跑，messages/plan_version_log/demand_ledger 从此跨轮延续；
+            # planning 义务重开一局也走同一线程，与单人多轮会话同构（router 判
+            # 新需求时 intent_node 自己会做 episode 级重置，不需要靠换线程隔离）。
+            session_id = f"collab_{room.room_id}"
 
             async for event in run_graph_stream(
                 user_input=user_input,
@@ -1110,82 +1251,10 @@ class RoomManager:
             # LangGraph 不可用 → 走 rule planner
             await self._run_rule_planner_and_broadcast(room, user_input)
 
-    async def _run_planner_and_broadcast(
-        self, room: Room, intent: Any
-    ) -> None:
-        """用 intent 跑规划并广播事件，维护 LLM 上下文。"""
-        from schemas.intent import IntentExtraction
-        from schemas.sse import SseEvent, SseEventType
-
-        # 广播 intent_parsed
-        await self._broadcast_planning_event(room, {
-                "type": "intent_parsed",
-                "seq": 0,
-                "payload": intent.model_dump() if hasattr(intent, "model_dump") else intent,
-                "timestamp_ms": int(time.time() * 1000),
-            })
-
-        # 尝试 LangGraph
-        try:
-            from agent.graph.sse_adapter import run_graph_stream
-            from agent.graph.build import get_compiled_graph
-            get_compiled_graph()
-
-            session_id = f"collab_{room.room_id}_{int(time.time() * 1000)}"
-            # 构造用户输入（从 intent 的 raw_input 取）
-            raw_input = intent.raw_input if hasattr(intent, "raw_input") else "重新规划"
-
-            async for event in run_graph_stream(
-                user_input=raw_input,
-                session_id=session_id,
-                user_id=room.owner_id,
-            ):
-                await self._broadcast_planning_event(room, event.model_dump())
-                if event.type.value == "itinerary_ready":
-                    room.current_itinerary_dict = event.payload
-                    summary = event.payload.get("summary", "行程已生成")
-                    self._append_to_llm_context(room, role="assistant", content=f"已重新规划行程：{summary}")
-                # 检查是否被取消
-                await asyncio.sleep(0)  # yield control
-
-        except (ImportError, Exception) as e:
-            # fallback: rule planner
-            await self._run_rule_planner_fallback(room, intent)
-
-    async def _run_rule_planner_fallback(self, room: Room, intent: Any) -> None:
-        """Rule planner 兜底。"""
-        try:
-            from agent.planning.planners.rule_planner import plan_itinerary
-            from agent.core.trace import Tracer
-
-            tracer = Tracer()
-            result = plan_itinerary(intent, tracer=tracer)
-
-            # 广播 tracer 事件
-            for record in tracer.records:
-                await self._broadcast_planning_event(room, {
-                        "type": record.type,
-                        "seq": 0,
-                        "payload": record.payload or {},
-                        "timestamp_ms": int(record.timestamp * 1000),
-                    })
-                await asyncio.sleep(0.05)  # 模拟流式节奏
-
-            if result.success and result.itinerary:
-                room.current_itinerary_dict = result.itinerary.model_dump()
-                await self._broadcast_planning_event(room, {
-                        "type": "itinerary_ready",
-                        "seq": 0,
-                        "payload": result.itinerary.model_dump(),
-                        "timestamp_ms": int(time.time() * 1000),
-                    })
-        except Exception as e:  # noqa: BLE001
-            await self._broadcast_planning_event(room, {
-                    "type": "stream_error",
-                    "seq": 0,
-                    "payload": {"reason": "rule_planner_failed", "detail": str(e)[:200]},
-                    "timestamp_ms": int(time.time() * 1000),
-                })
+    # （房间重排根治批删除记录）`_run_planner_and_broadcast` + `_run_rule_planner_
+    # fallback` 已整体删除：前者是旧"图外 refine 后把合成 raw_input 重进全新一次性
+    # graph session"路径的后半段（唯一调用方 `_replan_with_refiner` 已改为持久线程
+    # 注入+续跑，见该方法 docstring），后者是前者的专属兜底，随之成为死代码。
 
     async def _run_rule_planner_and_broadcast(self, room: Room, user_input: str) -> None:
         """无 LangGraph 时用 rule planner 兜底（需要先解析 intent）。"""

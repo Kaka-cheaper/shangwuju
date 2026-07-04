@@ -92,6 +92,51 @@ async def run_graph_stream(
     # 心跳（防 8s 首字节超时）
     yield ctx.emit(SseEventType.AGENT_THOUGHT, {"text": "正在理解你的需求……"})
 
+    async for ev in _drive_graph_stream(graph, initial, config, user_input, ctx):
+        yield ev
+
+
+async def run_graph_resume_stream(
+    *,
+    session_id: str,
+    user_input: str,
+) -> AsyncIterator[SseEvent]:
+    """续跑入口（房间重排根治批，2026-07-04）：对已注入状态的线程 `astream(None)`。
+
+    LangGraph 语义：initial=None = "从该线程 checkpoint 的 next 节点续跑"，不重置
+    任何 state。调用方（collab/room.py::_replan_with_refiner）已用
+    `aupdate_state(as_node="refiner")` 把"反馈已合并"的状态写进线程——router/refiner
+    都不再执行，义务判定在房间层 route_turn 已经做过，不给全新 session 的 router
+    第二次误判的机会（点火冒烟 H3 实锤的病灶）。配方可行性经
+    scripts/spike_room_resume.py 实证（终态与单人反馈轮全等、核心事件逐字节等价）。
+
+    与 run_graph_stream 的差异只有两处：
+    - initial=None（续跑，不构造 make_initial_state）；
+    - 不推「正在理解你的需求……」心跳——那条心跳填的是单人首轮 router 起跑前的
+      首字节空窗；续跑场景调用方在进入本函数前已合成广播 4 条前奏事件
+      （agent_thought/refinement_start/refinement_done/intent_parsed），空窗不存在，
+      再推一条"正在理解"反而出现在"已合并完反馈"之后，时序话术自相矛盾。
+
+    user_input 仅供共享 dispatch 的 emit_router 分支签名使用（续跑不会经过 router，
+    该分支实际不触发），不为此分叉第二份 dispatch。
+    """
+    graph = get_compiled_graph()
+    config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
+    ctx = EmitContext()
+    async for ev in _drive_graph_stream(graph, None, config, user_input, ctx):
+        yield ev
+
+
+async def _drive_graph_stream(
+    graph: Any,
+    initial: Any,
+    config: dict[str, Any],
+    user_input: str,
+    ctx: EmitContext,
+) -> AsyncIterator[SseEvent]:
+    """astream → dispatch → DONE 的共享主体（run_graph_stream 原封抽出，行为不变；
+    抽出的唯一动机是让续跑入口 run_graph_resume_stream 复用同一份 dispatch，
+    不出现第二份手工同步的 if/elif 链）。"""
     try:
         async for chunk in graph.astream(
             initial, config=config, stream_mode="updates"

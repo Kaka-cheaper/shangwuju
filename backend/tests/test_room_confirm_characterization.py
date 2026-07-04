@@ -16,8 +16,9 @@
    多推一条起手 `agent_thought`（"正在确认预约与加购服务……"）——这条事件主
    App 确认（`USE_LANGGRAPH=1` 时）一直会推，只是房间过去走的是专用 stub 分支
    没见过；它是纯增量、不影响下游消费——room.py 对识别不到的类型一律原样透传
-   广播（`_plan_fresh`/`_run_planner_and_broadcast` 转发 `run_graph_stream`
-   任意事件类型走的是同一条“未知类型也转发”逻辑），前端 ToolTracePanel 早就
+   广播（`_plan_fresh` 转发 `run_graph_stream` 任意事件类型走的是同一条“未知
+   类型也转发”逻辑；历史上的 `_run_planner_and_broadcast` 已随房间重排根治批
+   删除），前端 ToolTracePanel 早就
    吃过 `agent_thought`（turn 的 SSE 序列本就含它）。若断言完全列表相等，会把
    这条良性新增误判成“破坏兼容”，逼着在 room.py 加一层专门过滤 agent_thought
    的适配层——这才是画蛇添足的假兼容，见任务报告“自行拍板判断点”。
@@ -36,6 +37,12 @@ test_e0a_graph_confirm_writeback.py）。
 `test_room_confirm_also_accumulates_tag_memory_under_owner` 外没有任何断言
 应该因迁移而改写；唯一允许的新增是"记忆副作用新增"（recent_trips 现在也会为
 房间写，见 tests/test_e0c_graph_confirm_memory_dual_track.py 的探针）。
+
+房间重排根治批增补（2026-07-04）：房间规划改走稳定持久线程 `collab_{room_id}`
+后，`_writeback_graph_state` 对"真跑过规划的房间"从优雅跳过变真回写——第 3 节
+`test_room_confirm_writes_back_into_persistent_room_thread` 把这个行为变化连同
+"房间 confirm 版本志开始生效"这件白捡的功能一起钉成特性；本文件其余用例
+（dict 直塞、线程从未跑过图）的既有断言不因此改写。
 """
 
 from __future__ import annotations
@@ -166,3 +173,63 @@ def test_room_confirm_rejects_non_owner_and_leaves_memory_untouched():
     assert room.planning_events_history == [], "非房主确认不应触发任何规划事件广播"
     other_memory = get_memory(other_id)
     assert other_memory.visited_targets == [], "非房主确认不应写入任何人的记忆"
+
+
+# ============================================================
+# 3. 房间重排根治批（2026-07-04）：持久线程后确认回写从"优雅跳过"变真回写
+# ============================================================
+
+
+def test_room_confirm_writes_back_into_persistent_room_thread():
+    """【判据变更理由 + 白捡的功能钉成特性（房间重排根治批）】
+
+    改造前：房间规划用一次性 `collab_{room_id}_{ts}` session，`confirm()` 用的
+    `room.session_id or collab_{room_id}` 永远指向一个**没有 checkpoint** 的线程，
+    `_graph_confirm._writeback_graph_state` 因此走"无图 checkpoint → 记日志降级
+    跳过"分支（本文件模块 docstring 第 21 行的既有描述）。
+
+    改造后：房间规划落在稳定持久线程 `collab_{room_id}` 上，confirm 的回写目标与
+    规划线程重合——回写**真实发生**：终版方案（含 orders）+ user_decision="confirm"
+    + 版本志追加 "已确认下单"（trigger=confirm）落进房间线程。副作用是房间 confirm
+    版本志开始生效（此前只有单人会话有），这是持久线程白捡的功能，本测试把它钉成
+    特性：后续房间反馈轮的 refiner 经上下文打包器能看到"用户确认过 vN"这段历史。
+
+    注意：本文件其余用例走 `_seed_room`（dict 直塞、线程从未跑过图），它们的
+    "优雅跳过"行为不变——本测试专门先用 canonical 输入真跑一轮规划把线程焐热。
+    """
+    owner_id = "owner_writeback_test"
+    manager = RoomManager()
+    room = manager.create_room(owner_id=owner_id, nickname="发起人")
+
+    async def scenario():
+        from agent.routing.canonical_shortcut import DEMO_SCENARIOS
+
+        await manager.add_constraint(room, owner_id, DEMO_SCENARIOS[1]["input"])
+        if room.planning_task is not None:
+            await room.planning_task
+        assert room.current_itinerary_dict is not None, "前置：canonical 开局应出方案"
+
+        await _confirm_and_drain(manager, room, owner_id)
+
+        from agent.graph.build import get_compiled_graph
+
+        graph = get_compiled_graph()
+        snap = await graph.aget_state(
+            {"configurable": {"thread_id": f"collab_{room.room_id}"}}
+        )
+        return dict(snap.values)
+
+    vals = asyncio.run(scenario())
+
+    assert vals.get("user_decision") == "confirm", (
+        "持久线程后回写应真实发生：user_decision=confirm 落进房间线程图状态"
+    )
+    itin = vals.get("itinerary")
+    assert itin is not None and getattr(itin, "orders", None), (
+        "回写的终版方案应含确认下单产出的 orders"
+    )
+    pvl = vals.get("plan_version_log") or []
+    assert [e.get("trigger") for e in pvl] == ["first", "confirm"], (
+        f"版本志应含规划一笔 + 确认一笔（白捡的功能钉成特性），实际="
+        f"{[(e.get('version_n'), e.get('trigger')) for e in pvl]}"
+    )

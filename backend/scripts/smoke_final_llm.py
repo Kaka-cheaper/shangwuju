@@ -2237,7 +2237,19 @@ async def probe_H3(ctx: ProbeCtx) -> None:
     finally:
         manager.__dict__.pop("_run_planning", None)
 
-    types_ = _broadcast_types(owner_ws)
+    def _bt_value(m: dict[str, Any]) -> str:
+        # H3 专用归一（不动共享 _broadcast_types）：图透传事件的 type 是
+        # SseEventType 枚举（房间把 event.model_dump() 原样广播；真 WS 上
+        # json 序列化成值字符串，进程内直读则是枚举对象），合成事件是纯字符串。
+        # f-string 渲染枚举得 "SseEventType.X"，与 "itinerary_ready" 比对永假——
+        # 根治批第一次让图透传的 itinerary_ready 出现在本探针广播里，才踩到
+        # 这个坑；与事件史侧 _history_type 同款 getattr(value) 归一。
+        if m.get("type") == "planning_event":
+            t = (m.get("event") or {}).get("type")
+            return f"planning_event:{getattr(t, 'value', t)}"
+        return m.get("type") or ""
+
+    types_ = [_bt_value(m) for m in owner_ws.sent]
     aborted = [m for m in owner_ws.sent if m.get("type") == "planning_aborted"]
     started_idx = [i for i, t in enumerate(types_) if t == "planning_started"]
     aborted_idx = [i for i, t in enumerate(types_) if t == "planning_aborted"]
@@ -2264,25 +2276,22 @@ async def probe_H3(ctx: ProbeCtx) -> None:
         return getattr(t, "value", t)
 
     def _converged_single_terminal_stream() -> tuple[bool, str]:
-        # 「恰好一个方案落地」拆两级（实测钉出的口径）：
-        # - PLUMBING（这里）：任务收敛机制——首任务被取消、终任务跑完、事件史
-        #   只含第二轮的**一条完整终态流**（done 恰好 1 次、refinement_done 恰好
-        #   1 次、itinerary_ready ≤ 1——第一轮被取消不得留下半截事件）。
-        # - SEMANTIC（下一条）：itinerary_ready 恰好 1 次（方案真的落地）。
-        #   原因：房间 feedback 重排路径（_replan_with_refiner →
-        #   _run_planner_and_broadcast）会用合成 raw_input 重进一个**全新 graph
-        #   session**，stub 下新 session 的路由脑子必失败落保守地板 → 第二轮
-        #   以 chitchat_reply+done 收尾、不产方案——这是已被
-        #   test_room_route_turn_dispatch.py::test_room_bare_room_free_text_
-        #   planning_degrades_to_chitchat_under_stub 钉住的"房间同权"stub 降级
-        #   现状，不是中断重排机制的缺陷，归 SEMANTIC（不是管道缺陷）。
-        #   【中性修正，勿再假设"真实模式下方案照常落地"】此前这里写过"真实
-        #   模式下方案照常落地"——真实 LLM 冒烟已实测证伪：路由脑子在真实模式
-        #   下同样可能把这条合成 raw_input 判成非 planning，导致该轮同样不产
-        #   方案，不是 stub 独有的现象。根治方案（房间重排路径复用当前 session
-        #   而非重进全新 graph session）尚在评审中，落地后本探针的这条 SEMANTIC
-        #   判据预期会跟着变——现阶段只如实记录"可能不出方案"这一已知限制，
-        #   不再断言真实模式必然产出。
+        # 【判据重写（房间重排根治批落地，2026-07-04）——本段注释此前明写"根治
+        # 落地后判据预期会变"，现在兑现】旧现实：反馈重排把合成 raw_input 重进
+        # 全新一次性 graph session，路由脑子（stub 必然、真实 LLM 实测也会）把它
+        # 判成非规划 → 第二轮 chitchat_reply+done 收尾、不产方案——当时只能断
+        # itinerary_ready ≤ 1，"真出方案"降级为 SEMANTIC 且不敢断言真实模式。
+        # 新现实：反馈轮走持久线程（collab_{room_id}）aupdate_state(as_node=
+        # "refiner") 注入 + astream(None) 续跑，**不再经过 router**——义务判定在
+        # 房间层 route_turn 已做过，没有第二次误判的机会；stub 下规划管线
+        # （workers→planner→ILS 兜底）真实跑到底。因此：
+        # - 事件史 = 第二轮一条完整终态流：done==1、refinement_done==1（合成
+        #   前奏补发）、itinerary_ready==1（从 ≤1 收紧为 ==1：任何 provider 下
+        #   都由确定性管线兜出方案，升 PLUMBING 口径）；
+        # - 第一轮被取消不得留下半截事件（事件史已被第二轮 _trigger_replan 清空
+        #   重建，count 断言同时兜住这点）。
+        # 金标准（单人反馈轮 ≡ 房间注入续跑）与取消坑自愈的完整钉法在
+        # tests/test_room_persistent_resume.py。
         h_types = [_history_type(e) for e in room.planning_events_history]
         done_n = h_types.count("done")
         refine_n = h_types.count("refinement_done")
@@ -2294,7 +2303,7 @@ async def probe_H3(ctx: ProbeCtx) -> None:
             and first_task.cancelled()
             and done_n == 1
             and refine_n == 1
-            and itin_n <= 1
+            and itin_n == 1
         )
         return ok, (
             f"first_task cancelled={first_task.cancelled() if first_task else None} "
@@ -2304,7 +2313,41 @@ async def probe_H3(ctx: ProbeCtx) -> None:
 
     add_check(ctx, "converged_single_terminal_stream", "PLUMBING", _converged_single_terminal_stream)
 
+    def _synthesized_prelude_in_broadcast() -> tuple[bool, str]:
+        # 根治批新增：续跑不再执行 router/refiner，其单人 SSE 事件由房间侧合成
+        # 补发——广播序列必须按序含 4 条前奏（agent_thought/refinement_start/
+        # refinement_done/intent_parsed），且都先于 itinerary_ready。前端清屏/
+        # 意图面板/中途加入者回放都等这些事件，缺一条链就断。合成是确定性行为
+        # （不依赖 LLM 输出内容）→ PLUMBING。
+        prelude = [
+            "planning_event:agent_thought",
+            "planning_event:refinement_start",
+            "planning_event:refinement_done",
+            "planning_event:intent_parsed",
+        ]
+        second_start = started_idx[1] if len(started_idx) > 1 else 0
+        tail = types_[second_start:]
+        positions = []
+        cursor = 0
+        for p in prelude:
+            try:
+                cursor = tail.index(p, cursor)
+                positions.append(cursor)
+            except ValueError:
+                positions.append(-1)
+        itin_pos = tail.index("planning_event:itinerary_ready") if "planning_event:itinerary_ready" in tail else -1
+        ok = all(p >= 0 for p in positions) and itin_pos > max(positions)
+        return ok, (
+            f"第二轮广播（自 planning_started[1] 起）前奏位置={dict(zip(prelude, positions))}，"
+            f"itinerary_ready 位置={itin_pos}"
+        )
+
+    add_check(ctx, "synthesized_prelude_precedes_itinerary", "PLUMBING", _synthesized_prelude_in_broadcast)
+
     def _plan_actually_lands() -> tuple[bool, str]:
+        # 判级变更（根治批）：原 SEMANTIC——旧路径"真出方案"取决于路由脑子对合成
+        # 文本的分类（LLM 内容问题）；根治后续跑不经 router，出方案是规划管线的
+        # 确定性兜底承诺（ILS/规则地板），与单人反馈轮同级 → 升 PLUMBING。
         ok = len(itin_idx) == 1 and len(started_idx) > 1 and itin_idx[0] > started_idx[1]
         return ok, (
             f"广播 itinerary_ready 位置={itin_idx}（第二次 planning_started 位置="
@@ -2312,7 +2355,7 @@ async def probe_H3(ctx: ProbeCtx) -> None:
             f"current_itinerary 非空={room.current_itinerary_dict is not None}"
         )
 
-    add_check(ctx, "restarted_round_lands_exactly_one_plan", "SEMANTIC", _plan_actually_lands)
+    add_check(ctx, "restarted_round_lands_exactly_one_plan", "PLUMBING", _plan_actually_lands)
 
     def _both_constraints_merged() -> tuple[bool, str]:
         texts = [c.text for c in room.constraints]

@@ -8,7 +8,8 @@ ADR-0011 已经把主聊天收口成"一脑三壳"（任何输入先过 `route_t
 `test_room_confirm_characterization.py`（RoomManager 直驱，不起真 WS）。
 
 义务分发表（见 `collab/room.py::RoomManager.add_constraint` 实现与 docstring）：
-    - feedback  → 现有约束池 + 重排路径原样保留（诉求台账是 F-2/F-5 的事，本步不建）
+    - feedback  → 约束池 + 重排路径（房间重排根治批起：持久线程注入 + 续跑，
+      见 test_room_persistent_resume.py；本文件只钉分发，不钉重排内部）
     - planning  → 全新规划（`_trigger_fresh_plan`，同 `_plan_fresh` 路径，不进约束池）
     - 其余（chitchat/emotional/meta/off_topic/ambiguous）→ 气泡广播 RouterDecision，
       复用既有 `chitchat_reply` 事件形状（前端 `handleEvent` 已有 case，零改动可渲染）
@@ -119,7 +120,16 @@ def test_room_chitchat_text_broadcasts_bubble_and_does_not_replan():
 
 
 def test_room_strong_feedback_text_still_triggers_replan():
-    """"太远了"命中 Layer 1 强信号 → feedback，照旧进约束池 + 触发现有重排路径。"""
+    """"太远了"命中 Layer 1 强信号 → feedback，照旧进约束池 + 触发重排路径。
+
+    【判据变更（房间重排根治批，2026-07-04）】原版只断言 refinement_done 出现——
+    因为旧实现（图外 refine_intent + 全新一次性 graph session）在 stub 下第二段的
+    router 对合成文本必落保守地板，方案根本出不来，能断言的只有合并这半截。根治后
+    反馈轮走"持久线程 aupdate_state(as_node='refiner') 注入 + astream(None) 续跑"，
+    **不再经过 router**，stub 下重排真的跑规划（workers→planner→ILS 兜底），故加钉：
+    itinerary_ready 必须出现、流以 done 收尾、不再出现 chitchat_reply 降级。前奏事件
+    形状与状态落点的完整钉法在 test_room_persistent_resume.py。
+    """
     owner_id = "owner_feedback_test"
     manager, room = _seed_room(owner_id)
 
@@ -130,9 +140,14 @@ def test_room_strong_feedback_text_still_triggers_replan():
     assert room.constraints[0].source == "text"
 
     types_ = _event_types(room)
-    # "refinement_done" 只会由 `_replan_with_refiner`（既有 feedback 路径）产出——
-    # 命中它即证明这条分支走的是原有约束合并重排路径，没有被新路由改道。
-    assert "refinement_done" in types_, f"反馈应走既有 refiner 合并路径，实际事件={types_}"
+    # "refinement_done" 只会由 `_replan_with_refiner`（feedback 路径）合成补发——
+    # 命中它即证明这条分支走的是约束合并重排路径，没有被新路由改道。
+    assert "refinement_done" in types_, f"反馈应走 refiner 合并路径，实际事件={types_}"
+    assert "itinerary_ready" in types_, (
+        f"根治批新现实：反馈续跑不经 router，stub 下真出方案（ILS 兜底），实际事件={types_}"
+    )
+    assert types_[-1] == "done", f"反馈重排流应以 done 收尾，实际={types_}"
+    assert "chitchat_reply" not in types_, "旧降级路径（新 session 路由判非规划）不应再出现"
 
     # 归名机制维持
     assert room.chat_messages[-1]["text"] == "发起人：太远了"
