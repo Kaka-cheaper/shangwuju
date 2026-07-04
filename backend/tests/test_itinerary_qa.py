@@ -76,6 +76,22 @@ def test_abstain_when_field_absent():
     assert a and "没有记录" in a
 
 
+def test_abstain_output_clamped_to_reply_text_limit():
+    """弃答文案钳制——LLM 无视「不超过 60 字」约束长篇大论时，输出必须压进
+    RouterDecision.reply_text 的 max_length=400，否则 router 层构造 decision 时
+    ValidationError → 整轮以 stream_error 收场（I 类元对话探针 I3 在 stub 下实锤：
+    stub 固定 JSON 顶穿 400 上限把弃答轮整个炸掉；真实模式 prompt 约束 60 字
+    通常不炸，但此前代码无任何保险）。"""
+    from types import SimpleNamespace
+
+    class _LongWinded:
+        def chat(self, messages, **kwargs):  # noqa: ANN003 —— 只需鸭子型 .content
+            return SimpleNamespace(content="这附近停车其实要看具体时段和商场政策，" * 40)
+
+    a = answer_itinerary_question("有地方停车吗", _itin(), client=_LongWinded())
+    assert a is not None and len(a) <= 400, f"弃答输出未钳制：len={len(a) if a else 0}"
+
+
 # ---- 4. 疑问式改请求 / 非提问 → None（交回兜底，不当 QA）----
 
 def test_change_request_not_treated_as_question():

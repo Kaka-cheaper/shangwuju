@@ -267,6 +267,12 @@ _ABSTAIN_SYSTEM = (
     "并**明确标注**这是经验、不是查到的数据（如『一般来说…，到店问下最稳』）。不超过 60 字。"
 )
 
+# 弃答输出钳制：本函数返回值直塞 RouterDecision.reply_text（max_length=400），
+# 超限 = router 层 ValidationError → 整轮 stream_error（I 类元对话探针 I3 在
+# stub 下实锤：stub 固定 JSON 顶穿上限把弃答轮整个炸掉）。prompt 约束 60 字是
+# 软约束，LLM 可能无视——这里是硬保险。380 留余量（下游若再拼措辞不至于贴边）。
+_ABSTAIN_REPLY_MAX = 380
+
 
 def _abstain(text: str, client: LLMClient | None) -> str:
     base = "你问的这个，方案数据里没有记录。"
@@ -283,6 +289,8 @@ def _abstain(text: str, client: LLMClient | None) -> str:
             extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         out = (resp.content or "").strip()
+        if len(out) > _ABSTAIN_REPLY_MAX:
+            out = out[: _ABSTAIN_REPLY_MAX - 1].rstrip() + "…"
         return out or (base + "建议到店或在 App 上确认一下。")
     except Exception:  # noqa: BLE001
         return base + "建议到店或在 App 上确认一下。"
