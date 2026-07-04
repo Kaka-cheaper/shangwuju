@@ -83,6 +83,13 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 - **不要在用餐节点处收尾而漏掉餐后活动**（最常见的违规）
 - 不要分点列表（这不是清单，是说话）
 
+【邀请反馈只说一次（重要 · 收尾去重）】
+全文的"邀请反馈"话（"哪里不合适跟我说一声" / "不合适可以跟我说" / "不满意我
+再换"这一类）**最多出现一句**。诚实告知、出处告知这些段落经常已经自然带出一句
+邀请（如"我从你的话里猜你想要 X，不合适可以跟我说"）——这种情况下**结尾不要
+再追加**"哪里不合适跟我说一声"，同一个意思背靠背说两遍显得机械。正文完全没有
+邀请反馈时，才在结尾留一句。
+
 【输入约定】
 你会收到 JSON 形式的 intent + itinerary：
 - intent.companions：同行人（如「妻子1人，孩子5岁1人」）
@@ -164,6 +171,11 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 - 规则 3：坦白要自然、口语，不要"抱歉系统检测到"这种官腔；像朋友帮忙没买到指定的东西
   顺手换了一个那样说。
 - 规则 4：诚实告知优先级高于字数限制——本条触发时允许文案放宽到 90 字以内。
+- 规则 5（原因要对得上，不许互串）：未满足信号分两种，措辞跟着信号走——
+  收到【未满足的品类诉求】= 验证过附近确实没有，坦白说"附近没找到 X"；
+  收到【未满足的品类诉求·这版没安排】= 附近其实有，是这一版方案取舍没排进去
+  （常见于用户新反馈收紧了约束），坦白说"X 这次没安排上"，**绝不能**说成
+  "附近没找到 X"——附近明明有还说找不到，用户下一轮就会发现你在撒谎。
 
 【诚实告知 few-shot 示例】
 
@@ -187,6 +199,10 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 - 规则 2：收到"某个标签是推断出来的"信号 → 自然带一句"我从你的话里猜你可能
   想要 Y，不合适可以跟我说"这类口径——语气是**猜测 + 邀请纠正**，不是宣称
   "我懂你"的自信断言（inferred 出处本来就没有 user_stated 那么确定）。
+  **归因措辞跟着出处走**：推断标签用户并没有亲口说过，**绝不能**写"你提到的
+  Y""你说的 Y""按你要求的 Y"这类把推断说成用户原话的措辞——"你提到的"+
+  "我猜"同句自相矛盾，用户一眼就会发现自己根本没说过；只有出处确实是用户
+  原话（user_stated）的内容才配用"你提到"。
 - 规则 3：这句话跟【诚实告知规则】（未满足品类）同属"诚实"这一类文案，可以
   合并进同一句里自然带出，不必另起一段、不用"出处："这种说明书口吻。
 - 规则 4：没有收到 `【出处信息】` 字段时不要瞎猜/不要主动提"出处"这个词——
@@ -292,6 +308,7 @@ def build_narrator_user_message(
     critic_summary: str = "",
     quality_warnings: list[str] | None = None,
     unmet_cuisines: list[str] | None = None,
+    unmet_not_scheduled: list[str] | None = None,
     advisories: list[str] | None = None,
     want_title: bool = False,
     node_chip_context: list[dict] | None = None,
@@ -308,7 +325,13 @@ def build_narrator_user_message(
             修复反馈），narrator 据此触发主动质疑规则。空串 = 不触发。
         quality_warnings: spec R6 新增。可选 meta-critic 输出的额外质量提醒。
             None / 空列表 = 不触发。
-        unmet_cuisines: 诚实告知用。用户明示但未排进行程的品类/活动诉求。
+        unmet_cuisines: 诚实告知用。用户明示但未排进行程、且**验证过附近确实
+            没有匹配去处**的品类/活动诉求（可以说"附近没找到"）。
+        unmet_not_scheduled: 诚实告知用（文案修缮批 · C2 实锤新增）。用户明示
+            但未排进行程、而附近**其实有**这类去处的诉求——是方案取舍（常见
+            于用户新反馈收紧了约束）没安排上，措辞只能是"这次没安排上"，
+            绝不能说成"附近没找到"。分组由
+            `agent.intent.narrator.split_unmet_by_nearby_availability` 完成。
         advisories: ADR-0010 D-7 新增。planner「绝不默默忽略」的结构化告知
             （每条已是自包含中文完整句），进诚实告知区，与 unmet_cuisines 同一
             纪律（先坦白、不假装满足）。None / 空列表 = 不触发。
@@ -377,7 +400,11 @@ def build_narrator_user_message(
     if stage_label == "confirm":
         framing = "用户刚刚点了「确认并预约」，已经下单成功。请用一段话告诉他「都搞定了，可以放心了」，并简要回顾下午要做什么。"
     else:
-        framing = "行程刚组装好，还没下单。请把方案用导游开场白的形式告诉用户，最后留一句邀请他给反馈。"
+        framing = (
+            "行程刚组装好，还没下单。请把方案用导游开场白的形式告诉用户，"
+            "全文恰好留一句邀请他给反馈的话（若中段的诚实告知已经自然带出邀请，"
+            "结尾就不要再重复，见【邀请反馈只说一次】）。"
+        )
 
     # spec R6：critic_summary / quality_warnings 触发主动质疑
     extras: list[str] = []
@@ -392,6 +419,18 @@ def build_narrator_user_message(
             f"【未满足的品类诉求】用户明确想要「{unmet_str}」，但附近没有匹配的餐厅"
             f"（超出距离范围或本地无此品类），方案里用了替代餐厅。\n"
             f"→ 必须按【诚实告知规则】先坦白没找到「{unmet_str}」，再暖语气说明用了替代、欢迎反馈。"
+        )
+    if unmet_not_scheduled:
+        not_scheduled_str = "、".join(unmet_not_scheduled)
+        extras.append(
+            f"【未满足的品类诉求·这版没安排】用户明确想要「{not_scheduled_str}」，"
+            f"附近其实有这类去处，但这一版方案没有安排上（往往是照用户最新的反馈/"
+            f"约束做的取舍，不是找不到）。\n"
+            f"→ 必须按【诚实告知规则】坦白「{not_scheduled_str}」这次没安排上、"
+            f"说明方案里用了什么顶上、欢迎反馈；**绝不能说「附近没找到"
+            f"{not_scheduled_str}」「附近没有」**（附近是有的，说找不到就是撒谎）。"
+            f"若本条消息还带了【上版回顾】，把没安排的原因与那条反馈自然衔接"
+            f"（如『这版按你说的累了调的，就先没排{not_scheduled_str}』）。"
         )
     if advisories:
         advisories_str = "；".join(advisories)
@@ -413,7 +452,11 @@ def build_narrator_user_message(
             prov_lines.append(f"距离用的是系统默认 {dist} 公里（用户没有提距离）")
         inferred_tag = provenance_hints.get("inferred_tag")
         if inferred_tag:
-            prov_lines.append(f"标签「{inferred_tag}」是你从用户的话里推断出来的，不是用户直接要求的")
+            prov_lines.append(
+                f"标签「{inferred_tag}」是你从用户的话里推断出来的，不是用户直接"
+                f"要求的——只能用猜测口吻（『我猜你可能想要』），"
+                f"不能说成「你提到的{inferred_tag}」（用户没亲口说过）"
+            )
         if provenance_hints.get("budget_ambiguous"):
             prov_lines.append(
                 "用户提到了预算顾虑（比如「别太贵」），但没有给出具体数字——"

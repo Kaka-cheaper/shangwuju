@@ -70,7 +70,10 @@ from langchain_core.messages import AIMessage
 from agent.context import GraphStateSource, pack_routing_context
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
-from agent.intent.narrator import generate_title_and_narration
+from agent.intent.narrator import (
+    generate_title_and_narration,
+    split_unmet_by_nearby_availability,
+)
 from agent.planning.critic.critics_v2 import Severity, ViolationCode
 from agent.planning.planners.node_swap import feasible_alternatives
 from data.loader import load_pois, load_restaurants
@@ -511,6 +514,15 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     pois = load_pois()
     restaurants = load_restaurants()
 
+    # 文案修缮批（真 LLM 点火 C2 实锤）：未满足诉求按"附近到底有没有这类去处"
+    # 分组——附近确实没有 → 措辞"附近没找到"；附近有但这版没安排（常见于用户
+    # 新反馈收紧了约束，如"累了"→低强度把 KTV 滤掉）→ 措辞"这次没安排上"，
+    # 不许把方案取舍说成找不到（见 split_unmet_by_nearby_availability
+    # docstring）。信号全在现场：全量目录实体自带 distance_km，intent 有半径。
+    unmet_not_found, unmet_not_scheduled = split_unmet_by_nearby_availability(
+        unmet_desires, intent, pois, restaurants
+    )
+
     # ADR-0011 决策 3（narration 切片）：经会话上下文打包器取方案版本志切片，
     # 反馈轮时给 narrator 一句"这版是照你『××』的反馈调过的"回顾材料（LLM
     # 路径经 prompt 指令自然带出 / 模板路径确定性插句），首轮不硬扯——见
@@ -530,7 +542,8 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         use_llm=use_llm,
         critic_summary=critic_summary,
         quality_warnings=quality_warnings,
-        unmet_cuisines=unmet_desires,
+        unmet_cuisines=unmet_not_found,
+        unmet_not_scheduled=unmet_not_scheduled,
         advisories=advisory_messages,
         pois=pois,
         restaurants=restaurants,

@@ -92,6 +92,7 @@ from agent.planning.planners.node_swap_support import (
 )
 from data.loader import load_pois, load_restaurants
 from schemas import IntentExtraction, Itinerary, SseEvent, SseEventType
+from schemas.advisory import AdvisoryCode
 from schemas.demand_ledger import (
     LedgerEntry,
     NodeRef,
@@ -126,13 +127,89 @@ def _build_success_narration(
     old_title: str,
     new_title: str,
 ) -> str:
-    """单人无归名的换菜说明（ADR-0013 F-4 任务书"按你的要求换成了X，更安静"风格）。"""
+    """单人无归名的换菜说明（ADR-0013 F-4 任务书"按你的要求换成了X，更安静"风格）。
+
+    注意：这是**完全命中**（tier 1/2 / 具名备选 / 点踩）的确认句——降级
+    （SWAP_DEGRADED）时不能用它（"按你的要求…{descriptor}。"在降级语境下是
+    假话：降级恰恰意味着没找到满足 descriptor 的候选），拼装收口在
+    `compose_swap_success_narration`，那里会整句换成合并的诚实告知。
+    """
     if isinstance(action, AdjustActionAdjust):
         descriptor = adjustment_descriptor(action.adjustment)
         return f"按你的要求，把「{old_title}」换成了「{new_title}」，{descriptor}。"
     if isinstance(action, AdjustActionAlternative):
         return f"已经按你选的，把「{old_title}」换成了「{new_title}」。"
     return f"收到，已经把「{old_title}」换掉了，换成了「{new_title}」，看看这个怎么样。"
+
+
+def split_swap_degraded_advisory(
+    advisory_dicts: list[dict],
+) -> tuple[Optional[dict], list[dict]]:
+    """把 SWAP_DEGRADED 从 advisory 列表里挑出来，返回 (该条或 None, 其余)。
+
+    文案修缮批（真 LLM 点火 G1 实锤）：SWAP_DEGRADED 的 message 与换菜确认句
+    首尾串联会把新店名说两遍（"换成了「X」…给你换了个最接近的——「X」"），
+    且确认句在降级语境下宣称"按你的要求"是假话。修法是把该条的内容**并进
+    主句**（见 `build_degraded_swap_narration`），不再尾拼原 message——其余
+    advisory（CONSTRAINT_RELAXED 等）照旧尾拼。结构化通道（narration_payload
+    ["messages"] / 图状态 advisories）不动：那是前端面板/审计的镜像，本函数
+    只管说出来的那句话。
+
+    比对兼容 str 枚举值与活的 AdvisoryCode 实例（AdvisoryCode 是 str Enum，
+    `==` 对两种形态都成立——model_dump(mode="python") 给枚举实例，检查点
+    序列化后回读是纯字符串）。
+    """
+    for i, a in enumerate(advisory_dicts):
+        if a.get("code") == AdvisoryCode.SWAP_DEGRADED:
+            return a, [x for j, x in enumerate(advisory_dicts) if j != i]
+    return None, list(advisory_dicts)
+
+
+def build_degraded_swap_narration(
+    old_title: str,
+    new_title: str,
+    *,
+    descriptor: str = "",
+    requester: str = "你",
+) -> str:
+    """降级换菜的**一句**合并诚实告知（换菜确认 + 最接近告知不再各说一遍）。
+
+    终审拍板口径："没找到完全符合的，换成最接近的「X」，不满意再告诉我"——
+    诚实（不宣称要求已达成）、不重复（店名只出现一次）、不泄气（去掉"先将就
+    一下"）。`descriptor` 是约束回声（"不辣"这类，终审点名要保留的好东西），
+    以"{requester}要的「不辣」"的形式归位到**诉求**上，而不是宣称新店已满足。
+    `requester` 供房间归名版复用（多人场景必须点名是谁提的，同
+    `RoomManager._build_room_narration` 的既有纪律）。
+
+    理想归属地是 `node_swap_support`（单人/房间共享的更细粒度文案 helper 都
+    在那），本批 planning/ 冻结（并行改动在途），先落在单人拼装处、房间侧
+    import 复用——搬家留给收口批。
+    """
+    want = f"{requester}要的「{descriptor}」" if descriptor else f"{requester}要的"
+    return (
+        f"{want}没找到完全符合的，把「{old_title}」换成了最接近的"
+        f"「{new_title}」，不满意再告诉我。"
+    )
+
+
+def compose_swap_success_narration(
+    base: str,
+    advisory_dicts: list[dict],
+    *,
+    old_title: str,
+    new_title: str,
+    descriptor: str = "",
+    requester: str = "你",
+) -> str:
+    """换菜成功文案的统一收口：降级时整句换成合并诚实告知（SWAP_DEGRADED 的
+    内容并入主句、不再尾拼），其余 advisory 照旧走 `compose_narration_text`
+    尾拼。完全命中路径 `base` 原样透传（G2 实录「已经按你选的…」是好的）。"""
+    degraded, rest = split_swap_degraded_advisory(advisory_dicts)
+    if degraded is not None:
+        base = build_degraded_swap_narration(
+            old_title, new_title, descriptor=descriptor, requester=requester
+        )
+    return compose_narration_text(base, rest)
 
 
 # ============================================================
@@ -300,8 +377,16 @@ async def _graph_adjust(
     sync_snapshot(req.session_id, itinerary=new_itinerary.model_dump())
 
     new_title = node_title(new_itinerary, result.swapped_to or "")
-    narration_text = compose_narration_text(
-        _build_success_narration(action, old_title, new_title), advisory_dicts
+    # 文案修缮批（G1 实锤）：降级换菜时确认句+最接近告知合并成一句诚实告知，
+    # 店名不再说两遍（见 compose_swap_success_narration docstring）。
+    narration_text = compose_swap_success_narration(
+        _build_success_narration(action, old_title, new_title),
+        advisory_dicts,
+        old_title=old_title,
+        new_title=new_title,
+        descriptor=adjustment_descriptor(action.adjustment)
+        if isinstance(action, AdjustActionAdjust)
+        else "",
     )
 
     yield emit(SseEventType.ITINERARY_READY, new_itinerary.model_dump())

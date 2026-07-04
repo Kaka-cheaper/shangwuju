@@ -230,3 +230,34 @@ def test_prompt_omits_provenance_instruction_when_hints_empty():
 def test_system_prompt_has_provenance_disclosure_rules():
     assert "出处诚实告知" in NARRATOR_SYSTEM_PROMPT
     assert "按默认" in NARRATOR_SYSTEM_PROMPT
+
+
+# ============================================================
+# 6. 归因措辞跟着出处走（文案修缮批 · 真 LLM 点火 A6 实锤）
+# ============================================================
+#
+# A6 实锤：用户原话"周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶"，
+# 「亲密情侣」是 experience_tags 里 provenance=inferred 的推断标签，叙事却
+# 说"**你提到的**「亲密情侣」我猜可能是……"——"你提到的"+"我猜"同句自相
+# 矛盾，把词典推断归因成用户原话（出处误归因）。修法：prompt 的出处告知
+# 规则 + inferred 信号行都显式禁止对推断标签用"你提到"类措辞。
+
+
+def test_system_prompt_forbids_claiming_user_said_for_inferred():
+    assert "把推断说成用户原话" in NARRATOR_SYSTEM_PROMPT, (
+        "出处诚实告知规则应显式禁止对 inferred 标签用「你提到的」类归因措辞"
+        "（A6 实锤：『你提到的「亲密情侣」我猜…』自相矛盾）"
+    )
+
+
+def test_prompt_inferred_hint_carries_anti_misattribution_instruction():
+    msg = build_narrator_user_message(
+        intent_dict=_base_intent().model_dump(),
+        itinerary_dict=_make_itinerary().model_dump(),
+        stage_label="stream",
+        provenance_hints={"inferred_tag": "亲密情侣"},
+    )
+    assert "亲密情侣" in msg
+    assert "不能说成「你提到的亲密情侣」" in msg, (
+        "inferred 信号行应就地钉死禁用措辞，不能只靠 system prompt 远程规则"
+    )

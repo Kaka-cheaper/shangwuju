@@ -503,11 +503,14 @@ def _attempt_pool(
 
 
 def _swap_degraded_advisory(new_name: str) -> Advisory:
+    # 文案终审（2026-07-04）：删「先将就一下」——泄气措辞。此句除进叙事拼装外，
+    # 还原样走 messages 通道上前端面板，口径与
+    # api/_streams/graph_adjust.py::build_degraded_swap_narration 的合并句对齐。
     return Advisory(
         code=AdvisoryCode.SWAP_DEGRADED,
         message=(
-            f"没找到完全符合你要求的，给你换了个最接近的——『{new_name}』，"
-            "先将就一下，不满意再告诉我？"
+            f"没找到完全符合你要求的，换了个最接近的——『{new_name}』，"
+            "不满意再告诉我。"
         ),
     )
 

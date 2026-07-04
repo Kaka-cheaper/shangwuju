@@ -232,6 +232,68 @@ def detect_unmet_poi_preference(
     return unmet
 
 
+def split_unmet_by_nearby_availability(
+    unmet: list[str],
+    intent: IntentExtraction,
+    pois: Sequence[Poi],
+    restaurants: Sequence[Restaurant],
+) -> tuple[list[str], list[str]]:
+    """把未满足诉求按"附近到底有没有这类去处"分成两组（文案修缮批，C2 实锤）。
+
+    Returns:
+        `(not_found_nearby, not_scheduled)`——前者是**验证过**目录里距离半径内
+        确实没有匹配实体的诉求（可以诚实说"附近没找到 X"）；后者是附近有、但
+        这版方案没安排上的诉求（只能说"这次没安排上 X"，把方案取舍说成找不到
+        是撒谎——C2 里 KTV 第一轮还在方案里，第二轮被"累了"催生的新约束滤掉，
+        叙事却说"附近没找到合适的KTV"）。
+
+    判定材料全部在现场：全量目录实体（调用方传入）自带 `distance_km`，
+    `intent.distance_max_km` 是用户半径；词法匹配复用未满足检测本身的口径
+    （餐厅走 `_cuisine_match` 双向 substring，POI 走 `poi_desire_match`），
+    保证"要是排进去了会算满足"与"附近有货"是同一把尺子。
+
+    fail-safe 方向与检测函数相反且刻意：分类失败（依赖导入失败等）→ 全部归
+    "这版没安排"组——"这次没安排上 X"无论真实原因是哪种都为真；"附近没找到 X"
+    只在验证过缺货时才为真。宁可少断言，不可说假话。
+    """
+    if not unmet:
+        return [], []
+    try:
+        try:
+            from agent.runtime.tools.search_adapter import poi_desire_match
+        except Exception:  # noqa: BLE001
+            poi_desire_match = None  # 只剩餐厅口径可用，POI 诉求会落入"没安排"组
+
+        max_km = intent.distance_max_km
+
+        def within(entity: Any) -> bool:
+            if max_km is None:
+                return True
+            d = getattr(entity, "distance_km", None)
+            return True if d is None else d <= max_km
+
+        def available_nearby(pref: str) -> bool:
+            for r in restaurants:
+                if within(r) and _cuisine_match(pref, r.cuisine or ""):
+                    return True
+            if poi_desire_match is None:
+                return False
+            for p in pois:
+                if within(p) and poi_desire_match(
+                    pref, p.type or "", p.name or "", list(p.tags or [])
+                ):
+                    return True
+            return False
+
+        not_found: list[str] = []
+        not_scheduled: list[str] = []
+        for pref in unmet:
+            (not_scheduled if available_nearby(pref) else not_found).append(pref)
+        return not_found, not_scheduled
+    except Exception:  # noqa: BLE001
+        return [], list(unmet)
+
+
 # ============================================================
 # ADR-0014 决策 1（G-1）：出处诚实告知（narration 两个消费方之一）
 # ============================================================
@@ -591,9 +653,13 @@ def _format_companions(companions: list) -> str:
 
     if not roles:
         return "一个人"
-    if len(roles) == 1:
-        return f"和{roles[0]}"
-    return "和" + "、".join(roles)
+    joined = roles[0] if len(roles) == 1 else "、".join(roles)
+    # 文案修缮批（B9/G3/G4/H1 实锤）："和"+"2 位兄弟" 直接拼出"和2 位"——
+    # 空格插错位（本 docstring 期望本来就是「和 4 个朋友」）。短语以数字开头
+    # 时在"和"后补一格，对齐全文件"数字两侧留空格"的既有排版（"4.5 小时"）。
+    if joined and joined[0].isdigit():
+        return f"和 {joined}"
+    return f"和{joined}"
 
 
 def _node_to_phrase(node: dict, idx: int, total: int) -> Optional[str]:
@@ -616,16 +682,19 @@ def _node_to_phrase(node: dict, idx: int, total: int) -> Optional[str]:
             return f"{start} 打车回家" if start else "打车回家"
         return None
 
-    short_title = title.split(" · ")[-1] if " · " in title else title
+    # 文案修缮批（B9/G3/G4/H1 实锤）：曾按「 · 」劈开只取后半截当短名，但
+    # mock 目录里「 · 」是**全名的一部分**（"麦霸欢唱 KTV · 旗舰店"，102 个
+    # 实体里 67 个如此），截半拼出"去旗舰店""去私房包房"读着像断句——兜底
+    # 模板必须取全名（终审拍板，纯字符串级改动）。
     # 用餐节点：尽量带上预约信息
     if target_kind == "restaurant" or "用餐" in kind or "夜宵" in kind:
         if note and "预约" in note:
-            return f"{start} 到{short_title}，{note.replace('待你确认后为你预约', '给你预约了')}"
-        return f"{start} 到{short_title}吃饭"
+            return f"{start} 到{title}，{note.replace('待你确认后为你预约', '给你预约了')}"
+        return f"{start} 到{title}吃饭"
     # POI 节点：按 kind 区分主活动 / 自由 / 其他
     if "主活动" in kind:
-        return f"{start} 去{short_title}"
-    return f"{start} {short_title}"
+        return f"{start} 去{title}"
+    return f"{start} {title}"
 
 
 def _template_title(intent: IntentExtraction, itinerary: Itinerary) -> str:
@@ -740,6 +809,12 @@ def _multi_activity_rationale(
     return f"{clause}。"
 
 
+_FEEDBACK_INVITE_MARKERS = ("跟我说", "告诉我", "我再换")
+"""正文里算作"已邀请反馈"的标记词——出处告知（"不合适可以跟我说"）、未满足
+告知（"不满意我再换"）、advisory（"想省钱可以告诉我砍哪一站"）都会命中。
+命中任一则 `_template_narration` 的 stream 收尾句不再追加（收尾邀请去重）。"""
+
+
 def _template_narration(
     intent: IntentExtraction,
     itinerary: Itinerary,
@@ -748,8 +823,15 @@ def _template_narration(
     unmet_cuisines: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
     plan_recap: Optional[str] = None,
+    *,
+    unmet_not_scheduled: Optional[list[str]] = None,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
+
+    文案修缮批（C2 实锤）：`unmet_cuisines` 语义收窄为"验证过附近确实没有"的
+    诉求（措辞"附近没找到"），新增 kw-only `unmet_not_scheduled` 承载"附近有
+    但这版没安排"的诉求（措辞"这次没安排上"，不许把方案取舍说成找不到）——
+    分组由 `split_unmet_by_nearby_availability` 在构建处完成。
 
     格式（暖语气）：
         "{开场} {回顾句}{主活动短语}；{用餐短语}；{回家短语}。{质疑}{结尾}"
@@ -840,7 +922,8 @@ def _template_narration(
                 long_kid_node = n
                 break
     if long_kid_node is not None:
-        long_title = (getattr(long_kid_node, "title", "") or "").split(" · ")[-1]
+        # 同 _node_to_phrase：店名取全名，「 · 」是名字的一部分不可截半。
+        long_title = getattr(long_kid_node, "title", "") or ""
         long_dur = getattr(long_kid_node, "duration_min", 0)
         challenge_text = (
             f"提醒一下，{long_title} 安排了 {long_dur} 分钟，宝贝可能会累，"
@@ -850,12 +933,6 @@ def _template_narration(
         # 没命中 ≤6 岁规则，但调用方传了 quality_warnings → 也融进文案
         challenge_text = "提醒一下，" + "；".join(quality_warnings[:2]) + "。"
 
-    # 尾
-    if stage_label == "confirm":
-        ending = "都给你搞定了，可以放心出门了。"
-    else:
-        ending = "哪里不合适跟我说一声。"
-
     # 诚实告知：用户明示品类未排进行程（如附近没烧烤）→ 先坦白再说替代；
     # D-7：advisories（点名排不进/超预算/时长不足等）并入同一段，共用"说明一下"
     # 开场词——两者都是"诚实告知限制"的同一语义（不新起一段）。
@@ -864,6 +941,14 @@ def _template_narration(
         cuisines_str = "、".join(unmet_cuisines[:2])
         honest_segments.append(
             f"你想要的{cuisines_str}附近没找到合适的，"
+            f"先帮你选了方案里的替代，不满意我再换。"
+        )
+    # C2 实锤分叉：附近有但这版没安排 → 只坦白"没安排上"，不归因于"找不到"
+    # （真实原因常是用户新反馈收紧了约束，recap 句会补上下文）。
+    if unmet_not_scheduled:
+        not_scheduled_str = "、".join(unmet_not_scheduled[:2])
+        honest_segments.append(
+            f"你想要的{not_scheduled_str}这次没安排上，"
             f"先帮你选了方案里的替代，不满意我再换。"
         )
     if advisories:
@@ -889,7 +974,19 @@ def _template_narration(
     # ——调用方只在"本轮是反馈触发的新版本"时传值（首轮不硬扯，见 docstring）。
     recap_text = f"{plan_recap.strip()}，" if plan_recap and plan_recap.strip() else ""
 
-    return f"{opener}{recap_text}{body}。{rationale_text}{honest_text}{challenge_text}{ending}"
+    # 尾（文案修缮批 · 收尾邀请去重，A6/A8 实锤）：诚实告知段常自带邀请反馈语
+    # （"不合适可以跟我说" / "不满意我再换"），固定收尾"哪里不合适跟我说一声。"
+    # 再追加就是同一个意思背靠背说两遍——正文已含邀请反馈语则不拼（LLM 路径的
+    # 对应病灶由 narrator_prompt.py【邀请反馈只说一次】规则治，两条路径同一纪律）。
+    pre_ending = f"{opener}{recap_text}{body}。{rationale_text}{honest_text}{challenge_text}"
+    if stage_label == "confirm":
+        ending = "都给你搞定了，可以放心出门了。"
+    elif any(marker in pre_ending for marker in _FEEDBACK_INVITE_MARKERS):
+        ending = ""
+    else:
+        ending = "哪里不合适跟我说一声。"
+
+    return f"{pre_ending}{ending}"
 
 
 # ============================================================
@@ -1055,6 +1152,7 @@ def _call_llm_narrator(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    unmet_not_scheduled: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
     want_title: bool = False,
     pois: Sequence[Poi] = (),
@@ -1097,6 +1195,7 @@ def _call_llm_narrator(
         critic_summary=critic_summary,
         quality_warnings=list(quality_warnings or []),
         unmet_cuisines=list(unmet_cuisines or []),
+        unmet_not_scheduled=list(unmet_not_scheduled or []),
         advisories=list(advisories or []),
         want_title=want_title,
         node_chip_context=node_chip_context,
@@ -1276,6 +1375,7 @@ def generate_title_and_narration(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    unmet_not_scheduled: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
     pois: Sequence[Poi] = (),
     restaurants: Sequence[Restaurant] = (),
@@ -1324,6 +1424,7 @@ def generate_title_and_narration(
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
             unmet_cuisines=unmet_cuisines,
+            unmet_not_scheduled=unmet_not_scheduled,
             advisories=advisories,
             want_title=True,
             pois=pois,
@@ -1336,7 +1437,7 @@ def generate_title_and_narration(
     # narration：LLM 有就用 LLM；否则规则模板兜底
     narration = llm_narration or _template_narration(
         intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories,
-        plan_recap=plan_recap,
+        plan_recap=plan_recap, unmet_not_scheduled=unmet_not_scheduled,
     )
     # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
     title = llm_title or _template_title(intent, itinerary)
@@ -1355,6 +1456,7 @@ def generate_narration(
     critic_summary: str = "",
     quality_warnings: Optional[list[str]] = None,
     unmet_cuisines: Optional[list[str]] = None,
+    unmet_not_scheduled: Optional[list[str]] = None,
     advisories: Optional[list[str]] = None,
 ) -> str:
     """生成 Agent 暖心开场白。
@@ -1391,6 +1493,7 @@ def generate_narration(
             critic_summary=critic_summary,
             quality_warnings=quality_warnings,
             unmet_cuisines=unmet_cuisines,
+            unmet_not_scheduled=unmet_not_scheduled,
             advisories=advisories,
             want_title=False,
         )
@@ -1401,7 +1504,8 @@ def generate_narration(
 
     # Fallback / 规则模式（含 spec R6 兜底质疑 + 诚实告知）
     return _template_narration(
-        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories
+        intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories,
+        unmet_not_scheduled=unmet_not_scheduled,
     )
 
 
@@ -1410,6 +1514,7 @@ __all__ = [
     "generate_title_and_narration",
     "build_template_title",
     "generate_template_node_chips",
+    "split_unmet_by_nearby_availability",
 ]
 
 
