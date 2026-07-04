@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.core.feedback_detector import looks_like_feedback
+from agent.core.feedback_detector import looks_like_feedback, looks_like_feedback_strong
 
 
 # R2.2：曾经漏判的语义类反馈（无数字单位，靠语义表达）
@@ -86,3 +86,23 @@ def test_empty_input_not_feedback() -> None:
     """空输入边界。"""
     assert looks_like_feedback("") is False
     assert looks_like_feedback("   ") is False
+
+
+# ============================================================
+# B1c 短词目碰撞审计（2026-07-04 路演前小修批）：强信号子集的"近点"碰撞
+# ============================================================
+# 设计契约：强信号子集是"命中即拍板路由、无兜底"的层，每条词目必须单独接近
+# 百分百精度。"近点"嵌在"附近点评/附近点心"这类"附近＋点X"常用搭配里会假命中
+# ——扫描前剔除"附近"字样（"附近"本身不携带反馈语义），真"近点"诉求不受影响。
+
+
+def test_strong_subset_not_fooled_by_fujin_dian_collision() -> None:
+    """"附近点评/附近点心"的"近点"子串碰撞不应触发强信号直接拍板。"""
+    assert looks_like_feedback_strong("帮我看看附近点评好的") is False
+    assert looks_like_feedback_strong("附近点心店那家不错") is False
+
+
+def test_strong_subset_still_hits_real_jindian() -> None:
+    """真正的"近点"诉求（不与"附近"粘连）仍是强信号。"""
+    assert looks_like_feedback_strong("近点的") is True
+    assert looks_like_feedback_strong("太远了，近点") is True

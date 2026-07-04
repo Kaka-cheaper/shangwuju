@@ -46,7 +46,13 @@ from dataclasses import dataclass, field
 from schemas.router import CtaChip, InputKind, RouterDecision
 from schemas.tags import DIETARY_TAGS, EXPERIENCE_TAGS, PHYSICAL_TAGS
 
-from .llm_client import LLMClient, LLMMessage, strip_json_fence
+from .llm_client import (
+    LLMClient,
+    LLMMessage,
+    MIMO_THINKING_DISABLED_EXTRA_BODY,
+    strip_json_fence,
+)
+from .prompt_guard import ROLE_LOCK_NOTICE_BRIEF, wrap_user_input
 
 logger = logging.getLogger("agent.core.soft_constraint_sniffer")
 
@@ -140,7 +146,11 @@ def sniff_rule(text: str) -> list[SoftConstraint]:
 # 只在句子有实义时才花这次调用（纯问候 / 极短不调）。
 _MIN_LLM_LEN = 5
 
+# A5（2026-07-04 prompt 防护补齐）：嗅探器 prompt 走精简纪律（窄任务、短 prompt），
+# 用 BRIEF 版角色锁定；用户文本经 wrap_user_input 隔离；调用带关思考 extra_body
+# ——此前三者皆缺。行为语义（只挑词典 tag、失败返空）不变。
 _SNIFF_SYSTEM_PROMPT = (
+    ROLE_LOCK_NOTICE_BRIEF + "\n"
     "你是「下午局」助手的软约束嗅探器。用户在闲聊里可能**没明说**、但隐含了对出行的硬约束"
     "（如提到家里老人腿脚不好 → 需要『适合老人』『可休息』）。\n"
     "你的唯一任务：判断这句话隐含了下面词典里的哪些 tag。\n"
@@ -163,10 +173,11 @@ def sniff_llm(text: str, client: LLMClient) -> list[SoftConstraint]:
         resp = client.chat(
             [
                 LLMMessage(role="system", content=_SNIFF_SYSTEM_PROMPT),
-                LLMMessage(role="user", content=text.strip()),
+                LLMMessage(role="user", content=wrap_user_input(text.strip())),
             ],
             temperature=0.1,
             response_format={"type": "json_object"},
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         cleaned = strip_json_fence(resp.content)
         if not cleaned:

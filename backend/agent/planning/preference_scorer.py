@@ -43,8 +43,8 @@ import logging
 import os
 from typing import Any, Optional
 
-from agent.core.llm_client import LLMMessage
-from agent.core.prompt_guard import ROLE_LOCK_NOTICE
+from agent.core.llm_client import LLMMessage, MIMO_THINKING_DISABLED_EXTRA_BODY
+from agent.core.prompt_guard import ROLE_LOCK_NOTICE, wrap_user_input
 from schemas.domain import Poi
 from schemas.intent import IntentExtraction
 
@@ -148,6 +148,10 @@ def score_pois_with_llm(
             messages,
             temperature=0.3,
             response_format={"type": "json_object"},
+            # A6（2026-07-04）：关思考模式——只要结构化 JSON 分数，思考 token
+            # 挤占输出预算会把 JSON 截断（narrator.py 有同款事故根因记录），
+            # 与 narrator/blueprint/brain 三处已验证写法对齐。
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
     except Exception as exc:
         logger.warning(
@@ -204,8 +208,10 @@ def _build_user_message(intent: IntentExtraction, pois: list[Poi]) -> str:
         ]
         companion_text = "、".join(parts)
 
+    # A3（2026-07-04 prompt 防护补齐）：raw_input 是用户原始文本，经
+    # wrap_user_input 做 L3 输入隔离（本 prompt 已有 L2 角色锁定，此前唯缺这层）。
     intent_block = (
-        f"【用户原话】{intent.raw_input}\n"
+        f"【用户原话】\n{wrap_user_input(intent.raw_input)}\n"
         f"【场景】{intent.social_context}\n"
         f"【同行人】{companion_text}\n"
         f"【体验偏好】{', '.join(intent.experience_tags) or '无'}\n"

@@ -1511,6 +1511,55 @@ async def probe_C5(ctx: ProbeCtx) -> None:
     add_record(ctx, "answer_text", _record_answer)
 
 
+async def probe_C6(ctx: ProbeCtx) -> None:
+    """软约束嗅探 LLM 兜底端到端（2026-07-04 小修批 B4 新增——此前 60 探针里
+    soft_constraint_sniffer 命中面为零）。
+
+    已有方案后说一句**嗅探规则表不命中**、但隐含词典软约束的话（从 _RULE_TABLE
+    的"疲惫/求清静"两族反推措辞，逐词核对过避开表内全部关键词，也避开 Layer 1
+    强反馈词、问句尾、确认/预约/明说改词表）。期望（真实模式）：route_turn
+    Layer 1.8 的 sniff_llm 兜底嗅出词典 tag → chitchat 气泡带「换成X的」引导
+    chip（rationale=soft_constraint_proactive_ask）。
+
+    stub 下实测（判级依据）：sniff_llm 收到 StubLLMClient 的家庭场景固定 fixture
+    （无 "tags" 键）→ 嗅探空手而归 → 落到脑子（stub JSON 无 label 必失败）→
+    壳3 clarify 地板。故 chip 断言只在真实 LLM 下有意义，标 SEMANTIC（stub 下
+    SKIP，不假失败）；另留 RECORD 观察位记录实际落点。
+    """
+    sc = _scenario(_S1)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="step1(S1 建方案)")
+    s2 = await do_turn(
+        ctx,
+        "今天一整天都在开会，脑袋嗡嗡的，就想找个没人打扰的地方发发呆",
+        step_desc="step2(隐含软约束·嗅探规则表不命中)",
+    )
+
+    def _soft_chip() -> tuple[bool, str]:
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        chips = chit.get("cta_chips") or []
+        ok = (
+            chit.get("input_kind") == "chitchat"
+            and chit.get("rationale") == "soft_constraint_proactive_ask"
+            and any((c.get("label") or "").startswith("换成") for c in chips)
+        )
+        return ok, (
+            f"input_kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
+            f"chips={[c.get('label') for c in chips]}"
+        )
+
+    add_check(ctx, "soft_constraint_llm_sniff_produces_guide_chip", "SEMANTIC", _soft_chip)
+
+    def _record_route() -> tuple[bool, str]:
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        return True, (
+            f"落点 kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
+            f"reply={(chit.get('reply_text') or '')[:80]!r} "
+            f"chips={[c.get('label') for c in (chit.get('cta_chips') or [])]}"
+        )
+
+    add_record(ctx, "soft_sniff_route_observation", _record_route)
+
+
 # ---- D. 确认引导 ------------------------------------------------------------
 
 
@@ -1542,20 +1591,19 @@ async def probe_D1(ctx: ProbeCtx) -> None:
     # 任何 provider 下都应判 confirm，故为 PLUMBING。
     add_check(ctx, "input_kind_confirm", "PLUMBING", _input_kind_confirm)
 
-    def _confirm_chip_note() -> tuple[bool, str]:
+    def _confirm_chip_present() -> tuple[bool, str]:
         chit = payload_of(s2.events, "chitchat_reply") or {}
         chips = chit.get("cta_chips") or []
         has_confirm_chip = any(c.get("action") == "confirm" for c in chips)
-        return True, (
+        return has_confirm_chip, (
             f"cta_chips={chips}；has_confirm_chip={has_confirm_chip}。"
-            "已读码确认：agent/core/dialogue_acts.py::build_confirm_decision 硬编码 "
-            "cta_chips=[]——「就这样挺好」经壳2 canonical 命中该函数时恒无 action=confirm "
-            "的 chip（只有 build_booking_decision 与脑子 LLM 路径的 "
-            "_apply_label_chip_policy 会挂这枚 chip）。这是发现的架构现状，不因未挂 chip "
-            "而判本探针 FAIL——记录供人判。"
+            "2026-07-04 小修批 B3：build_confirm_decision 已补上与 booking/脑子路径"
+            "同一枚「确认预约」action chip（此前硬编码 cta_chips=[]，是全系统确认"
+            "出口里唯一无按钮的——本 check 原为 RECORD 现状记录，修复后升 PLUMBING："
+            "壳2 canonical→规则构造器，任何 provider 下确定性成立）。"
         )
 
-    add_record(ctx, "confirm_chip_presence_note", _confirm_chip_note)
+    add_check(ctx, "confirm_chip_present", "PLUMBING", _confirm_chip_present)
 
 
 async def probe_D2(ctx: ProbeCtx) -> None:
@@ -2718,6 +2766,7 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("C3", "C", "S6 方案后：有点累了（双判例观察位之二，对照 C2）", probe_C3),
         ("C4", "C", "方案后：我是谁（persona QA）", probe_C4),
         ("C5", "C", "方案后：第二站几点到（itinerary QA，不应重排）", probe_C5),
+        ("C6", "C", "方案后：隐含软约束但嗅探规则不命中（sniff_llm 兜底→引导 chip）", probe_C6),
         ("D1", "D", "方案后：就这样挺好（纯确认，无自动下单）", probe_D1),
         ("D2", "D", "方案后：帮我把这个订了吧（预约表态，无自动下单）", probe_D2),
         ("E1", "E", "方案后：我不想玩这个了（应 clarify，方案不动）", probe_E1),

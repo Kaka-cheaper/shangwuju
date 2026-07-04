@@ -11,6 +11,12 @@
 4. 输出强制 JSON、不要围栏
 5. 同行人 role 是自由文本（D9 开放性）
 
+2026-07-04 路演前小修批 A7（词典去重）：physical/dietary/experience/social_context
+四个词典此前在 prompt 里被完整打印两次（schema 字段注释处 + 文末【中文词典强
+约束】段）。现 schema 注释处改为引用（"见文末【中文词典强约束】"），完整词典
+只保留文末强约束段一份——语义零变化，省 token 且消除"两处词典改一漏一"的
+漂移面（test_prompt_guard_alignment.py 钉住"各词典恰打印一次且在强约束段"）。
+
 ADR-0014 G-0（2026-07-03）砍除记录：
 - 「pace_profile 抽取规则」段（4 条隐含规则）与 `_format_pace_prior_section`
   注入的 persona.default_pace_profile prior 段已一并砍除——两者服务的
@@ -66,10 +72,10 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
       "is_special_role": bool         // 商务客户 / 长辈等需特别尊重的场合填 true
     }}
   ],
-  "physical_constraints": list[str],  // 仅从下列词典选：{_format_set(PHYSICAL_TAGS)}
-  "dietary_constraints":  list[str],  // 仅从下列词典选：{_format_set(DIETARY_TAGS)}
-  "experience_tags":      list[str],  // 仅从下列词典选：{_format_set(EXPERIENCE_TAGS)}
-  "social_context": str,              // 9 选 1：{_format_set(SOCIAL_CONTEXTS)}
+  "physical_constraints": list[str],  // 仅从文末【中文词典强约束】的 physical 词典选
+  "dietary_constraints":  list[str],  // 仅从文末【中文词典强约束】的 dietary 词典选
+  "experience_tags":      list[str],  // 仅从文末【中文词典强约束】的 experience 词典选
+  "social_context": str,              // 9 选 1，枚举见文末【中文词典强约束】
   "capacity_requirement": int | null, // 同行 ≥ 4 人时填总人数
   "extra_services": list[str],        // 仪式场景填 ["蛋糕"] 等
   "preferred_poi_types": list[str],   // 用户明示的 POI 类型，如 ["展览", "美术馆"]
@@ -82,8 +88,8 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 
 【硬性约束（违反即视为失败）】
 1. 严禁出现以下字段：scene_type / relation_type / is_family / is_friends（任何形式枚举）。
-2. physical / dietary / experience tag 仅接受上面词典中的值，**不可发明**新词。
-3. social_context **必须**是上面 9 选 1 中的一个。
+2. physical / dietary / experience tag 仅接受文末【中文词典强约束】词典中的值，**不可发明**新词。
+3. social_context **必须**是文末词典 9 选 1 中的一个。
 4. companions[].role 是**自由文本**，不限于词典；用户怎么称呼就填什么。
 5. 输出**纯 JSON**，**不要**用 ```json 围栏，**不要**任何解释文字。
 

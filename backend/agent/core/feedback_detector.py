@@ -180,6 +180,14 @@ _STRONG_FEEDBACK_KEYWORDS: tuple[str, ...] = (
     "太贵", "便宜点",
 )
 
+# B1c 短词目碰撞审计（2026-07-04 路演前小修批）："近点"嵌在"附近点评/附近点心/
+# 附近点位"这类"附近＋点X"常用搭配里会假命中。强信号子集是"命中即拍板路由、
+# 无兜底"的层（设计契约：规则层每条词目须单独接近百分百精度，召回归脑子管），
+# 按宁剪勿留纪律加边界：扫关键词前先剔除"附近"字样——"附近"本身不携带任何
+# 反馈语义，真"近点"诉求（"近点的""太远了，近点"）不与"附近"粘连，不受影响。
+# 只影响本强信号子集；高召回粗筛 looks_like_feedback 不拍板路由，不动。
+_STRONG_SCAN_NOISE: tuple[str, ...] = ("附近",)
+
 
 def looks_like_feedback_strong(message: str) -> bool:
     """强信号反馈判定（spec feedback-routing-fix R4）。
@@ -194,9 +202,12 @@ def looks_like_feedback_strong(message: str) -> bool:
     if not txt:
         return False
 
-    # 强信号关键词
+    # 强信号关键词（剔噪后扫描，防"附近点评"类子串假命中，见 _STRONG_SCAN_NOISE）
+    scan = txt
+    for noise in _STRONG_SCAN_NOISE:
+        scan = scan.replace(noise, "")
     for kw in _STRONG_FEEDBACK_KEYWORDS:
-        if kw in txt:
+        if kw in scan:
             return True
 
     # 数字 + 单位（"3 公里" / "1.5 小时"——明确的量化调整）

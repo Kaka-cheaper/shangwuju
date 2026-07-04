@@ -36,7 +36,8 @@ from typing import Any
 
 from schemas.router import InputKind, RouterDecision
 
-from .llm_client import LLMClient, LLMMessage
+from .llm_client import LLMClient, LLMMessage, MIMO_THINKING_DISABLED_EXTRA_BODY
+from .prompt_guard import ROLE_LOCK_NOTICE, wrap_user_input
 from .soft_constraint_sniffer import looks_like_explicit_revise
 
 logger = logging.getLogger("agent.core.itinerary_qa")
@@ -255,7 +256,12 @@ _FIELD_ANSWERERS = {
 # 5. 弃答（abstention）+ 来源标注
 # ============================================================
 
+# A1（2026-07-04 prompt 防护补齐）：本调用位曾是全仓唯一"用户原始文本直喂 LLM +
+# 无 L2 角色锁定无 L3 输入隔离 + 输出自由文本直接展示给用户"的位置——弃答文案
+# 会原样进 chitchat 气泡，注入面最大，故用完整版 ROLE_LOCK_NOTICE（非 BRIEF）+
+# wrap_user_input 补齐两道防线；行为语义（弃答+经验标注）不变。
 _ABSTAIN_SYSTEM = (
+    ROLE_LOCK_NOTICE + "\n\n"
     "用户在问关于一个已定下午行程的问题，但方案数据里**没有**这条信息。"
     "请用一句中文坦诚说明『方案数据里没有这个信息』，再凭常识给一句简短建议，"
     "并**明确标注**这是经验、不是查到的数据（如『一般来说…，到店问下最稳』）。不超过 60 字。"
@@ -269,8 +275,12 @@ def _abstain(text: str, client: LLMClient | None) -> str:
     try:
         resp = client.chat(
             [LLMMessage(role="system", content=_ABSTAIN_SYSTEM),
-             LLMMessage(role="user", content=text.strip())],
+             LLMMessage(role="user", content=wrap_user_input(text.strip()))],
             temperature=0.3,
+            # A6：关思考模式——弃答只要一句短文案，思考 token 挤占输出预算会把
+            # 正文截空（narrator.py 有同款事故的根因记录），与 narrator/blueprint/
+            # brain 三处已验证写法对齐。
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         out = (resp.content or "").strip()
         return out or (base + "建议到店或在 App 上确认一下。")

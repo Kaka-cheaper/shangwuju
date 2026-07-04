@@ -30,8 +30,9 @@
   BOOKING 与 CONFIRM 现在都映射到 route_kind="confirm"（ADR-0011 决策 1 的"确认"
   义务）而不再是旧世界的 "chitchat"——两者都是"认可/主动执行"的强表态，下游都是
   "引导到显式确认按钮，绝不自动下单"（L0 全局禁令 1），没有理由分裂成两个路由目标；
-  只是 BOOKING 自带一个「确认预约」action chip（`CONFIRM_CTA_CHIP`），CONFIRM 没有
-  （纯认可，不主动要求执行）。
+  两者都带同一枚「确认预约」action chip（`CONFIRM_CTA_CHIP`）——B3（2026-07-04）
+  之前 CONFIRM 硬编码空 chips，是全系统确认出口里唯一无引导按钮的路径，现与
+  booking / 脑子 confirm 的 `_apply_label_chip_policy` 对齐。
 
   判定顺序（同旧 C2，未变）：BOOKING 优先于 CONFIRM（"给我预约吧"不该先被 CONFIRM
   的宽松词表误吞——虽然两者当前都归 "confirm" 路由，顺序仍保留以维持
@@ -73,28 +74,68 @@ pending_actions），不发对话消息。`build_booking_decision` 与
 # ============================================================
 # 确认（CONFIRM 对话行为）
 # ============================================================
+# 【B1 词表剪枝纪律（2026-07-04 路演前小修批）】
+# 级联分类的规则层是"命中即拍板、无兜底"的确定性层——每一条词目必须单独接近
+# 百分百精度，召回损失由脑子（LLM，慢 2-4 秒但带上下文）补。判据：能想象一个
+# 日常语境里词目出现但用户不是在确认，就剪掉或加边界条件（宁剪勿留）。
+# 实锤碰撞（路由勘察程序化实测 + 本批复核）：单字"行"作子串命中"银行卡里没钱了"
+# （银行）与"这个行程安排的，还行吧"（行程/还行）——从子串词表剪除，只保留
+# "独立成句"形式（见 _CONFIRM_EXACT_UTTERANCES）；"不可以/不确定"类否定前缀
+# 碰撞加 _NEGATION_PREFIXES 边界条件。被剪话术落到脑子是设计预期，不是回归。
 
-# 纯肯定词（"ok" 用小写匹配，中文不受 lower 影响）
+# 纯肯定词（"ok" 用小写匹配，中文不受 lower 影响）；子串匹配 + 否定前缀边界
 _CONFIRM_WORDS: tuple[str, ...] = (
-    "好的", "好嘞", "好呀", "好啊", "可以", "行", "确定", "没问题",
+    "好的", "好嘞", "好呀", "好啊", "可以", "确定", "没问题",
     "就这个", "就它", "就这样", "就这么定", "就酱", "挺好", "没意见",
     "听你的", "ok", "可以的", "妥了", "没毛病",
 )
+
+# "行"家族只认独立成句（整句去首尾标点/空白后恰为其一）——子串匹配碰撞面太大
+# （银行/行程/还行/不行/自行车），独立成句时精度才接近百分百。
+_CONFIRM_EXACT_UTTERANCES: frozenset[str] = frozenset(
+    {"行", "行吧", "行啊", "行呀", "那行", "那行吧", "行行", "行行行"}
+)
+
+# 否定前缀（B1c 短词目碰撞审计）：词目起点紧跟在这些字后面时不算命中
+# （"不可以""还不确定""先不预约"）。只看词目前一个字符，"没问题"这类
+# 自带"没"的词表原词不受影响（检查的是词目外侧，不拆词目本身）。
+_NEGATION_PREFIXES: tuple[str, ...] = ("不", "别", "没", "未", "非", "难")
+
+# 独立成句判定用的首尾标点集（"行！""那行吧。"仍算独立成句）
+_PUNCT_STRIP = " \t\r\n，。！？!?~～…、"
 
 # 追加词：含这些是"加一项"（→ refiner），不是确认
 _ADD_HINTS: tuple[str, ...] = ("加个", "加一", "还想", "再来", "再去", "再加", "顺便", "另外加")
 
 
+def _hit_words_without_negation(text: str, words: tuple[str, ...]) -> bool:
+    """词目子串命中，但跳过被否定前缀直接修饰的出现位置（B1c 边界条件）。"""
+    for w in words:
+        start = 0
+        while True:
+            idx = text.find(w, start)
+            if idx == -1:
+                break
+            if idx == 0 or text[idx - 1] not in _NEGATION_PREFIXES:
+                return True
+            start = idx + 1
+    return False
+
+
 def looks_like_confirm(text: str) -> bool:
     """是不是「纯确认 / 采纳」。
 
-    必须含确认词，且不含反馈 / 疑问 / 明确改 / 追加——否则不是纯确认（交回兜底）。
+    必须含确认词（子串词表·带否定前缀边界，或"行"家族独立成句），且不含
+    反馈 / 疑问 / 明确改 / 追加——否则不是纯确认（交回兜底）。
     """
     if not text:
         return False
     t = text.strip()
     tl = t.lower()
-    if not any(w in tl for w in _CONFIRM_WORDS):
+    hit = _hit_words_without_negation(tl, _CONFIRM_WORDS) or (
+        tl.strip(_PUNCT_STRIP) in _CONFIRM_EXACT_UTTERANCES
+    )
+    if not hit:
         return False
     if looks_like_feedback(t):
         return False  # "好的但太远了" 是反馈
@@ -108,7 +149,14 @@ def looks_like_confirm(text: str) -> bool:
 
 
 def build_confirm_decision(text: str) -> RouterDecision | None:
-    """纯确认 → 肯定 + 引导下一步（confirm 出口，不重规划）；否则 None。"""
+    """纯确认 → 肯定 + 引导下一步（confirm 出口，不重规划）；否则 None。
+
+    B3（2026-07-04）：带上与 booking / 脑子 confirm 路径同一枚「确认预约」action
+    chip——此前这里硬编码 cta_chips=[]，使壳2 canonical「就这样挺好」与 Layer 1.8
+    纯确认成为全系统确认出口里唯一无引导按钮的回复（reply_text 说"想订位…随时
+    招呼我"却没有可点的入口）。仍守 L0 全局禁令 1：chip 只是显式确认按钮的入口，
+    绝不自动下单。
+    """
     if not looks_like_confirm(text):
         return None
     return RouterDecision(
@@ -116,7 +164,7 @@ def build_confirm_decision(text: str) -> RouterDecision | None:
         confidence=0.85,
         reply_text="好嘞，那就按这个来。想订位、出张分享海报，或者再改两笔，随时招呼我。",
         tone="warm",
-        cta_chips=[],
+        cta_chips=[CONFIRM_CTA_CHIP],
         rationale="dialogue_act_confirm",
     )
 
@@ -131,17 +179,24 @@ _BOOKING_WORDS: tuple[str, ...] = (
     "预约", "订位", "下单", "预定", "帮我订", "订吧", "约位", "去订", "帮我约", "约一下",
 )
 
+# B1c 短词目碰撞审计：撤销语境词——"取消预约/退订"含预约词但语义相反，
+# 命中即排除（交回脑子），不给"确认预约"chip。
+_BOOKING_CANCEL_HINTS: tuple[str, ...] = ("取消", "退订", "不订了", "不约了")
+
 
 def looks_like_booking(text: str) -> bool:
     """是不是「主动发起预约 / 下单」的执行指令。
 
-    含预约词，且不是疑问（"可以预约吗"=提问）、不是反馈（"别预约太远"=约束）、
+    含预约词（带否定前缀边界，B1c："先不预约"不算），且不是撤销语境（"取消
+    预约"）、不是疑问（"可以预约吗"=提问）、不是反馈（"别预约太远"=约束）、
     不是明确改方案——这些都交回各自通道。
     """
     if not text:
         return False
     t = text.strip()
-    if not any(w in t for w in _BOOKING_WORDS):
+    if not _hit_words_without_negation(t, _BOOKING_WORDS):
+        return False
+    if any(h in t for h in _BOOKING_CANCEL_HINTS):
         return False
     if looks_like_question(t):
         return False

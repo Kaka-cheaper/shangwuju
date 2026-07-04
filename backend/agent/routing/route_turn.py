@@ -103,11 +103,42 @@ def _safe_refusal_decision() -> RouterDecision:
     )
 
 
+# B2（2026-07-04 路演前小修批）：Layer 1 强反馈的问句排除护栏。
+# 实锤误判：「太久没回复我了，人还在吗」含强信号词"太久"，被 Layer 1 直觉判成
+# "嫌方案太久"送去重排——整句在问不在评。兄弟层（dialogue_acts 的 booking/
+# confirm）都有 looks_like_question 类排除，本层此前没有。
+_QUESTION_TAIL_MARKS: tuple[str, ...] = ("吗", "呢", "？", "?")
+
+
+def _is_interrogative_tail(txt: str) -> bool:
+    """句尾疑问标记判定（刻意收窄的护栏判据）。
+
+    只认句尾 吗/呢/？/?（信息寻求问句）；"吧＋问号"（"太远了吧？"）按附加问/
+    揣测语气处理＝陈述性抱怨，不算问句——与 itinerary_qa「"吧"不算问」同一
+    判据。刻意**不**用 looks_like_question 的句中线索（多少/能不能/有没有…）：
+    那会把"有没有便宜点的"这类问句形真反馈也排除出 Layer 1、误送 QA 弃答，
+    精度护栏反伤召回主胜场。
+    """
+    t = (txt or "").strip()
+    if not t:
+        return False
+    core = t.rstrip("？?！! ")
+    if core.endswith("吧"):
+        return False
+    return t.endswith(_QUESTION_TAIL_MARKS)
+
+
 def _looks_like_feedback_strong_from_state(utterance: str, itinerary: Any) -> bool:
-    """Layer 1 强信号：has_itinerary + 命中强信号子集（不误吞新需求）。"""
+    """Layer 1 强信号：has_itinerary + 命中强信号子集（不误吞新需求）。
+
+    B2 护栏：句尾疑问标记的输入不在本层拍板（重排是确定性动作、无兜底），
+    放行到 Layer 1.8 问答 / 脑子——慢一点但判得对，这是设计预期不是回归。
+    """
     if not itinerary:
         return False
     txt = (utterance or "").strip()
+    if _is_interrogative_tail(txt):
+        return False
     return looks_like_feedback_strong(txt)
 
 

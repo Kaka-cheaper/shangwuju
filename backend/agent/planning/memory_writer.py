@@ -43,7 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from agent.core.llm_client import LLMMessage
+from agent.core.llm_client import LLMMessage, MIMO_THINKING_DISABLED_EXTRA_BODY
 from data.loader import load_user_profile
 from schemas.domain import RecentTrip, UserProfile
 from schemas.intent import IntentExtraction
@@ -339,6 +339,10 @@ def _summarize_trip(
                 LLMMessage(role="user", content=user_msg),
             ],
             temperature=0.4,
+            # A6（2026-07-04）：关思考模式——只要 50-150 字摘要文本，思考 token
+            # 挤占输出预算会把正文截空（narrator.py 有同款事故根因记录）。
+            # 本调用不喂用户原始文本（输入是脱敏后的结构化行程描述），不必 wrap。
+            extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         text = (resp.content or "").strip()
         if not text:

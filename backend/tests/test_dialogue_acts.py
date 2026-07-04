@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from agent.context.sources import GraphStateSource
 from agent.core.dialogue_acts import (
+    CONFIRM_CTA_CHIP,
     build_booking_decision,
     build_confirm_decision,
     looks_like_booking,
@@ -61,6 +62,59 @@ def test_build_confirm_decision():
         "ADR-0011 决策 1：确认独立出口，不再是 chitchat"
     )
     assert build_confirm_decision("太远了") is None
+
+
+# ============================================================
+# B1（2026-07-04 路演前小修批）：确认词表剪枝——短词目子串碰撞
+# ============================================================
+# 设计契约（级联分类·规则层高精度）：规则层每一条词目必须单独接近百分百精度，
+# 召回归脑子（LLM）管；规则层判错=确定性做错事、无兜底，故宁剪勿留。
+# 实锤误判（路由勘察程序化实测 + 本批复核）：单字"行"作子串命中"银行/行程/还行"。
+
+
+def test_confirm_not_fooled_by_hang_embedded_in_words():
+    """"银行卡里没钱了"（银行）/"这个行程安排的，还行吧"（行程/还行）不是确认。
+
+    单字"行"已从子串词表剪除——被剪话术自然落到脑子（慢 2-4 秒但判得对），
+    这是设计预期不是回归。"还行吧"是温吞评价，同样交脑子带上下文判。
+    """
+    assert not looks_like_confirm("银行卡里没钱了，下次再说"), "『银行』子串碰撞"
+    assert not looks_like_confirm("这个行程安排的，还行吧"), "『行程/还行吧』子串碰撞"
+
+
+def test_confirm_standalone_hang_forms_still_work():
+    """"行"家族只在独立成句（整句去标点后恰为该词）时算确认——精度近百分百的保留形式。"""
+    for t in ("行", "行吧", "行啊", "那行", "行行行", "行！"):
+        assert looks_like_confirm(t), f"{t!r} 独立成句应仍判确认"
+
+
+def test_confirm_negated_words_not_confirm():
+    """B1c 审计边界条件：确认词被否定词直接前缀（不可以/不确定）时不算确认。"""
+    assert not looks_like_confirm("这样不可以")
+    assert not looks_like_confirm("我还不确定")
+
+
+def test_booking_negation_and_cancel_not_booking():
+    """B1c 审计边界条件：否定前缀（先不预约）/取消语境（取消预约）不是预约指令。"""
+    assert not looks_like_booking("先不预约了")
+    assert not looks_like_booking("取消预约")
+
+
+# ============================================================
+# B3（2026-07-04 路演前小修批）：纯确认补「确认预约」action chip
+# ============================================================
+
+
+def test_build_confirm_decision_carries_confirm_chip():
+    """纯确认也带同一枚「确认预约」action chip——对齐 booking 路径与脑子 confirm
+    路径（`brain._apply_label_chip_policy` 钉死同一枚 CONFIRM_CTA_CHIP）。修复前
+    `build_confirm_decision` 硬编码 cta_chips=[]，是全系统确认出口里唯一不带引导
+    按钮的（壳2 canonical「就这样挺好」与 Layer 1.8 纯确认共用本构造器，一并补齐）。
+    """
+    d = build_confirm_decision("就这个")
+    assert d is not None
+    assert len(d.cta_chips) == 1 and d.cta_chips[0].action == "confirm"
+    assert d.cta_chips[0] == CONFIRM_CTA_CHIP, "必须复用同一枚 chip，防两处各造导致漂移"
 
 
 # ============================================================
@@ -115,6 +169,37 @@ def test_route_turn_booking_not_feedback():
 def test_route_turn_confirm_not_replan():
     out = _route("好的，就这个", _itin())
     assert out.kind == "confirm", f"确认不该重规划，实际 {out.kind}"
+
+
+def test_route_turn_canonical_keep_has_confirm_chip():
+    """B3：「就这样挺好」走壳2 canonical 字面确认路径，也应带「确认预约」chip
+    （与其它确认路径同款，不再是全系统唯一无按钮的确认回复）。"""
+    out = _route("就这样挺好", _itin())
+    assert out.kind == "confirm"
+    assert any(c.action == "confirm" for c in out.decision.cta_chips), (
+        f"壳2 确认应带 action=confirm chip，实际 {out.decision.cta_chips}"
+    )
+
+
+def test_route_turn_bank_sentence_reaches_brain():
+    """B1：「银行卡里没钱了，下次再说」规则层不拍板（"行"已剪），应放行到脑子。"""
+    def _fake_brain(context_text, user_input, has_itinerary, *, client):
+        assert user_input == "银行卡里没钱了，下次再说"
+        return RouteJudgment(
+            label="chitchat", confidence=0.8, reply_text="好，那咱们下次再约。", tone="warm"
+        )
+
+    state = make_initial_state(user_input="银行卡里没钱了，下次再说", session_id="s3")
+    state["itinerary"] = _itin()
+    out = route_turn(
+        "银行卡里没钱了，下次再说",
+        _itin(),
+        state.get("user_id"),
+        client=object(),
+        context_source=GraphStateSource(state),
+        classify_fn=_fake_brain,
+    )
+    assert out.kind == "chitchat", f"应交脑子判定为 chitchat，实际 {out.kind}"
 
 
 def test_route_turn_question_runs_before_booking_confirm():

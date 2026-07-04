@@ -439,7 +439,12 @@ class _MockLLMClient:
     def __init__(self, weights_json: str):
         self._weights_json = weights_json
 
-    def chat(self, messages, *, temperature=0.3, response_format=None):
+    def chat(self, messages, *, temperature=0.3, response_format=None, extra_body=None, max_tokens=None):
+        # 2026-07-04 A4/A6：weights_llm / preference_scorer 关思考模式后 client.chat
+        # 会多传 extra_body（MIMO_THINKING_DISABLED_EXTRA_BODY）——mock 签名跟上
+        # LLMClient 协议；不跟上会 TypeError 被 _llm_weights 静默吞掉、降级
+        # fallback，使 test_hybrid_end_to_end_with_mock_client 的 source=="llm"
+        # 断言假红。
         return _MockLLMResponse(content=self._weights_json)
 
 

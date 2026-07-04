@@ -172,3 +172,53 @@ def test_strong_feedback_layer1_no_brain(monkeypatch):
     out = router_mod.router_node(_state_with_itinerary("太远了，3公里以内"))
     assert out["route_kind"] == "feedback"
     assert called["brain"] is False, "Layer 1 强信号命中不应再调脑子"
+
+
+# ============================================================
+# B2（2026-07-04 路演前小修批）：Layer 1 强反馈补问句排除护栏
+# ============================================================
+# 实锤误判：「太久没回复我了，人还在吗」含强信号词"太久"，被 Layer 1 直觉判成
+# "嫌方案太久"送去重排——但整句在问不在评。兄弟层（dialogue_acts 的 booking/
+# confirm）都有 looks_like_question 类排除，Layer 1 此前没有。
+# 护栏判据（刻意收窄）：只认句尾疑问标记（吗/呢/？/?），且"吧＋问号"按附加问/
+# 揣测语气处理＝陈述性抱怨仍走强反馈；不用句中线索（有没有/能不能…）——那会把
+# "有没有便宜点的"这类问句形真反馈也排除出 Layer 1，误送 QA 弃答，护栏反伤主胜场。
+
+
+def test_question_tail_with_strong_keyword_not_layer1_feedback(monkeypatch):
+    """「太久没回复我了，人还在吗」——问句尾排除强反馈直觉，落到问答/脑子路径。"""
+    called = {"brain": False}
+
+    def _spy(*a, **k):
+        called["brain"] = True
+        return _make_judgment("chitchat")
+
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(router_mod, "classify_turn", _spy)
+    out = router_mod.router_node(_state_with_itinerary("太久没回复我了，人还在吗"))
+    assert out["route_kind"] != "feedback", "问句不该被强反馈直觉送去重排"
+    assert out["route_kind"] == "chitchat", (
+        f"应落问答（QA 弃答）或脑子（此处脑子垫桩 chitchat），实际 {out['route_kind']}"
+    )
+
+
+def test_rhetorical_ba_with_question_mark_still_feedback(monkeypatch):
+    """护栏不误伤附加问（tag question）：「这也太远了吧？」句尾"吧"是揣测语气
+    不是求信息，仍应走 Layer 1 强反馈（与 itinerary_qa「"吧"不算问」同一判据）。"""
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        router_mod, "classify_turn", lambda *a, **k: _make_judgment("clarify")
+    )
+    out = router_mod.router_node(_state_with_itinerary("这也太远了吧？"))
+    assert out["route_kind"] == "feedback", "『吧？』附加问是陈述性抱怨，强反馈不受护栏影响"
+
+
+def test_plain_strong_feedback_unaffected_by_question_guard(monkeypatch):
+    """真正的强反馈（太远了/太赶了）不受问句护栏影响。"""
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        router_mod, "classify_turn", lambda *a, **k: _make_judgment("clarify")
+    )
+    for text in ("太远了", "太赶了"):
+        out = router_mod.router_node(_state_with_itinerary(text))
+        assert out["route_kind"] == "feedback", f"{text!r} 应仍走 Layer 1 强反馈"
