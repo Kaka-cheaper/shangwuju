@@ -154,6 +154,11 @@ export function setUserIdCookie(userId: string): void {
   document.cookie = `${USER_ID_COOKIE}=${encodeURIComponent(userId)}; Max-Age=${oneYear}; Path=/; SameSite=Lax`;
 }
 
+export function clearUserIdCookie(): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${USER_ID_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+}
+
 // ============================================================
 // Session 历史管理（多 session UI）
 //   - 用 localStorage 存最多 8 个 session 记录

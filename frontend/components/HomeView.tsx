@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { useChatStore } from "@/lib/store";
 import { useCollabStore } from "@/lib/collab-store";
 import {
+  clearUserIdCookie,
   generateSessionId,
-  getUserIdFromCookie,
   upsertSession,
 } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -62,10 +62,8 @@ export default function HomeView() {
       // 后续刷新：保持当前 session 在 localStorage 里
       upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
-    const persisted = getUserIdFromCookie();
-    if (persisted) {
-      useChatStore.setState({ currentUserId: persisted });
-    }
+    clearUserIdCookie();
+    useChatStore.setState({ currentUserId: "demo_user", preferences: null });
     loadScenarios();
     loadPersonas();
     refreshPreferences();
@@ -172,7 +170,7 @@ export default function HomeView() {
               <span className="kbd">⌘</span>
               <span className="kbd">K</span>
             </button>
-            <UserSwitcher />
+            <UserSwitcher autoOpenOnMount />
             <PlannerModeBadge />
             <MockModeBadge />
             <OfflineReadyBadge />
