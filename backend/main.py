@@ -4,7 +4,7 @@
 
 1. 加载 .env（双重保险）
 2. 初始化 FastAPI app 实例（含 description / openapi_tags / middleware）
-3. 接入 12 个 router 子模块
+3. 接入 api/ 目录的全部 router 子模块(清单见 api/__init__.py 导航)
 4. 通过 init_observability 启用 Logfire 探针（失败降级，不阻塞启动）
 
 端点实现位置（spec code-modularization-refactor）：

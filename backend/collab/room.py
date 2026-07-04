@@ -1290,45 +1290,13 @@ class RoomManager:
             parts.append(f"  {role_label}：{msg['content']}")
         return "\n".join(parts)
 
-    def _get_stage_title(self, room: Room, stage_index: int) -> str:
-        """从当前行程中取某段的标题。
-
-        edge_v1：itinerary 已切换为 nodes/hops 模型，但本方法的 `stage_index` 来源
-        仍是前端 `vote.stage_index`（前端时间轴的可见段编号）。dict 形式无 schema
-        约束，本函数主动兼容三种情况：
-        1. dict 仍带旧 `stages` 字段（legacy snapshot） → 直接读
-        2. dict 含 `nodes` → 跳过首尾 home，按 mid nodes 顺序取第 stage_index 段
-        3. 都没有 → 返回 fallback 文本
-
-        前端何时切到「按 schedule entry 索引」由 Task 12 决定，本函数只保证
-        edge_v1 数据下不抛异常。
-        """
-        if not room.current_itinerary_dict:
-            return f"第 {stage_index + 1} 段"
-
-        # 1. 兼容旧 stages 字段
-        legacy_stages = room.current_itinerary_dict.get("stages")
-        if isinstance(legacy_stages, list) and 0 <= stage_index < len(legacy_stages):
-            return legacy_stages[stage_index].get("title", f"第 {stage_index + 1} 段")
-
-        # 2. edge_v1：跳过首尾 home，对中间节点取 title
-        nodes = room.current_itinerary_dict.get("nodes")
-        if isinstance(nodes, list):
-            mid_nodes = [
-                n for n in nodes
-                if isinstance(n, dict) and n.get("target_kind") != "home"
-            ]
-            if 0 <= stage_index < len(mid_nodes):
-                return mid_nodes[stage_index].get("title", f"第 {stage_index + 1} 段")
-
-        return f"第 {stage_index + 1} 段"
 
     def _stage_target_id(self, room: Room, stage_index: int) -> Optional[str]:
         """`update_vote` 点踩收编（F-5）用：把 `stage_index`（前端时间轴的可见段
-        编号，与 `_get_stage_title` 同一口径——跳过首尾 home 的 mid nodes 顺序）
+        编号——跳过首尾 home 的 mid nodes 顺序）
         翻译成 `adjust()` 需要的 `target_id`（`ActivityNode.target_id`）。
 
-        与 `_get_stage_title` 是姊妹方法而非合并改造它——那个方法产出的是"展示
+        （历史注：曾有产出展示标题的姊妹方法 `_get_stage_title`，ADR-0013 留痕记为死代码，2026-07-04 已删——它产出的是"展示
         用标题"，本方法产出的是"引擎定位用 id"，两者消费方不同（前者给旧的
         约束文案合成，后者给新的局部重解引擎），故意不复用同一个返回值语义。
         找不到（尚未出方案 / index 越界）返回 `None`，调用方按"静默丢弃"处理。

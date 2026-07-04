@@ -123,16 +123,13 @@ def test_two_turns_produce_four_messages_and_two_version_log_entries():
     v1, v2 = version_log
     assert v1["version_n"] == 1
     assert v2["version_n"] == 2
-    # trigger 取值说明（读码实测，非猜测）：stub LLM 下 generate_blueprint 恒
-    # 抛 BlueprintGenError（见 agent/graph/nodes/planner.py），两轮都会经
-    # replan_router_node 升级到 replan_strategy="ils_fallback"——_version_log_
-    # trigger() 按拍板的判据优先取它（诊断价值高于"first/feedback"入口维度，
-    # 与 decision_trace.final_strategy 同一份 fallback_chain 派生，两处都是
-    # 只读投影，不是分裂的真相源）。这里只断言 trigger 是非空、认识的字面值
-    # ——"first"/"feedback" 分支的正确性由 test_finalize_plan_version_log.py
-    # 的纯函数单测钉住（不受 stub 环境这一具体路径影响）。
-    assert v1["trigger"] in {"first", "feedback", "llm_backprompt", "ils_fallback", "give_up"}
-    assert v2["trigger"] in {"first", "feedback", "llm_backprompt", "ils_fallback", "give_up"}
+    # trigger 取值(E-2-a 主代理改判后的现行语义,2026-07-04 修正本注释的历史
+    # 漂移——原文描述的"优先取 replan_strategy"方案在深审时已被否决,求解路径
+    # 住 decision_trace.final_strategy,不二存):finalize_plan 只产入口维度
+    # first/feedback 两值;adjust/confirm 条目由 graph_adjust/graph_confirm
+    # 两个旁路写手产,不经本路径。
+    assert v1["trigger"] == "first"
+    assert v2["trigger"] == "feedback"
     # v2 的 summary 必须引用反馈原话（截断片段足以判定），不是复述首轮原始需求。
     assert _FEEDBACK_INPUT[:10] in v2["summary"], f"v2 summary 未引用反馈原话：{v2['summary']!r}"
     assert _PLANNING_INPUT[:10] not in v2["summary"]

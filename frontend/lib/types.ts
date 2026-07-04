@@ -80,13 +80,20 @@ export type ViolationCode =
   | "dietary_violation"
   | "commute_infeasible";
 
-export type ViolationSeverity = "critical" | "warning";
+// ADR-0008 B-1 后端枚举 CRITICAL/WARNING→HARD/SOFT 改名,本镜像 2026-07-04
+// 才跟上(旧值曾致看板比对空转,后端侧已修过一次同名漂移;保留旧值兼容历史回放)。
+export type ViolationSeverity = "hard" | "soft" | "critical" | "warning";
 
 export interface CriticViolation {
   code: ViolationCode;
   severity: ViolationSeverity;
   message: string;
   field_path: string;
+  /** B-2 可执行违规字段(critic/_rules/types.py 同名镜像;后端一直在发,
+   * 2026-07-04 补齐镜像——看板"质检与自愈"可选消费)。 */
+  expected_range?: [number, number] | null;
+  node_ref?: string | null;
+  hint?: string | null;
 }
 
 export interface CriticViolationsPayload {
