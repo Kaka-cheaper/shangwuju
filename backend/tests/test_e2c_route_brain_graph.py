@@ -21,6 +21,7 @@ test_routing_brain.py 的垫桩单测 + 真 LLM 冒烟验证，不是图级 stub
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import types
 from pathlib import Path
@@ -123,6 +124,48 @@ def test_ambiguous_feedback_with_plan_gets_clarify_bubble():
 
     after = _state_values(session_id)["itinerary"]
     assert after == baseline, "澄清轮不该改动方案"
+
+
+# ============================================================
+# 2b) chitchat_chips 的 checkpoint 序列化往返——必须是纯 dict
+# ============================================================
+#
+# 背景（潜伏雷实测）：chitchat_node 曾把 router 判定里活的 CtaChip 对象原样
+# 存进 state.chitchat_chips（姊妹字段 give_up_chips/node_actions 的纪律都是
+# 存 model_dump() 之后的 dict）。CtaChip 没进 agent/graph/build.py::
+# _build_checkpoint_serde 的 msgpack 类型白名单——不在白名单的顶层类型，
+# InMemorySaver 用真实 msgpack 往返（见 langgraph.checkpoint.memory.
+# InMemorySaver._load_blobs -> serde.loads_typed）时会被 JsonPlusSerializer
+# 判定为 "Blocked deserialization"（源码 jsonplus.py::_check_allowed 的
+# strict 分支），静默降级还原成 dict、只留一条 WARNING 日志。现状"无害"是因为
+# 目前没有任何读者会在跨 turn 之后再读 chitchat_chips 并要求它是 CtaChip 实例
+# ——一旦接前端读这个字段，这条告警会成为看不见的数据契约违反。
+#
+# 复用 2) 的壳3 澄清地板场景（FLOOR_CLARIFY_CTAS 三个固定 chip，stub 下
+# 确定性产出，不依赖 LLM 判得准），钉住：往返读回的 chips 是纯 dict + 全程
+# 不触发该告警。
+
+
+def test_chitchat_chips_survive_checkpoint_round_trip_as_plain_dicts(caplog):
+    session_id = "e2c_chitchat_chip_serde"
+    _seed_plan(session_id)
+
+    with caplog.at_level(logging.WARNING, logger="langgraph.checkpoint.serde.jsonplus"):
+        events = _drive_turn(user_input="这个不太好", session_id=session_id)
+        after = _state_values(session_id)
+
+    payload = _chitchat_payload(events)
+    assert len(payload["cta_chips"]) == 3, "复用既有壳3澄清地板场景——应带三个 chip"
+
+    chips = after.get("chitchat_chips") or []
+    assert len(chips) == 3, f"checkpoint 读回的 chitchat_chips 应保留 3 个 chip，实际={chips!r}"
+    assert all(isinstance(c, dict) for c in chips), (
+        f"跨 checkpoint 读回后应是纯 dict（CtaChip 未进白名单，活对象会被判定阻断），"
+        f"实际类型={[type(c).__name__ for c in chips]}"
+    )
+
+    blocked = [r.getMessage() for r in caplog.records if "Blocked deserialization" in r.getMessage()]
+    assert not blocked, f"CtaChip 不该触发 msgpack 未注册类型阻断告警，records={blocked}"
 
 
 # ============================================================

@@ -482,6 +482,28 @@ def find_node_id(itinerary: Optional[dict[str, Any]], kind: str) -> Optional[str
     return None
 
 
+def find_any_adjustable_node_id(itinerary: Optional[dict[str, Any]]) -> Optional[str]:
+    """兜底：指定品类找不到时，退而求其次取第一个非 home 节点（首尾 home
+    bookend 恒不可调）。
+
+    真实 LLM 冒烟实测教训（G4/G6/H1）：真实模式下方案的品类构成不是确定性的
+    ——`find_node_id(itinerary, "restaurant")` 找不到餐厅节点时，`do_adjust`
+    此前会在探针本地抛 `RuntimeError`，请求根本没有发出去。这类探针要测的是
+    "调整请求打到端点后系统怎么反应"（G4/H1 的确认后守门、G6 的陈旧备选业务性
+    告知）——品类是否精确匹配不是这几个判据的关键，**发出请求**才是；本地抛
+    异常直接跳过发请求，等于覆盖率假象（看起来跑了一步，实际零请求触达被测
+    代码路径）。优先动态选节点而非跳过/记录 RECORD，是因为跳过同样测不到——
+    只有当itinerary 里连一个非 home 节点都没有（真正异常的空方案）时才代表
+    没有候选可测。
+    """
+    if not itinerary:
+        return None
+    for n in itinerary.get("nodes", []):
+        if n.get("target_kind") != "home":
+            return n.get("target_id")
+    return None
+
+
 def node_id_list(itinerary: Optional[dict[str, Any]]) -> list[str]:
     if not itinerary:
         return []
@@ -603,7 +625,15 @@ async def do_adjust(
     stream_error"基线自动跳过它，由探针自己正向断言 stream_error 出现。"""
     itinerary = ctx.extras.get("itinerary")
     resolved_node_id = node_id or (find_node_id(itinerary, node_kind) if node_kind else None)
+    fallback_used = False
+    if not resolved_node_id and node_kind:
+        # 指定品类未命中——见 find_any_adjustable_node_id docstring：动态取
+        # 第一个非 home 节点，而不是本地抛异常/跳过导致请求根本没发出去。
+        resolved_node_id = find_any_adjustable_node_id(itinerary)
+        fallback_used = resolved_node_id is not None
     desc = step_desc or f"adjust(node_id={resolved_node_id!r}, action={action})"
+    if fallback_used:
+        desc += f"（品类={node_kind!r} 未命中，兜底取节点 {resolved_node_id!r}）"
     body: dict[str, Any] = {
         "session_id": ctx.session_id,
         "node_id": resolved_node_id or "",
@@ -899,16 +929,38 @@ async def probe_A9(ctx: ProbeCtx) -> None:
 
 
 async def probe_A10(ctx: ProbeCtx) -> None:
+    """预算歧义识别——判据前提是这句话得先进 planning（走到 parse_intent）。
+
+    这句自由文本能否进 planning，同 A16 一样取决于路由脑子（真实 LLM）：脑子
+    判 clarify/chitchat 时整轮压根不会产出 `intent_parsed` 事件，此时"budget
+    应为 None 且在 ambiguous_fields 里"这条判据不可能成立——那是意图抽取的
+    判据，不是路由判断的判据，两者是两个独立的决策点，混在一起断言会把"路由
+    没让这句话进 planning"误记成"预算歧义抽取失败"（同 A16 根因：见
+    agent/routing/brain_prompt.py 少样本偏置修复）。故先判是否进了 planning，
+    未进时记 RECORD（指向同一根因），不再判 SEMANTIC FAIL。
+    """
     s = await do_turn(ctx, "下午随便逛逛，预算别太贵")
 
-    def _ambiguous_budget() -> tuple[bool, str]:
-        intent = payload_of(s.events, "intent_parsed") or {}
-        budget = intent.get("budget_per_person")
-        ambiguous = intent.get("ambiguous_fields") or []
-        ok = budget is None and "budget_per_person" in ambiguous
-        return ok, f"budget_per_person={budget!r} ambiguous_fields={ambiguous!r}"
+    entered_planning = has_event(s.events, "intent_parsed")
 
-    add_check(ctx, "budget_ambiguous", "SEMANTIC", _ambiguous_budget)
+    if not entered_planning:
+        def _routed_away_from_planning() -> tuple[bool, str]:
+            return True, (
+                "未进 planning（被路由判为 clarify/chitchat，与 A16 同根——"
+                "见 agent/routing/brain_prompt.py 少样本偏置修复），预算歧义"
+                f"抽取无从谈起。types={event_types(s.events)}"
+            )
+
+        add_record(ctx, "budget_ambiguous", _routed_away_from_planning)
+    else:
+        def _ambiguous_budget() -> tuple[bool, str]:
+            intent = payload_of(s.events, "intent_parsed") or {}
+            budget = intent.get("budget_per_person")
+            ambiguous = intent.get("ambiguous_fields") or []
+            ok = budget is None and "budget_per_person" in ambiguous
+            return ok, f"budget_per_person={budget!r} ambiguous_fields={ambiguous!r}"
+
+        add_check(ctx, "budget_ambiguous", "SEMANTIC", _ambiguous_budget)
 
     def _record_narration() -> tuple[bool, str]:
         narr = payload_of(s.events, "agent_narration") or {}
@@ -2175,7 +2227,14 @@ async def probe_H3(ctx: ProbeCtx) -> None:
         #   以 chitchat_reply+done 收尾、不产方案——这是已被
         #   test_room_route_turn_dispatch.py::test_room_bare_room_free_text_
         #   planning_degrades_to_chitchat_under_stub 钉住的"房间同权"stub 降级
-        #   现状，不是中断重排机制的缺陷；真实模式下方案照常落地，归 SEMANTIC。
+        #   现状，不是中断重排机制的缺陷，归 SEMANTIC（不是管道缺陷）。
+        #   【中性修正，勿再假设"真实模式下方案照常落地"】此前这里写过"真实
+        #   模式下方案照常落地"——真实 LLM 冒烟已实测证伪：路由脑子在真实模式
+        #   下同样可能把这条合成 raw_input 判成非 planning，导致该轮同样不产
+        #   方案，不是 stub 独有的现象。根治方案（房间重排路径复用当前 session
+        #   而非重进全新 graph session）尚在评审中，落地后本探针的这条 SEMANTIC
+        #   判据预期会跟着变——现阶段只如实记录"可能不出方案"这一已知限制，
+        #   不再断言真实模式必然产出。
         h_types = [_history_type(e) for e in room.planning_events_history]
         done_n = h_types.count("done")
         refine_n = h_types.count("refinement_done")

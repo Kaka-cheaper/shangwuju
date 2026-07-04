@@ -212,7 +212,7 @@ class AgentState(TypedDict, total=False):
     # ---- chitchat 输出（非 planning 路径用）----
     chitchat_reply_text: Optional[str]  # TURN_SCOPED：chitchat_node 本轮无条件重算
     chitchat_tone: Optional[str]  # TURN_SCOPED：同上
-    chitchat_chips: list[Any]    # TURN_SCOPED：同上（list[CtaChip]）
+    chitchat_chips: list[Any]    # TURN_SCOPED：同上（list[dict]，CtaChip.model_dump()）
 
     # ---- 诉求台账（ADR-0013 决策 3 / F-2）----
     demand_ledger: Annotated[list[dict], _merge_demand_ledger]  # SESSION_SCOPED：
