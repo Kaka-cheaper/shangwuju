@@ -499,7 +499,10 @@ user_id）。房间不存在 → accept 后发一条 `error` + `close(code=4004)
 `constraints` / `votes` / `itinerary` / `previous_itinerary` / `intent` /
 `locked_stages` / `planning_events`（历史回放用）/ `chat_messages` /
 `chat_state` / `planning_active`（bool）/ `demand_ledger`（F-5 新增，
-`ledger_for_display` 投影，同 §2.3 单人版同一口径）。
+`ledger_for_display` 投影，同 §2.3 单人版同一口径）/ `confirmed`（bool，
+c′批守门信号）/ `node_actions`（2026-07-04 新增：有方案时快照现算的
+节点按钮+具名备选，模板路径零 LLM——中途加入者进房即见按钮，形状同
+§1.4 的 `node_actions` 兄弟字段；组装异常时该键省略）。
 
 ### 8.3 房间版换菜与单人版的差异（`RoomManager.adjust`）
 

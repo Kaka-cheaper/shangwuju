@@ -52,4 +52,4 @@
 
 🔁 **F-1..F-6 全部落地,体感编排批在途**(2026-07-03)。
 F-1 引擎(ead7f12,repair_route 共享 seam+机制修正)/F-2 台账(a402396,归并器深审修正)/F-3 按钮备选生成(ba06f7c,含 AGENT_NARRATION 改址修正)/F-4 单人入口+节点行(9985392,含具名备选收窄+满足回写+投影 sync_snapshot)/F-5 房间收尾(WS adjust 串行+锁定广播/点踩收编不再全量重排/TTL 50min 惰性清扫带活连接护栏/台账进快照/重连改名生效+member_reconnected)/F-6 房间路由同权(ea236de)。
-已知留痕:房间中途加入者在下一次换菜前看不到按钮(node_actions 刻意不进快照);~~graph_adjust 私有 helper 被 room.py 跨模块 import,待抽中立 seam~~(**已还,2026-07-03 c7de86f**:`agent/planning/planners/node_swap_support.py` 中立模块,8 符号逐字搬迁转公共 API,room.py 不再 import graph_adjust 任何符号,特征化测试一行未改全过);_get_stage_title 死代码(前端注释引用限制)。
+已知留痕:~~房间中途加入者在下一次换菜前看不到按钮(node_actions 刻意不进快照)~~(**已修,2026-07-04 359059d**:get_state_snapshot 模板路径现算进快照,评委旅程审查转正为演示问题后拍板);~~graph_adjust 私有 helper 被 room.py 跨模块 import,待抽中立 seam~~(**已还,2026-07-03 c7de86f**:`agent/planning/planners/node_swap_support.py` 中立模块,8 符号逐字搬迁转公共 API,room.py 不再 import graph_adjust 任何符号,特征化测试一行未改全过);_get_stage_title 死代码(前端注释引用限制)。
