@@ -3,7 +3,19 @@
 %% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
 %% 文字纪律: 每框第一行人话职责,括号内是代码里的名字;术语对齐 docs/map/index.html 的 L0 词表
 %%   (房间=Room、约束=Constraint、诉求台账=demand_ledger、方案=Itinerary、质检见 L1)
-%% 基于 commit: 57afcef
+%% 基于 commit: 93906e3
+%% ----
+%% 【2026-07-03 评委体验修复(359059d)读码核实后补入本图】Room.get_state_snapshot
+%%   现算 node_actions 塞进 room_state 快照——此前中途加入房间的成员要等别人
+%%   换一次菜(下一次 agent_narration 事件)才第一次看到调整按钮,评委扫码进房
+%%   实测踩中。候选池口径跟随房间唯一换菜路径 _query_pois/_query_restaurants
+%%   （现场查,同 intent/grounding 过滤;不是单人版的全量目录 load_pois/
+%%   load_restaurants,两者解决不同历史包袱,不引入第二套候选池来源）;
+%%   组装用模板路径(generate_template_node_chips)+_build_node_actions,零 LLM
+%%   调用;异常兜底 warning+省略该键,绝不因为算按钮拖垮整条 join 连接。
+%%   confirmed(房间是否已下单的守门标记,GATE 读它判断要不要拦换菜——见
+%%   L2-node-swap.mmd 的 GATE 节点)本就在快照里,只是这张图之前没画出来,
+%%   这次一并补上。
 %% ----
 %% 锚点表(节点 → 代码位置;"生命周期测试"=backend/tests/test_room_lifecycle_characterization.py,
 %%        "adjust_ttl测试"=backend/tests/test_room_adjust_and_ttl.py):
@@ -15,7 +27,10 @@
 %%   DISPATCH  backend/api/collab.py:186-236(上行 5 类消息 if/elif 分发)
 %%   JOIN      backend/collab/room.py:255-299 RoomManager.join
 %%             (277-288 已在 members 里→重连分支,广播 member_reconnected;
-%%              289-299 全新 user_id→首次分支,广播 member_joined;两分支都先给入房者本人推 room_state 快照)
+%%              289-299 全新 user_id→首次分支,广播 member_joined;两分支都先给入房者本人推
+%%              room_state 快照——get_state_snapshot,149-207,含 demand_ledger/confirmed/
+%%              node_actions 三个非结构性字段,前两个原有,node_actions 今日新增,组装见
+%%              209-243 _snapshot_node_actions,候选池/异常兜底口径见头部说明)
 %%   ADDC      backend/collab/room.py:315-450 RoomManager.add_constraint
 %%             (383-399 归名广播对三类义务一视同仁;401-450 按 outcome.kind 分流)
 %%   RTURN     backend/agent/routing/route_turn.py:139-230 route_turn(六标签级联);
@@ -65,7 +80,7 @@ flowchart TB
   end
 
   subgraph MGR["房间管家(backend/collab/room.py · RoomManager)"]
-    JOIN["加入房间:首次广播member_joined,重连广播member_reconnected<br/>(RoomManager.join)"]
+    JOIN["加入房间:首次广播member_joined,重连广播member_reconnected;<br/>两分支都先给入房者本人推一份 room_state 快照(含 confirmed 守门标记 + node_actions——中途加入者现在也能立刻看到调整按钮,评委体验修复)<br/>(RoomManager.join → get_state_snapshot)"]
     ADDC["自由打字入口:先无条件归名广播,再判义务分发<br/>(RoomManager.add_constraint)"]
     VOTE["投票:赞记锁定,踩收编成节点级局部调整<br/>(RoomManager.update_vote)"]
     ADJ["节点调整:串行队列 + 处理期锁定广播<br/>(RoomManager.adjust)"]

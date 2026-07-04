@@ -5,9 +5,21 @@
 %% 上游承接 L1 的 COLLECT(三路查询汇合),下游交回 L1 的 FINAL/NARR(定稿与讲解)。
 %% ------------------------------------------------------------
 %% 受众: 有基础知识的非开发者也要能读懂(人话为主) + 开发者可定位(括号内代码名)
-%% 基于 commit: 57afcef (2026-07-03)
+%% 基于 commit: 93906e3
 %% 词汇纪律: 沿用 docs/map/index.html「L0 术语表」10 个词(方案/站/需求单/质检/兜底…);
 %%           不发明新词;「规矩」「硬伤/软伤」「兜底」等说法与 L0/L1 保持一致。
+%% ------------------------------------------------------------
+%% 【ADR-0014 G-2/G-3 落地(53ba99b/711a034,读码核实后补入本图,均早于本图
+%%   前一版 base commit 但此前一直没补画)】
+%%   1) 出口满足度审计(exit_audit.audit_constraint_relaxation)现在挂在
+%%      FINALIZE_EXIT 节点:方案定稿后统一比对最终 itinerary vs 需求单全部
+%%      约束,dietary/physical 逐节点判、experience_tags 整段并集判,soft
+%%      未满足→CONSTRAINT_RELAXED 追加进 state.advisories,天然覆盖 LLM 主
+%%      路径/ILS/rule 三条规划路径的最终产物,不必在各自入口重复比对。
+%%   2) give_up 不再死寂:ILS_FLOOR 规则地板也失败、真正"hard 卡死"(候选彻底
+%%      耗尽)时,给一份具体的、点了就能继续走下去的放宽建议 chips
+%%      (rule_planner.relax_suggestion_chips),挂进 narrate 的告知文案,不再
+%%      是一句干巴巴的道歉。
 %% ============================================================
 %% 锚点表(框 id → file:symbol;不转录函数体,读代码请直接跳锚点)
 %% ------------------------------------------------------------
@@ -53,8 +65,15 @@
 %%   RULEFLOOR    → agent/graph/_resilience.py:drain_on_error / _recover_rule_floor
 %%                  (挂载点见 agent/graph/build.py 的 g.add_node(...) 注册处)
 %%   FINALIZE_EXIT→ agent/graph/nodes/finalize_plan.py:finalize_plan_node
+%%                  (第 5 步,225-244:出口满足度审计单点挂点,见下方 EXIT_AUDIT)
 %%                  → agent/graph/nodes/narrate.py:narrate_node
 %%                  (详见 L1-turn-pipeline.mmd 的 FINAL/NARR,本图不展开)
+%%   EXIT_AUDIT   → agent/planning/critic/exit_audit.py:audit_constraint_relaxation
+%%                  (ADR-0014 决策 2·G-2,调用点 finalize_plan.py:237-244)
+%%   GIVEUP_CHIPS → agent/planning/planners/rule_planner.py:relax_suggestion_chips
+%%                  (调用点 replan.py:209-221,仅 rule 地板也失败时产出;
+%%                   经 state.give_up_chips → narrate.py:458-466 →
+%%                   _emit_handlers.py:432-434 装进 agent_narration.chips)
 %% ============================================================
 %% 读代码核实后的三处「常见描述 vs 实际代码」落差(读码实证,非猜测):
 %% ------------------------------------------------------------
@@ -134,7 +153,7 @@ flowchart TB
   ILS_REPAIR --> ILS_CRITIC
   ILS_CRITIC -->|"修复预算耗尽仍不干净"| ILS_FLOOR
   ILS_FLOOR -->|"规则地板顶住了,带着这个方案交卷"| FINALIZE_EXIT
-  ILS_FLOOR -->|"规则地板也失败,彻底放弃,仍要交卷(诚实告知没排成)"| FINALIZE_EXIT
+  ILS_FLOOR -->|"规则地板也失败,彻底放弃,仍要交卷——真正 hard 卡死(候选彻底耗尽)时附带放宽建议 chips,不再是干巴巴一句道歉<br/>(give_up_chips ← relax_suggestion_chips)"| FINALIZE_EXIT
 
   subgraph SAFETY["D2安全网:上面这些框如果抛出没预料到的异常(不是正常业务失败,是bug/超时之类)<br/>外面都套了这一层,不让用户看到裸错误<br/>(agent/graph/_resilience.py:drain_on_error,挂载见 build.py 的节点注册处)"]
     RULEFLOOR["垫一个规则地板方案顶上:直接调规则直出;<br/>它自己也失败 → 把原始异常原样抛出,绝不伪造一个假方案<br/>(_resilience.py:_recover_rule_floor)"]
@@ -148,5 +167,5 @@ flowchart TB
   RULEFLOOR -.->|"垫完之后状态变成'规则模式+无硬伤',顺着失败节点原本该走的下一步继续——<br/>多数情况几步之内落到质检,质检因规则模式不拦,直奔定稿(具体落点随失败的是哪一个节点而略有不同)"| CRITICCORE
 
   subgraph L1OUT["交回 L1:定稿与讲解"]
-    FINALIZE_EXIT["起标题+备好待确认订单,方案先推给页面;<br/>再补暖语气文案、每站的调整按钮、没做到之处的诚实说明<br/>(finalize_plan → narrate,详见 L1 全景图)"]
+    FINALIZE_EXIT["起标题+备好待确认订单,方案先推给页面;<br/>出口满足度审计:统一比对最终方案 vs 需求单全部约束,soft 未满足追加 CONSTRAINT_RELAXED 告知(天然覆盖 LLM/ILS/rule 三条路径,不必各自重复比对)<br/>再补暖语气文案、每站的调整按钮、没做到之处的诚实说明<br/>(finalize_plan『含 exit_audit.audit_constraint_relaxation』→ narrate,详见 L1 全景图)"]
   end

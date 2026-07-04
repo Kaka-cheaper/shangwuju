@@ -7,10 +7,22 @@
 %% 范围: 承接 L1-a 的 U4(点某一站下面的调整按钮)与 U5(房间协作)两条线,
 %%   钻进「换菜引擎(resolve_node_swap)」这一格,画清楚单人 /chat/adjust 与
 %%   房间 WS adjust 两个入口如何共用同一套编排 helper + 同一个局部重解引擎。
-%% 基于 commit: 57afcef
+%% 基于 commit: 93906e3
 %% 文字纪律: 每框第一行人话职责,括号内是代码里的名字;不转录函数体;
 %%   不出现未解释的内部代号;mermaid 标签内不用花括号。
 %% --------------------------------------------------------------
+%% 【2026-07-03 横向深审 P0 补丁(b15fee5)新增两道防线,读码核实后补入本图】
+%%   1) 候选池 hard 恒定过滤(_filter_hard_violations)——resolve_node_swap 与
+%%      feasible_alternatives 共用,在 _degrade_tiers 之前对候选局部列表按
+%%      dietary/physical 的 hard 子集做一票否决过滤;只产出新局部列表,不碰
+%%      pois/restaurants 原始形参(_build_full_scheduled 反查在场实体仍需
+%%      未过滤原池)。
+%%   2) 换后单点审计(_audit_swapped_node)——换菜命中后,对新换入的这一个
+%%      节点单独跑一次 soft tag 核验(只读复用 exit_audit 的比对/措辞原语),
+%%      未满足→CONSTRAINT_RELAXED advisory;experience_tags 不查(整段并集
+%%      语义,单节点核验会假阳性)。
+%%   3) feasible_alternatives 追加排雷:候选池排除方案内当前全部非 home
+%%      在场实体的 target_id——之前会把"点了必拒"的在场实体当具名备选展示。
 %% 【锚点表:图中代码名 → 代码位置】(逐条对应报告里的完整表,这里给精简版)
 %% AdjustChipButton/AlternativeButton/VoteButtons(dislike)
 %%   → frontend/components/ItineraryCard.tsx:427-465(点击入口),1136-1192(按钮组件)
@@ -35,12 +47,14 @@
 %% narrow_pool_to_single_alternative(候选池收窄)→ node_swap_support.py:181-206
 %% resolve_node_swap(核心引擎)    → backend/agent/planning/planners/node_swap.py:452-540
 %%   先验 kept 可行性                → node_swap.py:486-492
+%%   候选池 hard 恒定过滤 _filter_hard_violations → node_swap.py:389-397(定义)/644(调用点)
 %%   三级降级 _degrade_tiers         → node_swap.py:288-313
 %%   ledger 软偏置 _ledger_priority_groups → node_swap.py:316-337
 %%   单次尝试 _attempt_pool/repair_route → node_swap.py:340-379
 %%   advisory 构造                  → node_swap.py:387-411
+%%   换后单点审计 _audit_swapped_node → node_swap.py:532-556(定义,只读复用 exit_audit._unmet_soft_tags/_render_message/_PROVENANCE_CLAUSE)
 %%   SwapResult                     → node_swap.py:151-167
-%% feasible_alternatives           → node_swap.py:543-605
+%% feasible_alternatives           → node_swap.py:705-770(同 _filter_hard_violations,751 + 排除方案内已在场实体,752-753)
 %% record_demand / mark_satisfied  → backend/schemas/demand_ledger.py:134-166 / 169-206
 %%   单人调用点 → graph_adjust.py:204-230(成功)/253-264(失败仍记账)
 %%   房间调用点 → room.py:649-670(成功)/691-698(失败仍记账)
@@ -119,21 +133,25 @@ flowchart TB
   subgraph ENGINE["局部重解核心引擎(真正共享,零特判两个入口——agent/planning/planners/node_swap.py)"]
     KEPT_CHECK["先验:去掉目标后,钉住的其余节点还能排到一块儿吗<br/>(schedule_route(kept))"]
     KEPT_FAIL["排不到一块儿:方案不动,只告知<br/>(SWAP_KEPT_NODE_UNFIT)"]
+    HARDFILTER["候选池 hard 恒定过滤:忌口/无障碍类一票否决,永不进候选池——只产出新局部列表,不碰 pois/restaurants 原始形参<br/>(ADR-0014 横向深审 P0,_filter_hard_violations,复用 is_hard_tag+has_all_tags)"]
     DEGRADE["三级降级候选集合:同子类满足→同大类满足→近似满足<br/>(_degrade_tiers + _ledger_priority_groups,诉求是软偏置不是硬门槛)"]
     ATTEMPT["repair_route 单次尝试:拉黑目标+只补这一个空槽,其余节点原样不动<br/>(_attempt_pool,不涌现加塞——只动一格的承诺在这里兑现)"]
     ENGINE_OK["命中:新方案+swapped_to+degrade_tier<br/>(SwapResult success=True)"]
-    NO_ALT["三级全试完仍一个都插不进:方案不动,只告知<br/>(SWAP_NO_ALTERNATIVE_FOUND)"]
+    NO_ALT["三级全试完仍一个都插不进:方案不动,只告知<br/>(SWAP_NO_ALTERNATIVE_FOUND;候选若因 hard 过滤归零也走这条,业务性失败非契约违反)"]
+    SWAP_AUDIT["换后单点审计:新换入的这一个节点自己的 soft tag 未满足→CONSTRAINT_RELAXED 告知(不重跑整段,不查 experience_tags——理由见头部说明)<br/>(ADR-0014 横向深审 P0,_audit_swapped_node,只读复用 exit_audit 比对/措辞原语)"]
   end
 
   PREP_ADJ --> KEPT_CHECK
   PREP_DIS --> KEPT_CHECK
   PREP_ALT --> KEPT_CHECK
   KEPT_CHECK -->|"排不到一块儿"| KEPT_FAIL
-  KEPT_CHECK -->|"排得到→只动这一格"| DEGRADE
+  KEPT_CHECK -->|"排得到→只动这一格"| HARDFILTER
+  HARDFILTER --> DEGRADE
   DEGRADE --> ATTEMPT
   ATTEMPT -->|"插得进→命中,停止降级"| ENGINE_OK
   ATTEMPT -->|"这一组插不进→换下一优先级组/下一级(第3级命中另产 SWAP_DEGRADED 告知)"| DEGRADE
   ATTEMPT -->|"三级全部试完仍一个都插不进"| NO_ALT
+  ENGINE_OK --> SWAP_AUDIT
 
   subgraph OUTCOME["结果分流(回到各自入口的调用点处理)"]
     FAIL_COMMON["业务性失败:方案不动,只回一句告知——不是 stream_error"]
@@ -149,14 +167,14 @@ flowchart TB
   NO_ALT --> FAIL_COMMON
   FAIL_COMMON -->|"仅当本次是 adjust 动作"| LEDGER_FAIL_RECORD
 
-  ENGINE_OK --> LEDGER_BRANCH
+  SWAP_AUDIT --> LEDGER_BRANCH
   LEDGER_BRANCH -->|"adjust"| LEDGER_RECORD
   LEDGER_RECORD -->|"degrade_tier∈1,2:调整谓词真被满足"| LEDGER_SATISFY
   LEDGER_RECORD -->|"degrade_tier=3:只是近似"| LEDGER_STAY
   LEDGER_BRANCH -->|"dislike/alternative"| LEDGER_SKIP
 
   subgraph POSTPROC["方案落地(两入口对称各做一遍)"]
-    REBUILD_ACTIONS["重算这一版方案的按钮/具名备选<br/>(_build_node_actions,复用 feasible_alternatives 同一真相源)"]
+    REBUILD_ACTIONS["重算这一版方案的按钮/具名备选:候选同样恒过滤 hard 违规,且排除方案内已在场实体(点了必拒的备选不再展示,展示面与 repair_route 实际接受面对齐)<br/>(_build_node_actions,复用 feasible_alternatives 同一真相源,同一份 _filter_hard_violations)"]
     VLOG_S["单人:补一笔版本志,trigger=adjust,续既有编号<br/>(plan_version_log)"]
     VLOG_R["房间:不记版本志<br/>(已知留待项,未接线)"]
     SNAPSHOT["同步会话速查缓存投影:换菜后确认必须拿到新方案<br/>(sync_snapshot)"]
