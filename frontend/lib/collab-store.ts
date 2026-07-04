@@ -14,7 +14,7 @@ import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
 import { emptyCriticReport } from "./store/types";
-import type { AdjustAction, DemandLedgerEntry, SseEvent } from "./types";
+import type { AdjustAction, DemandLedgerEntry, NodeActionsMap, SseEvent } from "./types";
 import { API_BASE } from "./utils";
 
 // ============================================================
@@ -293,6 +293,19 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       // 本地态迁移载体，不携带房间侧台账）。喂给 `ConstraintFeed`（读现状对齐：
       // 单人模式已经读 `useChatStore.demandLedger`，房间模式复用同一个字段）。
       useChatStore.setState({ demandLedger: (msg.demand_ledger as DemandLedgerEntry[]) || [] });
+      // 评委体验修复（2026-07-03）：node_actions 数据源同上——房间快照本身
+      // （`Room.get_state_snapshot()` 有方案时现算的顶层字段，见该方法
+      // docstring"评委体验修复"节），不随 `chat_state` 是否存在分支。这治的
+      // 正是"中途加入的成员看不到节点调整按钮"这个体验缺口——中途加入者走的
+      // 正是这条 room_state 分支，此前无论 chat_state 有没有，这里都没把
+      // node_actions 接进主 store，`ItineraryCard` 读 `useChatStore.
+      // nodeActions` 自然永远是缺省的 null，直到别人换一次菜（下一次
+      // agent_narration 事件）才补上。`CollabChatStateSnapshot` 的 Pick
+      // 列表里也确实没有这个字段（同 demandLedger，chat_state 只是单人转
+      // 房间时的一次性前端本地态迁移载体，不携带这两个房间侧字段）。
+      useChatStore.setState({
+        nodeActions: (msg.node_actions as NodeActionsMap) || null,
+      });
       break;
     }
 

@@ -149,11 +149,23 @@ class Room:
         接入的正是这里）：投影用 `ledger_for_display`（同 F-4 单人 `/chat/adjust`
         的 `agent_narration.demand_ledger` 同一投影口径），让新加入者也能看到
         房间已经攒下的协商台账，不必等下一次换菜事件才补齐。
+
+        评委体验修复（2026-07-03）新增 `node_actions`——历史现状 + 当时理由：
+        ADR-0013 F-3 把 node_actions 定成"narrate 节点既有 LLM 调用搭车产出"，
+        只在规划事件流（`itinerary_ready`/`agent_narration` 的兄弟字段，见
+        `agent.graph.nodes.narrate` 模块 docstring）里下发；F-5 建房间快照时
+        只顾上把 F-2 台账接进来（上一段），没有覆盖"中途加入者压根没经过这
+        条事件流，永远等不到这批按钮"这条路径——ADR-0013 落地状态节因此记了
+        一笔已知留痕"房间中途加入者在下一次换菜前看不到按钮"，一直挂到评委
+        中途扫码进房、真的看见自己手机上一个调整按钮都没有，才从"待办"变成
+        "演示事故"。修复：`current_itinerary_dict`/`current_intent_dict` 均非
+        空时按 `_snapshot_node_actions()` 现算并塞入（该方法内部说明候选池
+        口径选型 + 零 LLM 调用的模板路径 + 异常兜底"不拖垮 join"）。
         """
         from schemas.demand_ledger import LedgerEntry, ledger_for_display
 
         ledger_entries = [LedgerEntry.model_validate(d) for d in self.demand_ledger]
-        return {
+        snapshot: dict[str, Any] = {
             "type": "room_state",
             "room_id": self.room_id,
             "owner_id": self.owner_id,
@@ -171,6 +183,62 @@ class Room:
             "demand_ledger": ledger_for_display(ledger_entries),
             "confirmed": self.confirmed,
         }
+        node_actions = self._snapshot_node_actions()
+        if node_actions:
+            snapshot["node_actions"] = node_actions
+        return snapshot
+
+    def _snapshot_node_actions(self) -> dict[str, dict[str, Any]]:
+        """`get_state_snapshot()` 专用：现算 node_actions（见该方法 docstring
+        "评委体验修复"节的历史记载）。
+
+        【候选池口径选型】跟随 `RoomManager._resolve_and_broadcast_adjust`——
+        房间目前唯一的换菜路径——既有选择：`agent.planning.planners.
+        ils_planner._query_pois`/`_query_restaurants` 现场查（同 intent、同
+        grounding 过滤），**不是** `api/_streams/graph_adjust.py` 改用的全量
+        目录 `data.loader.load_pois`/`load_restaurants`。两者解决的是不同的
+        历史包袱：单人版当年改全量目录是为了绕开"execute 阶段搜索 worker 的
+        窄池覆盖不了 LLM 蓝图选中实体"这个坑（见该文件模块 docstring「候选池
+        来源」），房间版从来没有"execute 阶段窄池"这段历史——`_query_pois`/
+        `_query_restaurants` 一直是房间侧唯一用过的口径，没有理由在同一个
+        房间内引入第二套并存的候选池来源。
+
+        【组装手法】与 `_resolve_and_broadcast_adjust` 换菜成功后重算
+        node_actions 同一先例：`generate_template_node_chips`（模板路径，
+        零 LLM 调用、纯函数生成 chips）+ `_build_node_actions`（chips +
+        `feasible_alternatives` 组装，同样是纯函数评分，不额外调用 LLM）——
+        "现算"这件事本身不该因为走了 LLM 而变贵/变慢，加入房间是高频动作。
+
+        【异常兜底】intent/itinerary 反序列化失败、`feasible_alternatives`
+        对某节点之外更大范围的未预料异常等，都不能让 `get_state_snapshot()`
+        整体失败——`join()` 里 `await self._send(ws, room.get_state_
+        snapshot())` 一旦抛异常，新成员的整条 WS 连接都建立不起来，比"没有
+        调整按钮"这个待修的原问题严重得多。失败时返回空字典，调用方按既有
+        "无内容不加字段"纪律（同 `_resolve_and_broadcast_adjust`/
+        `_graph_adjust` 的 `if node_actions:`）省略这个键。
+        """
+        if not self.current_itinerary_dict or not self.current_intent_dict:
+            return {}
+        try:
+            from agent.core.trace import Tracer
+            from agent.graph.nodes.narrate import _build_node_actions
+            from agent.intent.narrator import generate_template_node_chips
+            from agent.planning.planners.ils_planner import _query_pois, _query_restaurants
+            from schemas import IntentExtraction, Itinerary
+
+            itinerary = Itinerary.model_validate(self.current_itinerary_dict)
+            intent = IntentExtraction.model_validate(self.current_intent_dict)
+            tracer = Tracer()
+            pois = _query_pois(intent, tracer)
+            restaurants = _query_restaurants(intent, tracer)
+            node_chips = generate_template_node_chips(itinerary, intent, pois, restaurants)
+            return _build_node_actions(itinerary, intent, pois, restaurants, node_chips)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "get_state_snapshot 组装 node_actions 失败，快照将省略该字段：room_id=%s",
+                self.room_id, exc_info=True,
+            )
+            return {}
 
 
 # ============================================================

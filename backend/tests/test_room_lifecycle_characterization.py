@@ -545,6 +545,12 @@ def test_snapshot_key_shape_includes_demand_ledger():
     """F-5 有意变更（见本文件模块 docstring"覆盖清单"第 1 条 + 任务书"台账进
     快照"）：`demand_ledger` 键从"刻意不进快照"（F-2 阶段现状）翻转为"进快照，
     走 `ledger_for_display` 投影"——新成员加入时也该看到房间已攒的协商台账。
+
+    评委体验修复（2026-07-03）再翻一笔：`node_actions` 键从 ADR-0013 落地状态
+    节记的已知留痕"房间中途加入者在下一次换菜前看不到按钮（node_actions 刻意
+    不进快照）"翻转为"有方案时进快照，现算"——`_seed_room` 已带合法 itinerary/
+    intent，因此本测试的快照理应含这个键（同 `demand_ledger` 上一次翻转时的
+    处理方式：先在这里更新"有意变更"的键集清单，再钉住新内容）。
     """
     manager, room = _seed_room("owner_snapshot_keys_test")
     room.demand_ledger.append({
@@ -576,6 +582,9 @@ def test_snapshot_key_shape_includes_demand_ledger():
         # （见该字段 docstring）——full snapshot 理应反映房间当前是否已确认
         # 下单，不能让重连成员靠"点一次调整试出来"才知道。
         "confirmed",
+        # 评委体验修复：有方案时现算 node_actions（见 Room.get_state_snapshot
+        # 该键的 docstring 段落），中途加入者不必等下一次换菜事件才看到按钮。
+        "node_actions",
     }
     assert set(snapshot.keys()) == expected_keys, (
         f"快照字段清单变化——请先确认是否为有意变更。实际={set(snapshot.keys())}"
@@ -592,6 +601,66 @@ def test_snapshot_key_shape_includes_demand_ledger():
             "created_at": snapshot["demand_ledger"][0]["created_at"],
         }
     ], "demand_ledger 走 ledger_for_display 投影，形状与 F-4 单人 /chat/adjust 同一口径"
+
+
+def test_snapshot_node_actions_present_and_keyed_by_non_home_node_ids():
+    """评委体验修复的核心断言：有方案的房间，快照的 `node_actions` 应非空，
+    且键集合恰好等于当前方案里的非 home 节点 id 集合（`_make_legal_itinerary`
+    的 P040 poi / R001 餐厅，见 `tests/test_critics_v2.py::_make_legal_itinerary`
+    docstring）——中途加入者能看到的按钮范围应与方案节点一一对应，不多不少。
+    """
+    manager, room = _seed_room("owner_node_actions_snapshot_test")
+
+    snapshot = room.get_state_snapshot()
+
+    non_home_ids = {
+        n["target_id"]
+        for n in room.current_itinerary_dict["nodes"]
+        if n["target_kind"] != "home"
+    }
+    assert snapshot["node_actions"], "有方案时 node_actions 不应是空字典——评委体验修复要治的正是这个"
+    assert set(snapshot["node_actions"].keys()) == non_home_ids, (
+        f"node_actions 键集合应等于非 home 节点 id，实际={set(snapshot['node_actions'].keys())}，"
+        f"期望={non_home_ids}"
+    )
+    for node_id, actions in snapshot["node_actions"].items():
+        assert "chips" in actions and "alternatives" in actions, (
+            f"节点 {node_id} 的 node_actions 应含 chips/alternatives 两个键（同 F-3 组装形状）"
+        )
+
+
+def test_snapshot_omits_node_actions_when_no_plan_yet():
+    """还没出方案的房间（`current_itinerary_dict`/`current_intent_dict` 为
+    `None`）——`node_actions` 不该出现在快照里（既没有方案就无从算按钮，同
+    `_resolve_and_broadcast_adjust` 对"现在还没有可以调整的方案"的早退判断
+    共享同一前提）。"""
+    manager = RoomManager()
+    room = manager.create_room(owner_id="owner_no_plan_snapshot_test")
+
+    snapshot = room.get_state_snapshot()
+
+    assert "node_actions" not in snapshot
+
+
+def test_snapshot_node_actions_omitted_on_assembly_failure(monkeypatch):
+    """组装异常兜底：`_build_node_actions` 抛出未预料异常时，`get_state_
+    snapshot()` 整体仍必须成功返回（不能因为这个新增字段拖垮 `join()`），
+    只是快照里不带 `node_actions` 这个键——同函数 docstring"异常兜底"节。
+    """
+    import agent.graph.nodes.narrate as narrate_module
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("模拟组装失败")
+
+    monkeypatch.setattr(narrate_module, "_build_node_actions", _boom)
+
+    manager, room = _seed_room("owner_node_actions_boom_test")
+
+    snapshot = room.get_state_snapshot()
+
+    assert "node_actions" not in snapshot
+    assert snapshot["type"] == "room_state"
+    assert snapshot["itinerary"] is not None, "组装失败不该连累快照里其它既有字段"
 
 
 def test_snapshot_votes_and_locked_stages_evolve_with_update_vote():

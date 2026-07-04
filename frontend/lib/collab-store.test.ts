@@ -243,4 +243,79 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
 
     expect(useChatStore.getState().demandLedger).toEqual([ledgerEntry]);
   });
+
+  it("room_state hydrates the shared nodeActions field from the room snapshot (late-joiner fix)", () => {
+    // 评委体验修复：中途加入的成员在此之前看不到节点调整按钮，因为
+    // room_state 从来没把后端新增的顶层 node_actions 字段接进主 store——
+    // 本用例钉住这条水合链路，同 demandLedger 上面那条既有先例。
+    const nodeActions = {
+      R001: {
+        chips: [
+          {
+            node_id: "R001",
+            label: "不辣的",
+            adjustment: { dimension: "dietary" as const, value: "不辣" },
+          },
+        ],
+        alternatives: [
+          {
+            kind: "restaurant" as const,
+            target_id: "R017",
+            name: "本帮小馆",
+            rating: 4.5,
+            distance_km: 1.2,
+            price: 88,
+            category: "本帮菜",
+          },
+        ],
+      },
+    };
+
+    handleWsMessage(set, get, {
+      type: "room_state",
+      owner_id: "owner1",
+      members: [],
+      constraints: [],
+      votes: {},
+      locked_stages: [],
+      itinerary: null,
+      previous_itinerary: null,
+      intent: null,
+      planning_events: [],
+      chat_messages: [],
+      chat_state: null,
+      planning_active: false,
+      demand_ledger: [],
+      node_actions: nodeActions,
+    });
+
+    expect(useChatStore.getState().nodeActions).toEqual(nodeActions);
+  });
+
+  it("room_state without node_actions (no plan yet / assembly failed) resets nodeActions to null", () => {
+    useChatStore.setState({
+      nodeActions: {
+        R001: { chips: [], alternatives: [] },
+      } as any,
+    });
+
+    handleWsMessage(set, get, {
+      type: "room_state",
+      owner_id: "owner1",
+      members: [],
+      constraints: [],
+      votes: {},
+      locked_stages: [],
+      itinerary: null,
+      previous_itinerary: null,
+      intent: null,
+      planning_events: [],
+      chat_messages: [],
+      chat_state: null,
+      planning_active: false,
+      demand_ledger: [],
+    });
+
+    expect(useChatStore.getState().nodeActions).toBeNull();
+  });
 });
