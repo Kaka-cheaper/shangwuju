@@ -109,3 +109,56 @@ def test_refined_intent_no_d9_forbidden_fields():
         forbidden = {"scene_type", "relation_type", "is_family", "is_friends"}
         leak = forbidden & set(out.refined_intent.model_dump().keys())
         assert not leak, f"反馈 '{feedback}' 漏出 D9 禁止字段：{leak}"
+
+# ============================================================
+# 降级演练修复钉(2026-07-03): 传输层异常必须落规则兜底,不许穿透
+# ============================================================
+
+
+class _TransportErrorClient:
+    """chat() 抛传输层异常的假客户端(模拟 APITimeoutError/连接拒绝)。"""
+
+    def chat(self, *args, **kwargs):
+        raise TimeoutError("simulated transport failure")
+
+
+def test_refine_intent_transport_error_falls_back_to_rule_not_raise():
+    """--degraded 演练实锤的缺口:原异常网只兜内容类三异常,传输层异常穿透
+    炸 stream_error。修复后任何异常最终都落 _rule_fallback,绝不上抛。"""
+    from agent.intent.refiner import refine_intent
+    from tests.test_planner_node_swap import _intent
+
+    original = _intent()
+    out = refine_intent(
+        original=original,
+        feedback_text="太远了",
+        client=_TransportErrorClient(),
+        max_retries=1,
+    )
+    # 规则兜底产出合法 RefinementOutput(距离类反馈会收紧 distance)
+    assert out.refined_intent is not None
+    assert out.refined_intent.distance_max_km <= original.distance_max_km
+
+
+def test_refiner_node_diff_carries_changed_fields_for_emit():
+    """REFINEMENT_DONE 的 changed_fields 原被 emit 硬编码 []——修复后
+    refiner_node 的 diff 必须带出真实变更清单与自报说明供 emit 装载。"""
+    import agent.graph.nodes.refiner as refiner_mod
+    from tests.test_planner_node_swap import _intent
+
+    original = _intent()
+
+    class _Out:
+        refined_intent = original
+        changed_fields = ["距离上限：5km → 3km"]
+        refiner_note = "按你说的收紧了距离"
+
+    state = {"intent": original, "user_input": "太远了", "itinerary": None}
+    orig_refine = refiner_mod.refine_intent
+    refiner_mod.refine_intent = lambda **kw: _Out()
+    try:
+        diff = refiner_mod.refiner_node(state)
+    finally:
+        refiner_mod.refine_intent = orig_refine
+    assert diff["refinement_changed_fields"] == ["距离上限：5km → 3km"]
+    assert diff["refinement_note"] == "按你说的收紧了距离"

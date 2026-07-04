@@ -61,8 +61,13 @@ def emit_refiner(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
             SseEventType.REFINEMENT_DONE,
             {
                 "refined_intent": intent.model_dump(),
-                "changed_fields": [],  # 保持向后兼容；详细字段差由前端比对
-                "refiner_note": "已合并你的反馈，正在重新规划。",
+                # 修复(2026-07-03 降级演练顺带发现): 原硬编码 []/固定文案,
+                # refiner 真实算出的变更清单与自报说明从未到达前端 toast——
+                # 与 api_contract §分支B "payload=RefinementOutput.model_dump()"
+                # 漂移。现从 diff 读 refiner_node 带出的真值,缺省兜旧默认。
+                "changed_fields": diff.get("refinement_changed_fields") or [],
+                "refiner_note": diff.get("refinement_note")
+                or "已合并你的反馈，正在重新规划。",
             },
         ),
         # 然后用新意图重推 intent_parsed 让前端 IntentSummary 刷新

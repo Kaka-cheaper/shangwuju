@@ -58,7 +58,12 @@ def refiner_node(state: AgentState) -> dict[str, Any]:
     )
 
     # 重置部分（EPISODE_SCOPED 全集）先铺底，业务输出（intent）后覆盖——见模块 docstring。
+    # refinement_changed_fields/note:随 diff 带给 emit_refiner 装进 REFINEMENT_DONE
+    # (修复前该 payload 的 changed_fields 恒硬编码 [],前端 toast 拿不到真实变更)。
     return {
         **reset_for_new_episode(),
         "intent": output.refined_intent,
+        # getattr 防御:多处测试以 SimpleNamespace 垫桩 refine_intent,只带 refined_intent
+        "refinement_changed_fields": list(getattr(output, "changed_fields", None) or []),
+        "refinement_note": getattr(output, "refiner_note", None),
     }

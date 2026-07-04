@@ -136,6 +136,12 @@ class AgentState(TypedDict, total=False):
     # ---- 路由结果 ----
     router_decision: Optional[RouterDecision]  # TURN_SCOPED：router_node 本轮无条件重算
     route_kind: Optional[RouteKind]  # TURN_SCOPED：同上
+    # TURN_SCOPED×2:refiner 本轮产出的人话变更摘要与自报说明——emit_refiner 把它们
+    # 装进 REFINEMENT_DONE payload(修复"changed_fields 恒硬编码 [] 致前端 toast
+    # 永远拿不到真实变更清单"的契约漂移,api_contract §分支B 本就承诺
+    # payload=RefinementOutput.model_dump())。仅反馈轮由 refiner_node 写入。
+    refinement_changed_fields: Optional[list[str]]
+    refinement_note: Optional[str]
 
     # ---- 意图层 ----
     intent: Optional[IntentExtraction]  # EPISODE_SCOPED：新规划事件的意图，reset 后立即被 intent/refiner 自己的输出覆盖
@@ -255,6 +261,8 @@ TURN_SCOPED: frozenset[str] = frozenset({
     "chitchat_reply_text",
     "chitchat_tone",
     "chitchat_chips",
+    "refinement_changed_fields",
+    "refinement_note",
 })
 """每个 turn 开始清零：make_initial_state 显式给这批字段赋初值。
 
@@ -411,6 +419,8 @@ def make_initial_state(
         chitchat_reply_text=None,
         chitchat_tone=None,
         chitchat_chips=[],
+        refinement_changed_fields=None,
+        refinement_note=None,
         # ---- SESSION_SCOPED：调用方透传（非"重置"）----
         user_id=user_id,
         session_id=session_id,

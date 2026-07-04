@@ -327,7 +327,15 @@ def refine_intent(
                 itinerary_summary=itinerary_summary,
                 ledger_recap=ledger_recap,
             )
-        except (RefinementError, ValidationError, json.JSONDecodeError) as e:
+        except Exception as e:  # noqa: BLE001 —— 见下方说明,兜底承诺必须覆盖全部异常
+            # 原为 (RefinementError, ValidationError, json.JSONDecodeError)——
+            # 只兜"LLM 回了但内容坏"的三类;传输层异常(APITimeoutError/连接拒绝)
+            # 会穿透,炸成 stream_error(graph_execution_failed)。--degraded 降级
+            # 演练实锤(2026-07-03):LLM 挂掉时首轮/路由/叙事都能扛,唯独反馈轮
+            # 直接报错,违反本函数 docstring"若仍失败→_rule_fallback 不抛异常"
+            # 的承诺。改为全兜:内容类异常带 error_feedback 重试仍有意义,传输类
+            # 重试一次无害(可能瞬断),最终一律落规则兜底——与 intent_node 的
+            # except Exception 哲学对齐。
             error_feedback = str(e)
             if attempt >= max_retries:
                 # 走兜底，不抛异常（Demo 不能因为 LLM 出 bug 而转圈）
