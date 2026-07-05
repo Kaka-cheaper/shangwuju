@@ -57,6 +57,10 @@ def critic_node(state: AgentState) -> dict[str, Any]:
             "pois": state.get("pois") or [],
             "restaurants": state.get("restaurants") or [],
         },
+        # 赞锁定根治批：锁定清单（房间反馈重排注入的 plain dict 列表，见
+        # state.pinned_targets docstring）→ check_pinned_presence 硬判据。
+        # 单人路径该键恒为空 → None → 检查跳过，行为零变化。
+        pinned=state.get("pinned_targets") or None,
     )
     has_critical = any(v.severity == Severity.HARD for v in violations)
 

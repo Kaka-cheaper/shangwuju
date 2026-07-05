@@ -146,6 +146,22 @@ class AgentState(TypedDict, total=False):
     # ---- 意图层 ----
     intent: Optional[IntentExtraction]  # EPISODE_SCOPED：新规划事件的意图，reset 后立即被 intent/refiner 自己的输出覆盖
 
+    # ---- 锁定清单（赞锁定根治批：房间 locked_stages → 重排引擎）----
+    pinned_targets: list[dict]  # EPISODE_SCOPED：本次规划事件必须保留的实体清单。
+    # 条目形状 {"kind": "poi"|"restaurant", "target_id": str, "name": str}——**刻意
+    # 存 plain dict 而非 schemas.pin.PinSpec**：checkpoint msgpack 白名单
+    # （build.py::_build_checkpoint_serde）外的 Pydantic 对象会**无声类型擦除**
+    # （cddde19 教训，读回静默变 dict 零告警）；纯 dict 天然免白名单，消费点
+    # （ils_replan_node）再按需构造 PinSpec。生产写手只有房间反馈重排
+    # （collab/room.py::_replan_with_refiner 注入，锁定归名留在房间侧不进图——
+    # 引擎不需要"谁锁的"，分层不泄漏）；消费者三处：planner_node（蓝图用户消息
+    # 「必须保留」段先验）、critic_node（check_pinned_presence 硬判据）、
+    # ils_replan_node（plan_hybrid(pinned=...) 原生保护）。单人路径无生产者，
+    # 恒为空列表 = 行为与本批之前完全一致。归 EPISODE_SCOPED：锁绑定"这一次
+    # 重排事件"——反馈轮由房间按当时的 locked_stages 重新注入（覆盖 reset 的
+    # 空值），新需求进 intent_node 则随 episode 重置清零（旧方案的锁对全新
+    # 方案无意义）。
+
     # ---- 候选数据（execute 阶段并行写入）----
     pois: list[Any]            # EPISODE_SCOPED：execute 阶段候选池，随新规划事件失效重搜（list[Poi]，用 Any 避开 TypedDict 泛型限制）
     restaurants: list[Any]      # EPISODE_SCOPED：同上（list[Restaurant]）
@@ -293,6 +309,7 @@ EPISODE_SCOPED 的唯一理由——治 user_decision/orders 那段"已知丢失
 
 EPISODE_SCOPED: frozenset[str] = frozenset({
     "intent",
+    "pinned_targets",
     "pois",
     "restaurants",
     "user_profile",
@@ -348,6 +365,7 @@ def reset_for_new_episode() -> dict[str, Any]:
     """
     diff: dict[str, Any] = {
         "intent": None,
+        "pinned_targets": [],
         "pois": [],
         "restaurants": [],
         "user_profile": None,

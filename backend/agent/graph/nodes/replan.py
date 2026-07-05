@@ -11,6 +11,7 @@
 - state["retry_count"]
 - state["plan_attempt"]
 - state["intent"] / state["itinerary"]（hybrid 兜底要这俩）
+- state["pinned_targets"]（赞锁定根治批：锁定清单 → PinSpec → plan_hybrid(pinned=...)）
 
 输出：
 - state["replan_strategy"] = "llm_backprompt" / "ils_fallback" / "give_up"
@@ -107,6 +108,49 @@ def route_after_replan(state: AgentState) -> str:
     return "narrate"  # give_up：用当前（不完美）方案继续走流程
 
 
+def _pinned_missing_advisories(itinerary: Any, pinned: list[dict]) -> list[dict]:
+    """rule 地板 / give_up 分支的锁定兜底告知（赞锁定根治批，L0「绝不默默忽略」）。
+
+    修复阶梯的最后两级（rule planner / give_up 保留旧方案）都不认识 pinned——
+    rule planner 没有 pinned 形参，give_up 交付的是上一轮带违规的方案。这两条
+    路径若交付了缺席锁定实体的方案而一声不吭，锁就被静默丢了。本函数对"最终
+    交付物"做成员资格比对（同 ils_planner._build_success_advisories 的
+    scheduled_keys 过滤精神：告知必须对最终交付方案字面为真），缺席者产
+    PINNED_UNSATISFIABLE advisory（复用 D-7 语义："排不进"的诚实告知，不 gate）。
+
+    itinerary 为 None（连方案都没有）→ 不产：narrate 的 give_up 兜底分支只走
+    道歉+放宽建议 chips，"方案里没有 X"对不存在的方案不成立。
+    """
+    if itinerary is None or not pinned:
+        return []
+    try:
+        present_ids = {
+            n.target_id for n in itinerary.nodes if n.target_kind != "home"
+        }
+    except AttributeError:
+        return []
+    from schemas.advisory import Advisory, AdvisoryCode
+
+    out: list[dict] = []
+    for p in pinned:
+        if not isinstance(p, dict):
+            continue
+        target_id = p.get("target_id")
+        if not target_id or target_id in present_ids:
+            continue
+        display = p.get("name") or target_id
+        out.append(
+            Advisory(
+                code=AdvisoryCode.PINNED_UNSATISFIABLE,
+                message=(
+                    f"点赞锁定的「{display}」这轮实在没能排进方案——现在这版是"
+                    "当前约束下能做到的结果；想保它的话告诉我，我再想别的排法。"
+                ),
+            ).model_dump()
+        )
+    return out
+
+
 def ils_replan_node(state: AgentState) -> dict[str, Any]:
     """转 hybrid ILS（多活动 TOPTW）算法兜底。复用 plan_hybrid。
 
@@ -120,6 +164,12 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
     天然处理任意组成（ADR-0010 核心：组成随 intent 涌现，不再有段/节点数的特权
     假设），门已无存在理由——删除后 ILS 对所有场景都适用；仍失败时下方 rule
     planner 兜底不变（D2 安全网原样保留）。
+
+    赞锁定根治批：`state.pinned_targets`（plain dict 清单，见 state.py docstring）
+    在这里构造成 `PinSpec` 传给 `plan_hybrid(pinned=...)`——D-7 建好的解析/保护/
+    被牺牲必产 advisory 全链路自此有了生产调用点（该文件「范围声明」里"生产
+    调用点暂不传参"一句就此作废）。rule 地板 / give_up 两级不认识 pinned，由
+    `_pinned_missing_advisories` 补产诚实告知。
     """
     from schemas.decision_trace import FallbackHop
 
@@ -129,12 +179,25 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
 
     chain = list(state.get("fallback_chain") or [])
 
+    # 赞锁定根治批：state 里的 plain dict → PinSpec（消费点构造，serde 安全形态
+    # 见 state.pinned_targets docstring）；非法 kind（防御）跳过。
+    pinned_state: list[dict] = [
+        p for p in (state.get("pinned_targets") or []) if isinstance(p, dict)
+    ]
+    from schemas.pin import PinSpec
+
+    pin_specs = [
+        PinSpec(kind=p["kind"], target_id=p["target_id"])
+        for p in pinned_state
+        if p.get("kind") in ("poi", "restaurant") and p.get("target_id")
+    ]
+
     # ---- 先尝试 ILS（新求解器天然处理任意组成，不再按段集合门控）----
     try:
         from agent.planning.planners.ils_planner import plan_hybrid
 
         client = get_llm_client()
-        result = plan_hybrid(intent, client=client, tracer=None)
+        result = plan_hybrid(intent, client=client, tracer=None, pinned=pin_specs or None)
         if result.success and result.itinerary is not None:
             # 真因修复批 item 3（看板 final_strategy 恒报 llm_first）：ILS 成功
             # 产出的 itinerary 从未经过 assemble_node（decision_trace 唯一注入点，
@@ -189,6 +252,9 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
                 "violations": [],
                 "critic_feedback_text": None,
                 "replan_strategy": "give_up",  # 标记已用完所有策略
+                # 赞锁定根治批：rule planner 不认识 pinned——锁定实体若不在
+                # 地板方案里，必须诚实告知（L0），不静默丢锁。
+                "advisories": _pinned_missing_advisories(rule_result.itinerary, pinned_state),
                 "fallback_chain": chain,
             }
         # ADR-0014 决策 2（G-2）配套三件：rule 地板未成功——留痕失败原因，
@@ -225,4 +291,7 @@ def ils_replan_node(state: AgentState) -> dict[str, Any]:
         "has_critical": False,
         "fallback_chain": chain,
         "give_up_chips": give_up_chips,
+        # 赞锁定根治批：give_up 交付的是 state 里上一轮的（不完美）方案——
+        # 若它缺席锁定实体，同样不许静默（itinerary=None 时不产，见 helper）。
+        "advisories": _pinned_missing_advisories(state.get("itinerary"), pinned_state),
     }

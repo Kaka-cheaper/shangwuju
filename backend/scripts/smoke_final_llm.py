@@ -2444,6 +2444,57 @@ async def probe_H4(ctx: ProbeCtx) -> None:
 
     add_record(ctx, "lock_attribution", _lock_attribution)
 
+    # ---- 赞锁定根治批：锁定被尊重 / 保不住必归名告知（第二间房，独立场景）----
+    # 成员「阿锁」赞 stage 0（锁定 P040 实体级登记）→ owner 发 Layer-1 强反馈
+    # "太贵了"（分发判定不依赖 LLM）→ 反馈重排注入 pinned_targets 走全阶梯
+    # （蓝图用户消息先验 + critic 硬判据 + plan_hybrid(pinned=...)）。
+    manager2 = RoomManager()
+    room2 = _seed_room_with_plan(manager2, "smoke_h4_lock_owner")
+    lock_owner_ws = _FakeWebSocket()
+    await manager2.join(room2, "smoke_h4_lock_owner", "发起人", lock_owner_ws)
+    locker_ws = _FakeWebSocket()
+    await manager2.join(room2, "smoke_h4_locker", "阿锁", locker_ws)
+
+    await manager2.update_vote(room2, "smoke_h4_locker", 0, "like")
+    locked_registered = dict(room2.locked_targets)
+    await manager2.add_constraint(room2, "smoke_h4_lock_owner", "太贵了")
+    if room2.planning_task is not None:
+        await room2.planning_task
+
+    final_mid_ids = [
+        n.get("target_id")
+        for n in (room2.current_itinerary_dict or {}).get("nodes", [])
+        if isinstance(n, dict) and n.get("target_kind") != "home"
+    ]
+    narration_texts = [
+        str(e.get("payload", {}).get("text", ""))
+        for e in room2.planning_events_history
+        if (e["type"] if isinstance(e["type"], str) else getattr(e["type"], "value", e["type"]))
+        == "agent_narration"
+    ]
+    named_loss = [t for t in narration_texts if "锁定" in t and "阿锁" in t]
+
+    def _lock_registered() -> tuple[bool, str]:
+        ok = "P040" in locked_registered and locked_registered["P040"].get("lockers") == ["smoke_h4_locker"]
+        return ok, f"点赞实体级锁登记（归名）={locked_registered}"
+
+    add_check(ctx, "like_registers_entity_lock_with_attribution", "PLUMBING", _lock_registered)
+
+    def _lock_honored_or_honest() -> tuple[bool, str]:
+        # L0 不变量（确定性承诺，任何 provider 下成立）：锁定实体要么在新方案里，
+        # 要么有归名的"没保住"告知广播——绝无静默丢锁这第三种状态。
+        ok = ("P040" in final_mid_ids) or bool(named_loss)
+        return ok, f"最终 mid 节点={final_mid_ids}；归名丢锁告知={named_loss}"
+
+    add_check(ctx, "liked_lock_honored_or_honest_named_loss", "PLUMBING", _lock_honored_or_honest)
+
+    def _lock_respected() -> tuple[bool, str]:
+        # 锁定被尊重（SEMANTIC）："太贵了"不动候选池的召回/grounding 维度，
+        # 真实 LLM/引擎应把 P040 保进新方案，而不是走"保不住"的告知出口。
+        return "P040" in final_mid_ids, f"最终 mid 节点={final_mid_ids}"
+
+    add_check(ctx, "liked_lock_respected_in_replanned_itinerary", "SEMANTIC", _lock_respected)
+
 
 async def probe_H5(ctx: ProbeCtx) -> None:
     """中途加入快照：出方案 + 攒了聊天/台账的房间，新成员 join 收到的

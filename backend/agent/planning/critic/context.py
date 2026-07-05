@@ -59,6 +59,10 @@ class CriticContext:
     restaurants: list = field(default_factory=list)
     # 搜索快照 —— 仅 check_tool_consistency 使用
     tool_results: Optional[dict] = None
+    # 锁定清单（赞锁定根治批）—— 仅 check_pinned_presence 使用。
+    # 形状同 AgentState.pinned_targets：list[{"kind","target_id","name"}]（plain
+    # dict，见 state.py 该字段 serde 说明）；None/空 = 无锁定，check 跳过。
+    pinned: Optional[list] = None
 
     # 懒构建缓存（不参与构造 / repr）
     _pois_by_id: Optional[dict] = field(default=None, init=False, repr=False, compare=False)
@@ -73,13 +77,14 @@ class CriticContext:
         *,
         user_id: str = "demo_user",
         tool_results: Optional[dict] = None,
+        pinned: Optional[list] = None,
     ) -> "CriticContext":
         """从 validate_itinerary 的入参一次性载入全量 mock + profile + 快照。
 
         与旧 validate_itinerary 的加载路径等价：
         - profile = safe_load_user_profile(user_id)（旧代码每次也只加载一次）
         - pois / restaurants = safe_load_*()（旧代码每个 check 各加载一次，现收口一次）
-        - tool_results 原样持有（不复制、不改形状）
+        - tool_results / pinned 原样持有（不复制、不改形状）
         """
         return cls(
             intent=intent,
@@ -87,6 +92,7 @@ class CriticContext:
             pois=safe_load_pois(),
             restaurants=safe_load_restaurants(),
             tool_results=tool_results,
+            pinned=pinned,
         )
 
     @property

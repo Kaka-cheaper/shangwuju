@@ -1449,3 +1449,69 @@ def check_meal_time(
             )
         )
     return out
+
+
+def check_pinned_presence(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """锁定实体在场检查（赞锁定根治批）：`ctx.pinned` 里的每个实体必须出现在
+    最终方案的 mid 节点里，缺席即 HARD 违规。
+
+    【这是什么问题】房间成员点赞锁定（`Room.locked_stages`）的语义承诺是
+    "重排时保住这一段"。承接引擎 `plan_hybrid(pinned=...)`（ADR-0010 D-7）只
+    覆盖 ILS 兜底路径；真实模式主路径是蓝图 LLM 选点——LLM 天然不知道 pinned，
+    可能把锁定节点丢掉。本 check 把"pinned 在场"做成 critic 硬判据，复用既有
+    backprompt/修复阶梯（format_violations_for_llm 会把本违规的人话喂回蓝图
+    LLM；降到 ILS 时 plan_hybrid(pinned=...) 原生尊重），不建旁路。
+
+    【与 Advisory 通道的分工】本 check 判的是"图内修复闭环还有机会救"的中间
+    态（HARD → gate 修复）；修复阶梯穷尽后确实保不住的，由 ils_replan_node /
+    plan_hybrid 产 PINNED_UNSATISFIABLE 等 advisory 诚实告知（那时它不再是
+    "缺陷"而是"限制"，见 schemas/advisory.py 模块 docstring 的两轴之辨）。
+
+    【为何不进 plan_hybrid 的内部 critic】plan_hybrid 调 validate_itinerary
+    时不传 pinned（其 pinned 保护在 build_route/黑名单豁免层原生实现，允许
+    "保不住就产 advisory 交付"）——若在那里也判 HARD，会把"合理的限制告知"
+    打成"必须修复的缺陷"，与 D-7 语义冲突。`_classify_violation` 对本 code
+    无动作桶（unknown → 空集合 → 落地板），天然不会进 ILS 重搜循环。
+
+    【消息纪律】message 点实体名（pinned 条目自带 name，缺失时回退全量 mock
+    名称，再退 target_id——同 ils_planner._visit_display_name 的兜底次序）；
+    不外露 dot-path / 内部 id。蓝图 LLM 凭名字即可在候选预览里对应到 id
+    （预览含 id+name），且注入侧的用户消息「必须保留」段已直接给过 id。
+
+    - ctx 为 None / ctx.pinned 为空 → 跳过（单人路径零变化保证）。
+    - field_path 留空：违规主体是"缺席"，没有肇事节点可定位。
+    """
+    pinned = getattr(ctx, "pinned", None) if ctx is not None else None
+    if not pinned:
+        return []
+
+    present_ids = {
+        node.target_id for node in itinerary.nodes if node.target_kind != "home"
+    }
+    out: list[Violation] = []
+    for p in pinned:
+        if not isinstance(p, dict):
+            continue
+        target_id = p.get("target_id")
+        if not target_id or target_id in present_ids:
+            continue
+        name = p.get("name")
+        if not name and ctx is not None:
+            entity = ctx.pois_by_id.get(target_id) or ctx.restaurants_by_id.get(target_id)
+            name = getattr(entity, "name", None)
+        display = name or target_id
+        out.append(
+            Violation(
+                code=ViolationCode.PINNED_ENTITY_MISSING,
+                severity=Severity.HARD,
+                message=(
+                    f"这版方案把用户点赞锁定要保留的「{display}」弄丢了。"
+                    "必须把它排回方案（可以为它调整其余节点的选择或时长），"
+                    "除非确实排不进——那也要换方案时如实说明。"
+                ),
+                field_path="",
+            )
+        )
+    return out

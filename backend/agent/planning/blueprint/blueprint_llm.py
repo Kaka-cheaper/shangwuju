@@ -156,6 +156,7 @@ def build_candidate_preview(
     *,
     transport_preference: str = "taxi",
     companions: list | None = None,
+    must_include_ids: frozenset[str] | set[str] | None = None,
 ) -> dict:
     """打包候选预览给 LLM（edge_v1：不再含 commute_matrix）。
 
@@ -168,6 +169,12 @@ def build_candidate_preview(
         companions: IntentExtraction.companions 列表，spec R2 用于
             `_poi_preview` 投影 SuggestedDuration dict 为单值；缺省时
             降级到 default 桶（向后兼容旧调用方）。
+        must_include_ids: 必须出现在预览里的实体 id（赞锁定根治批：锁定实体
+            可能评分不进 top_k，被裁掉后 LLM 无从选它——系统提示硬性约束 3
+            要求 target_id 必须在预览里存在，「必须保留」段引用一个预览里
+            不存在的 id 是自相矛盾的指令）。命中的候选若被 top_k 裁掉则追加
+            回来；不在召回池里的 id 无法凭空造出（那是 NO_MATCHING_CANDIDATES
+            advisory 的领域，见 ils_planner._resolve_pinned）。None = 现状行为。
 
     Returns:
         {
@@ -186,6 +193,16 @@ def build_candidate_preview(
     rests_sorted = sorted(
         restaurants, key=lambda r: r.rating, reverse=True
     )[:top_k]
+
+    if must_include_ids:
+        picked_poi_ids = {p.id for p in pois_sorted}
+        pois_sorted += [
+            p for p in pois if p.id in must_include_ids and p.id not in picked_poi_ids
+        ]
+        picked_rest_ids = {r.id for r in rests_sorted}
+        rests_sorted += [
+            r for r in restaurants if r.id in must_include_ids and r.id not in picked_rest_ids
+        ]
 
     return {
         "pois": [_poi_preview(p, companions=companions) for p in pois_sorted],
@@ -214,6 +231,7 @@ def generate_blueprint(
     critic_feedback: list[str] | None = None,
     top_k_preview: int = 5,
     user_id: str = "demo_user",
+    pinned: list[dict] | None = None,
 ) -> PlanBlueprint:
     """让 LLM 看候选数据后出蓝图（edge_v1：仅 nodes + preferred_start_time + rationale）。
 
@@ -224,6 +242,9 @@ def generate_blueprint(
         critic_feedback: 上一轮 critic 的硬违规消息列表（重生成时传，注入 user message）
         top_k_preview: 候选预览取前几条
         user_id: 解析交通偏好用（默认 demo_user）
+        pinned: 锁定清单 list[{"kind","target_id","name"}]（赞锁定根治批，形状同
+            AgentState.pinned_targets）——注入 user message「必须保留」段（见
+            build_user_message docstring；系统提示不动）。None/空 = 现状行为。
 
     Returns:
         PlanBlueprint（含 nodes + preferred_start_time + rationale）
@@ -251,13 +272,20 @@ def generate_blueprint(
         # user_profile 加载失败不阻塞蓝图生成；assemble 自己有兜底
         pass
 
-    # 2. 构造候选预览（不含 commute_matrix）
+    # 2. 构造候选预览（不含 commute_matrix；锁定实体强制进预览，见
+    # build_candidate_preview.must_include_ids docstring）
+    pinned_ids = frozenset(
+        p.get("target_id")
+        for p in (pinned or [])
+        if isinstance(p, dict) and p.get("target_id")
+    )
     preview = build_candidate_preview(
         pois,
         restaurants,
         top_k=top_k_preview,
         transport_preference=transport_pref,
         companions=list(intent.companions),  # spec R2: 投影 SuggestedDuration → 单值
+        must_include_ids=pinned_ids or None,
     )
     intent_json = intent.model_dump_json()
     candidates_json = json.dumps(preview, ensure_ascii=False, indent=2)
@@ -266,6 +294,7 @@ def generate_blueprint(
         intent_json=intent_json,
         candidates_json=candidates_json,
         critic_feedback=critic_feedback,
+        pinned=list(pinned) if pinned else None,
     )
     messages = [
         LLMMessage(role="system", content=BLUEPRINT_SYSTEM_PROMPT),
