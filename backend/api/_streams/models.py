@@ -28,25 +28,17 @@ class ChatConfirmRequest(BaseModel):
     # modifications 字段已删（api_contract.md §10 曾记录的死字段：decision="modify"
     # 分支与 reject 同路，只告知不消费改动；前端也从未发送过它）。
     user_id: Optional[str] = Field(default=None, max_length=64)
-    # spec execution-quality-review R2：execution Tool 的 hallucination 防护白名单
-    # 规划阶段 ItineraryReady 中所有 target_id 由 backend 写入；前端在 confirm 时回传
-    # 让 reserve_restaurant / buy_ticket / order_extra_service 等执行类工具仅能在该白名单内派发。
-    # 攻击向量：LLM 在多轮反馈中编造 R999 / 用代词指代触发执行类工具调错对象。
-    # 设计：可选字段（向后兼容），缺省时不做白名单校验（demo 短路径不破）。
-    allowed_restaurant_ids: Optional[list[str]] = Field(
-        default=None,
-        description=(
-            "前端从 ItineraryReady 收到的合法餐厅 ID 集合；"
-            "传入后 reserve_restaurant 仅能在该集合内派发"
-        ),
-    )
-    allowed_poi_ids: Optional[list[str]] = Field(
-        default=None,
-        description=(
-            "前端从 ItineraryReady 收到的合法 POI ID 集合；"
-            "传入后 buy_ticket 仅能在该集合内派发"
-        ),
-    )
+    # 分界修缮批 任务 6（2026-07-04）：allowed_restaurant_ids / allowed_poi_ids
+    # 已删——spec execution-quality-review R2 立的"执行类工具白名单"协议全仓
+    # 零消费（字段收下后从未有任何代码比对它们），端点 docstring 却宣称校验
+    # 存在，是虚假安全声明；前端也从未发送（grep frontend/ 零命中）。防编造
+    # 目标的真实防线是 pending_actions 忠实回放：规划期 finalize_plan 就把
+    # reserve/buy/加购的工具与目标 id 锁进 Itinerary.pending_actions，confirm
+    # 期 replay_confirm_actions 逐条照单执行、不读 intent 不重新决策（见
+    # agent/graph/nodes/execute_finalize.py）——LLM 在 confirm 轮没有编造目标
+    # 的通道。注意 extra="forbid"：外部调用方若仍按旧文档发送这两个字段会
+    # 422；docs/06-business/07-小团能力接入指南.md 与 api_contract.md 仍写着
+    # 旧协议，本批红线不改 docs，同步留收口批。
 
 
 # ============================================================

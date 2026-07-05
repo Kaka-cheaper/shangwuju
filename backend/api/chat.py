@@ -32,12 +32,15 @@ router = APIRouter()
     summary="确认下单：派发预约餐厅、买票、生成转发文案 3 个执行类工具",
 )
 async def chat_confirm(req: ChatConfirmRequest, request: Request) -> EventSourceResponse:
-    """用户确认行程方案 → 后端按白名单（allowed_*_ids）派发执行类 Tool。
+    """用户确认行程方案 → 后端 replay 规划期锁定的确认动作清单。
 
-    防 hallucination：
-        - 前端从 ItineraryReady 收到合法 ID 集合，confirm 时回传
-        - reserve_restaurant / buy_ticket / order_extra_service 仅能在该集合内派发
-        - 缺省时不做白名单校验（向后兼容；demo 短路径不破）
+    防 hallucination（工具前移，真实防线）：
+        - 规划期 finalize_plan 把 confirm 要调的工具 + 参数（含目标 id）算好
+          锁进 Itinerary.pending_actions；confirm 期 replay_confirm_actions
+          忠实回放、不读 intent 不重新决策——执行与所见一致，LLM 在 confirm
+          轮没有编造目标的通道（见 agent/graph/nodes/execute_finalize.py）。
+        - 曾在此宣称的 allowed_*_ids 白名单校验从未实现（协议死字段，全仓零
+          消费），已随 ChatConfirmRequest 一并删除（分界修缮批 任务 6）。
 
     SSE 序列：
         reserve_restaurant → buy_ticket（如有 POI 票）→ order_extra_service（如有蛋糕/鲜花）→ generate_share_message →
