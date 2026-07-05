@@ -74,6 +74,22 @@ class Room:
     session_id: Optional[str] = None
     members: dict[str, Member] = field(default_factory=dict)
     constraints: list[Constraint] = field(default_factory=list)
+    # 改口根治批（反馈重播根治）：约束池消费水位线——`constraints` 前多少条已被
+    # 某次重排消化。问题归类：约束池是 append-only 事件日志，每次重排是它的一个
+    # 消费者——消息队列 consumer-offset 的经典形状；ack 语义取 at-least-once
+    # （宁可极端取消时机下同一条反馈被合并两次——refiner 对意图的合并近似幂等，
+    # 也绝不静默丢失成员的话）。此前没有水位线，`_merge_constraints_text` 整池
+    # 重播最近 5 条，旧否定每轮以"最新输入"身份进 refiner，把 prompt 的"最新
+    # 输入最高优先级"结构性抹掉（房间四轮"密室回不来"实测根因①）。
+    # 生命周期：建房=0；`_replan_with_refiner` 在 aupdate_state（合并提交）后
+    # 推进到本轮切片终点（`_run_planning` 捕获的 slice_end）；`_run_planning`
+    # 无基线分支在 `_plan_fresh` 消费合并文本后同样推进；`_trigger_fresh_plan`
+    # （planning 义务重开一局）快进到 len(constraints)——新 episode 整体替换
+    # 意图，旧 episode 挂账未消化的反馈随旧方案作废（与 locked_targets.clear()
+    # 同一条 episode 边界纪律）；随房间 TTL 清扫一起蒸发。单调不减（只做 max()
+    # 推进，绝不回拨）。不进 `get_state_snapshot()`——同 last_activity_at，
+    # 纯内部记账字段，前端无消费理由（快照键集有特征化测试钉着）。
+    constraints_consumed_watermark: int = 0
     votes: dict[int, dict[str, str]] = field(default_factory=dict)  # stage_idx → {user_id: "like"|"dislike"}
     current_intent_dict: Optional[dict[str, Any]] = None
     current_itinerary_dict: Optional[dict[str, Any]] = None
@@ -1058,6 +1074,11 @@ class RoomManager:
         # 陈旧锁若留着，下一轮反馈会把它翻译到全新方案的无关实体上（真错误）。
         room.locked_targets.clear()
         room.locked_stages.clear()
+        # 改口根治批：新 episode 整体替换意图，旧 episode 挂账未消化的反馈随
+        # 旧方案作废（水位线快进；与上面锁登记清空同一条 episode 边界纪律——
+        # 把几轮前的"不想要 X"重播进一句全新规划请求，正是水位线要根治的
+        # 重播病灶在另一个入口的变体）。
+        room.constraints_consumed_watermark = len(room.constraints)
 
         await self.broadcast(room, {
             "type": "planning_started",
@@ -1071,7 +1092,10 @@ class RoomManager:
         """执行规划并广播事件。
 
         策略：
-        1. 合并所有约束文本为一个 feedback 字符串
+        1. 只把"水位线之后新增"的约束条目合并为本次 feedback（改口根治批：
+           历史条目已按序合并进意图，靠链式意图继承延续语义，不整池重播——
+           见 `_merge_constraints_text` / Room.constraints_consumed_watermark
+           两处 docstring）
         2. 如果有 current_intent → 持久线程注入+续跑（`_replan_with_refiner`，
            房间重排根治批：refiner 直调 + aupdate_state + astream(None)）
         3. 如果没有 current_intent → 用约束文本作为初始输入走 `_plan_fresh`
@@ -1079,20 +1103,48 @@ class RoomManager:
         5. 维护 llm_context_messages：每次约束和规划结果都追加到上下文
         """
         try:
-            # 合并约束为 feedback 文本
-            merged_feedback = self._merge_constraints_text(room)
+            # 改口根治批：水位线切片。slice_end 在切片时刻捕获——合并提交后
+            # 推进到它而不是提交时刻的 len()：提交前若有新条目并发追加，那是
+            # 下一轮的菜，不能被本轮顺手 ack 掉。
+            since = room.constraints_consumed_watermark
+            slice_end = len(room.constraints)
+            merged_feedback = self._merge_constraints_text(room, since_index=since)
 
-            # 追加约束到 LLM 上下文（让 LLM 知道"用户们说了什么"）
-            self._append_to_llm_context(room, role="user", content=merged_feedback)
+            # 追加约束到 LLM 上下文（让 LLM 知道"用户们说了什么"）——只追加
+            # 新增切片；整池重复追加会让上下文摘要每轮多背一份旧话
+            if merged_feedback:
+                self._append_to_llm_context(room, role="user", content=merged_feedback)
 
             # 决定走哪条路径
             if room.current_intent_dict is not None:
-                # 有基线 intent → refiner 合并约束后重规划
-                await self._replan_with_refiner(room, merged_feedback)
+                if not merged_feedback:
+                    # 防御边界（现场核对：结构上到不了——唯一触发方
+                    # `add_constraint` 的 feedback 分支先入池再触发，切片必
+                    # 非空；判成 chitchat/planning 的输入根本不走
+                    # `_trigger_replan`）。若未来出现"空切片重排"：喂空串会
+                    # 触发 refiner 的"反馈为空→轻量调整"（距离-1km 的幻影
+                    # 变更）——宁可空转收尾（done 必达，前端 spinner 不挂死）
+                    # 也不幻影改方案。
+                    await self._broadcast_planning_event(room, {
+                        "type": "done",
+                        "seq": 0,
+                        "payload": {},
+                        "timestamp_ms": int(time.time() * 1000),
+                    })
+                    return
+                # 有基线 intent → refiner 合并"新增切片"后重规划；水位线由
+                # `_replan_with_refiner` 在合并提交（aupdate_state）后推进
+                await self._replan_with_refiner(
+                    room, merged_feedback, consumed_watermark=slice_end
+                )
             else:
                 # 无基线 → 用约束文本作为初始输入
                 initial_input = merged_feedback or "帮我规划一个下午"
                 await self._plan_fresh(room, initial_input)
+                # 切片已作为全新规划的输入被消费（成为新意图的原材料）
+                room.constraints_consumed_watermark = max(
+                    room.constraints_consumed_watermark, slice_end
+                )
 
         except asyncio.CancelledError:
             # 被新约束中断，正常退出
@@ -1105,8 +1157,19 @@ class RoomManager:
                     "timestamp_ms": int(time.time() * 1000),
                 })
 
-    async def _replan_with_refiner(self, room: Room, feedback: str) -> None:
+    async def _replan_with_refiner(
+        self, room: Room, feedback: str, *, consumed_watermark: Optional[int] = None
+    ) -> None:
         """反馈轮重排——持久 graph 线程「状态注入 + 续跑」（房间重排根治批，方案 d）。
+
+        【改口根治批：约束消费 ack】`consumed_watermark` 非 None 时（生产调用方
+        `_run_planning` 传本轮切片终点），在**合并提交**时刻推进
+        `room.constraints_consumed_watermark`——即 aupdate_state 返回后立刻同步
+        推进（两行间无 await，注入成功与推进不可能被取消分离）；续跑期间被新
+        约束取消不影响"已消化"语义——精炼后意图已落 checkpoint 与房间投影，
+        下一轮 refiner 以它为基线（链式意图继承）。合并提交**之前**被取消则
+        水位线不动，条目下轮重播（at-least-once：合并近似幂等，丢话不可接受）。
+        直调本方法而不传 `consumed_watermark`（金标准对比测试等）不触碰水位线。
 
         【病灶（治的是这个）】旧实现是降维复刻：图外调 `refine_intent` 合并反馈，
         再把合并后文本塞进**全新一次性** graph session（`collab_{room_id}_{ts}`）跑
@@ -1152,6 +1215,14 @@ class RoomManager:
         graph = get_compiled_graph()
         config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
+        def _mark_constraints_consumed() -> None:
+            # 改口根治批：反馈被"消化"的 ack 点（见方法 docstring【约束消费
+            # ack】节与 Room.constraints_consumed_watermark 生命周期声明）。
+            if consumed_watermark is not None:
+                room.constraints_consumed_watermark = max(
+                    room.constraints_consumed_watermark, consumed_watermark
+                )
+
         # ---- 步骤 1：先读——refiner 要看到旧 intent + 被拒的旧 itinerary ----
         snap = await graph.aget_state(config)
         base: dict[str, Any] = dict(snap.values) if snap is not None and snap.values else {}
@@ -1185,6 +1256,7 @@ class RoomManager:
             # 防御兜底：无基线 intent（调用方 _run_planning 的分支保证不会到这）——
             # refiner 无从合并，退回全新规划，不让反馈静默丢失。
             await self._plan_fresh(room, feedback or "帮我规划一个下午")
+            _mark_constraints_consumed()  # 切片已作为全新规划输入被消费
             return
 
         # ---- 步骤 2：叠本轮反馈层 ----
@@ -1202,6 +1274,7 @@ class RoomManager:
         if refined_intent is None:
             # refiner_node 对 intent/feedback 缺失返回 {}——同上防御兜底
             await self._plan_fresh(room, feedback or "帮我规划一个下午")
+            _mark_constraints_consumed()  # 同上：切片已作为全新规划输入被消费
             return
 
         # ---- 步骤 3.5：锁定清单翻译（赞锁定根治批）----
@@ -1234,6 +1307,9 @@ class RoomManager:
             ],
         }
         await graph.aupdate_state(config, values, as_node="refiner")
+        # 合并已提交（checkpoint 落盘）——立刻同步 ack 本轮切片（此行与上一行
+        # 之间不得插入任何 await，见 _mark_constraints_consumed 注释）
+        _mark_constraints_consumed()
 
         # 房间投影同步（与旧实现同一时机：合并定稿即更新，不等续跑出方案）
         room.current_intent_dict = refined_intent.model_dump()
@@ -1412,14 +1488,25 @@ class RoomManager:
                     "timestamp_ms": int(time.time() * 1000),
                 })
 
-    def _merge_constraints_text(self, room: Room) -> str:
-        """把约束池合并为一段 feedback 文本（喂给 refiner）。"""
-        if not room.constraints:
+    def _merge_constraints_text(self, room: Room, *, since_index: int = 0) -> str:
+        """把约束池 `constraints[since_index:]` 合并为一段 feedback 文本（喂给 refiner）。
+
+        改口根治批：调用方传 `since_index=room.constraints_consumed_watermark`，
+        只合并"上次重排水位线之后新增"的条目——历史反馈已在之前的轮次合并进
+        意图（链式意图继承，单人架构既定状态模型：意图=唯一状态，增量按序只
+        合并一次），再整池重播会让旧否定每轮以"最新输入"身份进 refiner，把
+        prompt 的"最新输入最高优先级"结构性抹掉（见 Room.constraints_consumed_
+        watermark 字段 docstring 的病灶记载）。切片内**全取**、不设条数上限：
+        同一轮多人发言一条都不能丢（旧的 [-5:] 截断是针对整池重播的 token
+        止血，切片天然有界——至多积累"自上次成功合并以来"的发言，止血随病灶
+        一起撤）。归名前缀「{昵称}说：」语义原样保留——refiner 需要知道哪句
+        话是谁说的。
+        """
+        entries = room.constraints[since_index:]
+        if not entries:
             return ""
-        # 取最近 5 条约束（避免 token 爆炸）
-        recent = room.constraints[-5:]
         parts = []
-        for c in recent:
+        for c in entries:
             nickname = room.members.get(c.user_id, Member(user_id=c.user_id, nickname=c.user_id, role="participant")).nickname
             parts.append(f"{nickname}说：{c.text}")
         return "；".join(parts)

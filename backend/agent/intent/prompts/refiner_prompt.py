@@ -9,6 +9,13 @@
 4. 输出 changed_fields 中文字段变更摘要列表，给前端 toast 用
 5. 反馈为空时：refiner 走"轻量调整"——把 distance_max_km 缩 1 公里 OR 把 capacity_requirement 调灵活
    （是给"用户拒绝但懒得说"的兜底，让 Demo 仍能往下走）
+6. C 类（换备选）诚实边界（改口根治批判据变更）：不再教 LLM 往 ambiguous_fields
+   写"避开某家"备注、不再宣称"planner 后续会避开"——读码核实该承诺无程序消费者
+   （ambiguous_fields 的真实消费者只有 narrator 的"哪些没吃准"叙事与 parser 的
+   budget_per_person 诚实信号，见 tests/test_consumption_completeness.py 轴 3 的
+   读码记录；没有任何 planner 路径按它排除实体），空头支票=对用户和下游同时撒谎。
+   ambiguous_fields 回归本职：真正需要向用户澄清的字段名信号。
+   契约钉在 tests/test_refiner_prompt_no_phantom_promise.py。
 
 不负责：
 - LLM 调用（在 refiner.py）
@@ -51,7 +58,10 @@ B. 换了场景（时间 / 同行 / 活动变了，如"周末改带爸妈吃饭"
    → 这是带上下文的延续，不是从零开始：**覆盖所有冲突字段**（同行 / 社交语境 / 相关 tag /
      时间 / 时长），但**保留仍适用的合理约束**（如"别太远""带孩子"的物理约束若还成立）。
 C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
-   → 字段基本不动，在 ambiguous_fields 记下"上次推荐的 X 不行"，让 planner 后续避开。
+   → 字段基本不动。refiner_note 如实说"重新给你配一版备选"即可；**不要**往
+     ambiguous_fields 写"避开某家"的备注，也**不要**承诺"会避开 X"——系统没有
+     按店名排除的机制，这类承诺没有任何程序会兑现，写了=对用户撒谎。
+     ambiguous_fields 只放"真正需要向用户澄清的字段名"（如 budget_per_person）。
 判不准时，把这次输入当作**最高优先级约束**合并进去——宁可多覆盖，也不要丢掉它。
 
 你需要：
@@ -98,7 +108,8 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
 - "换个氛围"                    → experience 调整（如安静聊天 ↔ 热闹）
 - "时间紧"                      → duration_hours 改 [2, 3]
 - "时间多"                      → duration_hours 改 [5, 7]
-- "不要餐厅 X" / "不要 POI Y"   → 在 ambiguous_fields 加备注「上次推荐的 X 不行」（refined_intent 不直接排 id；planner 后续会避开重复）
+- "不要餐厅 X" / "不要 POI Y"   → 字段基本不动（重排会重新配备选）；不写 ambiguous_fields、
+                                  不承诺"会避开 X"（无排除机制，承诺=空头支票；见上面 C 类说明）
 - 反馈为空字符串                → 默认走"距离 -1km、capacity 弹性 +1"轻量调整
 - 完全无法理解的反馈            → changed_fields 留空，refiner_note 写「未识别可执行调整，已重新打散候选排序」
 
@@ -208,7 +219,12 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"物理：去亲子友好/适合5-10岁，加适合老人/可休息","忌口加软烂；体验加安静聊天"],'
         '"refiner_note":"明白，这次是陪爸妈吃饭——去掉了亲子相关，换成适合老人的安静安排。"}',
     ),
-    # 5. C 换备选：不满意某个具体推荐，字段基本不动，记进 ambiguous_fields
+    # 5. C 换备选：不满意某个具体推荐，字段基本不动（改口根治批判据变更：
+    #    旧示范教"往 ambiguous_fields 记『上次推荐的 X 不行』+ note 承诺避开"
+    #    ——读码核实该备注无程序消费者（ambiguous_fields 的真实消费者是
+    #    narrator"哪些没吃准"与 parser 的 budget 诚实信号），"planner 会避开"
+    #    是空头支票；换备选的诚实说法是"重新配一版"，反馈原话仍经 raw_input
+    #    拼接抵达下游，避开可以自然涌现但不被承诺）
     (
         '原 intent={"start_time":"today_afternoon","duration_hours":[3,5],'
         '"distance_max_km":5,"companions":[{"role":"妻子","count":1},'
@@ -229,9 +245,9 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"social_context":"家庭日常","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
         '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,'
-        '"ambiguous_fields":["上次推荐的『椰林餐厅』不行，换一家"]},'
-        '"changed_fields":["避开上次的椰林餐厅"],'
-        '"refiner_note":"知道了，这次避开椰林餐厅，给你换一家，其余保持不变。"}',
+        '"ambiguous_fields":[]},'
+        '"changed_fields":[],'
+        '"refiner_note":"知道了，这家不合心意——需求字段不动，重新给你配一版备选。"}',
     ),
     # 6. 预算说了具体数字（ADR-0014 决策 3·G-3）：budget_per_person 从 null 更新为明说的数字
     (

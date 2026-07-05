@@ -177,6 +177,15 @@ from ..blueprint.assemble_blueprint import assemble_from_blueprint
 from ..critic.age_caps import cap_for_age
 from ..critic.critics_v2 import Severity, Violation, ViolationCode, validate_itinerary
 from ...core.trace import Tracer
+# 改口根治批（desire-blind 修复）：复用 search_adapter 的品类重排 helper——
+# poi_desire_match（canonical 等价表 + 双向 substring）是 R3 重排 / R4 未满足
+# 检测 / 本处 ILS 召回共享的同一把尺子，绝不在此抄第二份词法逻辑（helper 的
+# PUBLIC SEAM 注记见其 docstring）。import 方向安全：search_adapter 只依赖
+# schemas + tools.registry，不反向依赖 planning，无环。
+from ...runtime.tools.search_adapter import (
+    _rerank_by_preferred_cuisine,
+    _rerank_by_preferred_poi_types,
+)
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
 from utils.duration_helpers import get_duration_for_companions
@@ -1020,7 +1029,17 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
     out = SearchPoisOutput.model_validate(res.output)
     candidates = list(out.candidates)
     # spec algorithm-redesign R3：grounding-first 前置硬剔除
-    return _grounding_filter_poi(candidates, intent, tracer)
+    grounded = _grounding_filter_poi(candidates, intent, tracer)
+    # 改口根治批（desire-blind 修复）：ILS 召回此前完全不消费
+    # intent.preferred_poi_types——用户点名的品类（如「密室」，全库仅 P013
+    # 一家的放大器场景）在池里按 rating 序沉底，蓝图被打回落 ILS 兜底后品类
+    # 结构性回不来（观察记录"想撸串却给台球KTV"同根，餐厅侧见
+    # `_query_restaurants` 对称修复）。复用 search_adapter 的词法重排（canonical
+    # 等价表 + 双向 substring，与 R4 未满足检测同一把尺子），desire 命中者稳定
+    # 前置：下游 `activity_pool.build_route_candidate_pool` 按输入序分层轮转
+    # 截断（top_k=15），前置=截断存活权；组内 rating 相对序不变（稳定分区），
+    # 无 desire 时原序返回，零回归。不改 Tool（守 §3.4 场景无感）。
+    return _rerank_by_preferred_poi_types(grounded, list(intent.preferred_poi_types))
 
 
 def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaurant]:
@@ -1069,7 +1088,12 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
     out = SearchRestaurantsOutput.model_validate(res.output)
     candidates = list(out.candidates)
     # spec algorithm-redesign R3：grounding-first 前置硬剔除（仅距离 + 营业状态）
-    return _grounding_filter_restaurant(candidates, intent, tracer)
+    grounded = _grounding_filter_restaurant(candidates, intent, tracer)
+    # 改口根治批：餐厅侧对称修复（核查结论=对称缺陷，没有别的机制盖住——
+    # dietary_constraints 只做标签过滤，不携带「烧烤/火锅」这类 cuisine 诉求；
+    # blueprint_prompt 的"选 restaurant 须匹配 preferred_poi_types"只护蓝图 LLM
+    # 路径，ILS 兜底路径此前裸奔）。同上复用 search_adapter 的 cuisine 重排。
+    return _rerank_by_preferred_cuisine(grounded, list(intent.preferred_poi_types))
 
 
 # ============================================================

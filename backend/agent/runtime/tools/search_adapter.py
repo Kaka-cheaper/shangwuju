@@ -208,6 +208,10 @@ def _rerank_by_preferred_poi_types(
 
     无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序，零回归）。
     与餐厅侧 _rerank_by_preferred_cuisine 同源；判定走 poi_desire_match（R3/R4 共用）。
+
+    PUBLIC SEAM（改口根治批）：`agent.planning.planners.ils_planner._query_pois`
+    顶层 import 本函数做 ILS 召回的品类感知重排——虽带下划线，事实上是跨模块
+    公开契约（同 ils_planner._env_int 的先例）。删除/改签名前先迁移那处 import。
     """
     if not preferred_poi_types:
         return pois
@@ -311,6 +315,10 @@ def _rerank_by_preferred_cuisine(
     匹配规则（宽松双向 substring）：preferred 词 in cuisine 或 cuisine in preferred 词，
     例如 preferred=["烧烤"] 命中 cuisine="烧烤"；preferred=["串"] 命中 "串串"。
     无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序）。
+
+    PUBLIC SEAM（改口根治批）：`agent.planning.planners.ils_planner.
+    _query_restaurants` 顶层 import 本函数做 ILS 餐厅召回的 cuisine 感知重排
+    （对称缺陷同修）——删除/改签名前先迁移那处 import。
     """
     if not preferred_poi_types:
         return restaurants

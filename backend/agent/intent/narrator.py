@@ -943,8 +943,10 @@ def _template_narration(
             f"你想要的{cuisines_str}附近没找到合适的，"
             f"先帮你选了方案里的替代，不满意我再换。"
         )
-    # C2 实锤分叉：附近有但这版没安排 → 只坦白"没安排上"，不归因于"找不到"
-    # （真实原因常是用户新反馈收紧了约束，recap 句会补上下文）。
+    # C2 实锤分叉：附近有但这版没安排 → 只坦白"没安排上"，不归因于"找不到"。
+    # 改口根治批核查：模板句本身天然"只陈述不归因"（真实原因引擎未透出，
+    # 不编因果；recap 句只回顾这版因何触发，不解释某项为何没排上——LLM 路径
+    # 的同名纪律见 narrator_prompt 的【这版没安排】块）。
     if unmet_not_scheduled:
         not_scheduled_str = "、".join(unmet_not_scheduled[:2])
         honest_segments.append(

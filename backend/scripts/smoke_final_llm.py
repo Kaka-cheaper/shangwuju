@@ -3499,6 +3499,279 @@ async def probe_I6(ctx: ProbeCtx) -> None:
     add_record(ctx, "same_session_reply_and_accumulation", _accumulated_surfacing_record)
 
 
+# ---- J. 改口探针族（改口根治批 · 任务 5）------------------------------------
+#
+# 覆盖"用户改主意"的谱系：否定→要回（J1 单人 / J2 房间四轮实测复现）、同维度
+# 反复横跳（J3）、部分撤回（J4，schema 无表示→RECORD 记档）、撤回+追加混合
+# （J5）。修复背景（同批任务 1-4）：房间约束池水位线切片（旧否定不再整池重播）、
+# ILS 召回品类感知（desire 命中候选前置）、refiner C 规则剪空头支票、叙事不编因。
+#
+# 判定纪律（与本文件模块 docstring 的分级依据一致）：
+# - PLUMBING：done 收尾 / 无 stream_error（HTTP 探针由 add_http_baseline_checks
+#   自动收口；J2 房间探针手写同义判定）。
+# - SEMANTIC："品类真的回来了/撤掉了"依赖真实 LLM 的多轮合并——stub 的 refiner
+#   走规则兜底（只认距离/时长/忌口等关键词，复现不了品类撤回与要回），且
+#   "不想要密室"这类改口话术无 Layer 1 强信号、stub 脑子必失败落保守地板，
+#   根本判不成 feedback → stub 下统一 SKIP，不假失败也不假通过。确定性的切片
+#   正确性另由单测钉住（tests/test_room_constraint_watermark.py）。
+# - RECORD：意图字段轨迹 / 房间分发 / 注入链实际切片，供真实点火时人判。
+
+
+def _j_refined_intent(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """J 族共用：取本轮精炼后意图（refinement_done 优先，intent_parsed 兜底）。"""
+    rd = payload_of(events, "refinement_done") or {}
+    return rd.get("refined_intent") or (payload_of(events, "intent_parsed") or {})
+
+
+def _j_plan_title_hits(itinerary: Optional[dict[str, Any]], tokens: tuple[str, ...]) -> list[str]:
+    """J 族共用：方案节点标题的词法命中（改口是否落到方案上的粗判）。"""
+    hits: list[str] = []
+    for n in (itinerary or {}).get("nodes", []) or []:
+        title = str(n.get("title") or "")
+        if any(t in title for t in tokens):
+            hits.append(title)
+    return hits
+
+
+async def probe_J1(ctx: ProbeCtx) -> None:
+    """改口 J1 · 单人否定品类→下一轮明确要回（期望：回得来）。
+
+    维度取 cuisine（S2 撸串），顺带压到本批任务 2 的餐厅侧对称修复
+    （`ils_planner._query_restaurants` 的 cuisine 感知重排）。链路依赖：refiner
+    "最新输入最高优先级"合并撤回与要回 + 召回层 desire 命中前置。
+    """
+    sc = _scenario(_S2)
+    s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="J1.1 S2 撸串建方案")
+    s2 = await do_turn(ctx, "不吃烧烤了，换点清淡的吧", step_desc="J1.2 否定品类:不吃烧烤")
+    s3 = await do_turn(ctx, "还是想撸串，把烧烤安排回来吧", step_desc="J1.3 要回品类:烧烤回来")
+
+    def _category_back() -> tuple[bool, str]:
+        intent = _j_refined_intent(s3.events)
+        prefs = intent.get("preferred_poi_types") or []
+        dietary = intent.get("dietary_constraints") or []
+        itin = payload_of(s3.events, "itinerary_ready") or ctx.extras.get("itinerary")
+        plan_hits = _j_plan_title_hits(itin, ("烧烤", "串"))
+        ok = any(("烧烤" in p or "串" in p) for p in prefs) or bool(plan_hits)
+        return ok, (
+            f"末轮 preferred_poi_types={prefs} dietary={dietary}；"
+            f"方案烧烤类节点={plan_hits or '无'}——要回后品类应回到意图或方案"
+        )
+
+    add_check(ctx, "category_comes_back_after_reversal", "SEMANTIC", _category_back)
+
+    def _trajectory() -> tuple[bool, str]:
+        traj = [
+            (step, _j_refined_intent(s.events).get("preferred_poi_types"))
+            for step, s in (("建方案", s1), ("否定", s2), ("要回", s3))
+        ]
+        return True, f"preferred_poi_types 三轮轨迹={traj}"
+
+    add_record(ctx, "category_trajectory", _trajectory)
+
+
+async def probe_J2(ctx: ProbeCtx) -> None:
+    """改口 J2 · 房间四轮完整复现用户实测脚本：不想要密室→密室还行吧主要看
+    主题→换个密室主题→还是换回密室（期望：密室回得来）。
+
+    这是改口根治批四个修复的合体观察位（诊断链条：①约束池整池重播→水位线
+    切片；②raw_input 反复拼接污染；③ambiguous_fields 空头支票；④ILS
+    desire-blind——全库密室仅 P013 一家是放大器）。观测点=实例级包裹
+    `_replan_with_refiner` 捕获注入链实际收到的切片文本（与确定性单测
+    tests/test_room_constraint_watermark.py 同一观测点；真实模式下第 N 轮
+    切片只应含第 N 轮新话，RECORD 供人判）。
+
+    stub 落点如实声明：四句改口话术均无 Layer 1 强信号，stub 脑子必失败落
+    保守地板→四轮全判闲聊、不入约束池、零重排轮——PLUMBING 判"房间不崩、
+    归名广播必达、被触发的规划轮干净收尾"（对零触发空真成立），SEMANTIC 判
+    "密室回来了"（stub SKIP）。
+    """
+    manager = RoomManager()
+    room = manager.create_room(owner_id="smoke_j2_owner", nickname="发起人")
+    ws = _FakeWebSocket()
+    await manager.join(room, "smoke_j2_owner", "发起人", ws)
+
+    # 基线：密室主题意图 + 合法方案（fixture 改造出"用户点名过密室"的房间态）
+    intent_dict = make_intent_fixture().model_dump()
+    intent_dict["preferred_poi_types"] = ["密室"]
+    intent_dict["raw_input"] = "下午和朋友玩密室"
+    room.current_intent_dict = intent_dict
+    room.current_itinerary_dict = make_legal_itinerary_fixture().model_dump()
+
+    fed: list[str] = []
+    orig_replan = manager._replan_with_refiner
+
+    async def _spy_replan(r: Any, feedback: str, **kwargs: Any) -> None:
+        fed.append(feedback)
+        return await orig_replan(r, feedback, **kwargs)
+
+    manager._replan_with_refiner = _spy_replan  # type: ignore[method-assign]
+
+    rounds = [
+        "不想要密室",
+        "密室还行吧，主要看主题",
+        "换个密室主题的吧",
+        "还是换回密室吧",
+    ]
+    dispatches: list[list[str]] = []
+    errors: list[str] = []
+    for i, text in enumerate(rounds):
+        ws.sent.clear()
+        try:
+            await manager.add_constraint(room, "smoke_j2_owner", text)
+            if room.planning_task is not None and not room.planning_task.done():
+                await room.planning_task
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"round{i + 1}: {type(e).__name__}: {e}")
+        dispatches.append(_broadcast_types(ws))
+
+    def _no_exceptions() -> tuple[bool, str]:
+        return not errors, f"四轮 add_constraint 异常={errors or '无'}"
+
+    add_check(ctx, "four_rounds_no_exception", "PLUMBING", _no_exceptions)
+
+    def _attribution_broadcast_every_round() -> tuple[bool, str]:
+        # 归名展示（constraint_added）对义务判定不敏感，无论判成什么都必达
+        bad = [i + 1 for i, d in enumerate(dispatches) if "constraint_added" not in d]
+        return not bad, f"constraint_added 缺席轮={bad or '无'}；每轮分发={dispatches}"
+
+    add_check(ctx, "every_round_broadcasts_attribution", "PLUMBING", _attribution_broadcast_every_round)
+
+    def _planning_rounds_close_cleanly() -> tuple[bool, str]:
+        types_ = [
+            e["type"].value if hasattr(e["type"], "value") else e["type"]
+            for e in room.planning_events_history
+        ]
+        # chitchat_reply 气泡也经 _broadcast_planning_event 入历史（add_constraint
+        # 的义务分发既有行为，stub 首跑实测）——它不是规划轮事件，剔出后再判
+        # "被触发的规划轮以 done 收尾"；零规划轮（stub 全落闲聊地板）空真成立。
+        planning_types = [t for t in types_ if t != "chitchat_reply"]
+        has_err = "stream_error" in planning_types
+        ok = (not has_err) and (not planning_types or planning_types[-1] == "done")
+        return ok, (
+            f"事件史={types_}；规划轮事件（剔除闲聊气泡）="
+            f"{planning_types or '空（stub 下四轮均落闲聊地板，零规划轮——合法落点）'}"
+        )
+
+    add_check(ctx, "triggered_planning_rounds_close_cleanly", "PLUMBING", _planning_rounds_close_cleanly)
+
+    def _snapshot() -> tuple[bool, str]:
+        prefs = (room.current_intent_dict or {}).get("preferred_poi_types")
+        titles = [n.get("title") for n in (room.current_itinerary_dict or {}).get("nodes", []) or []]
+        return True, (
+            f"每轮分发={dispatches}；注入链实际切片={fed or '（无重排轮）'}；"
+            f"终态 preferred_poi_types={prefs}；终态节点={titles}；"
+            f"约束池水位线={getattr(room, 'constraints_consumed_watermark', '缺字段')}"
+            f"/{len(room.constraints)}（真实模式下第 N 轮切片只应含第 N 轮新话）"
+        )
+
+    add_record(ctx, "four_round_reversal_snapshot", _snapshot)
+
+    def _escape_room_back() -> tuple[bool, str]:
+        prefs = (room.current_intent_dict or {}).get("preferred_poi_types") or []
+        plan_hits = _j_plan_title_hits(room.current_itinerary_dict, ("密室",))
+        ok = any("密室" in p for p in prefs)
+        return ok, (
+            f"终态 preferred_poi_types={prefs}；方案密室节点={plan_hits or '无'}"
+            "——第四轮换回后，密室应回到意图（方案命中与否连带记录：全库仅 P013"
+            " 一家密室，召回品类感知修复后应可排回）"
+        )
+
+    add_check(ctx, "escape_room_category_comes_back", "SEMANTIC", _escape_room_back)
+
+
+async def probe_J3(ctx: ProbeCtx) -> None:
+    """改口 J3 · 同维度反复横跳（要→不要→要）：S1 建方案（KTV，第一个"要"）
+    →不要K歌→还是要K歌。末句为准：最后状态应含 KTV。"""
+    sc = _scenario(_S1)
+    s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="J3.1 S1 KTV建方案(要)")
+    s2 = await do_turn(ctx, "不要K歌了", step_desc="J3.2 横跳:不要K歌")
+    s3 = await do_turn(ctx, "还是要K歌吧", step_desc="J3.3 横跳:又要K歌")
+
+    def _last_word_wins() -> tuple[bool, str]:
+        intent = _j_refined_intent(s3.events)
+        prefs = intent.get("preferred_poi_types") or []
+        itin = payload_of(s3.events, "itinerary_ready") or ctx.extras.get("itinerary")
+        plan_hits = _j_plan_title_hits(itin, ("KTV", "K歌"))
+        ok = any(("KTV" in p or "K歌" in p or "唱" in p) for p in prefs) or bool(plan_hits)
+        return ok, f"末轮 preferred_poi_types={prefs}；方案K歌类节点={plan_hits or '无'}"
+
+    add_check(ctx, "flip_flop_last_word_wins", "SEMANTIC", _last_word_wins)
+
+    def _trajectory() -> tuple[bool, str]:
+        traj = [
+            (step, _j_refined_intent(s.events).get("preferred_poi_types"))
+            for step, s in (("要(建方案)", s1), ("不要", s2), ("又要", s3))
+        ]
+        return True, f"preferred_poi_types 横跳轨迹={traj}"
+
+    add_record(ctx, "flip_flop_trajectory", _trajectory)
+
+
+async def probe_J4(ctx: ProbeCtx) -> None:
+    """改口 J4 · 部分撤回："密室还是可以，但要恐怖主题的"——已知 schema 无
+    表示，判 RECORD 记录现状，不判 FAIL。
+
+    记档（引 E-3）：IntentExtraction.preferred_poi_types 是扁平品类词列表，
+    experience_tags 是闭集词典（无"恐怖/惊悚"档）——"品类+主题修饰"没有
+    结构化槽位；ADR-0014 决策 4（E-3 范围）的 ask-back 澄清机制
+    （parse_confidence < 0.6 时追问）尚未实现，真实 LLM 只能把"恐怖主题"
+    安置进某个近似字段（多半 raw_input 拼接 + 品类保留）或丢弃。本探针记录
+    实际安置位置供 E-3 设计取材；stub 下该句必落闲聊地板，同样如实记录。
+    PLUMBING 仍由 baseline 收口（无 stream_error / done 必达）。
+    """
+    await do_turn(ctx, "今天下午想和朋友玩密室，来点刺激的", step_desc="J4.1 密室建方案")
+    s2 = await do_turn(ctx, "密室还是可以，但要恐怖主题的", step_desc="J4.2 部分撤回:品类保留+主题修饰")
+
+    def _placement() -> tuple[bool, str]:
+        intent = _j_refined_intent(s2.events)
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        return True, (
+            f"『恐怖主题』修饰的实际安置：preferred_poi_types={intent.get('preferred_poi_types')} "
+            f"experience_tags={intent.get('experience_tags')} "
+            f"ambiguous_fields={intent.get('ambiguous_fields')} "
+            f"raw_input={str(intent.get('raw_input'))[:80]!r}；"
+            f"事件={event_types(s2.events)}；气泡={str(chit.get('reply_text') or '')[:60]!r}"
+            "——schema 无『品类+主题修饰』槽位（E-3 记档）"
+        )
+
+    add_record(ctx, "partial_retraction_schema_placement", _placement)
+
+
+async def probe_J5(ctx: ProbeCtx) -> None:
+    """改口 J5 · 撤回+追加混合："不唱K了，改成找个地方吃火锅吧"——同一句里
+    撤回一个品类、追加另一个。refiner 应两件事都做（撤回 KTV + 引入火锅信号），
+    不能只听见半句。"""
+    sc = _scenario(_S1)
+    s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="J5.1 S1 KTV建方案")
+    s2 = await do_turn(ctx, "不唱K了，改成找个地方吃火锅吧", step_desc="J5.2 撤回KTV+追加火锅")
+
+    def _both_halves_heard() -> tuple[bool, str]:
+        intent = _j_refined_intent(s2.events)
+        prefs = intent.get("preferred_poi_types") or []
+        dietary = intent.get("dietary_constraints") or []
+        ktv_gone = not any(("KTV" in p or "K歌" in p) for p in prefs)
+        hotpot_in = any("火锅" in p for p in prefs) or any("火锅" in d for d in dietary)
+        ok = ktv_gone and hotpot_in
+        return ok, (
+            f"撤回生效(KTV 不在 prefs)={ktv_gone}；追加生效(火锅进 prefs/dietary)={hotpot_in}；"
+            f"prefs={prefs} dietary={dietary}"
+        )
+
+    add_check(ctx, "revoke_and_append_both_heard", "SEMANTIC", _both_halves_heard)
+
+    def _snapshot() -> tuple[bool, str]:
+        before = _j_refined_intent(s1.events)
+        after = _j_refined_intent(s2.events)
+        itin = payload_of(s2.events, "itinerary_ready") or ctx.extras.get("itinerary")
+        return True, (
+            f"prefs: {before.get('preferred_poi_types')} → {after.get('preferred_poi_types')}；"
+            f"dietary: {before.get('dietary_constraints')} → {after.get('dietary_constraints')}；"
+            f"末轮方案火锅类节点={_j_plan_title_hits(itin, ('火锅',)) or '无'}"
+        )
+
+    add_record(ctx, "revoke_append_snapshot", _snapshot)
+
+
 # ============================================================
 # 11. 探针注册表
 # ============================================================
@@ -3571,6 +3844,11 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("I4", "I", "元对话·跨会话问活动史：confirm 写会话私有记忆→同 user_id 新会话应诚实不认识（读写分离语义）", probe_I4),
         ("I5", "I", "元对话·跨会话问画像：原句落脑子 vs 对照句画像规则答模板、不含上一会话累积（隐私式诚实）", probe_I5),
         ("I6", "I", "元对话·同会话记忆延续：confirm 后同会话问偏好+下一局召回接缝（A 方案核心能力）", probe_I6),
+        ("J1", "J", "改口·单人否定→要回：S2 撸串→不吃烧烤→还是要烧烤（期望回得来）", probe_J1),
+        ("J2", "J", "改口·房间四轮实测复现：不想要密室→还行吧看主题→换个密室主题→还是换回密室", probe_J2),
+        ("J3", "J", "改口·同维度反复横跳：S1 KTV(要)→不要K歌→还是要K歌（末句为准）", probe_J3),
+        ("J4", "J", "改口·部分撤回：密室还是可以但要恐怖主题（schema 无表示，RECORD 记档引 E-3）", probe_J4),
+        ("J5", "J", "改口·撤回+追加混合：不唱K了改成吃火锅（两半都要听见）", probe_J5),
     ]
     return probes
 
