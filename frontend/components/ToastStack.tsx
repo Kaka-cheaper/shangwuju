@@ -39,7 +39,7 @@ export default function ToastStack() {
 
   return (
     <div
-      className="pointer-events-none fixed bottom-4 right-4 z-40 flex flex-col gap-2 max-w-[calc(100vw-2rem)] w-[320px]"
+      className="pointer-events-none fixed bottom-[calc(108px+env(safe-area-inset-bottom,0px))] left-4 right-4 z-40 flex flex-col gap-2 sm:bottom-4 sm:left-auto sm:w-[320px] max-w-[calc(100vw-2rem)]"
       aria-live="polite"
       aria-atomic="false"
     >
