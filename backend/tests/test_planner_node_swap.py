@@ -34,7 +34,7 @@ from agent.planning.planners.route_scheduler import schedule_route
 from agent.planning.weights_llm import get_planning_weights
 from data.loader import load_user_profile
 from schemas.advisory import AdvisoryCode
-from schemas.domain import Location, Poi, PoiCapacity, Restaurant, RestaurantCapacity
+from schemas.domain import Location, Poi, PoiCapacity, ReservationSlot, Restaurant, RestaurantCapacity
 from schemas.intent import IntentExtraction
 from schemas.itinerary import Itinerary
 from schemas.node_adjustment import NodeAdjustment, NodeAdjustmentDimension
@@ -52,6 +52,7 @@ def _intent(
     dietary_constraints: list[str] | None = None,
     physical_constraints: list[str] | None = None,
     field_provenance: dict[str, str] | None = None,
+    capacity_requirement: int | None = None,
 ) -> IntentExtraction:
     return IntentExtraction(
         start_time=start_time,
@@ -66,6 +67,7 @@ def _intent(
         parse_confidence=0.9,
         ambiguous_fields=[],
         field_provenance=field_provenance,
+        capacity_requirement=capacity_requirement,
     )
 
 
@@ -77,6 +79,7 @@ def _poi(
     suggested: int = 60,
     dist: float = 3.0,
     tags: list[str] | None = None,
+    rating: float = 4.5,
 ) -> Poi:
     return Poi(
         id=poi_id,
@@ -85,7 +88,7 @@ def _poi(
         location=Location(name="测试地", lat=None, lng=None),
         distance_km=dist,
         opening_hours=opening,
-        rating=4.5,
+        rating=rating,
         age_range=None,
         price_range=None,
         tags=tags or [],
@@ -105,6 +108,9 @@ def _rest(
     rating: float = 4.3,
     tags: list[str] | None = None,
     dist: float = 3.0,
+    capacity: RestaurantCapacity | None = None,
+    slots: list[ReservationSlot] | None = None,
+    suitable_for: list[str] | None = None,
 ) -> Restaurant:
     return Restaurant(
         id=rest_id,
@@ -116,9 +122,10 @@ def _rest(
         avg_price=avg_price,
         rating=rating,
         typical_dining_min=dining_min,
-        capacity=RestaurantCapacity(),
+        capacity=capacity or RestaurantCapacity(),
+        reservation_slots=slots or [],
         tags=tags or [],
-        suitable_for=[],
+        suitable_for=suitable_for or [],
     )
 
 
@@ -635,6 +642,190 @@ def test_soft_dietary_constraint_unmet_after_swap_produces_constraint_relaxed_ad
     assert relaxed, result.advisories
     assert "低脂" in relaxed[0].message
     assert "你说的" in relaxed[0].message  # user_stated 出处口径
+
+
+# ============================================================
+# 13. 分界修缮批 任务 1：换菜产物复跑 critic HARD 判据（旁路补验收步）
+# ============================================================
+#
+# 病灶（全后端 LLM/规则分界普查实锤）：resolve_node_swap 是 critic 修复闭环外
+# 的旁路，此前的 hard 防线只盖 dietary/physical tag 子集（`_filter_hard_
+# violations` 候选池恒定过滤）——check_capacity（桌型）、check_demo_restaurant_
+# full（真实预约槽）、check_social_context BLOCKING 在换菜路径无人执行。修法：
+# 每个 tier 候选产出的 new_itinerary 复跑 critic HARD 判据（复用 validate 注册
+# 表，不抄第二份逻辑），**换菜新引入**的 HARD 违规 → 该候选视为不可行、继续
+# 现有降级序列；原方案基线里已有的违规不拦（否则带既有瑕疵的方案彻底不能换菜）。
+
+
+def test_swap_rejects_candidate_with_insufficient_table_capacity():
+    """6 人局（capacity_requirement=6）点踩换餐厅：评分最高的候选只有 2/4 人桌
+    （check_capacity HARD），复跑判据必须把它判为不可行、降级选中有大桌的
+    候选——修复前它凭评分胜出，换完 6 人坐不下且零告知。"""
+    intent = _intent(capacity_requirement=6)
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", capacity=RestaurantCapacity(six=True))
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    rb_small = _rest(rest_id="RB_SMALL", cuisine="火锅", rating=5.0)  # 默认只有 2/4 人桌
+    rb_big = _rest(rest_id="RB_BIG", cuisine="火锅", rating=3.5, capacity=RestaurantCapacity(six=True))
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_small, rb_big],
+        target_node_id="RB1", adjustment=None,
+    )
+    assert result.success
+    assert result.swapped_to == "RB_BIG", "只有 2/4 人桌的候选坐不下 6 人，绝不该被换入"
+
+
+def test_swap_fails_honestly_when_all_candidates_violate_capacity():
+    """全部候选都过不了桌型 HARD 判据 → 业务性失败（SWAP_NO_ALTERNATIVE_FOUND），
+    方案原样不变——比静默换进一家坐不下的店诚实。"""
+    intent = _intent(capacity_requirement=6)
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅", capacity=RestaurantCapacity(six=True))
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    rb_small = _rest(rest_id="RB_SMALL", cuisine="火锅", rating=5.0)  # 唯一候选，桌型不够
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_small],
+        target_node_id="RB1", adjustment=None,
+    )
+    assert not result.success
+    assert any(a.code == AdvisoryCode.SWAP_NO_ALTERNATIVE_FOUND for a in result.advisories)
+    assert _node_ids(result.new_itinerary) == _node_ids(itinerary)
+
+
+def test_swap_rejects_candidate_whose_only_slot_is_full():
+    """真实预约槽：调度器刻意保留 available=False 的槽点（grounding 设计，
+    「满座由 critic 抓」——见 activity_pool 槽单求交的注释），而换菜旁路没有
+    critic → 修复前唯一槽已满的店照样换进来，确认时订位必然失败、叙事却说
+    「已确认」。复跑 check_demo_restaurant_full 后该候选必须被跳过。"""
+    intent = _intent()
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅")
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    rb_full = _rest(
+        rest_id="RB_FULL", cuisine="火锅", rating=5.0,
+        slots=[ReservationSlot(time="18:00", available=False)],
+    )
+    rb_free = _rest(
+        rest_id="RB_FREE", cuisine="火锅", rating=3.5,
+        slots=[ReservationSlot(time="18:00", available=True)],
+    )
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_full, rb_free],
+        target_node_id="RB1", adjustment=None,
+    )
+    assert result.success
+    assert result.swapped_to == "RB_FREE", "唯一预约槽已满的店订不上，绝不该被换入"
+
+
+def test_swap_rejects_candidate_with_blocking_social_context():
+    """check_social_context BLOCKING：独处放空场景（fixture 默认）换进
+    suitable_for=［家庭日常］的多人场合是矩阵明文 BLOCKING——复跑判据必须
+    拦下，降级选中调性中性的候选。"""
+    intent = _intent()  # social_context="独处放空"
+    poi_a = _poi(poi_id="PA1")
+    rb1 = _rest(rest_id="RB1", cuisine="火锅")
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+
+    rb_family = _rest(rest_id="RB_FAM", cuisine="火锅", rating=5.0, suitable_for=["家庭日常"])
+    rb_neutral = _rest(rest_id="RB_NEU", cuisine="火锅", rating=3.5)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_family, rb_neutral],
+        target_node_id="RB1", adjustment=None,
+    )
+    assert result.success
+    assert result.swapped_to == "RB_NEU", "社交调性 BLOCKING 的候选绝不该被换入"
+
+
+def test_swap_preexisting_hard_violation_on_kept_node_does_not_block_swap():
+    """基线容错：保留节点 PA1 本就违反 hard 物理约束（约束是方案定下之后才
+    收紧的，critic 基线里已有这条）——复跑判据只拦「换菜新引入」的 HARD
+    违规，不因既有违规拒绝一切候选（否则带既有瑕疵的方案彻底不能换菜）。"""
+    intent = _intent(physical_constraints=["无障碍"])
+    poi_a = _poi(poi_id="PA1")  # 无「无障碍」tag → PHYSICAL_VIOLATION 基线既有
+    rb1 = _rest(rest_id="RB1", cuisine="火锅")
+    itinerary = _base_two_node_itinerary(intent, rb1, poi_a)
+    rb_new = _rest(rest_id="RB_NEW", cuisine="火锅", rating=4.8)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a], restaurants=[rb1, rb_new], target_node_id="RB1"
+    )
+    assert result.success
+    assert result.swapped_to == "RB_NEW"
+
+
+# ============================================================
+# 14. 收口深审精化：复跑判据的归因分桶（clean-first, honest-fallback）
+# ============================================================
+#
+# 收口深审实锤（两条房间测试红 + 本文件合成探针复现同一根因链）：点踩 POI →
+# 替补时长与原节点不同 → 重排时刻整体平移 → 被保留的餐厅被挪进 available=False
+# 的槽点（调度器刻意不按 available 过滤，满座本该由 critic 抓）→ v1 的 delta
+# 判定对每个候选都记到保留节点上的新增 RESTAURANT_FULL_UNRESOLVED → 候选全灭。
+# 真实 mock 世界里"点踩 POI 且方案含餐厅"基本必踩中。精化语义：候选自身归因
+# 的违规维持一票否决；仅殃及保留节点的违规不拒绝该格——先扫完全部 tier 找
+# "零殃及"的干净候选，全无时回退交付第一个仅殃及者 + 诚实告知 advisory。
+
+
+def _kept_shift_world():
+    """PA1(165min) + R_KEPT(17:00 满座 / 17:30 可订)：基线 R_KEPT 排 17:30；
+    换入 60min 短候选后到店时刻前移，调度器把 R_KEPT 吸附到 17:00 满座槽——
+    确定性诱发"仅殃及保留节点"的 kept fault（探针已在当前代码下实锤复现）。"""
+    intent = _intent()
+    poi_a = _poi(poi_id="PA1", poi_type="博物馆", suggested=165)
+    r_kept = _rest(
+        rest_id="R_KEPT",
+        slots=[
+            ReservationSlot(time="17:00", available=False),
+            ReservationSlot(time="17:30", available=True),
+        ],
+    )
+    itinerary = _build_itinerary(intent, [poi_a, r_kept], depart_min=14 * 60)
+    assert _node_ids(itinerary) == ["home", "PA1", "R_KEPT", "home"]
+    return intent, poi_a, r_kept, itinerary
+
+
+def test_swap_delivers_fallback_with_advisory_when_all_candidates_shift_kept_node():
+    """全部候选都仅殃及保留餐厅 → 不再全灭拒换（v1 的误伤），回退交付该候选
+    并附 SWAP_KEPT_TIME_SHIFTED 诚实告知：点名受累的保留节点 + 新排定时刻。"""
+    intent, poi_a, r_kept, itinerary = _kept_shift_world()
+    pb_short = _poi(poi_id="PB_SHORT", poi_type="博物馆", suggested=60)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a, pb_short], restaurants=[r_kept],
+        target_node_id="PA1", adjustment=None,
+    )
+    assert result.success, result.advisories
+    assert result.swapped_to == "PB_SHORT"
+    shifted = [a for a in result.advisories if a.code == AdvisoryCode.SWAP_KEPT_TIME_SHIFTED]
+    assert shifted, result.advisories
+    # 点名受累的保留节点：消息用 node.title（生产环境是真实店名；合成实体在
+    # assemble 的 meta 反查不到目录时回落为 target_id，故这里断言 id 字样）。
+    assert "「R_KEPT」" in shifted[0].message, "必须点名受累的保留节点"
+    assert "17:00" in shifted[0].message, "必须如实带上挪到的新时刻"
+
+
+def test_swap_prefers_clean_candidate_over_one_that_shifts_kept_node():
+    """干净候选与殃及候选并存 → 必选零殃及的干净者（clean-first），不提前抓
+    fallback、不产 SWAP_KEPT_TIME_SHIFTED。PB_SAME 与原节点同时长，重排后
+    保留餐厅时刻不动。"""
+    intent, poi_a, r_kept, itinerary = _kept_shift_world()
+    pb_short = _poi(poi_id="PB_SHORT", poi_type="博物馆", suggested=60, rating=5.0)  # 殃及者，评分占优
+    pb_same = _poi(poi_id="PB_SAME", poi_type="博物馆", suggested=165, rating=2.5)  # 干净者
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[poi_a, pb_short, pb_same], restaurants=[r_kept],
+        target_node_id="PA1", adjustment=None,
+    )
+    assert result.success, result.advisories
+    assert result.swapped_to == "PB_SAME", "存在干净候选时必须选干净者"
+    assert not any(a.code == AdvisoryCode.SWAP_KEPT_TIME_SHIFTED for a in result.advisories)
 
 
 def test_soft_constraint_unmet_with_default_provenance_produces_no_advisory():

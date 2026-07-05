@@ -352,7 +352,38 @@ def _service_time(node: ActivityNode) -> str:
 
 
 def _reservation_time(node: ActivityNode) -> str:
-    return _extract_reserved_time(node.note) or _ceil_to_half_hour(node.start_time)
+    """预约下单用的时刻——note 时刻须过槽单验收，否则退用审计过的 start_time。
+
+    分界修缮批 任务 2（2026-07-04）：这是什么问题——LLM 自由文本进入确定性
+    消费前缺验收步。node.note 在 LLM 蓝图路径是自由文本，此前从中正则抽出的
+    HH:MM **无条件优先于** node.start_time，而 critic（check_demo_restaurant_
+    full）审计的是 start_time——审过的值和下单的值可能不是同一个。
+
+    修法（普查候选 a，交叉校验而非一刀切反转优先级）：note 提取值必须 ∈ 该店
+    reservation_slots 且 available 才生效——rule/ILS 路径的 note（route_to_
+    blueprint 写「已为你预留 HH:MM（N 人）」）时刻本就是调度器排定的合法槽，
+    天然放行，协商语义不丢；验证不过（不在槽单 / 槽已满 / 目录查无此店 /
+    该店无预约体系）一律退用 start_time 的半点上取整。
+    """
+    noted = _extract_reserved_time(node.note)
+    if noted and _is_bookable_slot(node.target_id, noted):
+        return noted
+    return _ceil_to_half_hour(node.start_time)
+
+
+def _is_bookable_slot(restaurant_id: str, time_text: str) -> bool:
+    """time_text 是否是该店槽单里 available=True 的真实槽位（查 mock 目录，
+    与 check_demo_restaurant_full 同一真值源）。查无此店 / 加载失败 → False
+    （无从验证的自由文本时刻不放行）。"""
+    try:
+        from data.loader import load_restaurants
+
+        rest = next((r for r in load_restaurants() if r.id == restaurant_id), None)
+    except Exception:  # noqa: BLE001
+        return False
+    if rest is None:
+        return False
+    return any(s.time == time_text and s.available for s in rest.reservation_slots)
 
 
 def _extract_reserved_time(note: str | None) -> str | None:

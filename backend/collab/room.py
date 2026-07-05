@@ -94,8 +94,24 @@ class Room:
     # `RoomManager.sweep_expired_rooms` 用它判定"最后活动"是否已超过 50min。
     # 不进 `get_state_snapshot()`——纯内部记账字段，前端无消费理由。
     last_activity_at: float = field(default_factory=time.time)
-    # 被赞锁定的 stage index 集合（重规划时保留这些段）
+    # 被赞锁定的 stage index 集合——**前端展示投影**（room_state / vote_updated
+    # 广播的既有契约，前端按可见段下标高亮）。真值在下面的 `locked_targets`；
+    # 重排/换菜后由 `RoomManager._sync_locks_with_itinerary` 按新方案重投影
+    # （赞锁定根治批：下标绑定"这一版方案的这一格"，方案换血后旧下标指向新
+    # 方案是张冠李戴——既害展示，更害下一轮反馈把锁翻译到错误实体上）。
     locked_stages: set[int] = field(default_factory=set)
+    # 实体级锁登记（赞锁定根治批）——赞锁定的**权威真值**：target_id →
+    # {"kind": "poi"|"restaurant", "name": 节点展示名, "lockers": [user_id...]}。
+    # 为什么按实体不按下标：锁的语义是"保住这个地方"，不是"保住第 N 格"——
+    # 重排后同一实体可能换位置（下标失效），下标级存储会让第二轮反馈把锁
+    # 翻译到别的实体头上（真错误，不是显示瑕疵）。写入在 `update_vote`
+    # （like 登记 + 归名 / dislike 注销，点赞那一刻 stage_index 对
+    # current_itinerary_dict 的解析最准确）；消费在 `_replan_with_refiner`
+    # （翻译成图状态 pinned_targets 注入 + 出口检查归名告知）；收敛在
+    # `_sync_locks_with_itinerary`（方案变更后剔除已消失实体 + 重投影
+    # locked_stages）。不进 `get_state_snapshot()`——快照键集有特征化测试钉着，
+    # 前端消费的是 locked_stages 投影，归名告知走 agent_narration 气泡。
+    locked_targets: dict[str, dict[str, Any]] = field(default_factory=dict)
     # 诉求台账（ADR-0013 决策 3 / F-2，F-5 接线落地）：list[dict]（schemas.
     # demand_ledger.LedgerEntry.model_dump()）——房间侧的台账存储位，生命周期
     # 随房间本身（房间销毁即销毁，`RoomManager.sweep_expired_rooms` 的 TTL 清扫
@@ -532,9 +548,15 @@ class RoomManager:
         入口，`action=dislike`）：立刻换、只动这一格，不再合成约束文本、不再进
         `room.constraints`、不再中断/触发 `_trigger_replan`。
 
-        `locked_stages` 语义不受此次改造影响——仍是纯展示态的"赞锁定"集合（无
-        下游消费者按它门控重排，见任务报告"深审重点"），"踩只解锁本段"的既有
-        保证（`discard(stage_index)` 只影响这一个 index）原样保留。
+        赞锁定根治批（曾经的"纯展示"声明就此作废）：`locked_stages` 不再只是
+        展示态——like 同时把实体级锁登记进 `room.locked_targets`（归名：谁赞的，
+        见该字段 docstring），下一轮反馈重排时经 `_replan_with_refiner` 翻译成
+        图状态 `pinned_targets`，由蓝图 LLM「必须保留」先验 + critic 硬判据 +
+        `plan_hybrid(pinned=...)` 全阶梯承接；保不住必有归名告知（L0）。
+        "踩只解锁本段"的既有保证原样保留（dislike 同步注销实体级锁）。
+        方案尚未产出时 like 只更新下标集合（无实体可锁，登记跳过——纯展示，
+        与旧行为一致；等方案出来后这类空挂下标会被 `_sync_locks_with_itinerary`
+        收敛掉）。
 
         `adjust()` 自己会重新 `async with room.lock` 串行——必须等本方法自己的
         `async with room.lock` 块结束（投票记录+广播已完成）才能调用，否则
@@ -547,11 +569,26 @@ class RoomManager:
                 room.votes[stage_index] = {}
             room.votes[stage_index][user_id] = action
 
-            # 更新锁定集合（纯展示态，见方法 docstring）
+            # 更新锁定集合（下标投影）+ 实体级锁登记（真值，见方法 docstring）
             if action == "like":
                 room.locked_stages.add(stage_index)
+                node = self._stage_node(room, stage_index)
+                if node is not None and node.get("target_id"):
+                    entry = room.locked_targets.setdefault(
+                        node["target_id"],
+                        {
+                            "kind": node.get("target_kind"),
+                            "name": node.get("title") or node["target_id"],
+                            "lockers": [],
+                        },
+                    )
+                    if user_id not in entry["lockers"]:
+                        entry["lockers"].append(user_id)
             elif action == "dislike":
                 room.locked_stages.discard(stage_index)
+                node = self._stage_node(room, stage_index)
+                if node is not None and node.get("target_id"):
+                    room.locked_targets.pop(node["target_id"], None)
 
             await self.broadcast(room, {
                 "type": "vote_updated",
@@ -775,6 +812,10 @@ class RoomManager:
 
         room.current_itinerary_dict = new_itinerary.model_dump()
         room.demand_ledger = [e.model_dump() for e in updated_ledger]
+        # 赞锁定根治批：换菜是成员归名的显式公开动作（node_locked 广播 + 归名
+        # 说明），不是引擎静默行为——被换走的实体若曾被赞锁定，锁随实体消失
+        # 收敛（对不存在实体的锁是悬空引用）；locked_stages 同步重投影。
+        self._sync_locks_with_itinerary(room)
 
         session_id = room.session_id or f"collab_{room.room_id}"
         from api._session_store import sync_snapshot
@@ -1008,6 +1049,11 @@ class RoomManager:
         room.planning_events_history.clear()
         room.chat_state_snapshot = None
         room.confirmed = False  # c′批 任务二：新 episode 开始，同 `_trigger_replan`
+        # 赞锁定根治批：planning 义务=重开一局，旧方案的赞锁定随旧方案作废——
+        # 与图状态 pinned_targets 的 EPISODE_SCOPED 重置（intent_node）对齐；
+        # 陈旧锁若留着，下一轮反馈会把它翻译到全新方案的无关实体上（真错误）。
+        room.locked_targets.clear()
+        room.locked_stages.clear()
 
         await self.broadcast(room, {
             "type": "planning_started",
@@ -1072,6 +1118,12 @@ class RoomManager:
         第二次误判的机会）。配方经 `scripts/spike_room_resume.py` 实证：终态 43 键
         与正常单人反馈轮全等、核心事件逐字节等价、连续注入稳定；固化断言见
         `tests/test_room_persistent_resume.py`（金标准对比 + 取消坑自愈）。
+
+        【赞锁定根治批】注入 values 额外携带 `pinned_targets`（实体级锁登记
+        `room.locked_targets` 的翻译，plain dict 形态；见步骤 3.5 注释），续跑
+        管线全阶梯承接（蓝图先验/critic 硬判据/plan_hybrid 原生保护）；续跑
+        结束后本方法做锁定出口终检——没保住的归名告知、锁登记按新方案收敛
+        （步骤 8）。
 
         【注入禁写清单（spike 实锤，违反即炸）】
         - `intent` 必须是活 IntentExtraction 对象，绝不 `model_dump()`——spike 实测
@@ -1148,6 +1200,15 @@ class RoomManager:
             await self._plan_fresh(room, feedback or "帮我规划一个下午")
             return
 
+        # ---- 步骤 3.5：锁定清单翻译（赞锁定根治批）----
+        # 实体级锁登记（update_vote 归名写入）→ 图状态 pinned_targets。注入形态
+        # 是 plain dict {"kind","target_id","name"}（serde 白名单外 Pydantic 对象
+        # 会无声类型擦除，见 docstring 禁写清单最后一条；plain dict 免白名单）；
+        # lockers（谁锁的）留在房间侧 locked_pins 供出口检查归名——引擎不需要
+        # "谁锁的"，房间概念不泄漏进规划层。无锁时注入空列表，与单人反馈轮
+        # reset_for_new_episode() 的零值逐字节一致（金标准对比测试的前提）。
+        locked_pins = self._locked_pin_entries(room)
+
         # ---- 步骤 4+5：注入（as_node="refiner" = "router 判 feedback + refiner
         # 跑完"两节点合起来对 state 的全部写入；禁写清单见 docstring）----
         values: dict[str, Any] = {
@@ -1160,6 +1221,13 @@ class RoomManager:
             # 冷启动线程上它们从未被写过，续跑链路的读者（profile worker 等）需要之。
             "user_id": room.owner_id,
             "session_id": session_id,
+            # 赞锁定根治批：锁定清单（见上方步骤 3.5 注释；覆盖 refiner_diff 里
+            # reset 出的空值）。消费者：planner_node（蓝图用户消息先验）/
+            # critic_node（硬判据）/ ils_replan_node（plan_hybrid 原生保护）。
+            "pinned_targets": [
+                {"kind": p["kind"], "target_id": p["target_id"], "name": p["name"]}
+                for p in locked_pins
+            ],
         }
         await graph.aupdate_state(config, values, as_node="refiner")
 
@@ -1205,6 +1273,9 @@ class RoomManager:
             })
 
         # ---- 步骤 7：astream(None) 续跑，走现有 emit dispatch ----
+        # 顺手收集引擎侧 pinned 相关 advisory code（emit_narrate 的 messages
+        # 附加通道），给步骤 8 的出口归名告知提供"为什么没保住"的原因短句。
+        seen_advisory_codes: list[str] = []
         async for event in run_graph_resume_stream(session_id=session_id, user_input=feedback):
             await self._broadcast_planning_event(room, event.model_dump())
             if event.type.value == "itinerary_ready":
@@ -1213,6 +1284,28 @@ class RoomManager:
                 self._append_to_llm_context(
                     room, role="assistant", content=f"已重新规划行程：{summary}"
                 )
+            elif event.type.value == "agent_narration" and isinstance(event.payload, dict):
+                for m in event.payload.get("messages") or []:
+                    if isinstance(m, dict) and m.get("kind") == "advisory" and m.get("code"):
+                        # code 按 .value 归一化：房间广播走 model_dump()（python
+                        # mode），Advisory.code 是活的 AdvisoryCode 枚举实例而非
+                        # plain str（同 build.py serde 白名单注释记载的 Enum 字段
+                        # 现象）；str(枚举) 是 "AdvisoryCode.X" 不是码值，直接
+                        # str 会让下方原因匹配永远落空（stub 点火实测踩中）。
+                        code = m["code"]
+                        seen_advisory_codes.append(str(getattr(code, "value", code)))
+
+        # ---- 步骤 8：锁定出口检查 + 锁收敛（赞锁定根治批）----
+        # 对"最终交付给成员的方案"做锁定实体成员资格终检：没保住的逐个归名
+        # 告知（谁锁的、什么、为什么——L0 绝不静默丢锁，全路径覆盖的唯一收口，
+        # 见 _announce_lost_locks docstring）；然后按新方案收敛锁登记 + 重投影
+        # locked_stages（下一轮反馈的锁翻译依赖它，见 _sync_locks_with_itinerary）。
+        if locked_pins:
+            final_ids = set(self._itinerary_mid_target_index(room.current_itinerary_dict))
+            lost = [p for p in locked_pins if p["target_id"] not in final_ids]
+            if lost:
+                await self._announce_lost_locks(room, lost, seen_advisory_codes)
+        self._sync_locks_with_itinerary(room)
 
     async def _plan_fresh(self, room: Room, user_input: str) -> None:
         """全新规划路径（无基线开局 / planning 义务重开一局），带 LLM 上下文。"""
@@ -1246,6 +1339,11 @@ class RoomManager:
                     self._append_to_llm_context(room, role="assistant", content=f"已规划行程：{summary}")
                 elif event.type.value == "intent_parsed":
                     room.current_intent_dict = event.payload
+
+            # 赞锁定根治批：新方案落地后收敛锁登记（正常入口 `_trigger_fresh_plan`
+            # 已清空，这里是防御性收口——本方法还被 `_replan_with_refiner` 的
+            # 兜底分支/`_run_planning` 无基线分支直调，那些路径不经清空）。
+            self._sync_locks_with_itinerary(room)
 
         except (ImportError, Exception):
             # LangGraph 不可用 → 走 rule planner
@@ -1370,6 +1468,13 @@ class RoomManager:
         约束文案合成，后者给新的局部重解引擎），故意不复用同一个返回值语义。
         找不到（尚未出方案 / index 越界）返回 `None`，调用方按"静默丢弃"处理。
         """
+        node = self._stage_node(room, stage_index)
+        return node.get("target_id") if node is not None else None
+
+    def _stage_node(self, room: Room, stage_index: int) -> Optional[dict[str, Any]]:
+        """把可见段下标解析成当前方案里的节点 dict（赞锁定根治批抽出：
+        `_stage_target_id` 只要 id，`update_vote` 的实体级锁登记还要
+        target_kind/title——同一份"跳过首尾 home 的 mid nodes 顺序"口径）。"""
         if not room.current_itinerary_dict:
             return None
         nodes = room.current_itinerary_dict.get("nodes")
@@ -1377,8 +1482,119 @@ class RoomManager:
             return None
         mid_nodes = [n for n in nodes if isinstance(n, dict) and n.get("target_kind") != "home"]
         if 0 <= stage_index < len(mid_nodes):
-            return mid_nodes[stage_index].get("target_id")
+            return mid_nodes[stage_index]
         return None
+
+    # ============================================================
+    # 赞锁定根治批：锁 ↔ 方案 一致性 + 出口归名告知
+    # ============================================================
+
+    @staticmethod
+    def _itinerary_mid_target_index(itinerary_dict: Optional[dict[str, Any]]) -> dict[str, int]:
+        """当前方案 mid 节点的 target_id → 可见段下标（同 `_stage_node` 口径；
+        同一实体出现多次时取首个下标）。方案缺失/畸形 → 空 dict。"""
+        if not itinerary_dict:
+            return {}
+        nodes = itinerary_dict.get("nodes")
+        if not isinstance(nodes, list):
+            return {}
+        out: dict[str, int] = {}
+        idx = 0
+        for n in nodes:
+            if not isinstance(n, dict) or n.get("target_kind") == "home":
+                continue
+            tid = n.get("target_id")
+            if tid and tid not in out:
+                out[tid] = idx
+            idx += 1
+        return out
+
+    def _sync_locks_with_itinerary(self, room: Room) -> None:
+        """方案变更后的锁收敛：`locked_targets` 剔除已不在方案里的实体，
+        `locked_stages` 按新方案重投影到新下标。
+
+        调用时机 = 一切"当前方案换了一版"的收口点：反馈重排出方案后
+        （`_replan_with_refiner` 出口检查之后——检查要用收敛前的登记判断谁丢了）、
+        节点换菜成功后（`_resolve_and_broadcast_adjust`）、全新规划出方案后
+        （`_plan_fresh`，此时登记多半已被 `_trigger_fresh_plan` 清空，重投影
+        天然为空）。已知展示时差：前端只在 `room_state` 快照与 `vote_updated`
+        事件里刷新 locked_stages，重投影结果要等下一次这两类消息才可见——
+        本批不新增 WS 事件类型（前端契约不动），数据层先保证正确。
+        """
+        id_to_idx = self._itinerary_mid_target_index(room.current_itinerary_dict)
+        room.locked_targets = {
+            tid: entry for tid, entry in room.locked_targets.items() if tid in id_to_idx
+        }
+        room.locked_stages = {id_to_idx[tid] for tid in room.locked_targets}
+
+    def _locked_pin_entries(self, room: Room) -> list[dict[str, Any]]:
+        """把实体级锁登记翻译成"本轮重排要保护什么"的清单（含归名 lockers，
+        供出口检查点名；注入图状态前由调用方剥掉 lockers——引擎不需要"谁锁的"，
+        房间概念不进规划层）。防御性过滤：只保护当前方案里真实存在的实体
+        （登记与方案的同步靠 `_sync_locks_with_itinerary`，这里再兜一层）。"""
+        id_to_idx = self._itinerary_mid_target_index(room.current_itinerary_dict)
+        out: list[dict[str, Any]] = []
+        for tid, entry in room.locked_targets.items():
+            if tid not in id_to_idx or entry.get("kind") not in ("poi", "restaurant"):
+                continue
+            out.append(
+                {
+                    "kind": entry["kind"],
+                    "target_id": tid,
+                    "name": entry.get("name") or tid,
+                    "lockers": list(entry.get("lockers") or []),
+                }
+            )
+        return out
+
+    # 引擎侧 pinned 相关 advisory code → 出口归名告知里的原因短句。
+    _PIN_LOSS_REASON_BY_CODE: dict[str, str] = {
+        "no_matching_candidates": "新的条件下候选里找不到它（可能被距离或筛选条件排除了）",
+        "pinned_unsatisfiable": "时间和路线里实在塞不进",
+        "pinned_dropped_in_repair": "为了解决别的冲突被换掉了",
+    }
+
+    async def _announce_lost_locks(
+        self, room: Room, lost: list[dict[str, Any]], seen_advisory_codes: list[str]
+    ) -> None:
+        """出口归名告知（L0「绝不默默忽略」的房间侧收口）：锁定实体没能留在
+        新方案里 → 逐个点名"谁锁的、什么没保住、为什么"。
+
+        为什么在房间侧再兜一层而不是全信引擎 advisory：引擎的告知通道
+        （plan_hybrid advisories → narrate → messages）覆盖 ILS 路径与
+        rule/give_up 补产（见 replan.py::_pinned_missing_advisories），但
+        ①它不知道昵称（归名是房间概念，刻意不进规划层）；②修复阶梯若在
+        backprompt 一级就以"critic 放行了别的方案"收场（理论上 critic 硬判据
+        不放行缺锁方案，但 drain_on_error 的 rule_floor 降级等旁路仍可能交付
+        缺锁方案且无 advisory）——房间对"最终交付给成员的方案"做成员资格
+        终检，是唯一能同时保证归名与全路径覆盖的位置。原因短句优先采用本轮
+        续跑流里实际出现过的引擎 advisory code（如实转述"为什么"），没有就
+        用诚实的通用句。
+        """
+        reason = ""
+        for code in seen_advisory_codes:
+            if code in self._PIN_LOSS_REASON_BY_CODE:
+                reason = self._PIN_LOSS_REASON_BY_CODE[code]
+                break
+        for entry in lost:
+            locker_names = [
+                room.members[uid].nickname if uid in room.members else uid
+                for uid in (entry.get("lockers") or [])
+            ]
+            who = "、".join(locker_names) if locker_names else "有人"
+            clause = reason or "新的要求下实在排不进这一版"
+            await self._broadcast_planning_event(room, {
+                "type": "agent_narration",
+                "seq": 0,
+                "payload": {
+                    "text": (
+                        f"{who}锁定的「{entry.get('name') or entry.get('target_id')}」"
+                        f"这轮没保住——{clause}。想留它的话再说一声，我下一轮优先把它排回去。"
+                    ),
+                    "stage": "stream",
+                },
+                "timestamp_ms": int(time.time() * 1000),
+            })
 
     @staticmethod
     def _generate_room_id() -> str:

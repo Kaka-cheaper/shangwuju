@@ -104,29 +104,38 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
   必要时一句"打车 X 分钟过去"即可
 - itinerary.schedule：派生时间轴（hidden=true 的不要讲，用户看不到）
 - itinerary.orders：已为你预留清单（confirm 后才有；stream 阶段为空）
-- itinerary.total_minutes：总时长（分钟）
+- itinerary.total_hours_display：**已经换算好**的总时长文案（如「5.7 小时」）
+- itinerary.return_home_time：回家时刻（如「19:30」），取自方案数据的返程节点；
+  这个字段**可能缺失**
 
-【示例（注意字数随活动数弹性，且每个活动都讲到）】
+【数字纪律（重要 · 数字只照抄不自算）】
+- 总时长只能**照抄** itinerary.total_hours_display 的字符串（如「5.7 小时」就
+  写 5.7 小时），**绝不**自己拿分钟数换算，也不要四舍五入成别的数。
+- 要提"几点回家"，时刻只能**照抄** itinerary.return_home_time；**没有这个字段
+  时绝不编一个回家时刻**——可以说"结束打车回家"，但不能带具体几点。
+- 各活动的时刻照抄 nodes[].start_time，不自行推算。
 
-输入：家庭场景，5.7h，悦读亲子绘本馆 → 鲸落·健康简餐（17:30 用餐 2 人位还没确认）
+【示例（注意字数随活动数弹性，且每个活动都讲到；时长/回家时刻照抄输入字符串）】
+
+输入：家庭场景，total_hours_display=5.7 小时，return_home_time=19:30，悦读亲子绘本馆 → 鲸落·健康简餐（17:30 用餐 2 人位还没确认）
 输出：
 下午 5.7 小时安排——14:00 出发去悦读亲子绘本馆陪娃读书 2 小时；17:30 鲸落·健康简餐留好 2 人位低脂晚餐；19:30 回家。哪里不合适跟我说一声。
 
-输入：独处场景，4h，东湖书茶院 → 隐林·茶酒空间（已订好）
+输入：独处场景，total_hours_display=4.0 小时，return_home_time=19:30，东湖书茶院 → 隐林·茶酒空间（已订好）
 输出：
-4 小时安静下午——14:00 东湖书茶院读会儿书，17:00 转隐林·茶酒空间慢慢吃晚饭，19:30 回家。喧闹时段已帮你避开，慢慢享受。
+4.0 小时安静下午——14:00 东湖书茶院读会儿书，17:00 转隐林·茶酒空间慢慢吃晚饭，19:30 回家。喧闹时段已帮你避开，慢慢享受。
 
-输入：商务场景，3h，香港路·四季酒店 → 四季云中餐厅（17:00 包间 2 人位）
+输入：商务场景，total_hours_display=3.0 小时（无 return_home_time），香港路·四季酒店 → 四季云中餐厅（17:00 包间 2 人位）
 输出：
 接待方案——14:00 香港路四季酒店茶歇接客户聊半小时；15:00 转四季云中餐厅商务套餐 2 人位，包间已留好。全程市中心不绕路。
 
-输入（**三活动 · 餐在中间，餐后还有活动，重点示范不漏餐后段**）：情侣场景，5h，毛球先生猫咖 → 鹿园甜品（16:30 用餐）→ 万达 IMAX 电影院（18:30 场次）
+输入（**三活动 · 餐在中间，餐后还有活动，重点示范不漏餐后段；无 return_home_time → 提回家但不带时刻**）：情侣场景，total_hours_display=5.0 小时，毛球先生猫咖 → 鹿园甜品（16:30 用餐）→ 万达 IMAX 电影院（18:30 场次）
 输出：
-给你和女朋友安排了 5 小时——14:00 先去毛球先生猫咖撸会儿猫，16:30 转鹿园甜品歇脚吃点东西，18:30 再去万达 IMAX 看场电影，结束打车回家。哪里不合适跟我说一声。
+给你和女朋友安排了 5.0 小时——14:00 先去毛球先生猫咖撸会儿猫，16:30 转鹿园甜品歇脚吃点东西，18:30 再去万达 IMAX 看场电影，结束打车回家。哪里不合适跟我说一声。
 
-输入（**三活动 · 选择与顺序理由示范**）：家庭场景，5 岁孩子，5 小时，海洋馆（90min）→ 儿童乐园（60min）→ 老字号快餐（45min，18:00 用餐）
+输入（**三活动 · 选择与顺序理由示范**）：家庭场景，5 岁孩子，total_hours_display=5.0 小时（无 return_home_time），海洋馆（90min）→ 儿童乐园（60min）→ 老字号快餐（45min，18:00 用餐）
 输出：
-陪孩子的下午 5 小时安排——14:00 先带娃看海洋馆里的鱼 90 分钟，15:45 转儿童乐园撒欢 1 小时，18:00 老字号快餐垫一口。3 个活动不算多，特意多留了些走停的时间，饭放在后段刚好垫肚子，前面精力足先玩，后面轻松收尾。哪里不合适跟我说一声。
+陪孩子的下午 5.0 小时安排——14:00 先带娃看海洋馆里的鱼 90 分钟，15:45 转儿童乐园撒欢 1 小时，18:00 老字号快餐垫一口。3 个活动不算多，特意多留了些走停的时间，饭放在后段刚好垫肚子，前面精力足先玩，后面轻松收尾。哪里不合适跟我说一声。
 
 【输出】
 直接输出文案，不要任何前后缀，不要 JSON 包裹，不要 markdown 围栏。
@@ -150,14 +159,16 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 【主动质疑 few-shot 示例】
 
 示例 A · 5 岁娃 / critic 命中 1 次
+输入 total_hours_display：4.5 小时
 输入 critic_summary：「5 岁娃单段时长 165min 已被 critic 拦下重出 75min（含 5 岁学龄前儿童）」
 输出：
 和老婆孩子下午 4.5 小时安排——14:00 玩贝亲子博物馆陪宝贝 75 分钟，17:00 鲸落·健康简餐吃晚饭。考虑 5 岁宝贝注意力主活动控制 75 分钟，不会累；哪里不合适跟我说一声。
 
 示例 B · 老人 / quality_warning 命中
+输入 total_hours_display：3.0 小时
 输入 quality_warnings：["陪老人，单段建议 ≤ 60min"]
 输出：
-陪老人 3 小时安排——14:00 东湖书茶院翻杂志慢慢喝茶 60 分钟，15:30 转隐林·茶酒空间用早晚餐。老人体力有限每段都留了走停时间；哪里不合适跟我说。
+陪老人 3.0 小时安排——14:00 东湖书茶院翻杂志慢慢喝茶 60 分钟，15:30 转隐林·茶酒空间用早晚餐。老人体力有限每段都留了走停时间；哪里不合适跟我说。
 
 【诚实告知规则（重要 · 不许假装满足）】
 当收到 `未满足的品类诉求` 字段时，说明用户明确想要某样东西——可能是**餐饮品类**（如「烧烤」）
@@ -232,7 +243,8 @@ TITLE_OUTPUT_INSTRUCTION = """\
 - 一句话，约 8-22 字，简短有钩子（小红书风格）。
 - **必须覆盖所有主要活动站点**（用餐 + 活动都要体现，例：既有烧烤又有 KTV 时两者都要出现，
   绝不允许只写停留最久的那一站——这是真实踩过的 bug）。
-- 体现同行关系（室友 / 家人 / 闺蜜 / 朋友 / 独自）和/或时长氛围（如「4.5 小时」）。
+- 体现同行关系（室友 / 家人 / 闺蜜 / 朋友 / 独自）和/或时长氛围（如「4.5 小时」）——
+  时长数字同样**照抄** itinerary.total_hours_display，不自己换算。
 - 口语化、有场景感（小红书味），最多 1 个贴切 emoji（克制，不堆）。
 - **不要**「半日方案 ·」这种前缀、**不要**「（约 X 小时）」这种括号。
 - 参考例（室友 4 人 · 烧烤 + KTV · 4.5h）：「室友夜局｜撸串配K歌🎤」「和室友的快乐4.5h：烧烤+唱K」。
@@ -371,31 +383,58 @@ def build_narrator_user_message(
         "experience_tags": intent_dict.get("experience_tags") or [],
         "social_context": intent_dict.get("social_context"),
     }
-    itinerary_brief = {
-        "summary": itinerary_dict.get("summary"),
-        "total_minutes": itinerary_dict.get("total_minutes"),
-        "nodes": [
-            {
-                "kind": n.get("kind"),
-                "target_kind": n.get("target_kind"),
-                "start_time": n.get("start_time"),
-                "duration_min": n.get("duration_min"),
-                "title": n.get("title"),
-                "note": n.get("note"),
-            }
-            # 跳过首尾 home 节点：它们是抽象起讫，不在 narrator 文案中露出
-            for n in (itinerary_dict.get("nodes") or [])
-            if n.get("target_kind") != "home"
-        ],
-        "orders": [
-            {
-                "kind": o.get("kind"),
-                "target_name": o.get("target_name"),
-                "detail": o.get("detail"),
-            }
-            for o in (itinerary_dict.get("orders") or [])
-        ],
-    }
+    # 分界修缮批 任务 3（2026-07-04）：叙事数字代码算——总时长与回家时刻在
+    # 这里预格式化成展示字符串喂给 LLM（system prompt【数字纪律】要求照抄），
+    # 不再喂原始 total_minutes 让 LLM 自己除（换算/四舍五入 LLM 会漂）。
+    # total_hours_display 与模板路径同一算法（narrator.py::_template_narration
+    # 的 total_minutes/60 保留 1 位小数），两条路径渲染一致。回家时刻从 nodes
+    # 末尾 home 节点取（下方 brief 剔除了 home 节点且不含 hops，此前 few-shot
+    # 还示范「19:30 回家」——LLM 只能编）；无 home 终点 → 不提供该字段，
+    # prompt 侧要求缺失时绝不编一个回家时刻。
+    raw_nodes = itinerary_dict.get("nodes") or []
+    total_minutes = itinerary_dict.get("total_minutes")
+    total_hours_display = (
+        f"{total_minutes / 60:.1f} 小时"
+        if isinstance(total_minutes, (int, float))
+        else None
+    )
+    last_node = raw_nodes[-1] if raw_nodes else None
+    home_end_time = (
+        last_node.get("start_time")
+        if isinstance(last_node, dict) and last_node.get("target_kind") == "home"
+        else None
+    )
+
+    itinerary_brief: dict = {"summary": itinerary_dict.get("summary")}
+    if total_hours_display:
+        itinerary_brief["total_hours_display"] = total_hours_display
+    if home_end_time:
+        itinerary_brief["return_home_time"] = home_end_time
+    itinerary_brief.update(
+        {
+            "nodes": [
+                {
+                    "kind": n.get("kind"),
+                    "target_kind": n.get("target_kind"),
+                    "start_time": n.get("start_time"),
+                    "duration_min": n.get("duration_min"),
+                    "title": n.get("title"),
+                    "note": n.get("note"),
+                }
+                # 跳过首尾 home 节点：它们是抽象起讫，不在 narrator 文案中露出
+                for n in raw_nodes
+                if n.get("target_kind") != "home"
+            ],
+            "orders": [
+                {
+                    "kind": o.get("kind"),
+                    "target_name": o.get("target_name"),
+                    "detail": o.get("detail"),
+                }
+                for o in (itinerary_dict.get("orders") or [])
+            ],
+        }
+    )
 
     if stage_label == "confirm":
         framing = "用户刚刚点了「确认并预约」，已经下单成功。请用一段话告诉他「都搞定了，可以放心了」，并简要回顾下午要做什么。"

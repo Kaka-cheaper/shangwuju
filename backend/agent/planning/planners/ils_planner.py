@@ -295,9 +295,12 @@ def _resolve_depart_min(start_time: str) -> int:
 #
 # 范围声明（ADR-0010 D-7 原文）：本节只做「planner 接受结构化 `PinSpec` +
 # advisory 产出」；`IntentExtraction` 无 pin 字段、intent 解析 prompt 也不抽取
-# ——intent 层的 pin 抽取是跨层依赖，单独立项。`pinned` 因此目前只能被单测手工
-# 构造喂入，生产调用点（`graph/nodes/replan.py:ils_replan_node`）暂不传参
-# （等价于"无锚点"，不影响现状行为）。
+# ——intent 层的 pin 抽取是跨层依赖，单独立项。
+# 【赞锁定根治批更新】"生产调用点暂不传参"已作废：`graph/nodes/replan.py:
+# ils_replan_node` 现从 `state.pinned_targets`（房间赞锁定注入，见
+# graph/state.py 该字段 docstring）构造 `PinSpec` 传入——房间成员点赞锁定的
+# 段从此真被本引擎保护（保不住必产 advisory，经 narrate 走房间告知通道）。
+# 单人路径 `pinned_targets` 无生产者，恒等价于"无锚点"，现状行为不变。
 
 
 def _visit_display_name(visit: "Visit") -> str:

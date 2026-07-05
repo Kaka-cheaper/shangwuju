@@ -10,8 +10,10 @@
     1) 识别提问 = question / request-info 对话行为 → 疑问句式特征（吗/呢/?/多远/贵不贵…）。
     2) 接地问答（grounded QA）：答案**只能基于查到的数据**，不编造（编造=faithfulness
        hallucination）。
-    3) 校准弃答（abstention）+ 来源标注：查不到字段就诚实说「没这个信息」，可凭经验补一句、
-       但**标注**是经验不是数据。
+    3) 校准弃答（abstention）+ 来源标注：字段没对上就诚实弃答，可凭经验补一句、
+       但**标注**是经验不是数据。措辞纪律（分界修缮批 任务 5）：弃答只坦白
+       「没对上」，**不断言**「数据里没有记录」——cue 词表未命中是识别没接上，
+       不等于数据缺失，假负面断言也是编造。
     4) 模板化 NLG：字段命中走模板（零漂移）；查不到才用 LLM 凭经验（且强制标注）。
     5) 实体链接（entity linking）第一版从简：对方案里**拥有该字段的所有地点**作答，
        免做完整指代消解（"这家"到底指谁）。
@@ -260,18 +262,34 @@ _FIELD_ANSWERERS = {
 # 无 L2 角色锁定无 L3 输入隔离 + 输出自由文本直接展示给用户"的位置——弃答文案
 # 会原样进 chitchat 气泡，注入面最大，故用完整版 ROLE_LOCK_NOTICE（非 BRIEF）+
 # wrap_user_input 补齐两道防线；行为语义（弃答+经验标注）不变。
+#
+# 分界修缮批 任务 5（2026-07-04 措辞判据变更）：弃答不再断言「方案数据里没有
+# 这个信息/没有记录」——触发条件只是字段 cue 词表（_FIELD_CUES）未命中，这是
+# **识别**没接上，不是**数据**缺失（数据可能明明有）；宣称数据缺失是对用户的
+# 假负面断言，与"确定域的事实断言不许编造"同一纪律。改为坦白「没对上」
+# （识别层面的诚实），弃答 + 经验标注语义保留。
 _ABSTAIN_SYSTEM = (
     ROLE_LOCK_NOTICE + "\n\n"
-    "用户在问关于一个已定下午行程的问题，但方案数据里**没有**这条信息。"
-    "请用一句中文坦诚说明『方案数据里没有这个信息』，再凭常识给一句简短建议，"
+    "用户在问关于一个已定下午行程的问题，但系统没能把这个问题对应到方案数据里的"
+    "任何一项——可能数据里本来就没有，也可能只是没识别出来，你无法区分是哪种，"
+    "所以**绝不要断言**『数据里没有这个信息』『没有记录』这类数据缺失的说法。"
+    "请用一句中文坦诚说明这条你没对上方案里的数据，再凭常识给一句简短建议，"
     "并**明确标注**这是经验、不是查到的数据（如『一般来说…，到店问下最稳』）。不超过 60 字。"
 )
 
+# 弃答输出钳制：本函数返回值直塞 RouterDecision.reply_text（max_length=400），
+# 超限 = router 层 ValidationError → 整轮 stream_error（I 类元对话探针 I3 在
+# stub 下实锤：stub 固定 JSON 顶穿上限把弃答轮整个炸掉）。prompt 约束 60 字是
+# 软约束，LLM 可能无视——这里是硬保险。380 留余量（下游若再拼措辞不至于贴边）。
+_ABSTAIN_REPLY_MAX = 380
+
 
 def _abstain(text: str, client: LLMClient | None) -> str:
-    base = "你问的这个，方案数据里没有记录。"
+    # 措辞纪律（任务 5，见 _ABSTAIN_SYSTEM 上方注释）：说「没对上」不说
+    # 「没有记录」——识别未命中 ≠ 数据缺失，不下假负面断言。
+    base = "你问的这个我没对上方案里的数据，"
     if client is None:
-        return base + "建议到店或在 App 上确认一下。"
+        return base + "凭经验建议到店或在 App 上确认一下。"
     try:
         resp = client.chat(
             [LLMMessage(role="system", content=_ABSTAIN_SYSTEM),
@@ -283,9 +301,11 @@ def _abstain(text: str, client: LLMClient | None) -> str:
             extra_body=MIMO_THINKING_DISABLED_EXTRA_BODY,
         )
         out = (resp.content or "").strip()
-        return out or (base + "建议到店或在 App 上确认一下。")
+        if len(out) > _ABSTAIN_REPLY_MAX:
+            out = out[: _ABSTAIN_REPLY_MAX - 1].rstrip() + "…"
+        return out or (base + "凭经验建议到店或在 App 上确认一下。")
     except Exception:  # noqa: BLE001
-        return base + "建议到店或在 App 上确认一下。"
+        return base + "凭经验建议到店或在 App 上确认一下。"
 
 
 # ============================================================
@@ -317,7 +337,7 @@ def answer_itinerary_question(
         ans = _FIELD_ANSWERERS[field](places)
         if ans:
             return ans
-    # 是提问、但字段查不到（停车/wifi/支付…）→ 诚实弃答 + 经验
+    # 是提问、但字段没对上（停车/wifi/支付…）→ 坦白没对上 + 经验标注
     return _abstain(user_input, client)
 
 

@@ -69,11 +69,36 @@ def test_answer_elderly_honest_when_no_tag():
     assert a and "没有明确" in a
 
 
-# ---- 3. 弃答（abstention）：字段查不到 → 诚实说没记录 ----
+# ---- 3. 弃答（abstention）：字段没对上 → 坦白没对上 + 经验标注 ----
 
 def test_abstain_when_field_absent():
+    """分界修缮批 任务 5：措辞判据变更——弃答不再断言「没有记录」。
+
+    旧判据钉的是「没有记录」字面；但那句是假负面断言：字段 cue 词表
+    （itinerary_qa._FIELD_CUES）未命中 ≠ 数据缺失——数据可能明明有（如停车
+    信息哪天进了 mock），只是识别没接上。确定域的事实断言不许编造，负面断言
+    也一样。新判据：坦白「没对上」（识别层面的诚实）+ 经验标注语义保留，
+    **绝不**出现「没有记录」这类宣称数据缺失的字面。
+    """
     a = answer_itinerary_question("有地方停车吗", _itin(), client=None)
-    assert a and "没有记录" in a
+    assert a and "没对上" in a
+    assert "没有记录" not in a, "识别未命中不等于数据缺失，不许对用户下假负面断言"
+
+
+def test_abstain_output_clamped_to_reply_text_limit():
+    """弃答文案钳制——LLM 无视「不超过 60 字」约束长篇大论时，输出必须压进
+    RouterDecision.reply_text 的 max_length=400，否则 router 层构造 decision 时
+    ValidationError → 整轮以 stream_error 收场（I 类元对话探针 I3 在 stub 下实锤：
+    stub 固定 JSON 顶穿 400 上限把弃答轮整个炸掉；真实模式 prompt 约束 60 字
+    通常不炸，但此前代码无任何保险）。"""
+    from types import SimpleNamespace
+
+    class _LongWinded:
+        def chat(self, messages, **kwargs):  # noqa: ANN003 —— 只需鸭子型 .content
+            return SimpleNamespace(content="这附近停车其实要看具体时段和商场政策，" * 40)
+
+    a = answer_itinerary_question("有地方停车吗", _itin(), client=_LongWinded())
+    assert a is not None and len(a) <= 400, f"弃答输出未钳制：len={len(a) if a else 0}"
 
 
 # ---- 4. 疑问式改请求 / 非提问 → None（交回兜底，不当 QA）----

@@ -131,6 +131,7 @@ def validate_itinerary(
     *,
     user_id: str = "demo_user",
     tool_results: dict | None = None,
+    pinned: list | None = None,
 ) -> list[Violation]:
     """跑全套 critic 检查（分阶段）。返回 violations 列表（可能为空）。
 
@@ -161,12 +162,16 @@ def validate_itinerary(
         user_id:      用于查 UserProfile（含 home_location / transport_preference）。
         tool_results: 可选；包含 {"pois": list, "restaurants": list} 候选池快照，
                       用于 hallucination 防护检查。None 时跳过此检查（向后兼容）。
+        pinned:       可选；锁定清单 list[{"kind","target_id","name"}]（赞锁定
+                      根治批，形状同 AgentState.pinned_targets），供
+                      check_pinned_presence 判"锁定实体在场"。None/空时该检查
+                      跳过（向后兼容，单人路径零变化）。
 
     Returns:
         Violation 列表；调用方据 severity 决定是否 backprompt / replan。
         Stage 0 有违规时只含结构/幻觉违规（短路），否则含 Stage 1+2 所有违规。
     """
-    ctx = CriticContext.build(intent, user_id=user_id, tool_results=tool_results)
+    ctx = CriticContext.build(intent, user_id=user_id, tool_results=tool_results, pinned=pinned)
     return validate(itinerary, ctx)
 
 

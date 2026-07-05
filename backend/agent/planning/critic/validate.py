@@ -93,6 +93,7 @@ from ._rules.checks import (
     check_nodes_incomplete,
     check_opening_hours,
     check_physical,
+    check_pinned_presence,
     check_social_context,
     check_temporal_alignment,
     check_temporal_feasibility,  # noqa: F401  保留兼容：critics_v2 别名仍用
@@ -146,6 +147,10 @@ REGISTRY: list[CheckSpec] = [
     # ADR-0014 决策 2（G-2）：与 check_dietary 对称的 POI 侧 hard 物理约束核验
     CheckSpec(ViolationCode.PHYSICAL_VIOLATION, 1, "hard", check_physical),
     CheckSpec(ViolationCode.MEAL_TIME_UNREASONABLE, 1, "hard", check_meal_time),
+    # 赞锁定根治批：锁定实体在场（Stage 1 hard，驱动 backprompt 让蓝图 LLM 保住
+    # 锁定节点；ILS 路径 plan_hybrid 不传 pinned 进本 critic，天然不受影响——
+    # 两轴分工见 check_pinned_presence docstring）
+    CheckSpec(ViolationCode.PINNED_ENTITY_MISSING, 1, "hard", check_pinned_presence),
     # ── Stage 2: soft 建议（narration only，不 gate） ──────────────────────
     CheckSpec(ViolationCode.DISTANCE_EXCEEDED, 2, "soft", check_distance),
     # ADR-0014 决策 3（G-3）：预算超出，mock 价格粒度粗，只告知不 gate（见 check_budget docstring）

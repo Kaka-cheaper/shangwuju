@@ -70,6 +70,10 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     feedback = state.get("critic_feedback_text")
     feedback_list = [feedback] if feedback else None
     user_id = state.get("user_id") or "demo_user"
+    # 赞锁定根治批：锁定清单透传给蓝图生成（用户消息「必须保留」段先验 +
+    # 预览强制收录；critic 侧 check_pinned_presence 是硬闸兜底）。单人路径
+    # 该键恒为空 → None → generate_blueprint 行为与本批之前完全一致。
+    pinned = state.get("pinned_targets") or None
 
     def _get_weights() -> Any:
         # 出权重（LLM 决定主观偏好）——从不抛，失败自带启发式兜底
@@ -86,6 +90,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
                 client=client,
                 critic_feedback=feedback_list,
                 user_id=user_id,
+                pinned=pinned,
             )
         except BlueprintGenError as e:
             # 真因修复批 item 5：这条分支曾经完全静默——蓝图生成失败（JSON 非法/
@@ -157,10 +162,32 @@ def _planner_node_rule(state: AgentState, intent) -> dict[str, Any]:
     }
 
 
+def _reason_rejected(candidate, selected_same_kind) -> str:
+    """备选卡的拒绝理由——与选中项真实比较，不用固定阈值（分界修缮批 任务 4）。
+
+    普查实锤：曾用固定阈值（rating<4.7→「评分较低」否则「距离更远」），从未与
+    选中项比较——评分 4.8 且更近的备选会被标「距离更远」，是确定域里的假事实
+    断言（解释卡直接展示给用户）。判据改为：
+
+    - 「评分较低」仅当备选评分低于**全部**同 kind 选中项（多选中项时，只比其中
+      一个低不足以断言"因为评分输了"——它仍比另一个选中项高）；
+    - 「距离更远」仅当备选距离远于**全部**同 kind 选中项（同理）；
+    - 两者都不成立、或该 kind 没有选中项可比（如蓝图没排餐厅）→ 中性措辞
+      「综合排序略后」——诚实承认是综合打分的结果，不编造一个具体维度。
+    """
+    if selected_same_kind:
+        if all(candidate.rating < s.rating for s in selected_same_kind):
+            return f"评分较低（{candidate.rating:.1f}）"
+        if all(candidate.distance_km > s.distance_km for s in selected_same_kind):
+            return f"距离更远（{candidate.distance_km:.1f}km）"
+    return "综合排序略后"
+
+
 def _build_alternatives(blueprint, pois, restaurants):
     """从候选源 + 已选蓝图推「考虑过但未选」的 top-2 ~ top-5。
 
     朴素实现：blueprint 选中的目标记为 rank=1；其它按 rating 倒序填 rank 2-5。
+    reason_rejected 与同 kind 选中项真实比较（见 `_reason_rejected`）。
 
     Returns:
         list[AlternativeCandidate] —— 用 model_dump 后的 dict（避免 LangGraph
@@ -173,6 +200,9 @@ def _build_alternatives(blueprint, pois, restaurants):
         for s in blueprint.nodes:
             if s.target_id:
                 selected_target_ids.add(s.target_id)
+
+    selected_pois = [p for p in pois if p.id in selected_target_ids]
+    selected_rests = [r for r in restaurants if r.id in selected_target_ids]
 
     alternatives: list[dict] = []
     rank = 2
@@ -190,10 +220,7 @@ def _build_alternatives(blueprint, pois, restaurants):
             target_name=p.name,
             utility_score=round(float(p.rating) / 5.0, 3),
             rank=rank,
-            reason_rejected=(
-                f"评分较低（{p.rating:.1f}）" if p.rating < 4.7
-                else f"距离更远（{p.distance_km:.1f}km）"
-            ),
+            reason_rejected=_reason_rejected(p, selected_pois),
         )
         alternatives.append(ac.model_dump())
         rank += 1
@@ -211,10 +238,7 @@ def _build_alternatives(blueprint, pois, restaurants):
             target_name=r.name,
             utility_score=round(float(r.rating) / 5.0, 3),
             rank=rank,
-            reason_rejected=(
-                f"评分较低（{r.rating:.1f}）" if r.rating < 4.7
-                else f"距离更远（{r.distance_km:.1f}km）"
-            ),
+            reason_rejected=_reason_rejected(r, selected_rests),
         )
         alternatives.append(ac.model_dump())
         rank += 1

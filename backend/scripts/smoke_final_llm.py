@@ -586,12 +586,27 @@ async def do_turn(
     scenario_id: Optional[str] = None,
     step_desc: Optional[str] = None,
     session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    expect_stream_error: bool = False,
 ) -> StepLog:
     """session_id 缺省用 ctx.session_id；H9 会话隔离探针用它在同一个探针里
-    交错驱动两个独立 session。"""
+    交错驱动两个独立 session。user_id 缺省不发（服务端按 body > X-User-Id
+    header > "demo_user" 解析，见 api/_session_store.resolve_user_id）；I4/I5
+    跨会话记忆探针用它把两个 session 钉在同一个探针私有 user 上。
+
+    expect_stream_error=True（同 do_adjust 的 G5 机制，I3 专用）：该步的
+    stream_error 是**被记录的已知形态**而非失败——stub 实测 I3 原句触发 QA
+    弃答分支把超长 stub 文案顶穿 RouterDecision.reply_text 上限 → router 节点
+    ValidationError → safe_stream 兜成 stream_error+done，而真实模式弃答文案
+    短、预计不炸：同一步在两种 provider 下事件形状**合法地不同**，无论断
+    "有"还是"无" stream_error 都不满足 PLUMBING 的跨 provider 定义。step
+    method 记成 "turn_expect_error"，add_http_baseline_checks 的两条基线自动
+    跳过它，由探针自己写模式无关的判定（done 必达）+ RECORD 实际形态。"""
     body: dict[str, Any] = {"message": text, "session_id": session_id or ctx.session_id}
     if scenario_id:
         body["scenario_id"] = scenario_id
+    if user_id:
+        body["user_id"] = user_id
     desc = step_desc or f"say({text!r}" + (f", scenario_id={scenario_id!r})" if scenario_id else ")")
     t0 = time.monotonic()
     events: list[dict[str, Any]] = []
@@ -604,7 +619,8 @@ async def do_turn(
     except Exception as e:  # noqa: BLE001
         err = f"{type(e).__name__}: {e}"
     elapsed = (time.monotonic() - t0) * 1000
-    step = StepLog(desc, "turn", body, events, elapsed, err)
+    method = "turn_expect_error" if expect_stream_error else "turn"
+    step = StepLog(desc, method, body, events, elapsed, err)
     ctx.steps.append(step)
     _update_ctx_from_events(ctx, events)
     return step
@@ -691,8 +707,20 @@ async def do_raw_post(
     return status, text
 
 
-async def do_confirm(ctx: ProbeCtx, *, decision: str = "confirm", step_desc: Optional[str] = None) -> StepLog:
-    body = {"session_id": ctx.session_id, "decision": decision}
+async def do_confirm(
+    ctx: ProbeCtx,
+    *,
+    decision: str = "confirm",
+    step_desc: Optional[str] = None,
+    user_id: Optional[str] = None,
+) -> StepLog:
+    """user_id 缺省不发。读码事实（api/_streams/graph_confirm.py L109）：confirm
+    取 user 的优先级是 SESSION_STORE 缓存（turn 时 sync_snapshot 写入）>
+    req.user_id > "demo_user"——turn 已带 user_id 时这里传不传都不影响归属，
+    I4/I5 显式传只是把意图写明。"""
+    body: dict[str, Any] = {"session_id": ctx.session_id, "decision": decision}
+    if user_id:
+        body["user_id"] = user_id
     desc = step_desc or f"confirm(decision={decision!r})"
     t0 = time.monotonic()
     events: list[dict[str, Any]] = []
@@ -2416,6 +2444,57 @@ async def probe_H4(ctx: ProbeCtx) -> None:
 
     add_record(ctx, "lock_attribution", _lock_attribution)
 
+    # ---- 赞锁定根治批：锁定被尊重 / 保不住必归名告知（第二间房，独立场景）----
+    # 成员「阿锁」赞 stage 0（锁定 P040 实体级登记）→ owner 发 Layer-1 强反馈
+    # "太贵了"（分发判定不依赖 LLM）→ 反馈重排注入 pinned_targets 走全阶梯
+    # （蓝图用户消息先验 + critic 硬判据 + plan_hybrid(pinned=...)）。
+    manager2 = RoomManager()
+    room2 = _seed_room_with_plan(manager2, "smoke_h4_lock_owner")
+    lock_owner_ws = _FakeWebSocket()
+    await manager2.join(room2, "smoke_h4_lock_owner", "发起人", lock_owner_ws)
+    locker_ws = _FakeWebSocket()
+    await manager2.join(room2, "smoke_h4_locker", "阿锁", locker_ws)
+
+    await manager2.update_vote(room2, "smoke_h4_locker", 0, "like")
+    locked_registered = dict(room2.locked_targets)
+    await manager2.add_constraint(room2, "smoke_h4_lock_owner", "太贵了")
+    if room2.planning_task is not None:
+        await room2.planning_task
+
+    final_mid_ids = [
+        n.get("target_id")
+        for n in (room2.current_itinerary_dict or {}).get("nodes", [])
+        if isinstance(n, dict) and n.get("target_kind") != "home"
+    ]
+    narration_texts = [
+        str(e.get("payload", {}).get("text", ""))
+        for e in room2.planning_events_history
+        if (e["type"] if isinstance(e["type"], str) else getattr(e["type"], "value", e["type"]))
+        == "agent_narration"
+    ]
+    named_loss = [t for t in narration_texts if "锁定" in t and "阿锁" in t]
+
+    def _lock_registered() -> tuple[bool, str]:
+        ok = "P040" in locked_registered and locked_registered["P040"].get("lockers") == ["smoke_h4_locker"]
+        return ok, f"点赞实体级锁登记（归名）={locked_registered}"
+
+    add_check(ctx, "like_registers_entity_lock_with_attribution", "PLUMBING", _lock_registered)
+
+    def _lock_honored_or_honest() -> tuple[bool, str]:
+        # L0 不变量（确定性承诺，任何 provider 下成立）：锁定实体要么在新方案里，
+        # 要么有归名的"没保住"告知广播——绝无静默丢锁这第三种状态。
+        ok = ("P040" in final_mid_ids) or bool(named_loss)
+        return ok, f"最终 mid 节点={final_mid_ids}；归名丢锁告知={named_loss}"
+
+    add_check(ctx, "liked_lock_honored_or_honest_named_loss", "PLUMBING", _lock_honored_or_honest)
+
+    def _lock_respected() -> tuple[bool, str]:
+        # 锁定被尊重（SEMANTIC）："太贵了"不动候选池的召回/grounding 维度，
+        # 真实 LLM/引擎应把 P040 保进新方案，而不是走"保不住"的告知出口。
+        return "P040" in final_mid_ids, f"最终 mid 节点={final_mid_ids}"
+
+    add_check(ctx, "liked_lock_respected_in_replanned_itinerary", "SEMANTIC", _lock_respected)
+
 
 async def probe_H5(ctx: ProbeCtx) -> None:
     """中途加入快照：出方案 + 攒了聊天/台账的房间，新成员 join 收到的
@@ -2767,6 +2846,500 @@ async def probe_F5(ctx: ProbeCtx) -> None:
     add_record(ctx, "emoji_nickname_truncation_behavior", _emoji_truncation)
 
 
+# ---- I. 元对话（关于"我们这段关系"的问题）-----------------------------------
+#
+# 覆盖盲区（本批新增的动机）：现有探针只覆盖"关于方案的问题"（C5）与"关于
+# 助手的问题"（A21），以及数据层证据（G3 记忆写入、B10 版本志长度）——但
+# "数据在不在"和"用户问起来答不答得出"是两回事，后者此前零覆盖。评委现场
+# 很可能问"你了解我什么/记得我们聊了什么/我之前去过哪"这类元对话。
+#
+# 【I 类判定哲学（五条共同，任务书钉死）】这是**摸底**探针：真 LLM 点火时记录
+# 系统真实表现供人判，不做先验断言。
+#   - PLUMBING：轮次以 done 收尾、无 stream_error（baseline 统一收口）+ 问句轮
+#     回复非空（L0"听不懂就问、失败就说"，任何 provider 下都必须成立）+ 个别
+#     **确定性规则层行为**（如 Layer 1.7 画像规则命中——与 provider 无关，
+#     判级依据同 C4/C5/D1 的既有先例，stub 实测核实后才钉）。
+#   - RECORD：回复全文 + 判定义务（kind/rationale）记录在案，供人眼终审。
+#     **不**对回答内容做先验 SEMANTIC 断言——什么算"答得体面"还没有产品定义，
+#     摸底结果本身就是拍板依据。
+#   - 唯一 SEMANTIC 例外（任务书授权）：I4 的"编造具体地名"机器可判红线，
+#     stub 下自动 SKIP 不假失败。
+
+
+def _read_recent_trips() -> list[dict[str, Any]]:
+    """读隔离 mock 目录的 user_profile.json → recent_trips 列表（取证只读）。
+
+    memory_writer._resolve_profile_path 在 SHANGWUJU_MOCK_DIR 已设时读写都走
+    该目录（_isolate_mock_dir 已保证绝不碰版本控制的种子）。失败返回空列表，
+    不让取证 helper 炸探针。
+    """
+    try:
+        mock_dir = os.environ.get("SHANGWUJU_MOCK_DIR") or ""
+        if not mock_dir:
+            return []
+        raw = json.loads((Path(mock_dir) / "user_profile.json").read_text(encoding="utf-8"))
+        return list(raw.get("recent_trips") or [])
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def _await_confirm_memory_tasks() -> str:
+    """等待 /chat/confirm 的 fire-and-forget 记忆后台任务收敛（I4/I5 取证前置）。
+
+    G3 已记录的架构现状：defer_post_confirm_effects=True 路径下，recent_trips
+    持久化（memory_writer）与按 user 累积（memory_store）都被投进后台任务、
+    永不回拼 SSE 流。跨会话探针要取"写没写进去"的证，必须先等这组任务真正
+    跑完，而不是 sleep 猜时机——直接 await `api._streams.graph_confirm` 模块级
+    `_BACKGROUND_TASKS` 快照（进程内同一事件循环；引用测试性私有件与本文件
+    既有先例一致：tests.test_critics_v2 合成 fixture / H3 对 manager._run_planning
+    的实例级包裹）。上限 30s；超时/异常不抛，返回描述文本进 RECORD detail。
+    """
+    try:
+        from api._streams.graph_confirm import _BACKGROUND_TASKS
+
+        pending = [t for t in list(_BACKGROUND_TASKS) if not t.done()]
+        if pending:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True), timeout=30.0
+            )
+        return f"已等待 {len(pending)} 个 confirm 后台记忆任务完成"
+    except Exception as e:  # noqa: BLE001
+        return f"后台记忆任务等待异常（不阻断探针，取证可能不全）：{type(e).__name__}: {e}"
+
+
+def add_meta_dialogue_checks(ctx: ProbeCtx, step: StepLog, label: str) -> None:
+    """I 类元对话问句轮的共用判定（判定哲学见 I 类节注释）。
+
+    - PLUMBING `{label}.reply_nonempty`：该轮有非空回话文本（chitchat 气泡或
+      narration——若被判成规划，narration 就是"回复"；两者都空=哑掉，违反 L0）。
+    - RECORD `{label}.full_reply_and_kind`：回复**全文** + 判定义务（kind，
+      planning 以 intent_parsed 出现为准）+ rationale + chips + 事件形状。
+    """
+
+    def _nonempty() -> tuple[bool, str]:
+        chit = payload_of(step.events, "chitchat_reply") or {}
+        narr = payload_of(step.events, "agent_narration") or {}
+        text = (chit.get("reply_text") or "").strip() or (narr.get("text") or "").strip()
+        return bool(text), f"回话首80字={text[:80]!r} types={event_types(step.events)}"
+
+    add_check(ctx, f"{label}.reply_nonempty", "PLUMBING", _nonempty)
+
+    def _record() -> tuple[bool, str]:
+        chit = payload_of(step.events, "chitchat_reply") or {}
+        narr = payload_of(step.events, "agent_narration") or {}
+        kind = "planning" if has_event(step.events, "intent_parsed") else chit.get("input_kind")
+        full_reply = chit.get("reply_text") or narr.get("text") or ""
+        return True, (
+            f"判定义务={kind!r} rationale={chit.get('rationale')!r}；"
+            f"回复全文={full_reply!r}；"
+            f"chips={[c.get('label') for c in (chit.get('cta_chips') or [])]}；"
+            f"types={event_types(step.events)}"
+        )
+
+    add_record(ctx, f"{label}.full_reply_and_kind", _record)
+
+
+async def probe_I1(ctx: ProbeCtx) -> None:
+    """I1 元对话·同会话问画像：S1 建方案后问「你了解我什么？我的画像是什么？」
+
+    【判定哲学】摸底（I 类共同，见节注释）：PLUMBING 只收管道（done 收尾/无
+    stream_error/回复非空）+ 下述确定性规则命中；回答文案质量全部 RECORD 供人
+    判，不做先验 SEMANTIC 断言——什么算"答得体面"没有产品定义，摸底结果本身
+    就是拍板依据。
+
+    【读码依据 + stub 实测基线】问句同时含 persona_qa._PERSONA_CUES 的
+    「你了解我」「我的画像」两个线索 → route_turn Layer 1.7（规则识别，不调
+    LLM，先于脑子）确定性命中 → chitchat 气泡，rationale="persona_question"，
+    reply 由 answer_persona_question(user_id) 用 get_persona + compute_priors
+    grounded 生成（缺省 demo_user → 别名指向 u_dad「新手爸爸」画像）。规则
+    与 provider 无关（stub 下同样命中），故规则命中按 PLUMBING 钉住——这正是
+    本探针补的洞：该规则此前从无端到端验证（C4 只测过"我是谁"一个线索词）。
+    注意：compute_priors 读进程内 memory_store，全量跑时早前探针（G3/B9/H1
+    的 confirm）对 demo_user 的累积会体现在回答里——与真实演示"用多了越懂你"
+    同构，不是污染，记录供人判。
+    """
+    sc = _scenario(_S1)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="step1(S1 建方案)")
+    s2 = await do_turn(ctx, "你了解我什么？我的画像是什么？", step_desc="step2(同会话问画像)")
+
+    def _persona_rule_hit() -> tuple[bool, str]:
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        ok = (
+            chit.get("input_kind") == "chitchat"
+            and chit.get("rationale") == "persona_question"
+            and not has_event(s2.events, "itinerary_ready")
+        )
+        return ok, (
+            f"input_kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
+            f"types={event_types(s2.events)}——Layer 1.7 画像规则（不调 LLM）应先于"
+            "脑子接走这句，任何 provider 下确定"
+        )
+
+    add_check(ctx, "persona_qa_rule_hit_endtoend", "PLUMBING", _persona_rule_hit)
+    add_meta_dialogue_checks(ctx, s2, "ask_profile")
+
+
+async def probe_I2(ctx: ProbeCtx) -> None:
+    """I2 元对话·记得对话吗：两轮闲聊后问「你还记得我们之前聊了什么吗？」
+
+    【判定哲学】摸底（I 类共同）：PLUMBING 管道 + RECORD 全文，不做先验 SEMANTIC。
+
+    【前提出入（如实记录）】任务书预期这句"无规则接、落脑子"；实际读码 +
+    stub 实测：persona_qa._PERSONA_CUES 含「还记得我」，「你还记得我们…」按
+    子串匹配命中 → Layer 1.7 画像规则**抢答**——答的是"你是谁/偏好什么"，
+    不是"我们聊了什么"（答非所问的错位正是摸底要暴露的，落点与全文都进
+    RECORD，由人判是否可接受；不把这个现状钉成 PLUMBING 对错）。
+
+    为覆盖任务书原意（脑子上下文有会话轮次段、有材料说真话，回答质量未知），
+    追加一句避开全部 persona 线索的同义问法「咱们前面都聊了些什么？」——无
+    方案会话里 Layer 1.8 整段被 has_itinerary 门跳过、无强反馈词，确定落脑子
+    （真实模式）/壳3 保守地板（stub 实测基线：无方案分支 → chitchat 暖引导
+    气泡）。真实模式下这句的回答质量（能否引用 turn_log 里的两轮铺垫）就是
+    本探针的核心摸底产出。
+    """
+    await do_turn(ctx, "你好呀", step_desc="step1(闲聊铺垫1)")
+    await do_turn(ctx, "哈哈今天心情不错", step_desc="step2(闲聊铺垫2)")
+    s3 = await do_turn(
+        ctx, "你还记得我们之前聊了什么吗？", step_desc="step3(任务书原句→实测被画像规则抢答)"
+    )
+    s4 = await do_turn(
+        ctx, "咱们前面都聊了些什么？", step_desc="step4(避开画像线索的对照句→落脑子/地板)"
+    )
+    add_meta_dialogue_checks(ctx, s3, "ask_history_orig")
+    add_meta_dialogue_checks(ctx, s4, "ask_history_cuefree")
+
+
+async def probe_I3(ctx: ProbeCtx) -> None:
+    """I3 元对话·同会话问方案史：建方案→一轮反馈→问「我之前有过哪些方案？都改过什么？」
+
+    【判定哲学】摸底（I 类共同）。step2 反馈完成是铺垫完整性（PLUMBING，同 B1
+    判据——铺垫塌了后面的问话就没有"方案史"可问）；step3 不触发重排是 QA
+    规则的确定性行为（PLUMBING，同 C5 判据）；回答内容全部 RECORD。
+
+    【前提出入（如实记录）】任务书预期这句落脑子（脑子上下文有方案版本志
+    钉锚段，有材料）；实际读码 + stub 实测：有方案时 Layer 1.8 的 itinerary QA
+    规则先于脑子——句尾「？」+「哪些」命中 looks_like_question、不含改请求
+    线索 → build_question_decision 接走；但其字段词典只有价格/距离/营业时间等
+    **方案数据字段**，没有"方案历史"字段 → 落 _abstain 弃答分支（调 LLM 写
+    弃答文案）。结果：版本志明明在脑子上下文里，这句话却**到不了脑子**——
+    "数据在"与"答得出"是两回事的又一实证，这就是该问句的真实落点。
+
+    【stub 实测发现（生产缺陷线索，只记录不修）】_abstain 把 LLM 原文不加
+    钳制地塞进 RouterDecision.reply_text（pydantic max_length=400）：stub 的
+    固定 intent JSON（raw_input 回显后 >400 字）顶穿上限 → router 节点
+    ValidationError → safe_stream 兜成 stream_error+done（llm_client_stub 的
+    ADR-0014 G-1 注释以为这段 JSON 压得进 400 上限，本探针实测顶穿——因为
+    raw_input 会回显 wrap_user_input 包装后的问句）。真实模式弃答提示词约束
+    60 字内、预计不炸，但代码层无任何长度钳制，超长文案同样会炸——真实点火
+    时此处必看。故 step3 用 expect_stream_error=True 摘出基线，改断模式无关
+    的「done 必达、连接不挂死」+「不炸时回复非空」（条件式，同 A16 手法），
+    实际形态全量 RECORD。
+
+    为覆盖"脑子拿着版本志能不能说真话"，追加陈述式问法「说说我之前的方案
+    改动历史」（无问尾/问词 → QA 不接；无强反馈词；嗅探规则表不命中 → 确定
+    落脑子/壳3 地板，stub 实测基线：clarify 地板）。step4 在真实模式是否被
+    脑子误判为反馈触发重排未知——只 RECORD 不断言。版本志"材料在不在"用
+    图状态内省 RECORD（同 B10 手法），与"答不答得出"并排供人对照。
+    """
+    sc = _scenario(_S1)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="step1(S1 建方案)")
+    s2 = await do_turn(ctx, "太远了", step_desc="step2(一轮反馈:太远了→版本志+1)")
+
+    def _feedback_round_complete() -> tuple[bool, str]:
+        ok = has_event(s2.events, "refinement_done") and has_event(s2.events, "itinerary_ready")
+        return ok, f"types={event_types(s2.events)}（铺垫完整性，同 B1 判据）"
+
+    add_check(ctx, "pretext_feedback_round_complete", "PLUMBING", _feedback_round_complete)
+
+    s3 = await do_turn(
+        ctx,
+        "我之前有过哪些方案？都改过什么？",
+        step_desc="step3(任务书原句→实测被QA规则拦截弃答)",
+        expect_stream_error=True,
+    )
+
+    def _no_replan_on_question() -> tuple[bool, str]:
+        ok = not has_event(s3.events, "refinement_start") and not has_event(s3.events, "intent_parsed")
+        return ok, (
+            f"types={event_types(s3.events)}——Layer 1.8 QA 规则（确定性）接走问句，"
+            "不得触发重排（同 C5 判据；弃答文案顶穿上限炸掉时同样不产生重排事件）"
+        )
+
+    add_check(ctx, "question_does_not_replan", "PLUMBING", _no_replan_on_question)
+
+    def _s3_done_even_if_overflow() -> tuple[bool, str]:
+        ok = bool(s3.events) and s3.events[-1].get("type") == "done" and s3.error is None
+        return ok, (
+            f"types={event_types(s3.events)}，请求层异常={s3.error!r}——无论弃答文案"
+            "是否顶穿 reply_text 上限被 safe_stream 兜住，done 必达、连接不挂死"
+            "（本步已用 expect_stream_error 摘出基线，这条是它的模式无关替补）"
+        )
+
+    add_check(ctx, "ask_plan_history_orig.done_reached", "PLUMBING", _s3_done_even_if_overflow)
+
+    def _s3_reply_nonempty_if_not_overflow() -> tuple[bool, str]:
+        if has_event(s3.events, "stream_error"):
+            detail = str(((find_event(s3.events, "stream_error") or {}).get("payload") or {}).get("detail") or "")
+            overflow = "string_too_long" in detail
+            return True, (
+                f"本轮以 stream_error 收场（{'reply_text 400 上限顶穿——stub 实测已知形态' if overflow else '其他原因'}），"
+                "条件空真；完整取证见 abstain_overflow_finding 记录"
+            )
+        chit = payload_of(s3.events, "chitchat_reply") or {}
+        text = (chit.get("reply_text") or "").strip()
+        return bool(text), f"回话首80字={text[:80]!r} types={event_types(s3.events)}"
+
+    add_check(
+        ctx, "ask_plan_history_orig.reply_nonempty_if_not_overflow", "PLUMBING", _s3_reply_nonempty_if_not_overflow
+    )
+
+    def _s3_record_finding() -> tuple[bool, str]:
+        chit = payload_of(s3.events, "chitchat_reply") or {}
+        err_ev = find_event(s3.events, "stream_error")
+        kind = "planning" if has_event(s3.events, "intent_parsed") else chit.get("input_kind")
+        return True, (
+            f"判定义务={kind!r} rationale={chit.get('rationale')!r}；"
+            f"回复全文={chit.get('reply_text') or ''!r}；"
+            f"stream_error={str(((err_ev or {}).get('payload') or {}).get('detail') or '')[:180]!r}；"
+            f"types={event_types(s3.events)}。生产缺陷线索（只记录不修）：QA 弃答分支 "
+            "itinerary_qa._abstain 无长度钳制直塞 RouterDecision.reply_text(max 400)，"
+            "超长弃答文案会炸 router 节点——真实点火时此处必看"
+        )
+
+    add_record(ctx, "ask_plan_history_orig.abstain_overflow_finding", _s3_record_finding)
+
+    s4 = await do_turn(
+        ctx, "说说我之前的方案改动历史", step_desc="step4(陈述式对照句→落脑子/地板)"
+    )
+
+    def _record_s4_replan_or_not() -> tuple[bool, str]:
+        replanned = has_event(s4.events, "refinement_start") or has_event(s4.events, "intent_parsed")
+        return True, (
+            f"对照句是否触发重排={replanned}（真实模式脑子可能误判为反馈——观察位，"
+            f"不预设对错）；types={event_types(s4.events)}"
+        )
+
+    add_record(ctx, "cuefree_variant_replan_or_not", _record_s4_replan_or_not)
+
+    async def _version_log_material() -> tuple[bool, str]:
+        try:
+            graph = get_compiled_graph()
+            snapshot = await graph.aget_state({"configurable": {"thread_id": ctx.session_id}})
+            log = (snapshot.values or {}).get("plan_version_log") or []
+            return True, (
+                f"plan_version_log 长度={len(log)} 条目={[e.get('summary') for e in log]}"
+                "——材料确实在图状态（脑子上下文钉锚段）里；与上面两问的实际落点"
+                "并排看，就是「数据在≠答得出」的完整取证"
+            )
+        except Exception as e:  # noqa: BLE001
+            return True, f"图状态内省失败（不影响判定）：{type(e).__name__}: {e}"
+
+    log_detail = await _version_log_material()
+    add_record(ctx, "version_log_material_present", lambda: log_detail)
+
+    # s3 的判定已在上方手写（expect_stream_error 摘出基线后的模式无关替补 +
+    # 全量 RECORD），不走共用 helper——helper 的无条件 reply_nonempty 在 stub
+    # 的顶穿形态下会假失败。s4 仍走共用判定。
+    add_meta_dialogue_checks(ctx, s4, "ask_plan_history_stmt")
+
+
+async def probe_I4(ctx: ProbeCtx) -> None:
+    """I4 元对话·跨会话问活动史：会话一 S2 建方案+confirm（触发记忆写入，G3
+    同款机制）→ **同 user_id 开新会话** → 问「我上次去过哪些地方？」
+
+    【跨会话机制】user_id 用探针私有唯一值：turn body 带 user_id（解析优先级
+    body > X-User-Id header > demo_user，见 resolve_user_id），turn 时
+    sync_snapshot 把它缓存进 SESSION_STORE，confirm 读 cached["user_id"]。
+    confirm 的两路记忆副作用都是 fire-and-forget 后台任务——开新会话前先
+    await `_await_confirm_memory_tasks()` 等它们真正收敛，再取证（不睡等）。
+
+    【前提出入（读码事实，如实记录）】
+    (a) recent_trips 档案是**单文件全局档**：memory_writer 不按 user_id 分档
+        （"demo 仅单用户"是其明载设计边界），"同 user_id"对这条管线不构成
+        隔离；按 user_id 分档的是 memory_store 累积管线（accepted_tags/
+        visited）。两路证据都记录。
+    (b) 写入有 social_context + 5 分钟幂等窗（stub intent 恒为"家庭日常"）：
+        全量跑时早前 G3/B9/H1 的 confirm 大概率已写入同场景条目 → 本探针的
+        写入被幂等去重跳过——数据仍在档案里。取证按「问话时档案 recent_trips
+        是否非空」与「本次是否新增（头部条目变化）」两个事实分开记录，不把
+        去重误报成写入失败。
+
+    【预期暴露面（画像双管线断裂的已知面）】新会话的脑子上下文由 packer 打包，
+    packer 明确把 recent_trips 排除在画像段之外（agent/context/packer.py
+    _PROFILE_KEY_FIELDS 拍板注释），turn_log 只有本句——脑子面对"我去过哪些
+    地方"**零材料**。预期摸底暴露"答不出或幻觉"。stub 实测基线：新会话无
+    方案 → 壳3 无方案分支 → chitchat 暖引导气泡（答不出，但体面）。
+
+    【判定哲学】摸底（I 类共同）：PLUMBING = 管道 + confirm 真下单（orders
+    非空，铺垫完整性，同 G3 判据）；回答全文 RECORD。唯一 SEMANTIC 例外
+    （任务书授权的机器可判红线）：问话轮若没有产出新方案，回复文本不得出现
+    mock 目录里任何具体 POI/餐厅名——记忆摘要按设计脱敏（memory_writer
+    prompt 禁具体店名，兜底摘要只有品类），新会话上下文里也没有任何实体名，
+    出现具体店名的唯一出处只能是模型编造。红线依据是读码推演（真实点火本批
+    禁做），灰区由人眼复核；stub 下 SEMANTIC 自动 SKIP，不假失败。
+    """
+    uid = f"smoke_i4_user_{uuid.uuid4().hex[:8]}"
+    trips_before = _read_recent_trips()
+
+    sc = _scenario(_S2)
+    await do_turn(
+        ctx, sc["input"], scenario_id=sc["id"], user_id=uid, step_desc="step1(会话一:S2 建方案,带私有 user_id)"
+    )
+    s2 = await do_confirm(ctx, user_id=uid, step_desc="step2(会话一:confirm→触发记忆写入)")
+
+    def _orders_present() -> tuple[bool, str]:
+        itin = payload_of(s2.events, "itinerary_ready") or {}
+        orders = itin.get("orders") or []
+        return bool(orders), f"orders={orders}（铺垫完整性，同 G3 判据）"
+
+    add_check(ctx, "pretext_confirm_orders_present", "PLUMBING", _orders_present)
+
+    drain_note = await _await_confirm_memory_tasks()
+    trips_after = _read_recent_trips()
+
+    sess2 = f"{ctx.session_id}_s2"
+    s3 = await do_turn(
+        ctx,
+        "我上次去过哪些地方？",
+        session_id=sess2,
+        user_id=uid,
+        step_desc="step3(同 user_id 新会话:问活动史)",
+    )
+
+    def _memory_evidence() -> tuple[bool, str]:
+        head_changed = bool(trips_after) and (
+            not trips_before or trips_after[0] != trips_before[0]
+        )
+        try:
+            from data.memory_store import get_memory
+
+            acc = dict((get_memory(uid).accepted_tags.counts) or {})
+        except Exception as e:  # noqa: BLE001
+            acc = {"_读取失败": f"{type(e).__name__}: {e}"}  # type: ignore[dict-item]
+        return True, (
+            f"{drain_note}；recent_trips(全局单档,不按 user 分档): "
+            f"before={len(trips_before)}条 after={len(trips_after)}条 本次新增(头部条目变化)={head_changed}"
+            "（未新增且已有同 social_context 条目=5分钟幂等去重，数据仍在档案）；"
+            f"档案头部条目={trips_after[0] if trips_after else '无'}；"
+            f"memory_store 按 user 累积({uid}): accepted_tags={acc or '空'}"
+        )
+
+    add_record(ctx, "cross_session_memory_evidence", _memory_evidence)
+
+    def _no_fabricated_venue_names() -> tuple[bool, str]:
+        if has_event(s3.events, "itinerary_ready"):
+            return True, (
+                "问话轮被判成规划、产出了新方案——文本里的店名有正当出处"
+                "（答非所问与否归人判），本红线不适用"
+            )
+        chit = payload_of(s3.events, "chitchat_reply") or {}
+        narr = payload_of(s3.events, "agent_narration") or {}
+        text = (chit.get("reply_text") or "") + " " + (narr.get("text") or "")
+        from data.loader import load_pois, load_restaurants
+
+        names = [p.name for p in load_pois()] + [r.name for r in load_restaurants()]
+        hits = sorted({n for n in names if len(n) >= 3 and n in text})
+        return not hits, (
+            f"回复命中目录实体名={hits or '无'}（新会话零实体材料+记忆摘要按设计脱敏，"
+            f"出现具体店名唯一出处是编造）；reply={text[:200]!r}"
+        )
+
+    add_check(ctx, "no_fabricated_venue_names", "SEMANTIC", _no_fabricated_venue_names)
+    add_meta_dialogue_checks(ctx, s3, "ask_trip_history")
+
+
+async def probe_I5(ctx: ProbeCtx) -> None:
+    """I5 元对话·跨会话问画像：同 I4 机制（S2 建方案+confirm+await 后台记忆
+    任务 → 同 user_id 新会话）→ 问「我的口味偏好你还记得吗？」
+
+    【前提出入（如实记录）】任务书原句**不**命中 persona_qa 线索表——「我的
+    口味偏好」把"口味"插在「我的」和「偏好」之间，唯一近似线索「我的偏好」
+    是精确子串匹配，不中；「你还记得吗」也不含「记得我」。→ 原句确定落脑子
+    （真实模式）/壳3 无方案地板（stub 实测基线：chitchat 暖引导）。而脑子
+    上下文的画像段只有 dietary/transport/budget 三键（packer._PROFILE_KEY_
+    FIELDS），无 recent_trips、无累积标签——同 I4 的断裂面。
+
+    为把断裂面与工作面并排取证，追加对照句「我的偏好你还记得吗？」：精确
+    命中「我的偏好」线索 → Layer 1.7 画像规则（确定性，任何 provider）跨
+    会话读 get_persona(uid) + compute_priors(uid)——后者含刚才 confirm 后台
+    累积进 memory_store 的 accepted_tags（同 user_id、同进程），这条管线是
+    通的。两句的回答并排记录，就是"画像双管线"现状的最直接材料：**换一个
+    措辞答得出，换回来就答不出**。
+
+    【判定哲学】摸底（I 类共同）：PLUMBING = 管道 + confirm 真下单（同 G3）+
+    对照句的画像规则命中（确定性规则行为，判级依据同 I1/C4）；两句回答内容
+    全部 RECORD 供人判，不做先验 SEMANTIC 断言。
+    """
+    uid = f"smoke_i5_user_{uuid.uuid4().hex[:8]}"
+
+    sc = _scenario(_S2)
+    await do_turn(
+        ctx, sc["input"], scenario_id=sc["id"], user_id=uid, step_desc="step1(会话一:S2 建方案,带私有 user_id)"
+    )
+    s2 = await do_confirm(ctx, user_id=uid, step_desc="step2(会话一:confirm→触发记忆累积)")
+
+    def _orders_present() -> tuple[bool, str]:
+        itin = payload_of(s2.events, "itinerary_ready") or {}
+        orders = itin.get("orders") or []
+        return bool(orders), f"orders={orders}（铺垫完整性，同 G3 判据）"
+
+    add_check(ctx, "pretext_confirm_orders_present", "PLUMBING", _orders_present)
+
+    drain_note = await _await_confirm_memory_tasks()
+
+    sess2 = f"{ctx.session_id}_s2"
+    s3 = await do_turn(
+        ctx,
+        "我的口味偏好你还记得吗？",
+        session_id=sess2,
+        user_id=uid,
+        step_desc="step3(同 user_id 新会话:任务书原句→落脑子/地板)",
+    )
+    s4 = await do_turn(
+        ctx,
+        "我的偏好你还记得吗？",
+        session_id=sess2,
+        user_id=uid,
+        step_desc="step4(对照句:精确命中「我的偏好」→画像规则跨会话作答)",
+    )
+
+    def _persona_rule_hit_cross_session() -> tuple[bool, str]:
+        chit = payload_of(s4.events, "chitchat_reply") or {}
+        ok = (
+            chit.get("input_kind") == "chitchat"
+            and chit.get("rationale") == "persona_question"
+            and not has_event(s4.events, "itinerary_ready")
+        )
+        return ok, (
+            f"input_kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
+            f"types={event_types(s4.events)}——对照句应由 Layer 1.7 画像规则跨会话接走"
+            "（确定性，不调 LLM）"
+        )
+
+    add_check(ctx, "contrast_persona_rule_hit_cross_session", "PLUMBING", _persona_rule_hit_cross_session)
+
+    def _accumulated_prefs_evidence() -> tuple[bool, str]:
+        try:
+            from data.memory_store import compute_priors, get_memory
+
+            acc = dict((get_memory(uid).accepted_tags.counts) or {})
+            priors = list(compute_priors(uid).top_priors or [])
+        except Exception as e:  # noqa: BLE001
+            return True, f"{drain_note}；memory_store 读取失败：{type(e).__name__}: {e}"
+        chit4 = payload_of(s4.events, "chitchat_reply") or {}
+        reply4 = chit4.get("reply_text") or ""
+        surfaced = [t for t in priors if t and t in reply4]
+        return True, (
+            f"{drain_note}；memory_store({uid}): accepted_tags={acc or '空'} "
+            f"top_priors={priors or '空'}；对照句回答里出现的偏好标签={surfaced or '无'}"
+            "——工作面（画像规则管线）与断裂面（原句落脑子零材料）并排对照"
+        )
+
+    add_record(ctx, "accumulated_prefs_and_contrast", _accumulated_prefs_evidence)
+    add_meta_dialogue_checks(ctx, s3, "ask_taste_orig")
+    add_meta_dialogue_checks(ctx, s4, "ask_prefs_contrast")
+
+
 # ============================================================
 # 11. 探针注册表
 # ============================================================
@@ -2833,6 +3406,11 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("H7", "H", "房间防御：注入 → defense 气泡广播，方案约束池不动不规划", probe_H7),
         ("H8", "H", "无效房间：get_room→None 无异常；HTTP /room/{id}/state→404", probe_H8),
         ("H9", "H", "会话隔离：两 session 交错规划，thread 状态互不串台", probe_H9),
+        ("I1", "I", "元对话·同会话问画像：建方案后「你了解我什么？我的画像是什么」（Layer1.7 规则端到端）", probe_I1),
+        ("I2", "I", "元对话·记得对话吗：原句实测被画像规则抢答 + 无线索对照句落脑子（摸底）", probe_I2),
+        ("I3", "I", "元对话·同会话问方案史：原句被 QA 规则拦截弃答（到不了脑子）+ 陈述式对照句（摸底）", probe_I3),
+        ("I4", "I", "元对话·跨会话问活动史：confirm 写记忆→同 user_id 新会话（预期暴露画像双管线断裂）", probe_I4),
+        ("I5", "I", "元对话·跨会话问画像：原句落脑子（断裂面）vs 对照句命中画像规则（工作面）并排摸底", probe_I5),
     ]
     return probes
 

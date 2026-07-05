@@ -49,6 +49,7 @@ class ViolationCode(str, Enum):
     MEAL_TIME_UNREASONABLE = "meal_time_unreasonable"  # spec planning-pipeline-consolidation R1
     OPENING_HOURS_VIOLATION = "opening_hours_violation"  # ADR-0008 B-2b：营业时间检查（新增）
     BUDGET_EXCEEDED = "budget_exceeded"  # ADR-0014 决策 3（G-3）：见 check_budget
+    PINNED_ENTITY_MISSING = "pinned_entity_missing"  # 赞锁定根治批：锁定实体缺席（见 check_pinned_presence）
 
 
 class Severity(str, Enum):

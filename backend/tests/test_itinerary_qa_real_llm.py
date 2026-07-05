@@ -63,10 +63,16 @@ def _itin() -> dict:
 
 class TestItineraryQaAbstentionRealLLM:
     def test_abstain_is_honest_and_grounded(self):
-        """查不到的字段（停车）→ LLM 既坦诚没数据、又不假装查到了。"""
+        """查不到的字段（停车）→ LLM 坦诚没对上、不假装查到了。
+
+        措辞判据变更（分界修缮批 任务 5，同 test_itinerary_qa.py::
+        test_abstain_when_field_absent 的记录）：弃答不再断言「没有记录/数据
+        缺失」——cue 词表未命中是识别没接上，不等于数据没有，假负面断言也是
+        编造。标记词表补「没对上/没能对上」，保留旧标记以兼容 LLM 的多样措辞
+        （坦诚语义不变，只是不许下确定性的负面断言）。"""
         ans = answer_itinerary_question("有地方停车吗", _itin(), client=get_llm_client())
         assert ans, "应有回答"
-        # 坦诚：明说没有 / 没查到 / 不确定 之类（abstention，不编造确切答案）
-        assert any(k in ans for k in ("没有", "没查到", "没找到", "不确定", "未", "没记录")), (
-            f"弃答应坦诚说明数据缺失，实际：{ans!r}"
+        # 坦诚：明说没对上 / 没查到 / 不确定 之类（abstention，不编造确切答案）
+        assert any(k in ans for k in ("没对上", "没能对上", "没有", "没查到", "没找到", "不确定", "未")), (
+            f"弃答应坦诚说明没对上数据，实际：{ans!r}"
         )

@@ -22,6 +22,7 @@
 | [0012](0012-session-substrate-single-truth.md) | 会话底座收口：图状态单一真相源 + 旧藤葬礼 | 底座 | Accepted | ✅ 已落地 | E-0 四片全落地：a 葬礼+回写+结构诚实（e08398e）/b 38 字段生命周期表（6c92dac）/骑手 决策 11 全路径兑现（b10c4b1）/c 确认流合一+双轨记忆+USE_LANGGRAPH 退役；1087 passed；主 App 偏好标签不累积的 bug 修复（探针先红后绿） |
 | [0013](0013-node-adjustment-and-room-negotiation.md) | 节点级协商：局部重解 + 调整按钮 + 房间轻量成员体系 | 规划+协作 | Accepted | ✅ 已落地 | F-1→F-6 全落地（引擎 ead7f12/台账 a402396/按钮备选 ba06f7c/单人入口 9985392/房间收尾+路由同权 ea236de）；确认后调整守门（c′批 2a23f8b）；跨层 import 债已还（node_swap_support 中立 seam，c7de86f）；余留痕见 ADR 落地状态节 |
 | [0014](0014-requirement-analysis-provenance-and-hard-constraints.md) | 需求分析治理：字段出处 + 硬软约束 + 消费断链收口 | 抽取+消费 | Accepted | ✅ 已落地 | G-0→G-4b 单日全落地（3b217f6/206de2e/53ba99b/711a034/2ce0341/60f6130）+两 bug 先行修（e70c6c1）：四值出处/hard 永不放宽+出口审计/预算定量定性分轨/消费完备性三轴 gate；1454 passed；余 E-3 挂钩两项与 mock 补数据拍板 |
+| [0015](0015-llm-trust-boundary.md) | LLM 信任边界：自由域、确定域与词表缓存域 | 全后端 | Accepted | ✅ 已落地 | 原则/不变式四条/词表三纪律/接缝模式（9eecef0/cddde19/d35435f/fd22ff6 + exit_audit/execute_finalize）；普查 ~120 决策点错位 11 处全处置：修缮批六件+复跑归因分桶精化（91e0003）、赞锁定接 pinned 引擎+归名告知（97ebf1d）、记档 7 件随 E 系列；1574 passed/66 探针 FAIL 0；演进阶梯三级未开闸（I 类探针 b56e953=级 1 的门） |
 
 ## 图例
 

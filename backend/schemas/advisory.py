@@ -73,6 +73,14 @@ class AdvisoryCode(str, Enum):
     # 同 kind 的候选池里连一个能塞进现有时间/路线的替代都没有——这一格彻底换不了，
     # 方案保持原样未变。
     SWAP_NO_ALTERNATIVE_FOUND = "swap_no_alternative_found"
+    # 分界修缮批 任务 1 精化（2026-07-05）：换菜成功交付，但替补时长与原节点
+    # 不同导致重排时刻整体平移，某个**保留**节点被挪出了原本可行的时段（如
+    # 餐厅被吸附到已满座的预约槽、POI 撞上闭馆段）——找不到零殃及的干净候选
+    # 时回退交付 + 本码诚实告知（clean-first, honest-fallback，见
+    # `agent.planning.planners.node_swap` 模块 docstring「归因分桶」节）。
+    # 消息点名受累节点与新排定时刻，不承诺自动重新对齐（下单期的槽位交叉
+    # 校验只做"合法才生效否则退 start_time"，没有重排能力）。
+    SWAP_KEPT_TIME_SHIFTED = "swap_kept_time_shifted"
 
     # ---- ADR-0014 决策 2（G-2）：出口满足度审计 ----
     # 方案定稿处统一比对最终 itinerary 每个节点 vs intent 全部约束产出——软约束

@@ -118,12 +118,37 @@ def build_user_message(
     intent_json: str,
     candidates_json: str,
     critic_feedback: list[str] | None = None,
+    pinned: list[dict] | None = None,
 ) -> str:
-    """组装单轮 user 消息（edge_v1：candidates_json 不含 commute_matrix）。"""
+    """组装单轮 user 消息（edge_v1：candidates_json 不含 commute_matrix）。
+
+    `pinned`（赞锁定根治批）：锁定清单 list[{"kind","target_id","name"}]（形状
+    同 AgentState.pinned_targets）。刻意走**用户消息**（候选 JSON 一侧）而非
+    系统提示——系统提示有 2800 字符 cap 回归测试钉着，且锁定清单是"这一轮"的
+    动态数据，与 intent/候选同属轮次输入，不是恒定指令。第一轮就先验告知，
+    避免蓝图 LLM 不知情丢锁后再靠 critic 硬判据（check_pinned_presence）
+    backprompt 白烧一轮 LLM 往返；critic 判据仍是强制兜底，两层缺一不可
+    （prompt 是软先验，LLM 可能不听；critic 是硬闸，但只有它会多一轮延迟）。
+    None/空 = 无锁定，消息零变化（单人路径现状）。
+    """
     parts = [
         f"IntentExtraction：\n{intent_json}",
         f"\n候选预览：\n{candidates_json}",
     ]
+    if pinned:
+        pin_lines = "\n".join(
+            f"- 「{p.get('name') or p.get('target_id')}」"
+            f"（target_kind={p.get('kind')}，target_id={p.get('target_id')}）"
+            for p in pinned
+            if isinstance(p, dict) and p.get("target_id")
+        )
+        if pin_lines:
+            parts.append(
+                "\n【必须保留（用户点赞锁定，绝不能丢）】：\n"
+                f"{pin_lines}\n"
+                "以上目标必须原样出现在 nodes 里（同 target_id）；"
+                "其余节点可以为它们调整或让位。"
+            )
     if critic_feedback:
         feedback_text = "\n".join(f"- {f}" for f in critic_feedback)
         parts.append(
