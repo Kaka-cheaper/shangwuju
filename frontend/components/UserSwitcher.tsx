@@ -357,7 +357,7 @@ export default function UserSwitcher({
             )}
             <div
               ref={panelRef}
-              className="fixed rounded-2xl border border-black/[0.08] overflow-hidden shadow-elevated backdrop-blur-xl animate-fade-in flex flex-col"
+              className="fixed overflow-hidden rounded-[30px] border border-white/[0.78] shadow-[0_26px_70px_-36px_rgba(17,24,39,0.82)] backdrop-blur-2xl backdrop-saturate-150 animate-fade-in flex flex-col"
               style={
                 presentation === "modal"
                   ? {
@@ -394,7 +394,7 @@ export default function UserSwitcher({
                     <div className="text-xs font-semibold text-ink-500">
                       这次主要是谁一起出门？
                     </div>
-                    <div className="mt-2 grid gap-2">
+                    <div className="mt-2.5 grid gap-2.5">
                       {MATCH_OPTIONS.map((option) => {
                         const active = option.userId === selectedUserId;
                         return (
@@ -402,17 +402,17 @@ export default function UserSwitcher({
                             key={option.userId}
                             type="button"
                             className={cn(
-                              "w-full rounded-xl border px-3 py-2.5 text-left transition active:scale-[0.99]",
+                              "w-full rounded-full border px-4 py-3 text-left shadow-sm backdrop-blur-xl transition active:scale-[0.99]",
                               active
-                                ? "border-[#FFD100]/60 bg-[#FFD100]/[0.14]"
-                                : "border-black/[0.06] bg-black/[0.02] hover:border-[#FFD100]/45 hover:bg-[#FFD100]/[0.08]",
+                                ? "border-[#FFD100]/70 bg-[#FFD100]/[0.16] shadow-[0_14px_34px_-26px_rgba(245,158,11,0.9)]"
+                                : "border-white/[0.78] bg-white/[0.74] hover:border-[#FFD100]/50 hover:bg-white/[0.88]",
                             )}
                             onClick={() => chooseOption(option)}
                           >
-                            <span className="flex items-start gap-3">
+                            <span className="flex items-center gap-3">
                               <span
                                 className={cn(
-                                  "mt-1 grid h-5 w-5 shrink-0 place-items-center rounded-full border transition-colors",
+                                  "grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors",
                                   active
                                     ? "border-[#FFD100] bg-[#FFD100]"
                                     : "border-black/[0.14] bg-white/[0.75]",
@@ -441,7 +441,7 @@ export default function UserSwitcher({
 
               {step === "refine" && (
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-[#FFD100]/40 bg-[#FFD100]/[0.10] px-3 py-3">
+                  <div className="rounded-[28px] border border-[#FFD100]/45 bg-[#FFD100]/[0.10] px-5 py-4 shadow-[0_14px_34px_-28px_rgba(245,158,11,0.9)] backdrop-blur-xl">
                     <div className="text-xs font-semibold text-ink-500">
                       已选择
                     </div>
@@ -464,10 +464,10 @@ export default function UserSwitcher({
                             key={trait}
                             type="button"
                             className={cn(
-                              "rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-[0.98]",
+                              "rounded-full border px-4 py-2 text-sm font-semibold shadow-sm backdrop-blur-xl transition active:scale-[0.98]",
                               active
-                                ? "border-[#FFD100]/70 bg-[#FFD100]/25 text-ink-900"
-                                : "border-black/[0.08] bg-white/[0.70] text-ink-600 hover:border-[#FFD100]/45",
+                                ? "border-[#FFD100]/70 bg-[#FFD100]/25 text-ink-900 shadow-[0_12px_26px_-22px_rgba(245,158,11,0.9)]"
+                                : "border-white/[0.78] bg-white/[0.76] text-ink-600 hover:border-[#FFD100]/50 hover:bg-white/[0.90]",
                             )}
                             onClick={() => toggleTrait(trait)}
                           >
@@ -480,17 +480,17 @@ export default function UserSwitcher({
                       点几个最在意的点，我会根据它们匹配一个合适的画像。
                     </p>
                   </div>
-                  <div className="grid grid-cols-[0.9fr_1.1fr] gap-2">
+                  <div className="grid grid-cols-[0.9fr_1.1fr] gap-2.5">
                     <button
                       type="button"
-                      className="rounded-xl border border-black/[0.08] bg-white/[0.72] px-3 py-2.5 text-sm font-semibold text-ink-600 transition hover:border-[#FFD100]/45 hover:text-ink-900 active:scale-[0.99]"
+                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-[#FFD100]/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
                       onClick={() => setStep("choose")}
                     >
                       换同行对象
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl bg-[#FFD100] px-3 py-2.5 text-sm font-bold text-ink-900 shadow-[0_10px_24px_-18px_rgba(245,158,11,0.9)] transition active:scale-[0.99]"
+                      className="rounded-full border border-[#e6bc00]/45 bg-[#FFD100] px-4 py-3 text-sm font-bold text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition active:scale-[0.99]"
                       onClick={() => setStep("confirm")}
                     >
                       生成匹配画像
@@ -501,7 +501,7 @@ export default function UserSwitcher({
 
               {step === "confirm" && (
                 <div className="space-y-3">
-                  <div className="rounded-xl border border-black/[0.06] bg-black/[0.02] px-3 py-3">
+                  <div className="rounded-[28px] border border-white/[0.78] bg-white/[0.72] px-5 py-5 shadow-sm backdrop-blur-xl">
                     <div className="flex flex-col items-center text-center">
                       {selectedAvatar ? (
                         <img
@@ -521,26 +521,26 @@ export default function UserSwitcher({
                         今天先按「{selectedLabel}」来安排
                       </div>
                     </div>
-                    <div className="mt-2 text-xs leading-relaxed text-ink-600">
+                    <div className="mt-3 rounded-full border border-white/[0.76] bg-white/[0.76] px-4 py-2 text-center text-sm font-semibold leading-relaxed text-ink-600 shadow-sm">
                       {selectedTraits.length > 0
                         ? selectedTraits.join(" / ")
                         : selectedOption.summary}
                     </div>
-                    <div className="mt-2 rounded-lg bg-white/[0.72] px-2.5 py-2 text-xs leading-relaxed text-ink-500">
+                    <div className="mt-2 rounded-full border border-white/[0.72] bg-white/[0.86] px-4 py-2.5 text-center text-xs font-medium leading-relaxed text-ink-500">
                       确认后，我就按这个状态来理解你的后续安排。
                     </div>
                   </div>
-                  <div className="grid grid-cols-[0.85fr_1.15fr] gap-2">
+                  <div className="grid grid-cols-[0.85fr_1.15fr] gap-2.5">
                     <button
                       type="button"
-                      className="rounded-xl border border-black/[0.08] bg-white/[0.70] px-3 py-2.5 text-sm font-semibold text-ink-600 transition hover:text-ink-900 active:scale-[0.99]"
+                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-[#FFD100]/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
                       onClick={() => setStep("refine")}
                     >
                       返回调整
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl bg-[#FFD100] px-3 py-2.5 text-sm font-bold text-ink-900 shadow-[0_10px_24px_-18px_rgba(245,158,11,0.9)] transition active:scale-[0.99]"
+                      className="rounded-full border border-[#e6bc00]/45 bg-[#FFD100] px-4 py-3 text-sm font-bold text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition active:scale-[0.99]"
                       onClick={confirmMatch}
                     >
                       就用这个

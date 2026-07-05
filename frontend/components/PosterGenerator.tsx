@@ -336,7 +336,7 @@ function PreviewModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-6 animate-fade-in"
       style={{ background: "rgba(0,0,0,0.78)", backdropFilter: "blur(12px)" }}
       onClick={onClose}
       role="dialog"
@@ -345,11 +345,11 @@ function PreviewModal({
     >
       <div
         className={cn(
-          "relative bg-white rounded-2xl border border-black/[0.08]",
+          "relative bg-white rounded-[28px] sm:rounded-2xl border border-black/[0.08]",
           "shadow-2xl shadow-black/50",
-          "w-full max-w-3xl",
+          "w-full max-w-[430px] sm:max-w-3xl",
           "flex flex-col sm:flex-row",
-          "max-h-[92vh]",
+          "max-h-[88vh] sm:max-h-[92vh]",
           "overflow-hidden",
         )}
         onClick={(e) => e.stopPropagation()}
@@ -360,7 +360,7 @@ function PreviewModal({
           onClick={onClose}
           className={cn(
             "absolute top-3 right-3 z-10",
-            "w-7 h-7 rounded-full",
+            "w-10 h-10 sm:w-7 sm:h-7 rounded-full",
             "bg-black/[0.04] hover:bg-black/[0.06]",
             "border border-black/[0.08]",
             "text-ink-500 hover:text-ink-900",
@@ -368,14 +368,14 @@ function PreviewModal({
           )}
           aria-label="关闭预览"
         >
-          <X className="w-3.5 h-3.5" strokeWidth={2.25} />
+          <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" strokeWidth={2.25} />
         </button>
 
         {/* 左栏：海报展示 */}
         <div
           className={cn(
             "flex-shrink-0 flex items-center justify-center",
-            "p-6 sm:p-8",
+            "p-4 pt-5 sm:p-8",
             "bg-gradient-to-br from-brand-500/[0.06] to-accent-500/[0.04]",
             "sm:w-[320px]",
           )}
@@ -385,7 +385,7 @@ function PreviewModal({
             src={imageUrl}
             alt="行程海报"
             className={cn(
-              "max-h-[60vh] sm:max-h-[78vh] w-auto rounded-lg",
+              "max-h-[42vh] sm:max-h-[78vh] w-auto rounded-[18px] sm:rounded-lg",
               "shadow-2xl shadow-black/40",
               "ring-1 ring-white/[0.08]",
               "block",
@@ -395,7 +395,7 @@ function PreviewModal({
         </div>
 
         {/* 右栏：标题 + 操作 */}
-        <div className="flex-1 p-5 sm:p-6 flex flex-col gap-4 min-w-0">
+        <div className="flex-1 p-4 sm:p-6 flex flex-col gap-3 sm:gap-4 min-w-0 overflow-y-auto">
           <div>
             <div className="text-xs tracking-wider uppercase text-brand-600 mb-1 flex items-center gap-1">
               <ImageIcon className="w-3 h-3" strokeWidth={2} />
@@ -416,7 +416,7 @@ function PreviewModal({
             type="button"
             onClick={onDownload}
             className={cn(
-              "w-full py-2.5 rounded-lg font-medium text-sm",
+              "w-full py-3 rounded-full font-semibold text-sm",
               "bg-gradient-to-r from-brand-500 to-accent-500 text-ink-900",
               "hover:from-brand-400 hover:to-accent-400",
               "shadow-lg shadow-brand-500/20",
@@ -428,12 +428,12 @@ function PreviewModal({
           </button>
 
           {/* 副操作 */}
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={onRegenerate}
               className={cn(
-                "flex-1 py-1.5 rounded-md text-xs",
+                "py-2.5 rounded-full text-xs font-semibold",
                 "bg-black/[0.03] hover:bg-black/[0.05]",
                 "border border-black/[0.08] hover:border-black/[0.12]",
                 "text-ink-700 hover:text-ink-900",
@@ -447,7 +447,7 @@ function PreviewModal({
               type="button"
               onClick={copyText}
               className={cn(
-                "flex-1 py-1.5 rounded-md text-xs",
+                "py-2.5 rounded-full text-xs font-semibold",
                 textCopied
                   ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-600"
                   : "bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] hover:border-black/[0.12] text-ink-700 hover:text-ink-900",
@@ -471,7 +471,7 @@ function PreviewModal({
           {/* 小提示 */}
           <div
             className={cn(
-              "mt-auto rounded-md px-3 py-2 text-xs leading-relaxed",
+              "mt-auto rounded-2xl px-3 py-2 text-xs leading-relaxed",
               "bg-black/[0.02] border border-black/[0.04]",
               "text-ink-500",
             )}

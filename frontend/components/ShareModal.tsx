@@ -45,24 +45,24 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 backdrop-blur-sm sm:items-center sm:p-6"
       onClick={onClose}
     >
       <div
         className={cn(
-          "bg-white border border-black/[0.08] rounded-2xl p-6 w-[360px]",
+          "bg-white border border-black/[0.08] rounded-[28px] p-4 sm:p-6 w-full max-w-[420px] sm:w-[360px]",
           "shadow-2xl animate-in fade-in zoom-in-95 duration-200",
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="text-lg font-semibold text-ink-900 mb-1">邀请同行人</h3>
-        <p className="text-sm text-ink-500 mb-4">
+        <h3 className="text-xl sm:text-lg font-semibold text-ink-900 mb-1">邀请同行人</h3>
+        <p className="text-sm text-ink-500 mb-4 leading-relaxed">
           分享链接或扫码加入，一起决定下午去哪
         </p>
 
         {/* 二维码 */}
         <div className="flex justify-center mb-4">
-          <div className="bg-white rounded-xl p-3">
+          <div className="rounded-[22px] border border-black/[0.06] bg-white p-3 shadow-sm">
             <img
               src={qrUrl}
               alt="分享二维码"
@@ -74,18 +74,18 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
         </div>
 
         {/* 链接 */}
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex flex-col gap-2 mb-4 sm:flex-row sm:items-center">
           <input
             type="text"
             readOnly
             value={shareUrl}
-            className="flex-1 bg-black/[0.03] border border-black/[0.08] rounded-lg px-3 py-2 text-xs text-ink-600 truncate"
+            className="min-w-0 flex-1 rounded-full border border-black/[0.08] bg-black/[0.03] px-3.5 py-2.5 text-xs text-ink-600 truncate"
           />
           <button
             type="button"
             onClick={handleCopy}
             className={cn(
-              "px-3 py-2 rounded-lg text-xs font-medium transition-all",
+              "px-4 py-2.5 rounded-full text-sm sm:text-xs font-semibold transition-all",
               copied
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                 : "bg-brand-500/20 text-brand-600 border border-brand-500/30 hover:bg-brand-500/30",
@@ -96,14 +96,14 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
         </div>
 
         {/* 说明 */}
-        <p className="text-xs text-ink-500 text-center mb-4">
+        <p className="text-xs text-ink-500 text-center leading-relaxed mb-4">
           同行人打开链接后可以提约束、投票，Agent 会实时合并所有人的偏好重新规划
         </p>
 
         <button
           type="button"
           onClick={onClose}
-          className="w-full py-2 rounded-lg bg-black/[0.04] hover:bg-black/[0.06] text-sm text-ink-600 transition-colors"
+          className="w-full rounded-full bg-black/[0.04] py-3 text-sm font-semibold text-ink-600 transition-colors hover:bg-black/[0.06]"
         >
           关闭
         </button>

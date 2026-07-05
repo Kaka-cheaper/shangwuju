@@ -203,13 +203,21 @@ export default function ItineraryCard() {
 
   const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
+  const noteItems = visibleEntries
+    .map((entry, entryIndex) => ({ entry, entryIndex }))
+    .filter(({ entry }) => entry.entry_kind === "node");
   // R1: animating 期间也禁用按钮（避免用户在动画进行中点确认）
   const canAct = !streaming && !hasOrders && !cancelled && !animating;
   const canConfirm = canAct && (!collabMode || myRole === "owner");
   const handleConfirm = collabMode ? sendCollabConfirm : confirm;
 
   return (
-    <div className={cn("relative card animate-fade-in", spotlight && "spotlight-once")}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white shadow-[0_28px_72px_-48px_rgba(17,24,39,0.68)] animate-fade-in",
+        spotlight && "spotlight-once",
+      )}
+    >
       {/* streaming 时顶部流动黄光带 */}
       {streaming && (
         <div
@@ -217,25 +225,35 @@ export default function ItineraryCard() {
           className="absolute top-0 left-0 right-0 h-px shimmer-bar z-10"
         />
       )}
+      <div
+        aria-hidden
+        className="absolute right-8 top-0 h-9 w-16 -translate-y-2 rotate-6 rounded-b-xl bg-[#e8d7b5]/70 shadow-sm"
+      />
       {/* Header */}
-      <div className="px-4 py-3 border-b border-black/[0.06]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Icons.clipboard className="w-3.5 h-3.5 text-ink-700" strokeWidth={2} />
-            <span className="text-sm font-semibold text-ink-900 tracking-tight">行程方案</span>
+      <div className="relative px-6 pb-4 pt-5">
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl leading-none" aria-hidden>
+                📷
+              </span>
+              <span className="text-xl font-black tracking-tight text-[#8f4b24]">
+                今日行程安排
+              </span>
+            </div>
+            <div className="mt-2 text-3xl font-black leading-tight tracking-tight text-ink-900">
+              <HighlightSummary text={itinerary.summary} />
+            </div>
           </div>
-          <span className="text-base text-ink-500">
-            总时长{" "}
+          <span className="shrink-0 rounded-full border border-white/[0.78] bg-white/75 px-3.5 py-1.5 text-sm font-bold text-[#8f4b24] shadow-sm backdrop-blur-xl">
+            约{" "}
             <NumberTicker
               value={totalH}
               format={(v) => v.toFixed(1)}
-              className="font-mono text-brand-600 mx-0.5 font-semibold"
+              className="font-mono mx-0.5"
             />
-            <span className="text-ink-500">小时</span>
+            小时
           </span>
-        </div>
-        <div className="mt-1.5 text-2xl font-semibold text-ink-900 tracking-tight">
-          <HighlightSummary text={itinerary.summary} />
         </div>
       </div>
 
@@ -257,10 +275,14 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* Agent 暖心开场白（导游口播） */}
-      {narration?.text && (
+      {/* Agent 暖心开场白 + intent 命中可视化 */}
+      {(narration?.text || intent) && (
         <div className="px-4 pt-3">
-          <NarrationBlock text={narration.text} stage={narration.stage} />
+          <NarrationBlock
+            text={narration?.text}
+            stage={narration?.stage ?? "stream"}
+            intent={intent}
+          />
         </div>
       )}
 
@@ -273,9 +295,6 @@ export default function ItineraryCard() {
           />
         </div>
       )}
-
-      {/* 方案 C：「为你考虑了什么」小标签行（intent 命中可视化） */}
-      {intent && <IntentChips intent={intent} />}
 
       {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
       {animating && (
@@ -293,115 +312,27 @@ export default function ItineraryCard() {
       )}
 
       {/* Timeline */}
-      <ol className="relative px-4 py-4 space-y-3.5">
-        {/* 时间轴竖线 */}
-        <div
-          aria-hidden
-          className="absolute left-[42px] top-[36px] bottom-[28px] w-[4px] -translate-x-1/2"
-          style={{
-            background:
-              "linear-gradient(180deg, rgba(16,185,129,0.5) 0%, rgba(255,209,0,0.5) 30%, rgba(245,158,11,0.3) 70%, rgba(239,68,68,0.5) 100%)",
-          }}
-        />
+      <ol className="relative px-5 pb-5 pt-3">
+        {noteItems.map(({ entry, entryIndex }, index) => {
+          if (entryIndex >= visibleCount) return null;
+          const node = itinerary.nodes.find((n) => n.node_id === entry.ref_id);
+          const previous = visibleEntries[entryIndex - 1];
+          const hopBefore =
+            previous?.entry_kind === "hop" && previous.mode !== "virtual"
+              ? previous
+              : null;
 
-        {/* 起点绿点：从家出发 */}
-        <li className="flex items-center gap-3">
-          <div className="flex flex-col items-center min-w-[52px] z-10">
-            <div
-              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
-              style={{
-                background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                boxShadow: "0 0 0 1px rgba(16,185,129,0.3), 0 0 6px rgba(16,185,129,0.4)",
-              }}
-            />
-          </div>
-          <span className="text-base font-semibold text-emerald-600">出发咯 🚀</span>
-        </li>
-
-        {visibleEntries.map((entry, idx) => {
-          // R1: stagger 控制——idx 超出 visibleCount 时不渲染
-          if (idx >= visibleCount) return null;
-
-          // hop 行（细长条）：mode!=="virtual" 才渲染（virtual=in_place 已在
-          // visibleEntries 过滤阶段被 hidden=true 屏蔽，此处再保险一道）
-          if (entry.entry_kind === "hop") {
-            if (!entry.mode || entry.mode === "virtual") return null;
-            return (
-              <li
-                key={entry.ref_id || `hop-${idx}`}
-                className="relative flex items-center gap-3 animate-fade-in-up"
-              >
-                <div className="min-w-[44px]" aria-hidden />
-                <div
-                  className={cn(
-                    "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
-                    "text-sm text-ink-500 tracking-tight leading-tight",
-                  )}
-                  title={`${entry.start} → ${entry.end}`}
-                >
-                  通勤 {entry.minutes} 分钟（{translateHopMode(entry.mode)}）
-                </div>
-              </li>
-            );
-          }
-
-          // node 行（与原 stage 渲染等价）
           return (
-            <li
-              key={entry.ref_id || `node-${idx}`}
-              className="relative flex items-start gap-3 animate-fade-in-up"
-            >
-              {/* 左侧：时间 + 黄点（竖排，黄点居中） */}
-              <div className="flex flex-col items-center min-w-[52px] z-10">
-                <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
-                {/* 黄色时间点 */}
-                <div
-                  className="my-1 w-3 h-3 rounded-full ring-[3px] ring-white"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, #FFD100 0%, #f59e0b 100%)",
-                    boxShadow:
-                      "0 0 0 1px rgba(0,0,0,0.1), 0 0 8px rgba(255,209,0,0.4)",
-                  }}
-                />
-                <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
-              </div>
-              {/* 右侧内容：用 pt 让标题行对准黄点 */}
-              <div className="flex-1" style={{ paddingTop: "1.1rem" }}>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="chip px-2 py-0.5 text-sm">
-                    {nodeKindLabel(itinerary, entry.ref_id)}
-                  </span>
-                  <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
-                    {entry.title}
-                  </span>
-                  {(() => {
-                    const note = nodeNote(itinerary, entry.ref_id);
-                    return note ? (
-                      <span className="ml-2 text-sm text-ink-600">
-                        {note}
-                      </span>
-                    ) : null;
-                  })()}
-                </div>
-              </div>
-            </li>
+            <DesktopNotebookTimelineItem
+              key={entry.ref_id || `node-${entryIndex}`}
+              entry={entry}
+              node={node}
+              hopBefore={hopBefore}
+              index={index}
+              total={noteItems.length}
+            />
           );
         })}
-
-        {/* 终点红点：结束行程 */}
-        <li className="flex items-center gap-3">
-          <div className="flex flex-col items-center min-w-[52px] z-10">
-            <div
-              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
-              style={{
-                background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                boxShadow: "0 0 0 1px rgba(239,68,68,0.3), 0 0 6px rgba(239,68,68,0.4)",
-              }}
-            />
-          </div>
-          <span className="text-base font-semibold text-red-600">满载而归 ✨</span>
-        </li>
       </ol>
 
       {/* T8/R2: 高德地图标注（配合 R1 stagger 逐段亮起） */}
@@ -526,6 +457,191 @@ export default function ItineraryCard() {
   );
 }
 
+const DESKTOP_NOTEBOOK_TONES = [
+  {
+    dot: "bg-[#3f6fb6]",
+    line: "bg-gradient-to-b from-[#3f6fb6] to-[#d9487b]",
+    time: "text-[#3f6fb6]",
+    chip: "bg-[#eaf1ff] text-[#315a96]",
+  },
+  {
+    dot: "bg-[#d9487b]",
+    line: "bg-gradient-to-b from-[#d9487b] to-[#e59f28]",
+    time: "text-[#c23b6a]",
+    chip: "bg-[#ffeaf2] text-[#a8325d]",
+  },
+  {
+    dot: "bg-[#e59f28]",
+    line: "bg-gradient-to-b from-[#e59f28] to-[#4fa565]",
+    time: "text-[#b97818]",
+    chip: "bg-[#fff2d6] text-[#986415]",
+  },
+  {
+    dot: "bg-[#4fa565]",
+    line: "bg-gradient-to-b from-[#4fa565] to-[#7a5cc9]",
+    time: "text-[#3d8651]",
+    chip: "bg-[#e9f7ed] text-[#347046]",
+  },
+  {
+    dot: "bg-[#7a5cc9]",
+    line: "bg-gradient-to-b from-[#7a5cc9] to-[#47627f]",
+    time: "text-[#6850aa]",
+    chip: "bg-[#f0ecff] text-[#59469a]",
+  },
+  {
+    dot: "bg-[#47627f]",
+    line: "bg-gradient-to-b from-[#47627f] to-[#3f6fb6]",
+    time: "text-[#40566f]",
+    chip: "bg-[#edf2f7] text-[#384b61]",
+  },
+] as const;
+
+function DesktopNotebookTimelineItem({
+  entry,
+  node,
+  hopBefore,
+  index,
+  total,
+}: {
+  entry: ScheduleEntry;
+  node?: Itinerary["nodes"][number];
+  hopBefore: ScheduleEntry | null;
+  index: number;
+  total: number;
+}) {
+  const tone = DESKTOP_NOTEBOOK_TONES[index % DESKTOP_NOTEBOOK_TONES.length];
+  const icon = getNotebookIcon(node?.kind, entry.title);
+  const tags = buildNotebookTags(node, hopBefore);
+
+  return (
+    <li className="relative grid grid-cols-[64px_minmax(0,1fr)] gap-4 pb-6 last:pb-1 animate-fade-in-up">
+      <div className="relative flex justify-center">
+        {index < total - 1 && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-12 bottom-[-30px] w-[4px] rounded-full opacity-90",
+              tone.line,
+            )}
+          />
+        )}
+        <span
+          className={cn(
+            "relative z-10 grid h-12 w-12 place-items-center rounded-full border-[4px] border-white text-xl font-black text-white shadow-[0_12px_24px_-16px_rgba(17,24,39,0.82)]",
+            tone.dot,
+          )}
+        >
+          {index + 1}
+        </span>
+      </div>
+
+      <div
+        className="min-w-0 rounded-[26px] border border-white/80 px-5 py-4 shadow-[0_18px_44px_-34px_rgba(17,24,39,0.58),inset_0_1px_0_rgba(255,255,255,0.94)] ring-1 ring-[#FFD100]/10"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,252,237,0.88) 42%, rgba(241,250,245,0.78) 72%, rgba(239,247,255,0.68) 100%)",
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={cn("inline-flex items-center gap-1.5 rounded-full bg-white/70 px-3 py-1 text-base font-black tabular-nums shadow-sm", tone.time)}>
+            <span aria-hidden>◷</span>
+            <span>
+              {entry.start} - {entry.end}
+            </span>
+          </div>
+
+          {hopBefore && (
+            <div className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#eadfc9]/70 bg-white/75 px-3 py-1 text-sm font-semibold text-ink-500 shadow-sm">
+              <span aria-hidden>{getHopIcon(hopBefore.mode)}</span>
+              <span className="truncate">
+                通勤 {hopBefore.minutes} 分钟 · {hopBefore.mode ? translateHopMode(hopBefore.mode) : "路上"}
+              </span>
+            </div>
+          )}
+        </div>
+
+        <h3 className="mt-3 flex items-start gap-2.5 text-2xl font-black leading-snug tracking-tight text-ink-900">
+          <span className="mt-0.5 shrink-0" aria-hidden>
+            {icon}
+          </span>
+          <span
+            className="block flex-1 rounded-sm px-0.5"
+            style={{
+              textDecorationLine: "underline",
+              textDecorationStyle: "wavy",
+              textDecorationColor: "rgba(185, 130, 42, 0.36)",
+              textDecorationThickness: "1.5px",
+              textUnderlineOffset: "7px",
+            }}
+          >
+            {entry.title}
+          </span>
+        </h3>
+
+        {node?.note && (
+          <p className="mt-3 border-t border-[#eadfc9]/60 pt-3 text-base leading-relaxed text-ink-700">
+            {node.note}
+          </p>
+        )}
+
+        {tags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {tags.map((tag) => (
+              <span
+                key={`${entry.ref_id}-${tag}`}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-bold shadow-sm",
+                  tone.chip,
+                )}
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function buildNotebookTags(
+  node: Itinerary["nodes"][number] | undefined,
+  hopBefore: ScheduleEntry | null,
+): string[] {
+  const tags = new Set<string>();
+  if (node?.kind) tags.add(node.kind);
+  if (node?.target_kind === "restaurant") tags.add("美食");
+  if (node?.target_kind === "poi") tags.add("活动");
+  if (hopBefore?.mode && hopBefore.mode !== "virtual") {
+    tags.add(translateHopMode(hopBefore.mode));
+  }
+  return Array.from(tags).slice(0, 3);
+}
+
+function getNotebookIcon(kind: string | undefined, title: string): string {
+  const text = `${kind ?? ""} ${title}`;
+  if (/餐|饭|烤|茶|食|料理|咖啡/.test(text)) return "🍜";
+  if (/音乐|演出|展|剧|看/.test(text)) return "🎵";
+  if (/书|图书|阅读/.test(text)) return "📚";
+  if (/商场|购物|店|街/.test(text)) return "🛍️";
+  if (/公园|漫步|园|湖/.test(text)) return "🌿";
+  if (/亲子|孩子|儿童/.test(text)) return "🧸";
+  return "📍";
+}
+
+function getHopIcon(mode: HopMode | null | undefined): string {
+  switch (mode) {
+    case "walking":
+      return "🚶";
+    case "bus":
+      return "🚌";
+    case "taxi":
+      return "🚕";
+    default:
+      return "🛣️";
+  }
+}
+
 function RefinementSummaryBanner({
   fields,
   note,
@@ -633,14 +749,19 @@ function ShareMessage({ text }: { text: string }) {
 function NarrationBlock({
   text,
   stage,
+  intent,
 }: {
-  text: string;
+  text?: string;
   stage: "stream" | "confirm";
+  intent: IntentExtraction | null;
 }) {
   const isConfirm = stage === "confirm";
+  const chips = intent ? buildIntentChips(intent) : [];
+  if (!text && chips.length === 0) return null;
+
   return (
     <div
-      className="relative rounded-md px-3.5 py-3 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
+      className="relative overflow-hidden rounded-[18px] px-4 py-3.5 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
         background: isConfirm
           ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(255,209,0,0.04) 100%)"
@@ -651,16 +772,41 @@ function NarrationBlock({
         color: "rgb(31 41 55 / 0.92)",
       }}
     >
-      <div className="flex items-start gap-2">
-        <Icons.spark
-          className={cn(
-            "w-3.5 h-3.5 mt-0.5 shrink-0",
-            isConfirm ? "text-emerald-400" : "text-brand-600",
-          )}
-          strokeWidth={2}
-        />
-        <p className="whitespace-pre-wrap"><HighlightText text={text} /></p>
-      </div>
+      {text && (
+        <div className="flex items-start gap-2">
+          <Icons.spark
+            className={cn(
+              "w-4 h-4 mt-1 shrink-0",
+              isConfirm ? "text-emerald-400" : "text-brand-600",
+            )}
+            strokeWidth={2}
+          />
+          <p className="whitespace-pre-wrap text-xl leading-relaxed">
+            <HighlightText text={text} />
+          </p>
+        </div>
+      )}
+
+      {chips.length > 0 && (
+        <div className={cn("flex flex-wrap items-center gap-2", text && "mt-3 border-t border-[#FFD100]/25 pt-3")}>
+          <div className="mr-1 inline-flex items-center gap-1.5 text-base font-semibold text-ink-500">
+            <Icons.spark className="w-4 h-4 text-brand-600" strokeWidth={2.5} />
+            <span>为你考虑了</span>
+          </div>
+          {chips.map((c, i) => {
+            const Ico = Icons[c.icon];
+            return (
+              <span
+                key={`${c.label}-${i}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.09] px-3 py-1.5 text-base font-semibold tracking-tight text-amber-800 animate-fade-in"
+              >
+                <Ico className="w-4 h-4" strokeWidth={2} />
+                {c.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -889,39 +1035,6 @@ function matchPhysicalIcon(text: string): keyof typeof Icons {
   if (/室内|遮阳|空调/.test(text)) return "sun";
   if (/步行|走路/.test(text)) return "footprints";
   return "spark";
-}
-
-function IntentChips({ intent }: { intent: IntentExtraction }) {
-  const chips = buildIntentChips(intent);
-  if (chips.length === 0) return null;
-
-  return (
-    <div className="px-4 pt-3">
-      <div className="text-sm tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
-        <Icons.spark className="w-3 h-3 text-brand-600" strokeWidth={2.5} />
-        <span>为你考虑了</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {chips.map((c, i) => {
-          const Ico = Icons[c.icon];
-          return (
-            <span
-              key={`${c.label}-${i}`}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border animate-fade-in"
-              style={{
-                background: "rgba(255, 209, 0, 0.08)",
-                borderColor: "rgba(255, 209, 0, 0.22)",
-                color: "rgb(146 64 14)",
-              }}
-            >
-              <Ico className="w-3 h-3" strokeWidth={2} />
-              {c.label}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 // ============================================================

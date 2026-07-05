@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
 import { useCollabStore } from "@/lib/collab-store";
@@ -46,6 +46,7 @@ export default function HomeView() {
 
   // 顶栏滚动下沉：scrolled=true 时加深背景 + 暖色发光底线
   const [scrolled, setScrolled] = useState(false);
+  const personaResetOnLoadRef = useRef(false);
 
   // 协作模式
   const roomId = useCollabStore((s) => s.roomId);
@@ -62,8 +63,11 @@ export default function HomeView() {
       // 后续刷新：保持当前 session 在 localStorage 里
       upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
-    clearUserIdCookie();
-    useChatStore.setState({ currentUserId: "demo_user", preferences: null });
+    if (!personaResetOnLoadRef.current) {
+      personaResetOnLoadRef.current = true;
+      clearUserIdCookie();
+      useChatStore.setState({ currentUserId: "demo_user", preferences: null });
+    }
     loadScenarios();
     loadPersonas();
     refreshPreferences();
