@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
 import { useCollabStore } from "@/lib/collab-store";
@@ -34,7 +34,6 @@ export default function HomeView() {
   const loadScenarios = useChatStore((s) => s.loadScenarios);
   const loadPersonas = useChatStore((s) => s.loadPersonas);
   const refreshPreferences = useChatStore((s) => s.refreshPreferences);
-  const reset = useChatStore((s) => s.reset);
   const startNewSession = useChatStore((s) => s.startNewSession);
   const sessionId = useChatStore((s) => s.sessionId);
   const openCommandPalette = useChatStore((s) => s.openCommandPalette);
@@ -46,6 +45,8 @@ export default function HomeView() {
 
   // 顶栏滚动下沉：scrolled=true 时加深背景 + 暖色发光底线
   const [scrolled, setScrolled] = useState(false);
+  const personaResetOnLoadRef = useRef(false);
+  const bgRef = useRef<HTMLDivElement | null>(null);
 
   // 协作模式
   const roomId = useCollabStore((s) => s.roomId);
@@ -62,8 +63,11 @@ export default function HomeView() {
       // 后续刷新：保持当前 session 在 localStorage 里
       upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
-    clearUserIdCookie();
-    useChatStore.setState({ currentUserId: "demo_user", preferences: null });
+    if (!personaResetOnLoadRef.current) {
+      personaResetOnLoadRef.current = true;
+      clearUserIdCookie();
+      useChatStore.setState({ currentUserId: "demo_user", preferences: null });
+    }
     loadScenarios();
     loadPersonas();
     refreshPreferences();
@@ -99,10 +103,30 @@ export default function HomeView() {
     };
   }, []);
 
+  const handleBackgroundPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const bg = bgRef.current;
+      if (!bg) return;
+      bg.style.setProperty("--grid-x", `${event.clientX}px`);
+      bg.style.setProperty("--grid-y", `${event.clientY}px`);
+    },
+    [],
+  );
+
   return (
-    <div className="min-h-screen relative">
+    <div
+      className="min-h-screen relative"
+      onPointerMove={handleBackgroundPointerMove}
+    >
       {/* 黄色光晕背景层（fixed，最底层） */}
-      <div className="aurora-bg" aria-hidden />
+      <div
+        ref={bgRef}
+        className="aurora-bg aurora-bg--web-grid"
+        aria-hidden
+      >
+        <span className="aurora-bg__grid aurora-bg__grid--base" />
+        <span className="aurora-bg__grid aurora-bg__grid--reveal" />
+      </div>
 
       {/* 顶栏：始终显示 */}
       <header
@@ -163,7 +187,7 @@ export default function HomeView() {
             <button
               type="button"
               onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-md border border-black/[0.08] bg-black/[0.02] hover:bg-black/[0.04] hover:border-black/[0.12] px-2.5 py-1 text-sm text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
+              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-[#FFD100]/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
               title="打开命令面板（场景 / 模式 / 用户切换）"
             >
               <span>命令</span>
@@ -174,21 +198,12 @@ export default function HomeView() {
             <PlannerModeBadge />
             <MockModeBadge />
             <OfflineReadyBadge />
-            <span
-              className="hidden lg:inline mono text-xs text-ink-400 truncate max-w-[140px]"
-              title={`当前会话 ID：${sessionId}`}
-            >
-              {sessionId}
-            </span>
             <button
-              className="btn-ghost"
+              className="inline-flex items-center rounded-full border border-[#FFD100]/45 bg-[#FFD100]/[0.16] px-3.5 py-1.5 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition hover:border-[#e6bc00]/60 hover:bg-[#FFD100]/28 active:scale-[0.98]"
               onClick={startNewSession}
               title="开新会话（保留之前会话历史，可在命令面板切换）"
             >
-              + 新会话
-            </button>
-            <button className="btn-ghost" onClick={reset} title="清空当前会话历史">
-              重置
+              新会话
             </button>
           </div>
         </div>

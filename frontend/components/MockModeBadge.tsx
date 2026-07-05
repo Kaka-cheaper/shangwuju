@@ -24,9 +24,9 @@ export default function MockModeBadge() {
       }
       aria-label="当前数据源：mock 模式"
       className={cn(
-        "hidden md:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
-        "border border-black/[0.08] bg-black/[0.02] text-ink-700 tracking-tight",
-        "backdrop-blur cursor-help",
+        "hidden md:inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
+        "border border-black/[0.08] bg-white/[0.68] text-ink-700 tracking-tight shadow-sm",
+        "backdrop-blur cursor-help transition-colors hover:border-[#FFD100]/50 hover:bg-white/[0.88] hover:text-ink-900",
       )}
     >
       <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />

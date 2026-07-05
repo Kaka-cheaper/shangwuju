@@ -163,6 +163,52 @@ export default function TtsPlayer({
     );
   }
 
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "h-10 w-full rounded-full border border-[#e6bc00]/60 bg-[#FFD100]/15 px-2",
+          "flex items-center gap-2 text-ink-900",
+          className,
+        )}
+        role="status"
+        aria-live="polite"
+      >
+        <WaveformIndicator active={status === "playing"} />
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink-700">
+          {status === "playing" ? "播报中" : "已暂停"}
+        </span>
+        {status === "playing" ? (
+          <button
+            type="button"
+            onClick={pause}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.86] text-ink-700 transition active:scale-95"
+            aria-label="暂停播报"
+          >
+            <Pause className="h-3.5 w-3.5" strokeWidth={2.25} />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={resume}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.86] text-ink-700 transition active:scale-95"
+            aria-label="继续播报"
+          >
+            <Play className="h-3.5 w-3.5" strokeWidth={2.25} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={stop}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-red-500/20 bg-white/[0.86] text-red-500 transition active:scale-95"
+          aria-label="停止播报"
+        >
+          <Square className="h-3.5 w-3.5" strokeWidth={2.25} />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(

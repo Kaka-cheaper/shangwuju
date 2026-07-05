@@ -52,9 +52,9 @@ export default function OfflineReadyBadge() {
       title="演示韧性时可断网验证：当前是规则模式，意图理解之外不依赖大模型与外部网络"
       aria-label="当前规则模式可断网继续运行"
       className={cn(
-        "hidden lg:inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs",
-        "border border-amber-400/24 bg-amber-500/8 text-amber-700/90 tracking-tight",
-        "backdrop-blur cursor-help animate-fade-in",
+        "hidden lg:inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
+        "border border-amber-400/28 bg-amber-500/[0.10] text-amber-700/90 tracking-tight shadow-sm",
+        "backdrop-blur cursor-help animate-fade-in transition-colors hover:border-amber-400/45 hover:bg-amber-500/[0.15]",
       )}
     >
       <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-amber-400" />

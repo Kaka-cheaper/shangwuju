@@ -225,7 +225,12 @@ export default function ItineraryCard() {
   const dispatchAdjust = collabMode ? sendCollabAdjust : sendAdjust;
 
   return (
-    <div className={cn("relative card animate-fade-in", spotlight && "spotlight-once")}>
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white shadow-[0_28px_72px_-48px_rgba(17,24,39,0.68)] animate-fade-in",
+        spotlight && "spotlight-once",
+      )}
+    >
       {/* streaming 时顶部流动黄光带 */}
       {streaming && (
         <div
@@ -233,25 +238,35 @@ export default function ItineraryCard() {
           className="absolute top-0 left-0 right-0 h-px shimmer-bar z-10"
         />
       )}
+      <div
+        aria-hidden
+        className="absolute right-8 top-0 h-9 w-16 -translate-y-2 rotate-6 rounded-b-xl bg-[#e8d7b5]/70 shadow-sm"
+      />
       {/* Header */}
-      <div className="px-4 py-3 border-b border-black/[0.06]">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Icons.clipboard className="w-3.5 h-3.5 text-ink-700" strokeWidth={2} />
-            <span className="text-sm font-semibold text-ink-900 tracking-tight">行程方案</span>
+      <div className="relative px-6 pb-4 pt-5">
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl leading-none" aria-hidden>
+                📷
+              </span>
+              <span className="text-xl font-black tracking-tight text-[#8f4b24]">
+                今日行程安排
+              </span>
+            </div>
+            <div className="mt-2 text-3xl font-black leading-tight tracking-tight text-ink-900">
+              <HighlightSummary text={itinerary.summary} />
+            </div>
           </div>
-          <span className="text-base text-ink-500">
-            总时长{" "}
+          <span className="shrink-0 rounded-full border border-white/[0.78] bg-white/75 px-3.5 py-1.5 text-sm font-bold text-[#8f4b24] shadow-sm backdrop-blur-xl">
+            约{" "}
             <NumberTicker
               value={totalH}
               format={(v) => v.toFixed(1)}
-              className="font-mono text-brand-600 mx-0.5 font-semibold"
+              className="font-mono mx-0.5"
             />
-            <span className="text-ink-500">小时</span>
+            小时
           </span>
-        </div>
-        <div className="mt-1.5 text-2xl font-semibold text-ink-900 tracking-tight">
-          <HighlightSummary text={itinerary.summary} />
         </div>
       </div>
 
@@ -273,13 +288,14 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* Agent 暖心开场白（导游口播） */}
-      {narration?.text && (
+      {/* Agent 暖心开场白 + intent 命中可视化 */}
+      {(narration?.text || intent) && (
         <div className="px-4 pt-3">
           <NarrationBlock
-            text={narration.text}
-            stage={narration.stage}
+            text={narration?.text}
+            stage={narration?.stage ?? "stream"}
             messages={narrationMessages}
+            intent={intent}
           />
         </div>
       )}
@@ -293,9 +309,6 @@ export default function ItineraryCard() {
           />
         </div>
       )}
-
-      {/* 方案 C：「为你考虑了什么」小标签行（intent 命中可视化） */}
-      {intent && <IntentChips intent={intent} />}
 
       {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
       {animating && (
@@ -313,7 +326,7 @@ export default function ItineraryCard() {
       )}
 
       {/* Timeline */}
-      <ol className="relative px-4 py-4 space-y-3.5">
+      <ol className="relative px-5 pb-5 pt-3 space-y-3.5">
         {/* 时间轴竖线 */}
         <div
           aria-hidden
@@ -369,8 +382,8 @@ export default function ItineraryCard() {
                   <div className="min-w-[44px]" aria-hidden />
                   <div
                     className={cn(
-                      "flex-1 ml-2 px-3 py-1 border-l-2 border-black/[0.06]",
-                      "text-sm text-ink-500 tracking-tight leading-tight",
+                      "flex-1 ml-2 rounded-full border border-[#eadfc9]/70 bg-white/75 px-3 py-1.5 shadow-sm",
+                      "text-sm font-semibold text-ink-500 tracking-tight leading-tight",
                     )}
                     title={`${entry.start} → ${entry.end}`}
                   >
@@ -394,7 +407,7 @@ export default function ItineraryCard() {
           return (
             <Fragment key={entry.ref_id || `node-${idx}`}>
               {gapNode}
-              <li className="relative flex items-start gap-3 animate-fade-in-up">
+              <li className="relative flex items-start gap-4 animate-fade-in-up">
                 {/* 左侧：时间 + 黄点（竖排，黄点居中） */}
                 <div className="flex flex-col items-center min-w-[52px] z-10">
                   <div className="text-sm font-bold text-ink-800 mono">{entry.start}</div>
@@ -411,20 +424,35 @@ export default function ItineraryCard() {
                   <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
                 </div>
                 {/* 右侧内容：用 pt 让标题行对准黄点 */}
-                <div className="flex-1 min-w-0" style={{ paddingTop: "1.1rem" }}>
+                <div
+                  className="flex-1 min-w-0 rounded-[26px] border border-white/80 px-5 py-4 shadow-[0_18px_44px_-34px_rgba(17,24,39,0.58),inset_0_1px_0_rgba(255,255,255,0.94)] ring-1 ring-[#FFD100]/10"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,252,237,0.88) 42%, rgba(241,250,245,0.78) 72%, rgba(239,247,255,0.68) 100%)",
+                  }}
+                >
                   <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                     {/* 左：kind chip + 标题 + note */}
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                      <span className="chip px-2 py-0.5 text-sm">
+                      <span className="chip px-2.5 py-1 text-sm font-bold">
                         {nodeKindLabel(itinerary, entry.ref_id)}
                       </span>
-                      <span className="text-lg font-semibold text-ink-900 tracking-tight bg-[#FFD100]/15 px-1 rounded">
+                      <span
+                        className="text-2xl font-black leading-snug tracking-tight text-ink-900 rounded-sm px-0.5"
+                        style={{
+                          textDecorationLine: "underline",
+                          textDecorationStyle: "wavy",
+                          textDecorationColor: "rgba(185, 130, 42, 0.36)",
+                          textDecorationThickness: "1.5px",
+                          textUnderlineOffset: "7px",
+                        }}
+                      >
                         {entry.title}
                       </span>
                       {(() => {
                         const note = nodeNote(itinerary, entry.ref_id);
                         return note ? (
-                          <span className="ml-2 text-sm text-ink-600">
+                          <span className="ml-2 text-base leading-relaxed text-ink-700">
                             {note}
                           </span>
                         ) : null;
@@ -725,19 +753,24 @@ function NarrationBlock({
   text,
   stage,
   messages,
+  intent,
 }: {
-  text: string;
+  text?: string;
   stage: "stream" | "confirm";
   /** D-7：narrate 文字里被限额折叠的完整取舍列表（"还有 N 处小取舍"的
    * "点开看全部"落点）。非空时在暖场文案下方挂一个可展开小节；null/[] 不渲染。 */
   messages?: AgentNarrationMessage[] | null;
+  intent: IntentExtraction | null;
 }) {
   const isConfirm = stage === "confirm";
   const [expanded, setExpanded] = useState(false);
   const hasMessages = !!messages && messages.length > 0;
+  const chips = intent ? buildIntentChips(intent) : [];
+  if (!text && chips.length === 0) return null;
+
   return (
     <div
-      className="relative rounded-md px-3.5 py-3 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
+      className="relative overflow-hidden rounded-[18px] px-4 py-3.5 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
         background: isConfirm
           ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(255,209,0,0.04) 100%)"
@@ -748,20 +781,45 @@ function NarrationBlock({
         color: "rgb(31 41 55 / 0.92)",
       }}
     >
-      <div className="flex items-start gap-2">
-        <Icons.spark
-          className={cn(
-            "w-3.5 h-3.5 mt-0.5 shrink-0",
-            isConfirm ? "text-emerald-400" : "text-brand-600",
-          )}
-          strokeWidth={2}
-        />
-        <p className="whitespace-pre-wrap"><HighlightText text={text} /></p>
-      </div>
+      {text && (
+        <div className="flex items-start gap-2">
+          <Icons.spark
+            className={cn(
+              "w-4 h-4 mt-1 shrink-0",
+              isConfirm ? "text-emerald-400" : "text-brand-600",
+            )}
+            strokeWidth={2}
+          />
+          <p className="whitespace-pre-wrap text-xl leading-relaxed">
+            <HighlightText text={text} />
+          </p>
+        </div>
+      )}
+
+      {chips.length > 0 && (
+        <div className={cn("flex flex-wrap items-center gap-2", text && "mt-3 border-t border-[#FFD100]/25 pt-3")}>
+          <div className="mr-1 inline-flex items-center gap-1.5 text-base font-semibold text-ink-500">
+            <Icons.spark className="w-4 h-4 text-brand-600" strokeWidth={2.5} />
+            <span>为你考虑了</span>
+          </div>
+          {chips.map((c, i) => {
+            const Ico = Icons[c.icon];
+            return (
+              <span
+                key={`${c.label}-${i}`}
+                className="inline-flex items-center gap-1.5 rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.09] px-3 py-1.5 text-base font-semibold tracking-tight text-amber-800 animate-fade-in"
+              >
+                <Ico className="w-4 h-4" strokeWidth={2} />
+                {c.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* D-7：全部取舍说明——narrate 文字里折叠的"还有 N 处小取舍"在这里展开看全部 */}
       {hasMessages && (
-        <div className="mt-2 ml-[22px]">
+        <div className={cn("ml-[26px]", text || chips.length > 0 ? "mt-2" : "")}>
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
@@ -923,7 +981,7 @@ function MemoryPersistedBadge({
 
 
 // ============================================================
-// IntentChips —— 「为你考虑了什么」可视化（方案 C）
+// Intent chips —— 「为你考虑了什么」可视化（方案 C）
 //   把 intent 命中的 4-6 个关键约束做成小标签，让评委一眼看到 Agent 真在为你考虑
 // ============================================================
 
@@ -1025,39 +1083,6 @@ function matchPhysicalIcon(text: string): keyof typeof Icons {
   if (/室内|遮阳|空调/.test(text)) return "sun";
   if (/步行|走路/.test(text)) return "footprints";
   return "spark";
-}
-
-function IntentChips({ intent }: { intent: IntentExtraction }) {
-  const chips = buildIntentChips(intent);
-  if (chips.length === 0) return null;
-
-  return (
-    <div className="px-4 pt-3">
-      <div className="text-sm tracking-wider uppercase text-ink-500 mb-1.5 flex items-center gap-1">
-        <Icons.spark className="w-3 h-3 text-brand-600" strokeWidth={2.5} />
-        <span>为你考虑了</span>
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {chips.map((c, i) => {
-          const Ico = Icons[c.icon];
-          return (
-            <span
-              key={`${c.label}-${i}`}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border animate-fade-in"
-              style={{
-                background: "rgba(255, 209, 0, 0.08)",
-                borderColor: "rgba(255, 209, 0, 0.22)",
-                color: "rgb(146 64 14)",
-              }}
-            >
-              <Ico className="w-3 h-3" strokeWidth={2} />
-              {c.label}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 // ============================================================
@@ -1173,7 +1198,7 @@ function nodeTargetId(itinerary: Itinerary, ref_id: string): string | null {
 
 // ============================================================
 // ADR-0013 F-4：节点行调整入口——具名备选按钮 / 定向调整 chip
-// 药丸视觉语言沿用 IntentChips（同一套 pill 配色，见本文件 IntentChips 组件）。
+// 药丸视觉语言沿用 intent chips（同一套 pill 配色，见本文件 NarrationBlock）。
 // ============================================================
 
 function AlternativeButton({

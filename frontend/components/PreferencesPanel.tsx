@@ -273,23 +273,26 @@ function ContentSections({
       </div>
 
       {/* 偏好标签 + 默认距离：同行紧凑，右对齐 */}
-      <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
+      <div className="mt-3 pt-3 border-t border-black/[0.06] flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
         {top_priors.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="text-sm text-ink-500 mr-1">常去</span>
             {top_priors.map((t) => (
-              <span key={t} className="chip-warm text-sm">
+              <span
+                key={t}
+                className="inline-flex items-center rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.08] px-4 py-1.5 text-sm font-medium leading-none text-amber-800 shadow-[0_6px_18px_rgba(255,209,0,0.10)] transition-colors"
+              >
                 {t}
               </span>
             ))}
           </div>
         )}
         {suggested != null && (
-          <div className="flex items-baseline gap-1">
+          <div className="inline-flex items-center gap-2 rounded-full border border-black/[0.07] bg-white/70 px-3.5 py-1.5 shadow-[0_6px_18px_rgba(15,23,42,0.05)] backdrop-blur">
             <span className="text-sm text-ink-500">距离</span>
-            <span className="text-[14px] font-semibold text-ink-900 mono">
+            <span className="text-sm font-semibold text-ink-900 mono leading-none">
               {suggested}
-              <span className="ml-0.5 text-sm font-normal text-ink-500">km</span>
+              <span className="ml-0.5 text-xs font-normal text-ink-500">km</span>
             </span>
           </div>
         )}
