@@ -37,7 +37,10 @@ def search_pois_worker(state: AgentState) -> dict[str, Any]:
     if intent is None:
         return {"pois": [], "pois_relaxed_tags": []}
     user_id = state.get("user_id") or "demo_user"
-    pois, relaxed = search_pois_for_intent(intent, user_id=user_id)
+    # 读写分离批双键：user_id=模板（home 坐标），session_id=累积（本会话访问史排重）
+    pois, relaxed = search_pois_for_intent(
+        intent, user_id=user_id, session_id=state.get("session_id")
+    )
     return {"pois": pois, "pois_relaxed_tags": relaxed}
 
 
@@ -46,7 +49,9 @@ def search_restaurants_worker(state: AgentState) -> dict[str, Any]:
     if intent is None:
         return {"restaurants": [], "restaurants_relaxed_tags": []}
     user_id = state.get("user_id") or "demo_user"
-    rests, relaxed = search_restaurants_for_intent(intent, user_id=user_id)
+    rests, relaxed = search_restaurants_for_intent(
+        intent, user_id=user_id, session_id=state.get("session_id")
+    )
     return {"restaurants": rests, "restaurants_relaxed_tags": relaxed}
 
 

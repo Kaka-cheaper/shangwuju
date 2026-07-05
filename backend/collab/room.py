@@ -433,18 +433,19 @@ class RoomManager:
         合并进 refiner）才按义务分流。这正是本函数要治的病：以前两者被绑死在同一段代码
         里无条件一起发生，现在拆开——展示照旧全量，约束池只收真正的 feedback。
 
-        user_id 判断点（拍板）：route_turn 拿到的 `user_id` 是**发话成员自己的 id**
-        （WS 连接携带的临时 id，owner 或 participant 皆然），不是 `room.owner_id`。
-        room.py 里唯一按 user_id 查久层状态的是 confirm() 的记忆写入——那是"这趟行程
-        记在谁头上"的语义，只有 owner 能触发，锚定 owner_id 合理。但这里 user_id 唯一
-        的消费者是 route_turn 内部的 persona_qa（Layer 1.7，"我是谁/我的偏好"类问题）：
-        它是**问话人自己是谁**的问答，不是"这个房间归谁"。若锚定 owner_id，会让
-        participant 问"我的偏好是什么"时读到 owner 的画像/偏好数据答回去——这是身份
-        误配（把 B 当成 A 回答）、还捎带泄漏 owner 的偏好给陌生参与者，不是"保连续性"，
-        是真错误。而锚定发话者自己的 id：owner 问跟单人模式行为一致（同一个 id，画像
-        自然连续，不需要特判）；participant 问则诚实降级为"默认画像，多用几次会记住你"
-        —— ADR-0013 决策 6 边界本就明写"持久成员画像"不在本弧范围，这个诚实降级正是
-        该边界的自然结果，不是缺陷。
+        身份判断点（记忆身份读写分离批重钉，ADR-0015 身份边界补充决策，2026-07-05）：
+        route_turn 拿到**两把钥匙**——
+        - `user_id` = **发话成员自己的 id**（WS 连接携带的临时 id，owner 或
+          participant 皆然，不是 `room.owner_id`）：只锚定 persona_qa 的画像
+          **模板**（"我是谁"是问话人自己的问题，不是"这个房间归谁"；若锚定
+          owner_id，participant 问"我的画像"会被答成 owner——身份误配）。
+        - `session_id` = **房间持久线程键** `collab_{room_id}`（与 `_plan_fresh`/
+          `confirm()` 同一个键）：锚定 persona_qa 的**累积**偏好——本房确认过
+          的行程攒下的偏好是全房共享上下文，成员问偏好时可见；而任何成员
+          （包括 owner 自己）的"场外历史"都在别的会话键下，结构上不可达——
+          隐私从"参与者 id 碰巧没被用过"升级为键空间隔离的结构保证。
+          ADR-0013 决策 6 边界本就明写"持久成员画像"不在范围内，participant
+          的模板降级（默认画像）与场外历史不可见都是该边界的自然结果。
         """
         async with room.lock:
             room.last_activity_at = time.time()
@@ -460,6 +461,9 @@ class RoomManager:
                 # ADR-0011 决策 3 底座无关增补：房间与单人主聊天共用同一个打包器，
                 # 只是来源实现不同（RoomSource 读 Room 既有字段，见 agent/context/sources.py）。
                 context_source=RoomSource(room),
+                # 读写分离批：累积键=房间持久线程（与 _plan_fresh/confirm 同键），
+                # 见本函数 docstring 的"身份判断点"。
+                session_id=getattr(room, "session_id", None) or f"collab_{room.room_id}",
             )
 
             timestamp = time.time()

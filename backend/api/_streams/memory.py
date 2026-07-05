@@ -1,9 +1,15 @@
-"""Memory 累积 helper（confirm/refine 路径调用）。
+"""Memory 累积 helper（confirm 路径调用）。
 
 从 main.py 抽出（spec code-modularization-refactor H1-final）；
 V1 refine 路径退役后 _accumulate_memory_after_refine 已删除，只保留 confirm 侧：
 - _collect_itinerary_tags：从已确认 itinerary 抽 tag 集
 - _accumulate_memory_after_confirm：confirm 后写 accepted + visited + preferred_route
+
+【身份边界（记忆身份读写分离批，ADR-0015 身份边界补充决策，2026-07-05）】
+累积键 = **session_id**（会话即身份，会话私有）——不再按 cached["user_id"]
+键控：user_id 是共享只读的画像模板 id，多访客共用时往它头上累积会跨访客串味
+（A 确认的行程污染 B 的先验 / 画像问答 / 排重）。
+生产迁移 = 把键从会话 ID 换成账号 ID，机制不动。
 """
 
 from __future__ import annotations
@@ -66,18 +72,20 @@ def _collect_itinerary_tags(itinerary_dict: dict[str, Any]) -> list[str]:
 def _accumulate_memory_after_confirm(
     cached: dict[str, Any],
     itinerary_dict: dict[str, Any],
+    *,
+    session_id: str | None,
 ) -> None:
-    """confirm 后：把 itinerary 命中的 tag / 访问 id / 路径写进 user memory。
+    """confirm 后：把 itinerary 命中的 tag / 访问 id / 路径写进**会话私有** memory。
 
-    cached 里的 user_id 由 _planner_stream 写入；缺失时跳过累积（不阻塞主流程）。
+    session_id 是累积键（会话即身份，见模块 docstring）；缺失时跳过累积
+    （无身份不写，不阻塞主流程）。cached 仍用于读 intent 的 distance。
 
     Step 7 升级：
     - record_accepted（既有）
     - record_visited（新）：把 itinerary 中的 poi_id / restaurant_id 写入访问历史
     - record_preferred_route（新）：相邻段 (from→to) 计数 +1
     """
-    user_id = cached.get("user_id")
-    if not user_id:
+    if not session_id:
         return
     from data.memory_store import (
         record_accepted,
@@ -90,7 +98,7 @@ def _accumulate_memory_after_confirm(
     distance = intent.get("distance_max_km")
     try:
         record_accepted(
-            user_id,
+            session_id,
             tags=tags,
             distance_km=float(distance) if distance is not None else None,
         )
@@ -112,7 +120,7 @@ def _accumulate_memory_after_confirm(
             visits.append((target_id, "restaurant"))
     if visits:
         try:
-            record_visited(user_id, visits=visits)
+            record_visited(session_id, visits=visits)
         except Exception:  # noqa: BLE001
             pass
 
@@ -129,6 +137,6 @@ def _accumulate_memory_after_confirm(
         prev_loc = cur_loc
     if segments:
         try:
-            record_preferred_route(user_id, segments=segments)
+            record_preferred_route(session_id, segments=segments)
         except Exception:  # noqa: BLE001
             pass

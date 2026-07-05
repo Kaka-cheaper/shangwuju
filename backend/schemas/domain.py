@@ -317,11 +317,13 @@ class Route(BaseModel):
 
 
 class RecentTrip(BaseModel):
-    """spec algorithm-redesign R5：最近行程记录（用于跨 session 召回）。
+    """spec algorithm-redesign R5：最近行程记录（会话内跨局召回）。
 
-    引入 TravelAgent / TriFlow 范式的「short-term memory」：每次行程完成后由
-    `narrate_node._persist_memory` 副作用追加一条；意图解析阶段把匹配 social_context
-    的最新 1 条注入 prompt（"用户上次「家庭」场景的行程：{summary}"）。
+    引入 TravelAgent / TriFlow 范式的「short-term memory」：用户确认下单后由
+    `execute_finalize._persist_memory_side_effect` → `memory_writer.persist_memory`
+    追加一条到 `data.memory_store` 的**会话私有**档案（键=session_id，记忆身份
+    读写分离批：会话即身份）；同会话下一局意图解析把最新条目注入 prompt
+    （"用户上次「家庭」场景的行程：{summary}"）。
 
     字段约束：
     - timestamp：ISO 8601 字符串（"2026-05-24T15:30:00Z"）

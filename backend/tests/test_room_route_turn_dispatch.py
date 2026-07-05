@@ -247,41 +247,59 @@ def test_room_floor_clarify_chip_roundtrip_routes_correctly():
 
 
 # ============================================================
-# 6. user_id 判断点：persona 问答绑定发话者本人，不锚定 room.owner_id
+# 6. 身份判断点：persona 问答——模板按发话人 uid，累积按房间会话
 # ============================================================
 
 
-def test_persona_question_binds_to_speaker_not_room_owner():
-    """参与者问"我的偏好是什么"不应读到房主的累积偏好——否则是身份误配 + 隐私泄漏。
+def test_persona_question_template_by_speaker_accumulation_by_room_session():
+    """【判据变更理由（记忆身份读写分离批，ADR-0015 身份边界补充决策，2026-07-05）】
 
-    构造：给房主用 `record_accepted` 累积一个鲜明可辨识的偏好 tag（模拟房主在房间外的
-    历史使用）。之后：
-    - 参与者（全新 id，从未被用过）问自己的偏好 → 回话不应包含房主的专属 tag。
-    - 房主自己问 → 回话应包含（画像连续性，等价于单人模式下同一 id 的行为）。
+    旧判据（F-6）：route_turn 的 user_id 传发话者本人 → 房主问偏好能读到自己
+    "在房间外累积"的 tag（画像连续性）、参与者读不到（隐私）。旧机制靠"参与者
+    id 恰好没被用过"来保隐私——同 user_id 键在多访客下仍会串味。
 
-    这一断言直接钉死 F-6 的 user_id 判断点：route_turn 的 user_id 必须传"发话成员
-    自己的 id"，不能传 `room.owner_id`（否则两次提问的回话会完全相同，都读到房主数据）。
+    新判据：累积按 **会话** 键控——
+    - 任何人的"场外历史"都在别的会话键下，房间里结构上不可达：参与者读不到
+      房主的场外累积（隐私从"碰巧"变"结构保证"），房主自己在房间里也读不到
+      自己的场外累积（会话私有的对称代价，隐私式诚实）。
+    - 房间会话自己攒下的偏好（本房确认过的行程）是全房共享上下文，成员问偏好
+      时可见——模板（label）仍按发话人 uid 各答各的。
     """
     owner_id = "owner_persona_test"
     participant_id = "participant_persona_test"
     manager, room = _seed_room(owner_id)
+    room_session = f"collab_{room.room_id}"
 
-    distinctive_tag = "超小众秘境打卡"
+    outside_tag = "超小众秘境打卡"
     for _ in range(5):
-        record_accepted(owner_id, tags=[distinctive_tag])
+        record_accepted(owner_id, tags=[outside_tag])  # 模拟旧机制下的"场外历史"键
 
+    # (a) 参与者问：读不到任何人的场外累积
     asyncio.run(manager.add_constraint(room, participant_id, "我的偏好是什么"))
     participant_reply = room.planning_events_history[-1]["payload"]["reply_text"]
-    assert distinctive_tag not in participant_reply, (
-        "参与者问自己的偏好，读到了房主的累积偏好——user_id 被误锚定为 room.owner_id，"
-        f"造成身份误配 + 隐私泄漏。reply_text={participant_reply!r}"
+    assert outside_tag not in participant_reply, (
+        "参与者问自己的偏好，读到了 owner_id 键下的累积——累积键没有切到会话，"
+        f"跨访客串味仍在。reply_text={participant_reply!r}"
     )
 
+    # (b) 房主问：自己的场外累积同样不可达（会话私有，对称语义）
     room.planning_events_history.clear()
     asyncio.run(manager.add_constraint(room, owner_id, "我的偏好是什么"))
     owner_reply = room.planning_events_history[-1]["payload"]["reply_text"]
-    assert distinctive_tag in owner_reply, (
-        f"房主问自己的偏好，应保持与单人模式一致的画像连续性。reply_text={owner_reply!r}"
+    assert outside_tag not in owner_reply, (
+        "房主在房间里读到了 user_id 键下的场外累积——累积必须按会话私有。"
+        f"reply_text={owner_reply!r}"
+    )
+
+    # (c) 房间会话自己攒的偏好：成员问偏好时可见（本房共享上下文）
+    room_tag = "商务体面"
+    for _ in range(5):
+        record_accepted(room_session, tags=[room_tag])
+    room.planning_events_history.clear()
+    asyncio.run(manager.add_constraint(room, owner_id, "我的偏好是什么"))
+    owner_reply2 = room.planning_events_history[-1]["payload"]["reply_text"]
+    assert room_tag in owner_reply2, (
+        f"房间会话内累积的偏好应在房内画像问答中可见。reply_text={owner_reply2!r}"
     )
 
 

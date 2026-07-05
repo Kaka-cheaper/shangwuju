@@ -321,86 +321,83 @@ def demo_preference_scorer():
 
 def demo_memory_writer():
     print("\n" + "=" * 70)
-    print("Demo 5：memory_writer 副作用 + UserProfile 三层 schema（task 6）")
+    print("Demo 5：memory_writer 副作用（会话私有行程档案）+ UserProfile 三层 schema（task 6）")
     print("=" * 70)
+    # 记忆身份读写分离批（2026-07-05）：persist_memory 不再写 user_profile.json
+    # （模板只读），改写 data.memory_store 的会话私有 recent_trips 区（键=session_id）。
+    from data.memory_store import get_recent_trips, reset_all_memory
 
-    # 用临时 profile 路径
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "user_profile.json"
-        old_profile = {
-            "user_id": "demo_user",
-            "home_location": {"name": "测试家", "lat": 30.0, "lng": 120.0},
-            "default_budget": 300.0,
-            "transport_preference": "taxi",
-        }
-        path.write_text(json.dumps(old_profile, ensure_ascii=False), encoding="utf-8")
-        print(f"初始 profile（仅 4 字段）：{path}")
+    reset_all_memory()
 
-        # 旧 4 字段 profile 仍可加载（向后兼容）
-        loaded = UserProfile.model_validate(json.loads(path.read_text(encoding="utf-8")))
-        assert loaded.recent_trips is None
-        assert loaded.dietary_preference is None
-        print("[PASS] 旧 4 字段 profile 加载成功（schema 向后兼容）")
+    # 旧 4 字段 profile 仍可加载（schema 向后兼容，模板侧不变）
+    old_profile = {
+        "user_id": "demo_user",
+        "home_location": {"name": "测试家", "lat": 30.0, "lng": 120.0},
+        "default_budget": 300.0,
+        "transport_preference": "taxi",
+    }
+    loaded = UserProfile.model_validate(old_profile)
+    assert loaded.recent_trips is None
+    assert loaded.dietary_preference is None
+    print("[PASS] 旧 4 字段 profile 加载成功（schema 向后兼容）")
 
-        # 复用 test_critics_v2 fixture 构造 itinerary + intent
-        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
-        from test_critics_v2 import _make_intent, _make_legal_itinerary
+    # 复用 test_critics_v2 fixture 构造 itinerary + intent
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+    from test_critics_v2 import _make_intent, _make_legal_itinerary
 
-        intent = _make_intent(social_context="家庭日常")
-        itinerary = _make_legal_itinerary()
+    intent = _make_intent(social_context="家庭日常")
+    itinerary = _make_legal_itinerary()
 
-        client_stub = MagicMock()
-        client_stub.provider = "stub"
+    client_stub = MagicMock()
+    client_stub.provider = "stub"
 
-        state = {
-            "intent": intent,
-            "itinerary": itinerary,
-            "user_decision": "confirm",
-            "user_id": "demo_user",
-        }
+    session_id = "verify_spec_c_demo_session"
+    state = {
+        "intent": intent,
+        "itinerary": itinerary,
+        "user_decision": "confirm",
+        "user_id": "demo_user",
+        "session_id": session_id,
+    }
 
-        ok = persist_memory(state, profile_path=path, client=client_stub)
-        assert ok is True
+    ok = persist_memory(state, client=client_stub)
+    assert ok is True
 
-        # 验证写入
-        updated = UserProfile.model_validate(
-            json.loads(path.read_text(encoding="utf-8"))
-        )
-        assert updated.recent_trips is not None
-        assert len(updated.recent_trips) == 1
-        trip = updated.recent_trips[0]
-        print(f"\n写入 1 条 recent_trip：")
-        print(f"  social_context = {trip.social_context!r}")
-        print(f"  summary = {trip.summary[:80]}...")
-        print(f"  success = {trip.success}")
-        # 隐私脱敏：不含具体年龄
-        assert "5 岁" not in trip.summary
-        assert "5岁" not in trip.summary
-        print("[PASS] summary 不含具体年龄数字（隐私脱敏）")
+    # 验证写入（会话私有档案）
+    trips = get_recent_trips(session_id)
+    assert len(trips) == 1
+    trip = trips[0]
+    print(f"\n写入 1 条 recent_trip（键={session_id!r}）：")
+    print(f"  social_context = {trip.social_context!r}")
+    print(f"  summary = {trip.summary[:80]}...")
+    print(f"  success = {trip.success}")
+    # 隐私脱敏：不含具体年龄
+    assert "5 岁" not in trip.summary
+    assert "5岁" not in trip.summary
+    print("[PASS] summary 不含具体年龄数字（隐私脱敏）")
 
-        # 5 分钟幂等键
-        ok2 = persist_memory(state, profile_path=path, client=client_stub)
-        assert ok2 is False
-        updated2 = UserProfile.model_validate(
-            json.loads(path.read_text(encoding="utf-8"))
-        )
-        assert len(updated2.recent_trips) == 1  # 仍 1 条
-        print("[PASS] 5 分钟内重复 persist 被幂等键拦下")
+    # 5 分钟幂等键
+    ok2 = persist_memory(state, client=client_stub)
+    assert ok2 is False
+    assert len(get_recent_trips(session_id)) == 1  # 仍 1 条
+    print("[PASS] 5 分钟内重复 persist 被幂等键拦下")
 
-        # cancel 跳过
-        state_cancel = {**state, "user_decision": "cancel"}
-        ok3 = persist_memory(state_cancel, profile_path=path, client=client_stub)
-        assert ok3 is False
-        print("[PASS] user_decision='cancel' 时跳过写入")
+    # cancel 跳过
+    state_cancel = {**state, "user_decision": "cancel"}
+    ok3 = persist_memory(state_cancel, client=client_stub)
+    assert ok3 is False
+    print("[PASS] user_decision='cancel' 时跳过写入")
 
-        # 不存在路径不抛异常
-        ok4 = persist_memory(
-            state,
-            profile_path=Path(tmpdir) / "nonexistent" / "user_profile.json",
-            client=client_stub,
-        )
-        assert ok4 is False
-        print("[PASS] 不可写路径仅返 False（不抛异常）")
+    # 无 session_id（无会话身份）跳过 + 不抛异常
+    state_no_sess = {k: v for k, v in state.items() if k != "session_id"}
+    ok4 = persist_memory(state_no_sess, client=client_stub)
+    assert ok4 is False
+    print("[PASS] 缺 session_id 仅返 False（会话即身份，无身份不写）")
+
+    # 会话隔离
+    assert get_recent_trips("verify_other_session") == []
+    print("[PASS] 其它会话读不到本会话的行程档案（会话私有）")
+    reset_all_memory()
 
 
 # ============================================================
@@ -419,11 +416,27 @@ def demo_intent_parser_recall():
         build_intent_parser_system_prompt_with_priors,
     )
 
-    addendum = _build_user_profile_addendum()
+    # 读写分离批：recent_trips 召回按会话键——先给演示会话写一条档案
+    from data.memory_store import record_recent_trip, reset_all_memory
+    from schemas.domain import RecentTrip
+
+    reset_all_memory()
+    demo_session = "verify_spec_c_demo_recall"
+    record_recent_trip(
+        demo_session,
+        RecentTrip(
+            timestamp="2026-07-01T10:00:00Z",
+            social_context="家庭日常",
+            summary="家庭日常场景行程：活动 → 用餐；总时长约 3 小时。",
+            success=True,
+        ),
+    )
+
+    addendum = _build_user_profile_addendum(demo_session)
     print(f"addendum 长度：{len(addendum)} 字符")
 
     if "饮食偏好" in addendum:
-        print("[PASS] dietary_preference 已注入 prompt")
+        print("[PASS] dietary_preference 已注入 prompt（模板侧）")
         # 截取 dietary 段输出
         for line in addendum.split("\n"):
             if "健康轻食" in line or "辣度" in line or "饮食" in line:
@@ -433,16 +446,20 @@ def demo_intent_parser_recall():
         print("[SKIP] mock_data 未含 dietary_preference")
 
     if "最近行程" in addendum:
-        print("[PASS] recent_trips 已注入 prompt")
+        print("[PASS] recent_trips 已注入 prompt（会话私有档案）")
         for line in addendum.split("\n"):
             if "场景：" in line:
                 print(f"  {line[:100]}")
     else:
-        print("[SKIP] mock_data 未含 recent_trips")
+        print("[FAIL] 会话档案有数据但未注入")
+
+    fresh_addendum = _build_user_profile_addendum("verify_fresh_session")
+    assert "最近行程" not in fresh_addendum
+    print("[PASS] 新会话零累积 → 零召回（隐私式诚实）")
 
     # 完整 prompt 长度对比
     base_len = len(INTENT_PARSER_SYSTEM_PROMPT)
-    full = build_intent_parser_system_prompt_with_priors("demo_user")
+    full = build_intent_parser_system_prompt_with_priors("demo_user", demo_session)
     full_len = len(full)
     print(
         f"\nprompt 总长度对比：base = {base_len} → full = {full_len}（含 priors + user_profile）"

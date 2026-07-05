@@ -72,7 +72,9 @@ class TestItineraryQaAbstentionRealLLM:
         （坦诚语义不变，只是不许下确定性的负面断言）。"""
         ans = answer_itinerary_question("有地方停车吗", _itin(), client=get_llm_client())
         assert ans, "应有回答"
-        # 坦诚：明说没对上 / 没查到 / 不确定 之类（abstention，不编造确切答案）
-        assert any(k in ans for k in ("没对上", "没能对上", "没有", "没查到", "没找到", "不确定", "未")), (
+        # 坦诚：明说没对上 / 没查到 / 不确定 之类（abstention，不编造确切答案）。
+        # 标记用「没对/没能对」两个前缀族——stub 与真实 LLM 的措辞变体（"没对上"
+        # "没能对上""没能对应上"）都要兜住，全量顺序下 stub 轮换变体曾令窄标记假红。
+        assert any(k in ans for k in ("没对", "没能对", "没有", "没查到", "没找到", "不确定", "未")), (
             f"弃答应坦诚说明没对上数据，实际：{ans!r}"
         )

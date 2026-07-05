@@ -175,13 +175,18 @@ def route_turn(
     client: Any,
     context_source: SessionContextSource,
     classify_fn: Any = None,
+    session_id: Any = None,
 ) -> RouteOutcome:
     """路由主干——整条级联，纯函数，返回 RouteOutcome。
 
     Args:
         utterance:     用户当轮输入文本（对应 state["user_input"]）。
         itinerary:     当前会话方案（对应 state["itinerary"]），无则 None/{}。
-        user_id:       用户 ID（供 persona_qa 查画像）。
+        user_id:       用户 ID（供 persona_qa 查画像**模板**——共享只读）。
+        session_id:    会话 ID（供 persona_qa 查**累积**偏好——会话私有；记忆
+            身份读写分离批，ADR-0015 身份边界补充决策：demo 会话即身份，累积
+            按 session 键控。单人路径传图 state 的 session_id；房间路径传房间
+            持久线程键 collab_{room_id}。缺省 None → persona_qa 只答模板）。
         client:        LLM 客户端（脑子 + QA/软约束兜底使用）。
         context_source: 会话上下文来源（`GraphStateSource`/`RoomSource` 之一，
             见 `agent/context/sources.py`）——脑子调用前打包成
@@ -223,7 +228,8 @@ def route_turn(
         return RouteOutcome(kind="feedback", decision=None)
 
     # ---- Layer 1.7：用户画像问答（规则识别，不调 LLM；ungated，无方案时也答）----
-    persona_decision = build_persona_decision(utterance, user_id)
+    # 双键：模板按 user_id，累积按 session_id（读写分离批）。
+    persona_decision = build_persona_decision(utterance, user_id, session_id)
     if persona_decision is not None:
         return RouteOutcome(kind="chitchat", decision=persona_decision)
 

@@ -14,6 +14,16 @@
   做法：规则识别 persona 问题（不调 LLM）→ 用 get_persona + compute_priors 数据
         grounded 作答（label + 累积偏好），自信展示"我记着你"。
 
+  身份边界（记忆身份读写分离批，ADR-0015 身份边界补充决策，2026-07-05）：
+    demo 无账号体系，会话即身份——回答按**双键**取数：
+    - 模板（label / persona 默认 tag）按 user_id：共享只读，onboarding 选谁答谁；
+    - 累积（确认攒下的偏好）按 session_id：会话私有，A 会话攒的绝不出现在 B
+      会话的回答里（隐私式诚实：跨会话就该"不认识"）。
+    房间路径：模板按**发话人**的 uid（问画像是"我是谁"，不是"房间归谁"），
+    累积按**房间会话**键（本房确认过的行程是全房共享上下文；任何人的场外
+    历史都在别的会话键下，结构上不可达）。
+    生产迁移 = 把会话键换成账号键，机制不动。
+
   边界（和邻居的联动）：
     - 必须**优先于 itinerary QA**——persona 问题含疑问词会被它抢先弃答（本 bug 根因）。
     - "你是谁"（问 AI 身份）≠"我是谁"（问用户画像）：cues 只认"我 / 我的"，不碰"你是谁"。
@@ -49,8 +59,13 @@ def looks_like_persona_question(text: str) -> bool:
     return any(c in text for c in _PERSONA_CUES)
 
 
-def answer_persona_question(user_id: str | None) -> str:
-    """用 persona + 累积偏好 grounded 作答；数据缺失时降级，不编造。"""
+def answer_persona_question(
+    user_id: str | None, session_id: str | None = None
+) -> str:
+    """双键 grounded 作答：模板按 user_id、累积按 session_id；数据缺失时降级，不编造。
+
+    session_id 缺省（None）→ 纯模板回答（零累积）——绝不混入别的会话攒下的偏好。
+    """
     uid = user_id or "demo_user"
     try:
         from data.memory_store import compute_priors, get_default_persona, get_persona
@@ -58,7 +73,7 @@ def answer_persona_question(user_id: str | None) -> str:
         persona = get_persona(uid) or get_default_persona()
         label = (persona.label or "").strip() or "默认用户"
         try:
-            priors = compute_priors(uid).top_priors
+            priors = compute_priors(uid, session_id).top_priors
         except Exception:  # noqa: BLE001
             priors = []
     except Exception:  # noqa: BLE001 — persona 库读不到也别让回话崩
@@ -74,15 +89,18 @@ def answer_persona_question(user_id: str | None) -> str:
 
 
 def build_persona_decision(
-    user_input: str, user_id: str | None
+    user_input: str, user_id: str | None, session_id: str | None = None
 ) -> RouterDecision | None:
-    """persona 问题 → 用画像数据作答的 chitchat decision；不是 persona 问题 → None。"""
+    """persona 问题 → 用画像数据作答的 chitchat decision；不是 persona 问题 → None。
+
+    双键：user_id=模板（发话人是谁），session_id=累积（这段会话攒了什么）。
+    """
     if not looks_like_persona_question(user_input):
         return None
     return RouterDecision(
         input_kind=InputKind.CHITCHAT,  # 复用闲聊出口：回个话、不重规划、不动方案
         confidence=0.92,
-        reply_text=answer_persona_question(user_id),
+        reply_text=answer_persona_question(user_id, session_id),
         tone="neutral",
         cta_chips=[],
         rationale="persona_question",

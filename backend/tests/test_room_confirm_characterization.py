@@ -23,9 +23,12 @@
    这条良性新增误判成“破坏兼容”，逼着在 room.py 加一层专门过滤 agent_thought
    的适配层——这才是画蛇添足的假兼容，见任务报告“自行拍板判断点”。
 
-2. 身份语义：房间确认的记忆副作用记在房主（`room.owner_id`）头上——房间目前
-   也只允许房主触发确认（`RoomManager.confirm` 顶部守卫），这里把“记忆写谁”
-   与“谁能点确认”一起钉死，回归测试到位。
+2. 身份语义（记忆身份读写分离批重钉，ADR-0015 身份边界补充决策，2026-07-05）：
+   房间确认的记忆副作用记在**房间会话**（`collab_{room_id}`，与房间规划共用的
+   持久线程键）头上——旧判据"记在 room.owner_id 头上"是 demo 单用户假设的产物，
+   多访客并发时 owner_id 是共享画像模板 id，会跨房间/跨访客串味。新键语义：
+   模板（persona label / 默认 tag）仍按 user_id 共享只读；累积（标签/访问/档案）
+   按会话私有。"谁能点确认"守卫（仅房主）原样保留。
 
 驱动手法：不起真 WS 服务，直接用 `RoomManager` 类构造房间（成员 `ws=None`，
 `broadcast()` 对离线成员静默跳过，不需要 mock WebSocket）；itinerary/intent
@@ -33,10 +36,10 @@
 （本仓库 confirm 系列测试的既定构造手法，见 test_graph_confirm_stream.py /
 test_e0a_graph_confirm_writeback.py）。
 
-迁移纪律：本文件在 room.py 切到 `_graph_confirm` 前后必须原样跑绿——除
-`test_room_confirm_also_accumulates_tag_memory_under_owner` 外没有任何断言
-应该因迁移而改写；唯一允许的新增是"记忆副作用新增"（recent_trips 现在也会为
-房间写，见 tests/test_e0c_graph_confirm_memory_dual_track.py 的探针）。
+迁移纪律（历史）：本文件在 room.py 切到 `_graph_confirm` 前后曾要求原样跑绿；
+记忆身份读写分离批（2026-07-05）对第 2 节的"记忆写谁"断言做了一次显式判据
+变更（owner_id → 房间会话键），理由见上方第 2 点与
+tests/test_e0c_graph_confirm_memory_dual_track.py 的同批重钉。
 
 房间重排根治批增补（2026-07-04）：房间规划改走稳定持久线程 `collab_{room_id}`
 后，`_writeback_graph_state` 对"真跑过规划的房间"从优雅跳过变真回写——第 3 节
@@ -139,25 +142,32 @@ def test_room_confirm_tool_calls_precede_itinerary_ready_then_done():
 
 
 # ============================================================
-# 2. 身份语义：记忆副作用记在房主头上
+# 2. 身份语义：记忆副作用记在房间会话头上（读写分离批重钉，理由见模块 docstring）
 # ============================================================
 
 
-def test_room_confirm_records_memory_under_owner_user_id():
+def test_room_confirm_records_memory_under_room_session():
+    """【判据变更理由】旧断言=累积记在 room.owner_id；新断言=记在房间会话
+    `collab_{room_id}`（会话即身份）。owner_id 键必须为空——它是共享画像模板 id，
+    往它头上累积正是演示日跨访客串味的病灶。"""
     owner_id = "owner_identity_test"
     manager, room = _seed_room(owner_id)
 
     asyncio.run(_confirm_and_drain(manager, room, owner_id))
 
-    memory = get_memory(owner_id)
+    session_key = getattr(room, "session_id", None) or f"collab_{room.room_id}"
+    memory = get_memory(session_key)
     visited_ids = {v.target_id for v in memory.visited_targets}
     itinerary = _make_legal_itinerary()
     expected_ids = {
         n.target_id for n in itinerary.nodes if n.target_kind in ("poi", "restaurant")
     }
     assert expected_ids <= visited_ids, (
-        f"确认后的记忆累积必须记在房主 {owner_id!r} 头上（ADR-0012 决策 5 身份语义），"
+        f"确认后的记忆累积必须记在房间会话 {session_key!r} 头上（读写分离批键语义），"
         f"期望 target_id ⊇ {expected_ids}，实际 visited_ids={visited_ids}"
+    )
+    assert get_memory(owner_id).visited_targets == [], (
+        "累积不得再写 owner_id 键——模板共享只读、记忆会话私有"
     )
 
 
@@ -171,8 +181,11 @@ def test_room_confirm_rejects_non_owner_and_leaves_memory_untouched():
     asyncio.run(manager.confirm(room, other_id))
 
     assert room.planning_events_history == [], "非房主确认不应触发任何规划事件广播"
-    other_memory = get_memory(other_id)
-    assert other_memory.visited_targets == [], "非房主确认不应写入任何人的记忆"
+    session_key = getattr(room, "session_id", None) or f"collab_{room.room_id}"
+    assert get_memory(session_key).visited_targets == [], (
+        "非房主确认不应写入房间会话的记忆"
+    )
+    assert get_memory(other_id).visited_targets == [], "非房主确认不应写入任何人的记忆"
 
 
 # ============================================================

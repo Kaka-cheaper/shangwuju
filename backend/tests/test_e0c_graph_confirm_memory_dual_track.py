@@ -9,13 +9,20 @@
 `_graph_confirm`，此前从不调 `_accumulate_memory_after_confirm`，主路径自己的画像
 问答 / 意图先验读的库，只有协作房间的确认在喂。**
 
-本测试直调 `_graph_confirm`（不经协作房间），确认 confirm 后
-`data.memory_store.get_memory(user_id)` 能看到标签 / 访问累积——这是 bug 已修的
-证据（ADR-0012 决策 5 硬门 1：统一后的确认流必须同时执行两种记忆副作用，
+本测试直调 `_graph_confirm`（不经协作房间），确认 confirm 后两种记忆副作用
+都真的落地（ADR-0012 决策 5 硬门 1：统一后的确认流必须同时执行两种记忆副作用，
 memory_writer 与 memory_store 标签累积并列，不是二选一）。
 
-不调真 LLM；`persist_memory` 走真实实现（写到 conftest 隔离出的 tmp mock_data
-副本，不污染仓库），验证两套记忆副作用在同一次确认里都真的落地。
+【判据变更理由（记忆身份读写分离批，ADR-0015 身份边界补充决策，2026-07-05）】
+旧判据：累积记在 `get_memory(user_id)` 头上——demo 单用户假设下成立；演示日
+多访客并发时同一 user_id（画像模板 id）被多个访客共用，A 确认的行程会污染 B。
+新判据：确认产生的一切累积按 **session_id 键控**（会话即身份）——
+- `get_memory(session_id)` 能看到标签 / 访问累积（双轨仍然都落地）；
+- `get_memory(user_id)` 必须为空（user_id 只再用于共享只读的画像模板）；
+- 行程档案（recent_trips）同样落在 `get_recent_trips(session_id)`。
+生产迁移 = 把键从会话 ID 换成账号 ID，机制不动。
+
+不调真 LLM；`persist_memory` 走真实实现（写进程内会话档案，不落文件）。
 """
 
 from __future__ import annotations
@@ -25,7 +32,7 @@ import sys
 import types
 from pathlib import Path
 
-from data.memory_store import get_memory, reset_all_memory
+from data.memory_store import get_memory, get_recent_trips, reset_all_memory
 
 if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     _agent_dir = Path(__file__).resolve().parent.parent / "agent"
@@ -49,7 +56,7 @@ async def _confirm_and_drain(req: ChatConfirmRequest) -> list:
 
 
 def test_graph_confirm_accumulates_memory_store_tags_and_visits():
-    """主 App 确认（直调 _graph_confirm）后 UserMemory 可见标签 / 访问累积。"""
+    """主 App 确认（直调 _graph_confirm）后会话私有 UserMemory 可见标签 / 访问累积。"""
     reset_all_memory()
 
     session_id = "e0c_probe_graph_confirm_memory_dual_track"
@@ -69,13 +76,24 @@ def test_graph_confirm_accumulates_memory_store_tags_and_visits():
     assert "stream_error" not in types_, f"确认不应报错，events={types_}"
     assert types_[-1] == "done"
 
-    memory = get_memory(user_id)
+    memory = get_memory(session_id)
     visited_ids = {v.target_id for v in memory.visited_targets}
     expected_ids = {
         n.target_id for n in itinerary.nodes if n.target_kind in ("poi", "restaurant")
     }
     assert expected_ids <= visited_ids, (
-        "ADR-0012 决策 5 硬门 1 探针：主 App 确认（_graph_confirm）必须累积 UserMemory"
-        f"（背景 7 bug 已修的证据）；期望 visited target_id ⊇ {expected_ids}，"
+        "ADR-0012 决策 5 硬门 1 探针（键语义已改会话）：主 App 确认（_graph_confirm）"
+        f"必须把累积记在会话头上；期望 get_memory(session_id) 的 visited ⊇ {expected_ids}，"
         f"实际 visited_ids={visited_ids}"
+    )
+
+    # 读写分离批新增：user_id 键上不得再有累积（模板只读，累积会话私有）
+    assert get_memory(user_id).visited_targets == [], (
+        "确认累积不得再写 user_id 键——多访客共用画像模板 id 时会跨访客串味"
+    )
+
+    # 双轨另一轨（memory_writer 行程档案）同样落在会话键
+    trips = get_recent_trips(session_id)
+    assert trips and trips[0].social_context == "家庭日常", (
+        f"行程档案应落在会话私有存储，实际 get_recent_trips({session_id!r})={trips}"
     )

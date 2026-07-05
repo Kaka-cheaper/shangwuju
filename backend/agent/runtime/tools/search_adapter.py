@@ -50,22 +50,26 @@ def _resolve_user_coords(user_id: Optional[str]) -> tuple[Optional[float], Optio
 
 
 def _resolve_excluded_visited_ids(
-    user_id: Optional[str], *, kind: str
+    session_id: Optional[str], *, kind: str
 ) -> list[str]:
-    """从 UserMemory 取最近 30 天访问过的 target_id（按 kind 过滤）。
+    """从会话私有 UserMemory 取最近 30 天访问过的 target_id（按 kind 过滤）。
+
+    键语义（记忆身份读写分离批，ADR-0015 身份边界补充决策）：访问史是"确认
+    累积"，按 **session_id** 键控（会话即身份）——不再按 user_id：那是共享
+    只读的画像模板 id，按它排重会让 A 访客确认过的地方从 B 访客的候选里消失。
 
     Args:
-        user_id: 用户 id；空则返空 list
+        session_id: 会话 id；空则返空 list（无排重）
         kind: 'poi' 或 'restaurant'
 
     失败兜底返空——不应影响主路径。
     """
-    if not user_id:
+    if not session_id:
         return []
     try:
         from data.memory_store import get_memory
 
-        memory = get_memory(user_id)
+        memory = get_memory(session_id)
         if not memory.visited_targets:
             return []
         recent_ids = set(memory.recently_visited_ids(within_days=30))
@@ -84,12 +88,14 @@ def search_pois_for_intent(
     *,
     limit: int = 5,
     user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> tuple[list[Poi], list[str]]:
     """按 intent 调 search_pois，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
-    user_id 提供时：
-    - 从 user_profile 取 home_location 作 NearbyProvider 的查询基准
-    - 从 UserMemory 取最近 30 天访问过的 POI id 排除（Step 7 个性化记忆）
+    双键（读写分离批）：
+    - user_id（模板）：从 user_profile 取 home_location 作 NearbyProvider 的查询基准
+    - session_id（累积）：从会话私有 UserMemory 取最近 30 天访问过的 POI id 排除
+      （Step 7 个性化记忆——排重范围是"这段会话确认过的"，跨访客不串味）
     Step 6：tag relaxation 透出 relaxed_tags 让上层（execute_worker / sse_adapter）
     把放宽路径透传给前端 / LLM。
 
@@ -100,7 +106,7 @@ def search_pois_for_intent(
         {c.age for c in intent.companions if c.age is not None}
     )
     user_lat, user_lng = _resolve_user_coords(user_id)
-    excluded_ids = _resolve_excluded_visited_ids(user_id, kind="poi")
+    excluded_ids = _resolve_excluded_visited_ids(session_id, kind="poi")
     # spec narration-and-intent-fidelity R3（POI 诉求轻量词法重排）：
     # 用户明示活动诉求（preferred_poi_types）时扩大抓取池，避免词法命中的候选
     # （rating 可能不是最高）在 Tool 层 top-k 截断阶段被高分泛候选挤掉；
@@ -225,12 +231,13 @@ def search_restaurants_for_intent(
     *,
     limit: int = 5,
     user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> tuple[list[Restaurant], list[str]]:
     """按 intent 调 search_restaurants，返回 (候选, relaxed_tags)；失败返 ([], [])。
 
-    user_id 提供时：
-    - 从 user_profile 取 home_location 作 NearbyProvider 的查询基准
-    - 从 UserMemory 取最近 30 天访问过的餐厅 id 排除（Step 7）
+    双键（读写分离批，同 search_pois_for_intent）：
+    - user_id（模板）：从 user_profile 取 home_location 作 NearbyProvider 的查询基准
+    - session_id（累积）：从会话私有 UserMemory 取最近 30 天访问过的餐厅 id 排除（Step 7）
     """
     # party_size：本路径（execute 阶段主路径）用「实付头数」自算——self + 全部
     # companions.count，与 rule_planner/ils_planner 两处 _query_restaurants 刻意
@@ -242,7 +249,7 @@ def search_restaurants_for_intent(
     # 语义核查"节）。
     party_size = max(1, sum(c.count for c in intent.companions) + 1)  # +1 自己
     user_lat, user_lng = _resolve_user_coords(user_id)
-    excluded_ids = _resolve_excluded_visited_ids(user_id, kind="restaurant")
+    excluded_ids = _resolve_excluded_visited_ids(session_id, kind="restaurant")
     # 块B-2（R2）：用户明示品类时扩大抓取池，避免 cuisine 命中的候选（评分略低）
     # 在 Tool 层 top-k 截断阶段就被挤掉；扩池后在编排层重排再截断回 limit。
     fetch_limit = max(limit, 15) if intent.preferred_poi_types else limit
