@@ -480,6 +480,13 @@ class RoomManager:
                 # 读写分离批：累积键=房间持久线程（与 _plan_fresh/confirm 同键），
                 # 见本函数 docstring 的"身份判断点"。
                 session_id=getattr(room, "session_id", None) or f"collab_{room.room_id}",
+                # 点火前小修批 任务 3（房间路由同权，ADR-0013 决策 7 的自然延伸）：
+                # Layer 1.8 QA 方案级答复器的材料口——intent 用房间当前意图 dict；
+                # node_actions 传 Room._snapshot_node_actions 惰性口子（与
+                # get_state_snapshot 同一现算来源，零 LLM），只有「还有别的选吗」
+                # 这类 alternatives 字段命中的问句才付现算成本。
+                intent=room.current_intent_dict,
+                node_actions_provider=room._snapshot_node_actions,
             )
 
             timestamp = time.time()

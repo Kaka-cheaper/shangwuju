@@ -50,6 +50,35 @@ FINALIZE_HEARTBEAT_S = 1.5
 logger = logging.getLogger(__name__)
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 
+# ============================================================
+# 已确认守门（点火前小修批 任务 1；K8 探针实锤的生产线索）
+# ============================================================
+#
+# 【这是什么问题】confirm 端点的重复提交防护（idempotent receiver）。K8 探针
+# 实锤：重复点击确认 = execute_finalize 真实重放预约工具，order_id 掺 ms 时间戳
+# → 同一份预约悄悄整体换号。/chat/adjust 对同一「已确认」状态有
+# CONFIRMED_ADJUST_BLOCKED 闸（agent/planning/planners/node_swap_support.py），
+# 本端点此前没有——两端点守门不对称。
+#
+# 【守门信号（自行拍板，理由如下）】`itinerary.orders` 非空——即本端点自己的
+# 唯一取数端口 SESSION_STORE 快照里、这份方案是否已经被 confirm 写回过订单：
+# - orders 只有 execute_finalize 的 replay 会产出（规划期只挂 pending_actions），
+#   「快照方案带 orders」与「这份方案下过单」一一对应；
+# - 不读图状态：adjust 守门读 `user_decision=="confirm"` 是因为它本来就持有图
+#   state；本流 docstring 明写「只认 SESSION_STORE 端口取数」，且协作房间会话
+#   没有图 checkpoint（`_writeback_graph_state` 对其优雅跳过）——按 orders 判，
+#   单人 / 房间同一条守门，无需分叉；
+# - 解锁语义与 adjust 守门对齐、同样零额外逻辑：用户说「重新规划」→ 新方案在
+#   /chat/turn 的 ITINERARY_READY 写点整体覆盖快照 itinerary（新方案 orders
+#   为空）→ 信号自然消失，confirm 重新放行。
+#
+# reject / modify 语义不动（它们在 decision != "confirm" 的早退分支，走不到这里）。
+# 措辞对齐 adjust 守门话术风格：诚实说已经下过单了、想改说一声，不装作重新执行。
+ALREADY_CONFIRMED_RECONFIRM_MESSAGE = (
+    "这份方案刚才已经确认下过单了，再点确认我不会重复下单——订单还是原来那几笔。"
+    "想改行程的话跟我说一声「重新规划」，出了新方案后确认前都能随便改。"
+)
+
 
 async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
     seq = 0
@@ -97,6 +126,16 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
                 "reason": "invalid_session_snapshot",
                 "detail": f"{type(exc).__name__}: {str(exc)[:200]}",
             },
+        )
+        yield emit(SseEventType.DONE)
+        return
+
+    # ---- 已确认守门：这份方案已下过单 → 不重放任何工具，业务性告知 + done ----
+    # （信号选型与解锁语义见上方常量 docstring；与 adjust 守门对称）
+    if itinerary.orders:
+        yield emit(
+            SseEventType.AGENT_NARRATION,
+            {"text": ALREADY_CONFIRMED_RECONFIRM_MESSAGE, "stage": "confirm"},
         )
         yield emit(SseEventType.DONE)
         return

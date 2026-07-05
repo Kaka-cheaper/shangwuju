@@ -73,6 +73,12 @@ def router_node(state: AgentState) -> dict[str, Any]:
         # 读写分离批：session_id 是累积记忆的键（persona_qa 的会话私有偏好），
         # user_id 只再承担画像模板（共享只读）。
         session_id=state.get("session_id"),
+        # 点火前小修批 任务 3：Layer 1.8 QA 的方案级答复器材料——intent 供
+        # why_rationale 组「实体×意图命中」句；node_actions（narrate 写入图
+        # 状态的 EPISODE_SCOPED 字段）供 alternatives 报预验证具名备选，惰性
+        # 闭包只在该字段命中时被调用。
+        intent=state.get("intent"),
+        node_actions_provider=lambda: state.get("node_actions") or {},
     )
 
     result: dict[str, Any] = {"route_kind": outcome.kind, "router_decision": outcome.decision}

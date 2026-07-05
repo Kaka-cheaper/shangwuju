@@ -149,3 +149,201 @@ def test_router_l3_question_becomes_chitchat_answer(monkeypatch):
     out = router_mod.router_node(st)
     assert out["route_kind"] == "chitchat", f"提问应被回答而非重规划，实际 {out['route_kind']}"
     assert "人均" in out["router_decision"].reply_text
+
+
+# ============================================================
+# 7. 三个方案级接地答复器（点火前小修批 任务 3；K7/K9/K10 实锤）
+# ============================================================
+# 治「数据在≠答得出」：为什么推荐/还有别的选/数据是真的吗 三类问句的材料
+# （实体字段+意图命中关系、narrate 预计算的 node_actions、产品事实边界）本来
+# 就在现场，但字段词典只有实体数据字段，这三类问句全部落弃答。
+# 三纪律：线索词与既有字段同表（单一真相源）/材料拿不到落既有弃答/模板接地
+# 零 LLM。client=None 断言即钉死「不调 LLM」：若走了弃答分支会带「没对上」字样。
+
+
+def _intent_dict() -> dict:
+    # 只放答复器消费的字段；dict 形态同时覆盖房间路径（room.current_intent_dict）
+    return {
+        "dietary_constraints": ["低脂"],
+        "experience_tags": [],
+        "physical_constraints": [],
+        "preferred_poi_types": [],
+        "social_context": "家庭日常",
+        "distance_max_km": 5.0,
+        "budget_per_person": 100.0,
+    }
+
+
+# ---- 7a. 为什么推荐这家 / 为什么这么排（K7）----
+
+
+def test_answer_why_recommend_grounded_no_llm():
+    a = answer_itinerary_question(
+        "为什么推荐这家餐厅？", _itin(), client=None, intent=_intent_dict()
+    )
+    assert a is not None and "没对上" not in a, f"应走接地答复器而非弃答：{a!r}"
+    # 实体字段与意图的命中关系组句：评分 + 命中你要的「低脂」（R001 tags=低脂）
+    assert "评分" in a
+    assert "低脂" in a
+
+
+def test_answer_why_order_grounded_with_timeline():
+    a = answer_itinerary_question(
+        "为什么你把餐厅放在活动后面？", _itin(), client=None, intent=_intent_dict()
+    )
+    assert a is not None and "没对上" not in a
+    # 顺序类问法应带方案时间轴接地（节点 title 可见）
+    assert "轻语沙拉" in a or "森林儿童探索乐园" in a
+
+
+def test_answer_why_without_intent_still_grounded():
+    # intent 拿不到（如旧会话）→ 退化为纯实体字段组句，仍不弃答、不调 LLM
+    a = answer_itinerary_question("为什么推荐这家餐厅？", _itin(), client=None)
+    assert a is not None and "没对上" not in a and "评分" in a
+
+
+# ---- 7b. 还有别的选吗（K9）----
+
+
+def _node_actions() -> dict:
+    # 形状 = narrate._build_node_actions 产出：{target_id: {chips, alternatives}}
+    return {
+        "R001": {
+            "chips": [],
+            "alternatives": [
+                {
+                    "kind": "restaurant",
+                    "target_id": "R010",
+                    "name": "山葵家精致料理",
+                    "rating": 4.6,
+                    "distance_km": 1.8,
+                    "price": 128.0,
+                    "category": "日料",
+                }
+            ],
+        }
+    }
+
+
+def test_answer_alternatives_from_precomputed_node_actions():
+    a = answer_itinerary_question(
+        "还有别的选吗？",
+        _itin(),
+        client=None,
+        node_actions_provider=lambda: _node_actions(),
+    )
+    assert a is not None and "没对上" not in a, f"应报预计算备选而非弃答：{a!r}"
+    assert "山葵家精致料理" in a, "必须报出备选名"
+    assert "换成" in a, "必须带一句引导（前端按钮字面是「换成◯◯」）"
+
+
+def test_alternatives_unreachable_falls_to_existing_abstain():
+    # 漏配纪律：拿不到 node_actions（provider 缺省 / 空 / 抛异常）→ 落既有弃答
+    a1 = answer_itinerary_question("还有别的选吗？", _itin(), client=None)
+    assert a1 is not None and "没对上" in a1
+    a2 = answer_itinerary_question(
+        "还有别的选吗？", _itin(), client=None, node_actions_provider=lambda: {}
+    )
+    assert a2 is not None and "没对上" in a2
+
+    def _boom() -> dict:
+        raise RuntimeError("snapshot 组装失败")
+
+    a3 = answer_itinerary_question(
+        "还有别的选吗？", _itin(), client=None, node_actions_provider=_boom
+    )
+    assert a3 is not None and "没对上" in a3
+
+
+# ---- 7c. 你这数据是真的吗（K10）----
+
+# 与 K10 探针的 _FAKE_REALITY_CLAIM_PHRASES 同一判据（演示原型绝不可宣称
+# 真实库存/实时数据/真实预订成功）——诚实边界话术自己先过一遍红线。
+_FAKE_REALITY_PHRASES = (
+    "真实库存", "实时排队", "实时数据", "已接入真实",
+    "已经订好", "预订成功", "已预订", "已下单成功", "真实预订",
+)
+
+
+def test_answer_data_trust_honest_boundary():
+    a = answer_itinerary_question(
+        "你这个数据是真的吗？是不是随便编的？", _itin(), client=None
+    )
+    assert a is not None and "没对上" not in a
+    assert "演示" in a, "必须诚实说明演示数据边界"
+    for phrase in _FAKE_REALITY_PHRASES:
+        assert phrase not in a, f"诚实边界话术不得含虚假现实声称短语：{phrase!r}"
+
+
+# ---- 7d. 词表纪律与出口钳制 ----
+
+
+def test_new_cues_do_not_shadow_existing_fields():
+    # 既有具体字段仍优先：问价钱还是价钱答复器
+    a = answer_itinerary_question("这家贵不贵", _itin(), client=None)
+    assert a and "人均" in a
+
+
+def test_why_answer_clamped_to_reply_text_limit():
+    # 组句出口必须压进 RouterDecision.reply_text 的 max_length=400（同弃答钳制先例）
+    d = build_question_decision(
+        "为什么推荐这家餐厅？", _itin(), client=None, intent=_intent_dict()
+    )
+    assert d is not None and len(d.reply_text) <= 400
+
+
+def test_alternatives_answer_clamped():
+    many = {
+        f"R{i:03d}": {
+            "chips": [],
+            "alternatives": [
+                {"kind": "restaurant", "target_id": f"RX{i}{j}", "name": "超长备选名" * 10,
+                 "rating": 4.0, "distance_km": 1.0, "price": 80.0, "category": "测试"}
+                for j in range(3)
+            ],
+        }
+        for i in range(8)
+    }
+    d = build_question_decision(
+        "还有别的选吗？", _itin(), client=None, node_actions_provider=lambda: many
+    )
+    assert d is not None and len(d.reply_text) <= 400
+
+
+# ---- 7e. route_turn / router_node 集成：图状态的 intent 与 node_actions 可达 ----
+
+
+def test_router_threads_intent_and_node_actions_to_qa(monkeypatch):
+    from agent.graph.nodes import router as router_mod
+    from agent.graph.state import make_initial_state
+
+    def _brain_should_not_run(*a, **k):
+        raise AssertionError("方案级问句应在 Layer 1.8 被接地答复器接住，不该触达脑子")
+
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(router_mod, "classify_turn", _brain_should_not_run)
+
+    st = make_initial_state(user_input="还有别的选吗？", session_id="s_qa_alt")
+    st["itinerary"] = _itin()
+    st["node_actions"] = _node_actions()
+
+    out = router_mod.router_node(st)
+    assert out["route_kind"] == "chitchat"
+    assert "山葵家精致料理" in out["router_decision"].reply_text
+
+    st2 = make_initial_state(user_input="为什么推荐这家餐厅？", session_id="s_qa_why")
+    st2["itinerary"] = _itin()
+    from schemas.intent import IntentExtraction
+
+    st2["intent"] = IntentExtraction(
+        start_time="today_afternoon",
+        companions=[],
+        physical_constraints=[],
+        dietary_constraints=["低脂"],
+        experience_tags=[],
+        raw_input="低脂一点",
+        parse_confidence=0.9,
+    )
+    out2 = router_mod.router_node(st2)
+    assert out2["route_kind"] == "chitchat"
+    assert "低脂" in out2["router_decision"].reply_text

@@ -51,13 +51,16 @@ logger = logging.getLogger("agent.core.itinerary_qa")
 
 # 句尾疑问词（"吧"不算——"就这样吧"是确认不是问）
 _QUESTION_TAILS = ("吗", "呢", "?", "？")
+# 任务 3：要解释类线索（单一真相源：问句识别与 why_rationale 字段映射两处消费、
+# 一处定义）——要解释的问法常不带问尾（"为什么把餐厅排后面"），故也是问句线索。
+_WHY_CUES = ("为什么", "为啥", "凭什么")
 # 句中疑问线索
 _QUESTION_CUES = (
     "多少", "几点", "多远", "多久", "多大", "几个", "几公里", "怎么样", "如何",
     "贵不贵", "远不远", "多不多", "有没有", "能不能", "是不是", "好不好", "贵吗", "远吗",
     # 「有什么招牌 / 招牌是啥 / 哪个近」——避开裸「什么」，防「没什么意思」误判成提问
     "有什么", "是什么", "什么好", "哪些", "哪个", "啥",
-)
+) + _WHY_CUES
 # 比较级改请求线索（"近一点 / 再便宜"是要改，不是问）
 _CHANGE_REQUEST_HINTS = ("一点", "点儿", "再近", "再远", "再便宜", "再贵", "近点", "远点")
 
@@ -76,6 +79,33 @@ def looks_like_question(text: str) -> bool:
 # 2. 问句线索 → 字段（slot → KB schema 映射）
 # ============================================================
 # (field_id, 线索词)。命中即认定用户在问这个字段。具体短语优先，避免误吞。
+#
+# 点火前小修批 任务 3（K7/K9/K10 实锤）追加末尾三个**方案级字段**——治
+# 「数据在≠答得出」：为什么推荐/还有别的选/数据是真的吗 的材料（实体字段+
+# 意图命中关系、narrate 预计算的 node_actions、产品事实边界）本来就在现场，
+# 但此前词典只有实体数据字段，这三类问句全部落弃答。词表三纪律：
+# ① 线索词单一真相源：新字段的 cue 与既有 8 个字段同表，不另起第二套词法；
+# ② 漏配落既有弃答：材料拿不到（无 node_actions/备选为空/组句为空）→ 答复器
+#    返 None → 主入口落 _abstain，绝不硬造；
+# ③ 模板化接地生成，零 LLM 调用。
+# 排在既有字段之后 = 「具体短语优先」既有纪律的延续（"为什么这么贵"若同时
+# 命中价格具体短语则价格先答；实测既有 8 组无裸「贵」，why 仍接得住）。
+#
+# 【词目审查（9eecef0 精度契约：能想象日常语境里词目出现但用户不在问这个，
+#  就剪；且全部先过 looks_like_question + 非改请求两道既有闸）】
+# why_rationale：
+#   - "为什么/为啥"——问句语境下几乎恒为要解释（为什么推荐/为什么这么排/
+#     为什么这么贵）；用数据组句作答对全部变体语义不错位。
+#   - "凭什么"——对抗式要解释（"凭什么排这家"），仍是要依据 → 数据组句正对。
+#   - 剪掉候选"怎么想的"（出现率低且"你怎么想的"可以是闲聊征询）。
+# alternatives：
+#   - "别的选/别的选择/其他选择/其他选项/备选/别的推荐/其他推荐"——问句语境
+#     下恒为求备选。剪掉候选"有没有别的"（"有没有别的时间"是在问时间不是问
+#     备选）与"能换吗"（是改请求探路，归 feedback/adjust 域）。
+# data_trust：
+#   - "是真的吗/真的假的/随便编/瞎编/编造/骗我/骗人"——恒为质疑数据真伪 →
+#     诚实边界话术正对。剪掉候选"靠谱吗"（"这家店靠谱吗"是在问商家口碑，
+#     归 review 域，不是质疑系统数据）。
 _FIELD_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("price", ("贵不贵", "贵吗", "多少钱", "人均", "价格", "便宜吗", "划算吗", "贵不", "性价比")),
     ("distance", ("多远", "远不远", "远吗", "距离", "多久到", "几公里", "近吗", "远近")),
@@ -85,6 +115,10 @@ _FIELD_CUES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("capacity", ("包间", "能坐", "坐得下", "几个人", "多少人", "位子")),
     ("review", ("评分", "评价", "口碑", "好吃吗", "好玩吗", "怎么样", "好不好", "值不值")),
     ("signature", ("招牌", "特色菜", "必点", "什么好吃", "推荐菜", "拿手")),
+    # ---- 方案级字段（任务 3）：不吃 places 单参，分发见 answer_itinerary_question ----
+    ("why_rationale", _WHY_CUES),
+    ("alternatives", ("别的选", "别的选择", "其他选择", "其他选项", "备选", "别的推荐", "其他推荐")),
+    ("data_trust", ("是真的吗", "真的假的", "随便编", "瞎编", "编造", "骗我", "骗人")),
 )
 
 
@@ -255,6 +289,173 @@ _FIELD_ANSWERERS = {
 
 
 # ============================================================
+# 4b. 方案级答复器（点火前小修批 任务 3；K7/K9/K10 实锤）
+# ============================================================
+# 三个答复器全部只用现场可达的结构化数据组句（模板化接地生成，零 LLM）；
+# 材料拿不到时返 None → 主入口落既有 _abstain（漏配纪律，见 _FIELD_CUES 注释）。
+# 出口统一钳制（_clamp_reply）：与弃答同一根因（RouterDecision.reply_text
+# max_length=400，超限 = router 层 ValidationError → 整轮 stream_error）。
+
+
+def _clamp_reply(text: str) -> str:
+    # 与弃答共用 _ABSTAIN_REPLY_MAX（第 5 节定义，调用期解析）——不另起第二个上限
+    if len(text) > _ABSTAIN_REPLY_MAX:
+        return text[: _ABSTAIN_REPLY_MAX - 1].rstrip() + "…"
+    return text
+
+
+def _iget(intent: Any, key: str, default: Any = None) -> Any:
+    """intent 双形态取值：图状态是 IntentExtraction 对象，房间路径是 dict
+    （room.current_intent_dict）——同一答复器两处消费，鸭子型取字段。"""
+    if intent is None:
+        return default
+    if isinstance(intent, dict):
+        val = intent.get(key, default)
+    else:
+        val = getattr(intent, key, default)
+    return default if val is None else val
+
+
+# 顺序类问法线索（"为什么把餐厅放在活动后面"）——命中时在组句前加方案时间轴，
+# 让"这么排"的回答落在可核对的排程数据上，而不是只讲单店理由。
+_ORDER_CUES = ("顺序", "后面", "前面", "这么排", "先去", "排在", "放在")
+
+
+def _answer_why(
+    places: list[Any], intent: Any, itinerary: Any, user_input: str
+) -> str | None:
+    """「为什么推荐这家 / 为什么这么排」→ 实体字段 × 意图命中关系组句。
+
+    每个地点从五类**都在现场**的结构化字段里挑命中项：评分 / tag∩意图约束
+    （品类命中你要的X）/ suitable_for∋social_context / 距离（对照
+    distance_max_km）/ 人均（对照 budget_per_person）；餐厅另带数据集自带的
+    recommendation_reason。intent 缺省（旧会话）→ 退化为纯实体字段组句。
+    """
+    wants: list[str] = []
+    for f in ("dietary_constraints", "experience_tags", "physical_constraints"):
+        wants += [str(x) for x in (_iget(intent, f) or [])]
+    preferred_types = [str(x) for x in (_iget(intent, "preferred_poi_types") or [])]
+    social = _iget(intent, "social_context")
+    dist_max = _iget(intent, "distance_max_km")
+    budget = _iget(intent, "budget_per_person")
+
+    parts: list[str] = []
+    for p in places:
+        frags: list[str] = []
+        tags = [str(t) for t in (getattr(p, "tags", []) or [])]
+        tag_hits = [w for w in wants if w in tags]
+        if tag_hits:
+            frags.append(f"标着「{'、'.join(tag_hits[:2])}」，正对上你的要求")
+        ptype = getattr(p, "type", None)
+        if ptype and str(ptype) in preferred_types:
+            frags.append(f"是你点名要的「{ptype}」")
+        if social and str(social) in [str(s) for s in (getattr(p, "suitable_for", []) or [])]:
+            frags.append(f"适配「{social}」场景")
+        rating = getattr(p, "rating", None)
+        if rating is not None:
+            frags.append(f"评分 {rating}")
+        d = getattr(p, "distance_km", None)
+        if d is not None:
+            seg = f"离家 {d} 公里"
+            if dist_max and float(d) <= float(dist_max):
+                seg += f"（在你要的 {dist_max} 公里内）"
+            frags.append(seg)
+        if _is_restaurant(p) and budget and float(p.avg_price) <= float(budget):
+            frags.append(f"人均 {int(p.avg_price)} 元贴着你 {int(budget)} 元的预算")
+        reason = getattr(p, "recommendation_reason", None)
+        if reason:
+            frags.append(str(reason))
+        if frags:
+            parts.append(f"{p.name}：{'，'.join(frags[:4])}")
+
+    if not parts:
+        return None
+
+    lead = ""
+    if any(c in user_input for c in _ORDER_CUES):
+        timeline = _timeline_of(itinerary)
+        if timeline:
+            lead = f"先后顺序按方案时间轴来的：{timeline}。再说选点——"
+    return _clamp_reply(lead + "；".join(parts) + "。这些都是方案数据里的字段，不是我现编的。")
+
+
+def _timeline_of(itinerary: Any) -> str | None:
+    """方案时间轴一行（接地于 nodes 的 start_time/title；home 首尾跳过）。"""
+    try:
+        data = itinerary.model_dump() if hasattr(itinerary, "model_dump") else dict(itinerary)
+    except Exception:  # noqa: BLE001
+        return None
+    segs = []
+    for n in data.get("nodes") or []:
+        if not isinstance(n, dict) or n.get("target_kind") == "home":
+            continue
+        t, title = n.get("start_time"), n.get("title")
+        if title:
+            segs.append(f"{t} {title}" if t else str(title))
+    return " → ".join(segs) if segs else None
+
+
+def _answer_alternatives(itinerary: Any, node_actions_provider: Any) -> str | None:
+    """「还有别的选吗」→ 报 narrate 预计算的具名备选（node_actions.alternatives，
+    与「换成◯◯」按钮同一份预验证真相源）+ 一句引导。
+
+    node_actions_provider 是惰性口子（`() -> {target_id: {chips, alternatives}}`）：
+    单人路径由 router adapter 传图状态的 node_actions；房间路径传
+    Room._snapshot_node_actions（现算，与 get_state_snapshot 同源）。只在本
+    字段命中时才调用——别的问句一分钱都不付。拿不到 / 为空 / 抛异常 → None
+    → 落既有弃答（诚实：识别到了但材料不在手上，不硬造备选名）。
+    """
+    if node_actions_provider is None:
+        return None
+    try:
+        actions = node_actions_provider() or {}
+    except Exception:  # noqa: BLE001
+        logger.warning("alternatives 答复器取 node_actions 失败，落弃答", exc_info=True)
+        return None
+    if not actions:
+        return None
+
+    titles: dict[str, str] = {}
+    try:
+        data = itinerary.model_dump() if hasattr(itinerary, "model_dump") else dict(itinerary)
+        for n in data.get("nodes") or []:
+            if isinstance(n, dict) and n.get("target_id"):
+                titles[n["target_id"]] = n.get("title") or n["target_id"]
+    except Exception:  # noqa: BLE001
+        pass
+
+    parts: list[str] = []
+    for target_id, acts in actions.items():
+        names = [
+            str(a.get("name"))
+            for a in (acts or {}).get("alternatives") or []
+            if isinstance(a, dict) and a.get("name")
+        ]
+        if not names:
+            continue
+        label = titles.get(target_id, target_id)
+        parts.append(f"「{label}」可以换 {'、'.join(names[:2])}")
+    if not parts:
+        return None
+    return _clamp_reply(
+        "有的，这些备选都预验证过、能直接排进方案："
+        + "；".join(parts)
+        + "。想换哪一站，点那一站下面的「换成◯◯」小按钮就行，或者直接告诉我。"
+    )
+
+
+# 「你这数据是真的吗」→ 诚实边界话术（固定模板，零 LLM）。措辞红线：不得包含
+# 任何虚假现实声称短语（真实库存/实时数据/已预订/预订成功……，K10 探针的
+# _FAKE_REALITY_CLAIM_PHRASES 红线子集）——演示原型绝不宣称接了真实库存，
+# 但机制（规划引擎/约束检查/下单流程）是真实在跑的，两半都要说清。
+_DATA_TRUST_REPLY = (
+    "跟你说实话：这是个演示原型，方案里的商家、价格、时段来自内置的演示数据集，"
+    "不是线上现拉的；但规划引擎、约束检查、预约下单这套流程机制都是真实在跑的。"
+    "真要按这个出门，出发前在 App 里再核对一遍商家信息最稳。"
+)
+
+
+# ============================================================
 # 5. 弃答（abstention）+ 来源标注
 # ============================================================
 
@@ -317,11 +518,17 @@ def answer_itinerary_question(
     itinerary: Any,
     *,
     client: LLMClient | None = None,
+    intent: Any = None,
+    node_actions_provider: Any = None,
 ) -> str | None:
     """对「关于已有方案的提问」给接地回答；不是可回答的提问 → None。
 
     None 表示「这句不该走 QA」（不是提问 / 是改请求 / 没有方案数据），交回上层兜底。
     查到字段 → 模板答；提问但查不到字段 → 弃答（诚实 + 标注经验）。
+
+    任务 3 新增两个可选材料口（缺省 None = 材料不可达，相应方案级字段落弃答）：
+    - intent：当前意图（IntentExtraction 或 dict，见 _iget）——why_rationale 用；
+    - node_actions_provider：惰性取 node_actions 的 0 参 callable——alternatives 用。
     """
     if not looks_like_question(user_input):
         return None
@@ -333,11 +540,18 @@ def answer_itinerary_question(
     if not places:
         return None  # 没方案数据可对照，交回兜底
     field = _detect_field(user_input)
-    if field is not None:
+    ans: str | None = None
+    if field == "why_rationale":
+        ans = _answer_why(places, intent, itinerary, user_input)
+    elif field == "alternatives":
+        ans = _answer_alternatives(itinerary, node_actions_provider)
+    elif field == "data_trust":
+        ans = _DATA_TRUST_REPLY
+    elif field is not None:
         ans = _FIELD_ANSWERERS[field](places)
-        if ans:
-            return ans
-    # 是提问、但字段没对上（停车/wifi/支付…）→ 坦白没对上 + 经验标注
+    if ans:
+        return ans
+    # 是提问、但字段没对上（停车/wifi/支付…）或方案级材料不可达 → 弃答
     return _abstain(user_input, client)
 
 
@@ -346,9 +560,17 @@ def build_question_decision(
     itinerary: Any,
     *,
     client: LLMClient | None = None,
+    intent: Any = None,
+    node_actions_provider: Any = None,
 ) -> RouterDecision | None:
     """把提问回答包成走 chitchat 气泡的 RouterDecision；不是提问 → None。"""
-    answer = answer_itinerary_question(user_input, itinerary, client=client)
+    answer = answer_itinerary_question(
+        user_input,
+        itinerary,
+        client=client,
+        intent=intent,
+        node_actions_provider=node_actions_provider,
+    )
     if not answer:
         return None
     return RouterDecision(

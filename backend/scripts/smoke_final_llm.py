@@ -3785,11 +3785,12 @@ async def probe_J5(ctx: ProbeCtx) -> None:
 #   收口）+ 读码核实过的确定性规则/引擎行为（如：问句被 Layer 1.8 QA 规则拦截
 #   不重排——itinerary_qa.looks_like_question 的疑问尾判定与 provider 无关，
 #   同 C5/I3 判级先例；「便宜点」∈ feedback_detector._STRONG_FEEDBACK_KEYWORDS
-#   触发 Layer 1 反馈轮；换菜引擎只动一站或诚实不动；双 confirm 订单数不累积）。
+#   触发 Layer 1 反馈轮；换菜引擎只动一站或诚实不动；双 confirm 走已确认守门）。
 # - RECORD：回答全文与关键状态供人判——什么算「答得体面」以覆盖文档的期望/
 #   危险标注为人判基准，不做先验断言（I 类摸底哲学）。
-# - SEMANTIC：仅机器可判红线（K5 画像锁死 / K10 虚假现实声称 / K11 过敏硬约束
-#   落地），stub 下自动 SKIP 不假失败。
+# - SEMANTIC：仅机器可判红线（K5 画像锁死 / K11 过敏硬约束落地），stub 下自动
+#   SKIP 不假失败。（K10 虚假现实声称原属此级——点火前小修批 任务 3 把信任
+#   质询回复换成确定性诚实边界模板后，该红线升 PLUMBING 全 provider 可判。）
 # - 多轮照 B/I 类形状（do_turn 链 + add_meta_dialogue_checks 复用），房间照
 #   J2/H4 形状（RoomManager + _FakeWebSocket + 实例级 spy）。
 
@@ -4064,14 +4065,16 @@ async def probe_K7(ctx: ProbeCtx) -> None:
     【文档判据（人判基准）】期望：解释基于通勤/餐厅高峰/活动时长/画像/预算的
     规划理由。最危险：无法解释、给空泛营销话术，或编造真实数据来源。
 
-    【读码 + stub 基线（前提出入，如实记录）】两句都以「？」收尾 → itinerary_qa.
-    looks_like_question 命中、无改请求线索 → Layer 1.8 QA 规则先于脑子接走；
-    但 _FIELD_CUES 词典只有价格/距离/营业等**方案数据字段**，没有「为什么/
-    理由」字段 → 确定落 _abstain 弃答分支（调一次 LLM 写弃答文案，出口有
-    _ABSTAIN_REPLY_MAX=380 字钳制——d35435f 修复后 stub 固定长 JSON 不再炸流，
-    本探针顺带端到端钉住该保险丝）。结果：narrate 的规划理由与 intent 字段材料
-    明明在，「为什么」却到不了能解释它的脑子——与 I3 同款「数据在≠答得出」。
-    QA 接走的确定性行为=不重排（PLUMBING，同 C5 判据）；回答全文 RECORD 人判。
+    【读码依据（判级；点火前小修批 任务 3 修复后升级）】本探针初版实锤：
+    _FIELD_CUES 没有「为什么/理由」字段 → 确定落 _abstain（材料明明在，
+    「为什么」到不了能解释它的脑子——「数据在≠答得出」）。已按此实锤修复：
+    itinerary_qa 新增 why_rationale 方案级答复器（Layer 1.8，先于脑子），用
+    实体字段×意图命中关系模板组句（评分/标签命中/距离对照/预算对照），顺序类
+    问法（"放在…后面"）另带方案时间轴——零 LLM、任何 provider 确定性，故从
+    「弃答落点 RECORD」升级为 PLUMBING：两问都由 QA 接地答复器接走
+    （rationale=itinerary_question_answered）、非弃答（无「没对上」）、含接地
+    要素（评分/公里字样）。不重排维持 PLUMBING（同 C5 判据）；全文仍经
+    add_meta_dialogue_checks RECORD 供人判措辞质量。
     """
     sc = _scenario(_S1)
     await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K7.1 S1 建方案")
@@ -4089,17 +4092,28 @@ async def probe_K7(ctx: ProbeCtx) -> None:
 
     add_check(ctx, "why_questions_do_not_replan", "PLUMBING", _no_replan)
 
-    def _clamp_evidence() -> tuple[bool, str]:
-        lens = []
+    def _grounded_why_answers() -> tuple[bool, str]:
+        bad = []
+        heads = []
         for tag, s in (("排序理由", s2), ("推荐理由", s3)):
             chit = payload_of(s.events, "chitchat_reply") or {}
-            lens.append(f"{tag}: len={len(chit.get('reply_text') or '')} rationale={chit.get('rationale')!r}")
-        return True, (
-            "; ".join(lens)
-            + "——弃答出口 380 字钳制（d35435f）端到端在位（stub 固定长 JSON 被截断而非炸流）"
+            reply = str(chit.get("reply_text") or "")
+            rationale = chit.get("rationale")
+            grounded = (
+                rationale == "itinerary_question_answered"
+                and bool(reply)
+                and "没对上" not in reply
+                and ("评分" in reply or "公里" in reply)
+            )
+            if not grounded:
+                bad.append(f"{tag}: rationale={rationale!r} reply={reply[:100]!r}")
+            heads.append(f"{tag}: {reply[:80]!r}")
+        return not bad, "; ".join(bad) or (
+            "两问均由 why_rationale 接地答复器模板作答（评分/距离/意图命中组句，"
+            "零 LLM）——" + "；".join(heads)
         )
 
-    add_record(ctx, "abstain_clamp_evidence", _clamp_evidence)
+    add_check(ctx, "why_questions_get_grounded_answers", "PLUMBING", _grounded_why_answers)
     add_meta_dialogue_checks(ctx, s2, "k7_why_order")
     add_meta_dialogue_checks(ctx, s3, "k7_why_this_one")
 
@@ -4110,57 +4124,69 @@ async def probe_K8(ctx: ProbeCtx) -> None:
     【文档判据（人判基准）】期望：幂等处理，只保留一个待确认或一个订单，不
     重复下单。最危险：重复创建多个订单。
 
-    【读码依据（判级）】/chat/confirm **无**「已确认」守门（graph_confirm.py
-    顶部只查 session 有无方案；对比 /chat/adjust 的 CONFIRMED_ADJUST_BLOCKED
-    闸——两个端点对同一状态的守门不对称）。第二次 confirm 把 SESSION_STORE 里
-    已含 orders 的方案再走一遍 execute_finalize_node → replay_confirm_actions
-    重放动作清单、新 orders **整体替换**旧 orders（model_copy(update=...)，
-    不是追加）。因此机器可判的确定性不变量（PLUMBING，任何 provider——confirm
-    链路零 LLM 依赖）：第二次 confirm 后订单**数量不增**。但工具层被真实重放
-    （reserve_restaurant 等再跑一遍），order_id 掺 ms 时间戳（tools/reserve_
-    restaurant._make_order_id）大概率换号——「同一份预约悄悄换了单号」= 无
-    幂等键的生产问题线索，RECORD 取证，绝不顺手修。
+    【读码依据（判级；点火前小修批 任务 1 修复后升级）】本探针初版实锤的生产
+    线索——/chat/confirm 无「已确认」守门（对比 /chat/adjust 的
+    CONFIRMED_ADJUST_BLOCKED 闸，两端点对同一状态守门不对称），第二次 confirm
+    真实重放预约工具、order_id 掺 ms 时间戳整体换号——已按此实锤修复：
+    graph_confirm.py 现按快照方案 `itinerary.orders` 非空守门（orders 只有
+    confirm replay 会产出，「快照带 orders」=「这份方案下过单」；单人/房间同一
+    条守门，解锁=新规划覆盖快照）。守门是确定性规则（零 LLM 依赖），故原
+    RECORD 取证升级为 PLUMBING 不变量：第二次 confirm 零工具重放、方案层不动
+    （无 itinerary_ready）、订单不换号、推「已经下过单」业务性告知 + done。
     """
     sc = _scenario(_S2)
     await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K8.1 S2 建方案")
     s2 = await do_confirm(ctx, step_desc="K8.2 第一次 confirm")
-    s3 = await do_confirm(ctx, step_desc="K8.3 第二次 confirm(重复点击)")
+    s3 = await do_confirm(ctx, step_desc="K8.3 第二次 confirm(重复点击→守门)")
 
     orders_1 = ((payload_of(s2.events, "itinerary_ready") or {}).get("orders")) or []
-    orders_2 = ((payload_of(s3.events, "itinerary_ready") or {}).get("orders")) or []
 
     def _first_confirm_ok() -> tuple[bool, str]:
         return bool(orders_1), f"第一次 confirm orders={len(orders_1)} 份（铺垫完整性，同 G3 判据）"
 
     add_check(ctx, "pretext_first_confirm_orders_present", "PLUMBING", _first_confirm_ok)
 
-    def _no_accumulation() -> tuple[bool, str]:
-        ok = len(orders_2) == len(orders_1) and bool(orders_2)
-        return ok, (
-            f"订单数：第一次={len(orders_1)} → 第二次={len(orders_2)}（replay 整体替换，"
-            "数量不得增长——文档 14.1 的机器可判子集：方案层绝不累积出第二份订单）"
-        )
-
-    add_check(ctx, "double_confirm_no_order_accumulation", "PLUMBING", _no_accumulation)
-
-    def _idempotency_evidence() -> tuple[bool, str]:
-        ids_1 = [o.get("order_id") for o in orders_1]
-        ids_2 = [o.get("order_id") for o in orders_2]
+    def _second_confirm_guarded() -> tuple[bool, str]:
         retools = [
             (e.get("payload") or {}).get("tool")
             for e in s3.events
             if e.get("type") == "tool_call_start"
         ]
-        same_ids = ids_1 == ids_2
-        return True, (
-            f"order_id 第一次={ids_1} 第二次={ids_2}（相同={same_ids}）；第二次 confirm "
-            f"实际重放的工具={retools}。生产问题线索（只记录不修）：/chat/confirm 无"
-            "已确认守门、无幂等键，重复点击=预约工具真实重放；order_id 掺时间戳，重放"
-            "大概率换单号——方案层订单数不涨（上一条已钉死），但「同一预约换单号」"
-            "对接真实下单时就是重复下单，路演前需产品拍板是否加闸"
+        replan = has_event(s3.events, "itinerary_ready")
+        ok = not retools and not replan
+        return ok, (
+            f"第二次 confirm 重放的工具={retools or '无'}；再推方案={replan}——守门后"
+            "必须零工具重放、方案层不动（文档 14.1 机器可判子集，任务 1 修复钉死）"
         )
 
-    add_record(ctx, "double_confirm_idempotency_evidence", _idempotency_evidence)
+    add_check(ctx, "double_confirm_guarded_no_tool_replay", "PLUMBING", _second_confirm_guarded)
+
+    def _guard_notice_present() -> tuple[bool, str]:
+        narr = payload_of(s3.events, "agent_narration") or {}
+        text = str(narr.get("text") or "")
+        ok = "下过单" in text and bool(s3.events) and s3.events[-1].get("type") == "done"
+        return ok, (
+            f"守门告知={text[:120]!r}；末事件={s3.events[-1].get('type') if s3.events else '无'}"
+            "——业务性告知气泡（诚实说已经下过单、想改说一声）+ done 收尾"
+        )
+
+    add_check(ctx, "double_confirm_named_guard_notice", "PLUMBING", _guard_notice_present)
+
+    def _orders_unchanged() -> tuple[bool, str]:
+        from api._session_store import SESSION_STORE
+
+        ids_1 = [o.get("order_id") for o in orders_1]
+        cached = SESSION_STORE.get(ctx.session_id) or {}
+        cached_ids = [
+            o.get("order_id") for o in ((cached.get("itinerary") or {}).get("orders") or [])
+        ]
+        ok = bool(ids_1) and cached_ids == ids_1
+        return ok, (
+            f"order_id 第一次={ids_1}；二次点击后快照={cached_ids}——订单不换号"
+            "（初版实锤的「同一预约悄悄换单号」已被守门根治）"
+        )
+
+    add_check(ctx, "double_confirm_orders_unchanged", "PLUMBING", _orders_unchanged)
 
     async def _version_log() -> tuple[bool, str]:
         try:
@@ -4169,8 +4195,8 @@ async def probe_K8(ctx: ProbeCtx) -> None:
             log = (snapshot.values or {}).get("plan_version_log") or []
             confirm_entries = [e.get("summary") for e in log if e.get("trigger") == "confirm"]
             return True, (
-                f"版本志 confirm 条目={confirm_entries}（两次点击各记一笔=重复动作在"
-                "审计轨上可见；条目数即重复 confirm 的次数证据）"
+                f"版本志 confirm 条目={confirm_entries}（守门后第二次点击不再走回写，"
+                "审计轨应只有第一次 confirm 的一笔）"
             )
         except Exception as e:  # noqa: BLE001
             return True, f"图状态内省失败（不影响判定）：{type(e).__name__}: {e}"
@@ -4185,17 +4211,21 @@ async def probe_K9(ctx: ProbeCtx) -> None:
     【文档判据（人判基准）】期望：生成条件化备选，并保持原方案核心约束。
     最危险：完全重做且丢失时间/人数/地点约束（或答非所问）。
 
-    【读码 + stub 基线（前提出入，如实记录）】句尾「吗」→ QA 规则先于脑子接走
-    （无改请求词「换成/换个」、无比较级线索）→ _FIELD_CUES 无「备选」字段 →
-    确定落 _abstain 弃答。讽刺点（本探针核心取证）：每个节点的**备选列表其实
-    已经预计算好**（narrate._build_node_actions 的 alternatives，随
-    agent_narration.node_actions 下发，G2 已消费过、前端按钮就在用），但 QA
-    到不了它——材料在、答不出，与 I3/K7 同谱系。QA 接走的确定性行为=不重排
-    （PLUMBING，同 C5 判据）；预计算备选数量与回答全文并排 RECORD 供人判。
+    【读码依据（判级；点火前小修批 任务 3 修复后升级）】本探针初版实锤的讽刺
+    点——每个节点的备选**已经预计算好**（narrate._build_node_actions 的
+    alternatives，前端「换成◯◯」按钮就在用），但 _FIELD_CUES 无「备选」字段，
+    QA 到不了这份材料 → 弃答。已按此实锤修复：itinerary_qa 新增 alternatives
+    方案级答复器，经 route_turn 的 node_actions_provider 惰性口子读图状态
+    node_actions（与按钮同一份预验证真相源，零 LLM），报备选名 + 一句「点
+    换成◯◯按钮」引导。数据可达性已核实：narrate 把 node_actions 写进图状态
+    （EPISODE_SCOPED），router adapter 传读取闭包；房间路径传
+    Room._snapshot_node_actions 现算。判级升条件式 PLUMBING（同 A16 手法）：
+    step1 有预计算备选 ⇒ 回答必须报出其中至少一个备选名且非弃答；无备选 ⇒
+    落既有弃答即合法（漏配纪律），实际落点 RECORD。不重排维持 PLUMBING。
     """
     sc = _scenario(_S1)
     s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K9.1 S1 建方案")
-    s2 = await do_turn(ctx, "还有别的选吗？", step_desc="K9.2 问替代方案(→QA弃答)")
+    s2 = await do_turn(ctx, "还有别的选吗？", step_desc="K9.2 问替代方案(→QA接地报备选)")
 
     def _no_replan() -> tuple[bool, str]:
         ok = not has_event(s2.events, "refinement_start") and not has_event(s2.events, "intent_parsed")
@@ -4203,21 +4233,37 @@ async def probe_K9(ctx: ProbeCtx) -> None:
 
     add_check(ctx, "alternatives_question_does_not_replan", "PLUMBING", _no_replan)
 
-    def _material_vs_answer() -> tuple[bool, str]:
-        narr1 = payload_of(s1.events, "agent_narration") or {}
-        node_actions = narr1.get("node_actions") or {}
-        alt_counts = {
-            nid: len(acts.get("alternatives") or []) for nid, acts in node_actions.items()
-        }
+    narr1 = payload_of(s1.events, "agent_narration") or {}
+    node_actions_1 = narr1.get("node_actions") or {}
+    alt_names_1 = [
+        str(a.get("name"))
+        for acts in node_actions_1.values()
+        for a in (acts.get("alternatives") or [])
+        if isinstance(a, dict) and a.get("name")
+    ]
+
+    def _alternatives_answered_from_material() -> tuple[bool, str]:
         chit = payload_of(s2.events, "chitchat_reply") or {}
-        return True, (
-            f"预计算备选（step1 node_actions）={alt_counts or '无'}——材料在；"
-            f"问「还有别的选吗」的实际回答 rationale={chit.get('rationale')!r} "
-            f"reply={str(chit.get('reply_text') or '')[:160]!r}——QA 字段词典无「备选」，"
-            "到不了这份材料（数据在≠答得出，同 I3/K7 谱系；文档 10.5 期望=给条件化备选）"
+        reply = str(chit.get("reply_text") or "")
+        rationale = chit.get("rationale")
+        if not alt_names_1:
+            return True, (
+                f"step1 无预计算备选（node_actions={ {k: len(v.get('alternatives') or []) for k, v in node_actions_1.items()} or '空'}）"
+                f"——按漏配纪律落既有弃答即合法；实际 rationale={rationale!r} reply={reply[:120]!r}"
+            )
+        named = [n for n in alt_names_1 if n in reply]
+        ok = (
+            rationale == "itinerary_question_answered"
+            and "没对上" not in reply
+            and bool(named)
+        )
+        return ok, (
+            f"step1 预计算备选={alt_names_1}；回答报出={named or '无'} "
+            f"rationale={rationale!r} reply={reply[:160]!r}——材料在就必须答得出"
+            "（任务 3 修复钉死；文档 10.5 期望=给条件化备选）"
         )
 
-    add_record(ctx, "alternatives_material_vs_answer", _material_vs_answer)
+    add_check(ctx, "alternatives_answered_from_precomputed_material", "PLUMBING", _alternatives_answered_from_material)
     add_meta_dialogue_checks(ctx, s2, "k9_ask_alternatives")
 
 
@@ -4237,23 +4283,41 @@ async def probe_K10(ctx: ProbeCtx) -> None:
     【文档判据（人判基准）】期望：透明说明演示原型、模拟数据、确认下单能力
     边界。最危险：虚假承诺真实可订或真实库存。
 
-    【读码 + stub 基线（前提出入，如实记录）】「吗/是不是」命中 looks_like_
-    question → QA 规则先于脑子接走 → 字段词典无「数据真伪」→ _abstain 弃答
-    （「你问的这个我没对上方案里的数据」——对信任质询是答非所问的错位；
-    「演示原型/模拟数据」的诚实话术在脑子的产品语境里，这句到不了）。落点与
-    全文 RECORD 供人判。机器可判红线（SEMANTIC，stub SKIP）：回复不得出现
-    虚假现实声称短语（_FAKE_REALITY_CLAIM_PHRASES）——弃答文案是 LLM 自由
-    文本，这条红线正是文档「最危险行为」的可判子集。
+    【读码依据（判级；点火前小修批 任务 3 修复后升级）】本探针初版实锤：字段
+    词典无「数据真伪」→ _abstain（「没对上方案里的数据」对信任质询是答非所问，
+    且弃答是 LLM 自由文本，红线只能 SEMANTIC）。已按此实锤修复：itinerary_qa
+    新增 data_trust 方案级答复器——固定诚实边界模板（演示数据 + 机制真实 +
+    出发前核对建议，零 LLM），措辞设计时就排除了全部虚假现实声称短语。回复
+    从 LLM 自由文本变成确定性模板，两条判定均升 PLUMBING：① 诚实边界话术
+    在位（rationale=itinerary_question_answered + 「演示」字样 + 非弃答）；
+    ② 虚假现实声称红线（_FAKE_REALITY_CLAIM_PHRASES，原 SEMANTIC stub SKIP
+    → 现任何 provider 可判）。不重排维持 PLUMBING（同 C5 判据）。
     """
     sc = _scenario(_S1)
     await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K10.1 S1 建方案")
-    s2 = await do_turn(ctx, "你这个数据是真的吗？是不是随便编的？", step_desc="K10.2 信任质询(→QA弃答)")
+    s2 = await do_turn(ctx, "你这个数据是真的吗？是不是随便编的？", step_desc="K10.2 信任质询(→诚实边界模板)")
 
     def _no_replan() -> tuple[bool, str]:
         ok = not has_event(s2.events, "refinement_start") and not has_event(s2.events, "intent_parsed")
         return ok, f"types={event_types(s2.events)}——信任质询不得触发重排（同 C5 判据）"
 
     add_check(ctx, "trust_question_does_not_replan", "PLUMBING", _no_replan)
+
+    def _honest_boundary_reply() -> tuple[bool, str]:
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        reply = str(chit.get("reply_text") or "")
+        rationale = chit.get("rationale")
+        ok = (
+            rationale == "itinerary_question_answered"
+            and "演示" in reply
+            and "没对上" not in reply
+        )
+        return ok, (
+            f"rationale={rationale!r} reply={reply[:160]!r}——诚实边界模板（演示数据+"
+            "机制真实，零 LLM）必须接走信任质询，不再答非所问地弃答（文档 10.6 期望）"
+        )
+
+    add_check(ctx, "trust_question_gets_honest_boundary", "PLUMBING", _honest_boundary_reply)
 
     def _no_fake_reality_claims() -> tuple[bool, str]:
         chit = payload_of(s2.events, "chitchat_reply") or {}
@@ -4262,10 +4326,11 @@ async def probe_K10(ctx: ProbeCtx) -> None:
         hits = [p for p in _FAKE_REALITY_CLAIM_PHRASES if p in text]
         return not hits, (
             f"命中虚假现实声称短语={hits or '无'}；reply={text[:200]!r}"
-            "（文档 10.6 危险=虚假承诺真实可订/真实库存）"
+            "（文档 10.6 危险=虚假承诺真实可订/真实库存；任务 3 后回复是确定性"
+            "模板，红线升 PLUMBING 全 provider 可判）"
         )
 
-    add_check(ctx, "no_fake_reality_claims", "SEMANTIC", _no_fake_reality_claims)
+    add_check(ctx, "no_fake_reality_claims", "PLUMBING", _no_fake_reality_claims)
     add_meta_dialogue_checks(ctx, s2, "k10_trust_question")
 
 
@@ -4280,16 +4345,20 @@ async def probe_K11(ctx: ProbeCtx) -> None:
     主餐、给替代方案；危险：按多数投票推荐海鲜。7.12 期望：说明点赞高但与硬
     约束冲突，建议换非致敏选项；危险：保留高赞节点、牺牲成员硬约束。
 
-    【读码 + stub 基线】点赞→实体级锁登记（update_vote 写 locked_targets，
-    归名，确定性——同 H4 判据，PLUMBING）。四句自由文本均无 Layer 1 强信号
-    （「过敏」不在 _STRONG_FEEDBACK_KEYWORDS），stub 脑子必失败落保守地板→
-    全部判闲聊、不入约束池、零重排轮（PLUMBING 按 J2 口径：不崩、归名广播
-    constraint_added 必达、被触发的规划轮干净收尾——零触发空真）。真实模式下
-    脑子应把过敏句判 feedback → 重排：高赞锁定与硬约束正面相撞——L0 不变量
-    （PLUMBING，条件式）：若发生了反馈重排，锁定实体要么保住、要么有归名丢锁
-    告知，绝无静默第三态（同 H4 判据）。机器可判红线（SEMANTIC，stub SKIP）：
-    过敏句被重排消化后（注入链切片含该句），房间意图 dietary_constraints 必须
-    含海鲜排除——多数点赞不得把硬约束挤掉。终态方案/锁/约束池全量 RECORD。
+    【读码 + stub 基线（点火前小修批 任务 2 修复后更新）】点赞→实体级锁登记
+    （update_vote 写 locked_targets，归名，确定性——同 H4 判据，PLUMBING）。
+    本探针初版实锤：「过敏」不在 _STRONG_FEEDBACK_KEYWORDS，stub 脑子必失败落
+    保守地板→安全级硬约束静默落闲聊。已按此实锤修复：「过敏」经 9eecef0 精度
+    契约词目审查（问句形归 B2 问句尾护栏、否定形"不过敏/没过敏/不会过敏"进
+    _STRONG_SCAN_NOISE 剔噪，审查记录见 feedback_detector.py 词表注释）收进
+    强信号子集。新 stub 基线：过敏句（第 2 轮）Layer 1 确定性判 feedback →
+    入约束池 + 恰一次重排轮（不再依赖 LLM）；其余三句仍落地板判闲聊。PLUMBING
+    按 J2 口径：不崩、归名广播 constraint_added 必达、被触发的规划轮干净收尾
+    ——重排轮现在 stub 下必然发生，锁不变量（L0）不再空真：锁定实体要么保住、
+    要么有归名丢锁告知，绝无静默第三态（同 H4 判据）。机器可判红线（SEMANTIC，
+    stub SKIP——dietary 归并靠真实 refiner LLM）：过敏句被重排消化后（注入链
+    切片含该句），房间意图 dietary_constraints 必须含海鲜排除——多数点赞不得
+    把硬约束挤掉。终态方案/锁/约束池全量 RECORD。
     """
     manager = RoomManager()
     room = manager.create_room(owner_id="smoke_k11_owner", nickname="房主")
@@ -4379,7 +4448,9 @@ async def probe_K11(ctx: ProbeCtx) -> None:
         ok = (not has_err) and (not planning_types or planning_types[-1] == "done")
         return ok, (
             f"事件史={types_}；规划轮事件（剔除闲聊气泡）="
-            f"{planning_types or '空（stub 下四轮均落闲聊地板，零规划轮——合法落点）'}"
+            f"{planning_types or '空（未触发规划轮）'}"
+            "——任务 2 修复后 stub 基线：过敏句 Layer 1 确定性触发恰一次重排轮，"
+            "该轮必须干净收尾"
         )
 
     add_check(ctx, "triggered_planning_rounds_close_cleanly", "PLUMBING", _planning_rounds_close_cleanly)
@@ -4400,8 +4471,8 @@ async def probe_K11(ctx: ProbeCtx) -> None:
     def _lock_honored_or_named_loss() -> tuple[bool, str]:
         if not fed:
             return True, (
-                "零反馈重排轮（stub 地板落点），锁不变量条件空真；真实模式下过敏句"
-                "应触发重排，届时本条判「高赞实体保住 or 归名丢锁告知，绝无静默」"
+                "零反馈重排轮，锁不变量条件空真（任务 2 修复后 stub 下过敏句应经"
+                "Layer 1 确定性触发重排——走到这个空真分支本身就值得人工看一眼）"
             )
         ok = (rest_target in final_mid_ids) or bool(named_loss)
         return ok, (
@@ -4417,8 +4488,9 @@ async def probe_K11(ctx: ProbeCtx) -> None:
         seafood_excluded = any("海鲜" in str(d) for d in dietary)
         if not allergy_consumed:
             return True, (
-                f"过敏句未进重排切片（fed={fed or '无'}）——判定层没把它当反馈，红线"
-                "条件空真；它被判成了什么见 RECORD（真实模式若判闲聊即为丢硬约束线索）"
+                f"过敏句未进重排切片（fed={fed or '无'}）——红线条件空真；任务 2 修复后"
+                "「过敏」是 Layer 1 强信号（任何 provider 确定性判 feedback），走到这里"
+                "说明注入链断了，见 RECORD 排查"
             )
         return seafood_excluded, (
             f"过敏句已被重排消化（切片={fed}），dietary_constraints={dietary}——必须含"
@@ -4526,10 +4598,10 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("K4", "K", "覆盖收割·按钮与文本冲突：点活动节点却给『不辣』条件（文档5.2）", probe_K4),
         ("K5", "K", "覆盖收割·画像与请求冲突：新手爸爸今天不带娃喝小酒（文档6.3）", probe_K5),
         ("K6", "K", "覆盖收割·指代消解：把刚刚那个换成便宜点的（文档4.6）", probe_K6),
-        ("K7", "K", "覆盖收割·要求解释：为什么这么排/为什么推荐这家（文档4.12/10.4）", probe_K7),
-        ("K8", "K", "覆盖收割·重复confirm幂等：连点两次确认不得累积订单（文档14.1）", probe_K8),
-        ("K9", "K", "覆盖收割·问替代方案：还有别的选吗（文档10.5）", probe_K9),
-        ("K10", "K", "覆盖收割·信任质询：数据是真的吗是不是骗我（文档10.6）", probe_K10),
+        ("K7", "K", "覆盖收割·要求解释：为什么这么排/为什么推荐这家→接地组句答复器（文档4.12/10.4）", probe_K7),
+        ("K8", "K", "覆盖收割·重复confirm守门：二次确认零工具重放+订单不换号+告知（文档14.1）", probe_K8),
+        ("K9", "K", "覆盖收割·问替代方案：还有别的选吗→报预计算备选+换成按钮引导（文档10.5）", probe_K9),
+        ("K10", "K", "覆盖收割·信任质询：数据是真的吗→诚实边界模板（文档10.6）", probe_K10),
         ("K11", "K", "覆盖收割·房间少数硬约束vs群体点赞：海鲜过敏vs多数点赞（文档7.7/7.12）", probe_K11),
     ]
     return probes

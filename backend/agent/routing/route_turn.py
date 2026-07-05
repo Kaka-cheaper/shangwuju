@@ -176,6 +176,8 @@ def route_turn(
     context_source: SessionContextSource,
     classify_fn: Any = None,
     session_id: Any = None,
+    intent: Any = None,
+    node_actions_provider: Any = None,
 ) -> RouteOutcome:
     """路由主干——整条级联，纯函数，返回 RouteOutcome。
 
@@ -196,6 +198,16 @@ def route_turn(
             模块级 `classify_turn`）。adapter（graph/nodes/router.py）传入其自身
             命名空间的 `classify_turn`，使得 `monkeypatch.setattr(router_mod, ...)`
             仍然有效。
+        intent:        当前意图（点火前小修批 任务 3）——Layer 1.8 QA 的
+            why_rationale 答复器用它组「实体字段×意图命中」句。IntentExtraction
+            （图状态）或 dict（房间 current_intent_dict）皆可；缺省 None →
+            该答复器退化为纯实体字段组句。
+        node_actions_provider: 惰性取 node_actions 的 0 参 callable（任务 3）——
+            Layer 1.8 QA 的 alternatives 答复器报 narrate 预计算的具名备选
+            （与「换成◯◯」按钮同一份预验证真相源）。单人路径传图状态读取
+            闭包；房间路径传 Room._snapshot_node_actions（现算）。惰性口子保证
+            只有 alternatives 字段命中的问句才付这份成本；缺省 None → 该问句
+            落既有弃答。
 
     Returns:
         RouteOutcome(kind, decision)
@@ -235,7 +247,13 @@ def route_turn(
 
     # ---- Layer 1.8：会话内规则判定（has_itinerary 时才跑，前移自旧 Layer 3）----
     if has_itinerary:
-        qa_decision = build_question_decision(utterance, itinerary, client=client)
+        qa_decision = build_question_decision(
+            utterance,
+            itinerary,
+            client=client,
+            intent=intent,
+            node_actions_provider=node_actions_provider,
+        )
         if qa_decision is not None:
             return RouteOutcome(kind="chitchat", decision=qa_decision)
 
