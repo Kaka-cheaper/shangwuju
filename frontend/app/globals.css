@@ -74,6 +74,8 @@
     z-index: 0;
     pointer-events: none;
     overflow: hidden;
+    --grid-x: 50vw;
+    --grid-y: 42vh;
   }
   .aurora-bg::before,
   .aurora-bg::after {
@@ -110,6 +112,39 @@
       transparent 75%
     );
     animation: auroraDrift 28s ease-in-out infinite reverse;
+  }
+
+  .aurora-bg__grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgb(255 209 0 / 0.52) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 209 0 / 0.52) 1px, transparent 1px);
+    background-size: 42px 42px;
+    transform: translateZ(0);
+    will-change: background-position, opacity, mask-image;
+  }
+
+  .aurora-bg--web-grid .aurora-bg__grid--base {
+    opacity: 0.1;
+    animation: infiniteGridDrift 28s linear infinite;
+  }
+
+  .aurora-bg--web-grid .aurora-bg__grid--reveal {
+    opacity: 0.58;
+    animation: infiniteGridDrift 28s linear infinite;
+    mask-image: radial-gradient(
+      340px circle at var(--grid-x) var(--grid-y),
+      rgb(0 0 0 / 0.95) 0%,
+      rgb(0 0 0 / 0.62) 34%,
+      transparent 70%
+    );
+    -webkit-mask-image: radial-gradient(
+      340px circle at var(--grid-x) var(--grid-y),
+      rgb(0 0 0 / 0.95) 0%,
+      rgb(0 0 0 / 0.62) 34%,
+      transparent 70%
+    );
   }
 
   /* ============================================================
@@ -505,6 +540,15 @@
   66% {
     transform: translate3d(-30px, 40px, 0) scale(0.95);
     opacity: 0.4;
+  }
+}
+
+@keyframes infiniteGridDrift {
+  0% {
+    background-position: 0 0, 0 0;
+  }
+  100% {
+    background-position: 42px 42px, 42px 42px;
   }
 }
 
