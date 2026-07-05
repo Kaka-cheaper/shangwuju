@@ -3772,6 +3772,677 @@ async def probe_J5(ctx: ProbeCtx) -> None:
     add_record(ctx, "revoke_append_snapshot", _snapshot)
 
 
+# ---- K. 覆盖体系收割探针（外部覆盖文档盲区差集 · 2026-07-05）-----------------
+#
+# 判据来源：仓库根 halfday_trip_planner_test_coverage.md（外部 AI 生成的覆盖
+# 体系）——每条语句自带【期望的正确行为】/【最危险的错误行为】标注，摘进各
+# 探针 docstring 作人判基准。K1-K11 是主代理差集筛出的 11 个既有探针未覆盖的
+# 盲区（追问之后 / 按钮文本冲突 / 画像冲突 / 指代 / 解释 / 幂等 / 备选 /
+# 信任质询 / 房间少数硬约束）。
+#
+# 判定纪律（与 I/J 类同，任务书钉死）：摸底定位。
+# - PLUMBING：管道（done 收尾/无 stream_error/回复非空/不崩连接，baseline 统一
+#   收口）+ 读码核实过的确定性规则/引擎行为（如：问句被 Layer 1.8 QA 规则拦截
+#   不重排——itinerary_qa.looks_like_question 的疑问尾判定与 provider 无关，
+#   同 C5/I3 判级先例；「便宜点」∈ feedback_detector._STRONG_FEEDBACK_KEYWORDS
+#   触发 Layer 1 反馈轮；换菜引擎只动一站或诚实不动；双 confirm 订单数不累积）。
+# - RECORD：回答全文与关键状态供人判——什么算「答得体面」以覆盖文档的期望/
+#   危险标注为人判基准，不做先验断言（I 类摸底哲学）。
+# - SEMANTIC：仅机器可判红线（K5 画像锁死 / K10 虚假现实声称 / K11 过敏硬约束
+#   落地），stub 下自动 SKIP 不假失败。
+# - 多轮照 B/I 类形状（do_turn 链 + add_meta_dialogue_checks 复用），房间照
+#   J2/H4 形状（RoomManager + _FakeWebSocket + 实例级 spy）。
+
+
+def _k_round_kind(step: StepLog) -> str:
+    """K 族共用：一轮的判定义务（planning 以 intent_parsed 出现为准）。"""
+    if has_event(step.events, "intent_parsed"):
+        return "planning"
+    chit = payload_of(step.events, "chitchat_reply") or {}
+    return str(chit.get("input_kind"))
+
+
+async def probe_K1(ctx: ProbeCtx) -> None:
+    """K1 追问后答「随便」（覆盖文档 2.4，多轮）。
+
+    【文档判据（人判基准）】期望：停止追问，按合理默认值生成方案，并说明假设
+    条件。最危险：继续追问多轮，破坏「追问一次」的产品规则。
+
+    【读码 + stub 基线】R1「周五晚上想出去玩」无规则层命中（非 canonical、
+    Layer 1 需 has_itinerary、无画像线索、新会话 Layer 1.8 整段跳过）→ 落脑子
+    （真实模式）/壳3 无方案地板（stub：chitchat 暖引导气泡——它就是「追问」）。
+    R2「随便，你看着办」同样无规则命中。此前 72 探针只测过「会追问」（A15 单句
+    随便），从没测「追问之后系统干什么」——真实模式 R2 是否停止追问、按默认
+    生成、说明假设，全量 RECORD 供人判；stub 下两轮确定落地板，只能钉管道
+    （done/无 stream_error/回复非空）。若真实模式 R1 直接出了方案，R2 的语义
+    变成「方案后的敷衍回应」，落点照记不预设对错。
+    """
+    s1 = await do_turn(ctx, "周五晚上想出去玩", step_desc="K1.1 口语开局(信息不足→应追问一次)")
+    s2 = await do_turn(ctx, "随便，你看着办", step_desc="K1.2 追问后答随便(应停止追问出默认方案)")
+    add_meta_dialogue_checks(ctx, s1, "k1_open")
+    add_meta_dialogue_checks(ctx, s2, "k1_whatever")
+
+    def _followup_shape() -> tuple[bool, str]:
+        planned2 = has_event(s2.events, "itinerary_ready")
+        narr2 = payload_of(s2.events, "agent_narration") or {}
+        return True, (
+            f"R1 判定={_k_round_kind(s1)!r}，R2 判定={_k_round_kind(s2)!r}，"
+            f"R2 出方案={planned2}（文档 2.4 期望=停止追问按默认生成并说明假设；"
+            f"危险=继续追问多轮）；R2 narration={str(narr2.get('text') or '')[:100]!r}"
+        )
+
+    add_record(ctx, "clarify_then_whatever_shape", _followup_shape)
+
+
+async def probe_K2(ctx: ProbeCtx) -> None:
+    """K2 用户拒绝追问（覆盖文档 2.5，多轮）。
+
+    【文档判据（人判基准）】期望：直接生成默认方案，明确「以下按 2 人、市中心、
+    中等预算估计」这类假设声明。最危险：拒绝服务，或者继续反复索要信息。
+
+    【读码 + stub 基线】同 K1 谱系：两句均无规则层命中（「别问了，直接给」不含
+    强反馈词/画像线索/canonical 全串），stub 下两轮都落壳3 地板（R1 无方案 →
+    chitchat 暖引导即「追问」；R2 同样地板——「拒绝追问后还在原地打转」正是
+    stub 地板的已知形态，不算 stub 失败）。真实模式 R2 是否敢按默认出方案 +
+    是否声明假设，RECORD 供人判。
+    """
+    s1 = await do_turn(ctx, "明天下午安排半天", step_desc="K2.1 信息不足开局(→应追问)")
+    s2 = await do_turn(ctx, "别问了，直接给", step_desc="K2.2 拒绝追问(应按默认直接生成)")
+    add_meta_dialogue_checks(ctx, s1, "k2_open")
+    add_meta_dialogue_checks(ctx, s2, "k2_refuse_ask")
+
+    def _refusal_honored() -> tuple[bool, str]:
+        planned2 = has_event(s2.events, "itinerary_ready")
+        narr2 = payload_of(s2.events, "agent_narration") or {}
+        chit2 = payload_of(s2.events, "chitchat_reply") or {}
+        return True, (
+            f"R1 判定={_k_round_kind(s1)!r}，R2 判定={_k_round_kind(s2)!r}，"
+            f"R2 出方案={planned2}（文档 2.5 期望=直接默认生成+假设声明；危险=拒绝"
+            f"服务或反复索要）；R2 文案={str(narr2.get('text') or chit2.get('reply_text') or '')[:120]!r}"
+        )
+
+    add_record(ctx, "refuse_ask_honored_shape", _refusal_honored)
+
+
+async def probe_K3(ctx: ProbeCtx) -> None:
+    """K3 追问后答非所问/给无效信息（覆盖文档 2.6，多轮）。
+
+    【文档判据（人判基准）】期望：识别「就那边/几个人还没定」仍不确定，给可变
+    人数/可替换节点的弹性方案（或继续澄清）。最危险：把「那边」当具体地点，
+    编造地名。
+
+    【读码 + stub 基线】两句均无规则层命中（「几个人还没定」的「几」不在
+    feedback_detector 中文数字表，不触发数字+单位模式；新会话 Layer 1/1.8 均
+    跳过）→ stub 两轮地板。真实模式 R2 若进 planning，intent 与方案里有没有
+    凭空捏出的具体地点/人数出处，RECORD intent 关键字段供人对照（编造与否
+    人判——「那边」没有结构化地点槽位，机器无公认判据）。
+    """
+    s1 = await do_turn(ctx, "今晚想玩", step_desc="K3.1 极简开局(→应追问地点人数)")
+    s2 = await do_turn(ctx, "就那边，几个人还没定", step_desc="K3.2 答非所问(仍无有效信息)")
+    add_meta_dialogue_checks(ctx, s1, "k3_open")
+    add_meta_dialogue_checks(ctx, s2, "k3_vague_answer")
+
+    def _fabrication_material() -> tuple[bool, str]:
+        intent = payload_of(s2.events, "intent_parsed") or {}
+        itin = payload_of(s2.events, "itinerary_ready")
+        return True, (
+            f"R2 判定={_k_round_kind(s2)!r}，进 planning={bool(intent)}；"
+            f"intent 关键字段：capacity_requirement={intent.get('capacity_requirement')!r} "
+            f"companions={intent.get('companions')!r} distance_max_km={intent.get('distance_max_km')!r} "
+            f"raw_input={str(intent.get('raw_input') or '')[:80]!r}；"
+            f"方案节点={node_id_list(itin) if itin else '无'}（文档 2.6 危险=把「那边」"
+            "当具体地点编造——地点/人数有没有被凭空钉死由人对照上述字段判）"
+        )
+
+    add_record(ctx, "vague_answer_fabrication_material", _fabrication_material)
+
+
+async def probe_K4(ctx: ProbeCtx) -> None:
+    """K4 按钮与文本冲突（覆盖文档 5.2）：点**活动**节点的调整按钮，文字条件却
+    是餐饮语义「不辣」。
+
+    【文档判据（人判基准）】期望：识别文本条件更像餐厅，提示「你是想换餐厅还是
+    活动？」或按按钮上下文给不刺激活动。最危险：错误替换活动且无法满足「不辣」
+    语义（嘴上宣称满足=更糟）。
+
+    【读码依据（判级）】/chat/adjust 是结构化指令、不经 LLM 路由（ADR-0013
+    决策 4）；dietary 谓词对候选走 `adjustment.value in candidate.tags`
+    （node_swap._adjustment_satisfied）——活动类候选几乎不带「不辣」tag →
+    只能降级换（SWAP_DEGRADED 合并诚实告知「没找到完全符合的」）或业务性失败
+    （方案不动 + 告知）。两种落点都合法；引擎级确定性不变量（PLUMBING，任何
+    provider）是**绝不整套重排、绝不哑掉**：要么 itinerary_ready 且只动这一站
+    （同 G1 判据），要么无 itinerary_ready 且方案不动、有告知文案（同 G6 判据）。
+    「按你的要求…不辣」的完全命中话术只在候选真有该 tag 时才该出现——真伪由
+    RECORD 的 narration + advisory 供人判。
+    """
+    sc = _scenario(_S2)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K4.1 S2 建方案")
+    before_itin = ctx.extras.get("itinerary")
+    s2 = await do_adjust(
+        ctx,
+        node_kind="poi",
+        action={"type": "adjust", "adjustment": {"dimension": "dietary", "value": "不辣"}, "label": "不要辣的"},
+        step_desc="K4.2 adjust(活动节点+餐饮条件『不辣』——按钮与文本冲突)",
+    )
+
+    def _bounded_outcome() -> tuple[bool, str]:
+        after = payload_of(s2.events, "itinerary_ready")
+        narr = payload_of(s2.events, "agent_narration") or {}
+        if after is not None:
+            ok, detail = single_node_diff(before_itin, after)
+            return ok, f"引擎选择了换：{detail}（只动一站=冲突被限定在按钮上下文内）"
+        ok_unchanged, detail_u = itinerary_unchanged(before_itin, ctx.extras.get("itinerary"))
+        told = bool((narr.get("text") or "").strip())
+        return ok_unchanged and told, (
+            f"引擎选择了不换：方案不动={ok_unchanged}（{detail_u}），告知文案存在={told}"
+            "——业务性失败必须有话（绝不哑掉）"
+        )
+
+    add_check(ctx, "conflict_bounded_single_swap_or_honest_no_op", "PLUMBING", _bounded_outcome)
+
+    def _conflict_outcome_record() -> tuple[bool, str]:
+        after = payload_of(s2.events, "itinerary_ready")
+        narr = payload_of(s2.events, "agent_narration") or {}
+        msgs = narr.get("messages") or []
+        full_hit_claim = "按你的要求" in (narr.get("text") or "")
+        return True, (
+            f"换了={after is not None}；narration={str(narr.get('text') or '')[:160]!r}；"
+            f"advisory messages={[m.get('code') for m in msgs]}；"
+            f"完全命中话术出现={full_hit_claim}（文档 5.2 危险=换了活动还宣称满足"
+            "「不辣」——若 full_hit_claim=True 且新活动无该 tag 即为该危险行为实锤，人判）"
+        )
+
+    add_record(ctx, "button_text_conflict_outcome", _conflict_outcome_record)
+
+
+async def probe_K5(ctx: ProbeCtx) -> None:
+    """K5 画像与当前请求冲突（覆盖文档 6.3）：默认画像=新手爸爸（demo_user →
+    u_dad 模板），当前请求明说「不带娃、和朋友喝小酒」。
+
+    【文档判据（人判基准）】期望：当前明确需求优先于画像，同时保留必要风险
+    提示。最危险：被画像锁死，忽略用户当前场景（推荐亲子路线 / 爹味说教——
+    另见文档情况 M「人设崩塌式的需求」同款危险标注）。
+
+    【读码 + stub 基线】这句无任何规则层命中（「我是新手爸爸」不在 persona_qa.
+    _PERSONA_CUES；无强反馈信号；新会话无方案）→ 确定落脑子（真实模式）/壳3
+    地板（stub：chitchat 暖引导）。画像模板通过 intent parser 的 priors 段注入
+    ——「明说不带娃时 parser 是否还会塞亲子约束」是机器可判红线（SEMANTIC，
+    stub SKIP）：companions 不得含儿童、physical_constraints 不得含「亲子友好」。
+    方案调性与风险提示措辞留 RECORD 人判。
+    """
+    s = await do_turn(
+        ctx,
+        "我是新手爸爸，但今天不带娃，就想和朋友喝点小酒，找个热闹的地方",
+        step_desc="K5.1 画像(带娃)与当前请求(不带娃小酒)冲突",
+    )
+    add_meta_dialogue_checks(ctx, s, "k5_persona_conflict")
+
+    def _no_kid_lock_in() -> tuple[bool, str]:
+        intent = payload_of(s.events, "intent_parsed")
+        if not intent:
+            return True, (
+                f"未进 planning（判定={_k_round_kind(s)!r}），画像锁死红线不适用"
+                "（条件空真；真实模式若也不进 planning，本身就是 RECORD 里要看的落点）"
+            )
+        kids = [c for c in (intent.get("companions") or []) if (c.get("age") or 99) <= 12]
+        phys = intent.get("physical_constraints") or []
+        kid_tag = "亲子友好" in phys
+        ok = not kids and not kid_tag
+        return ok, (
+            f"明说不带娃后：儿童同伴={kids or '无'}，physical_constraints={phys}"
+            f"（含亲子友好={kid_tag}）——画像模板先验不得压过当前明确请求（文档 6.3）"
+        )
+
+    add_check(ctx, "explicit_no_kid_overrides_persona_priors", "SEMANTIC", _no_kid_lock_in)
+
+    def _tone_record() -> tuple[bool, str]:
+        intent = payload_of(s.events, "intent_parsed") or {}
+        itin = payload_of(s.events, "itinerary_ready")
+        titles = [n.get("title") for n in (itin or {}).get("nodes", []) if n.get("target_kind") != "home"]
+        return True, (
+            f"social_context={intent.get('social_context')!r} companions={intent.get('companions')!r}；"
+            f"方案节点={titles or '无'}（调性该是朋友小酒局不是遛娃）；"
+            f"叙事是否有爹味说教/风险提示的度，由 full_reply 记录人判"
+        )
+
+    add_record(ctx, "persona_conflict_plan_tone", _tone_record)
+
+
+async def probe_K6(ctx: ProbeCtx) -> None:
+    """K6 指代消解（覆盖文档 4.6）：S1 建方案后说「把刚刚那个换成便宜点的」。
+
+    【文档判据（人判基准）】期望：识别「刚刚那个」指代的节点，只换该节点（文档
+    原例是密室→换轻松活动）。最危险：误换别的节点，或整套方案重做。
+
+    【读码依据（判级）】「便宜点」∈ feedback_detector._STRONG_FEEDBACK_KEYWORDS
+    且句尾无疑问标记 → Layer 1 强信号（不调 LLM，任何 provider 确定）判
+    feedback → refiner 重排轮；stub 下 refiner 走 _rule_fallback（_KEYWORDS_
+    CHEAPER 含「便宜」）。反馈轮完成（refinement_done + itinerary_ready）是
+    管道承诺（PLUMBING，同 B1 判据）。「换的是不是『刚刚那个』」是指代消解
+    质量——反馈路径是全量重排管线，没有节点级指代槽位，动几站、动哪站由
+    RECORD 快照供人判（机器无公认判据，不设先验红线；这正是与 /chat/adjust
+    结构化定点换菜的能力差，值得记档）。
+    """
+    sc = _scenario(_S1)
+    s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K6.1 S1 建方案")
+    before_itin = payload_of(s1.events, "itinerary_ready")
+    s2 = await do_turn(ctx, "把刚刚那个换成便宜点的", step_desc="K6.2 指代反馈(便宜点→Layer1确定命中)")
+
+    def _feedback_round_completes() -> tuple[bool, str]:
+        ok = has_event(s2.events, "refinement_done") and has_event(s2.events, "itinerary_ready")
+        return ok, (
+            f"types={event_types(s2.events)}——「便宜点」命中 Layer 1 强信号子集，"
+            "反馈重排轮必须完整走完（同 B1 判据）"
+        )
+
+    add_check(ctx, "strong_feedback_round_completes", "PLUMBING", _feedback_round_completes)
+
+    def _referent_snapshot() -> tuple[bool, str]:
+        import collections
+
+        after_itin = payload_of(s2.events, "itinerary_ready")
+        b_ids, a_ids = node_id_list(before_itin), node_id_list(after_itin)
+        b_cnt, a_cnt = collections.Counter(b_ids), collections.Counter(a_ids)
+        removed = list((b_cnt - a_cnt).elements())
+        added = list((a_cnt - b_cnt).elements())
+        rd = payload_of(s2.events, "refinement_done") or {}
+        refined = rd.get("refined_intent") or {}
+        return True, (
+            f"before={b_ids} after={a_ids}；移除={removed or '无'} 加入={added or '无'}"
+            f"（动了 {len(removed)} 站——文档 4.6 期望=只换指代那一站；危险=整套重做）；"
+            f"refined budget_per_person={refined.get('budget_per_person')!r} "
+            f"changed_summary={rd.get('summary')!r}"
+        )
+
+    add_record(ctx, "referent_resolution_snapshot", _referent_snapshot)
+
+
+async def probe_K7(ctx: ProbeCtx) -> None:
+    """K7 要求解释（覆盖文档 4.12 + 10.4）：方案后问「为什么你把餐厅放在活动
+    后面？」「为什么推荐这家餐厅？」
+
+    【文档判据（人判基准）】期望：解释基于通勤/餐厅高峰/活动时长/画像/预算的
+    规划理由。最危险：无法解释、给空泛营销话术，或编造真实数据来源。
+
+    【读码 + stub 基线（前提出入，如实记录）】两句都以「？」收尾 → itinerary_qa.
+    looks_like_question 命中、无改请求线索 → Layer 1.8 QA 规则先于脑子接走；
+    但 _FIELD_CUES 词典只有价格/距离/营业等**方案数据字段**，没有「为什么/
+    理由」字段 → 确定落 _abstain 弃答分支（调一次 LLM 写弃答文案，出口有
+    _ABSTAIN_REPLY_MAX=380 字钳制——d35435f 修复后 stub 固定长 JSON 不再炸流，
+    本探针顺带端到端钉住该保险丝）。结果：narrate 的规划理由与 intent 字段材料
+    明明在，「为什么」却到不了能解释它的脑子——与 I3 同款「数据在≠答得出」。
+    QA 接走的确定性行为=不重排（PLUMBING，同 C5 判据）；回答全文 RECORD 人判。
+    """
+    sc = _scenario(_S1)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K7.1 S1 建方案")
+    s2 = await do_turn(ctx, "为什么你把餐厅放在活动后面？", step_desc="K7.2 问排序理由(4.12)")
+    s3 = await do_turn(ctx, "为什么推荐这家餐厅？", step_desc="K7.3 问推荐理由(10.4)")
+
+    def _no_replan() -> tuple[bool, str]:
+        bad = []
+        for tag, s in (("排序理由", s2), ("推荐理由", s3)):
+            if has_event(s.events, "refinement_start") or has_event(s.events, "intent_parsed"):
+                bad.append(f"{tag}: types={event_types(s.events)}")
+        return not bad, "; ".join(bad) or (
+            "两问均未触发重排——QA 规则（确定性）接走问句（同 C5 判据）"
+        )
+
+    add_check(ctx, "why_questions_do_not_replan", "PLUMBING", _no_replan)
+
+    def _clamp_evidence() -> tuple[bool, str]:
+        lens = []
+        for tag, s in (("排序理由", s2), ("推荐理由", s3)):
+            chit = payload_of(s.events, "chitchat_reply") or {}
+            lens.append(f"{tag}: len={len(chit.get('reply_text') or '')} rationale={chit.get('rationale')!r}")
+        return True, (
+            "; ".join(lens)
+            + "——弃答出口 380 字钳制（d35435f）端到端在位（stub 固定长 JSON 被截断而非炸流）"
+        )
+
+    add_record(ctx, "abstain_clamp_evidence", _clamp_evidence)
+    add_meta_dialogue_checks(ctx, s2, "k7_why_order")
+    add_meta_dialogue_checks(ctx, s3, "k7_why_this_one")
+
+
+async def probe_K8(ctx: ProbeCtx) -> None:
+    """K8 重复点击确认幂等（覆盖文档 14.1）：建方案 → confirm → 再 confirm。
+
+    【文档判据（人判基准）】期望：幂等处理，只保留一个待确认或一个订单，不
+    重复下单。最危险：重复创建多个订单。
+
+    【读码依据（判级）】/chat/confirm **无**「已确认」守门（graph_confirm.py
+    顶部只查 session 有无方案；对比 /chat/adjust 的 CONFIRMED_ADJUST_BLOCKED
+    闸——两个端点对同一状态的守门不对称）。第二次 confirm 把 SESSION_STORE 里
+    已含 orders 的方案再走一遍 execute_finalize_node → replay_confirm_actions
+    重放动作清单、新 orders **整体替换**旧 orders（model_copy(update=...)，
+    不是追加）。因此机器可判的确定性不变量（PLUMBING，任何 provider——confirm
+    链路零 LLM 依赖）：第二次 confirm 后订单**数量不增**。但工具层被真实重放
+    （reserve_restaurant 等再跑一遍），order_id 掺 ms 时间戳（tools/reserve_
+    restaurant._make_order_id）大概率换号——「同一份预约悄悄换了单号」= 无
+    幂等键的生产问题线索，RECORD 取证，绝不顺手修。
+    """
+    sc = _scenario(_S2)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K8.1 S2 建方案")
+    s2 = await do_confirm(ctx, step_desc="K8.2 第一次 confirm")
+    s3 = await do_confirm(ctx, step_desc="K8.3 第二次 confirm(重复点击)")
+
+    orders_1 = ((payload_of(s2.events, "itinerary_ready") or {}).get("orders")) or []
+    orders_2 = ((payload_of(s3.events, "itinerary_ready") or {}).get("orders")) or []
+
+    def _first_confirm_ok() -> tuple[bool, str]:
+        return bool(orders_1), f"第一次 confirm orders={len(orders_1)} 份（铺垫完整性，同 G3 判据）"
+
+    add_check(ctx, "pretext_first_confirm_orders_present", "PLUMBING", _first_confirm_ok)
+
+    def _no_accumulation() -> tuple[bool, str]:
+        ok = len(orders_2) == len(orders_1) and bool(orders_2)
+        return ok, (
+            f"订单数：第一次={len(orders_1)} → 第二次={len(orders_2)}（replay 整体替换，"
+            "数量不得增长——文档 14.1 的机器可判子集：方案层绝不累积出第二份订单）"
+        )
+
+    add_check(ctx, "double_confirm_no_order_accumulation", "PLUMBING", _no_accumulation)
+
+    def _idempotency_evidence() -> tuple[bool, str]:
+        ids_1 = [o.get("order_id") for o in orders_1]
+        ids_2 = [o.get("order_id") for o in orders_2]
+        retools = [
+            (e.get("payload") or {}).get("tool")
+            for e in s3.events
+            if e.get("type") == "tool_call_start"
+        ]
+        same_ids = ids_1 == ids_2
+        return True, (
+            f"order_id 第一次={ids_1} 第二次={ids_2}（相同={same_ids}）；第二次 confirm "
+            f"实际重放的工具={retools}。生产问题线索（只记录不修）：/chat/confirm 无"
+            "已确认守门、无幂等键，重复点击=预约工具真实重放；order_id 掺时间戳，重放"
+            "大概率换单号——方案层订单数不涨（上一条已钉死），但「同一预约换单号」"
+            "对接真实下单时就是重复下单，路演前需产品拍板是否加闸"
+        )
+
+    add_record(ctx, "double_confirm_idempotency_evidence", _idempotency_evidence)
+
+    async def _version_log() -> tuple[bool, str]:
+        try:
+            graph = get_compiled_graph()
+            snapshot = await graph.aget_state({"configurable": {"thread_id": ctx.session_id}})
+            log = (snapshot.values or {}).get("plan_version_log") or []
+            confirm_entries = [e.get("summary") for e in log if e.get("trigger") == "confirm"]
+            return True, (
+                f"版本志 confirm 条目={confirm_entries}（两次点击各记一笔=重复动作在"
+                "审计轨上可见；条目数即重复 confirm 的次数证据）"
+            )
+        except Exception as e:  # noqa: BLE001
+            return True, f"图状态内省失败（不影响判定）：{type(e).__name__}: {e}"
+
+    log_detail = await _version_log()
+    add_record(ctx, "double_confirm_version_log", lambda: log_detail)
+
+
+async def probe_K9(ctx: ProbeCtx) -> None:
+    """K9 问替代方案（覆盖文档 10.5）：方案后问「还有别的选吗？」
+
+    【文档判据（人判基准）】期望：生成条件化备选，并保持原方案核心约束。
+    最危险：完全重做且丢失时间/人数/地点约束（或答非所问）。
+
+    【读码 + stub 基线（前提出入，如实记录）】句尾「吗」→ QA 规则先于脑子接走
+    （无改请求词「换成/换个」、无比较级线索）→ _FIELD_CUES 无「备选」字段 →
+    确定落 _abstain 弃答。讽刺点（本探针核心取证）：每个节点的**备选列表其实
+    已经预计算好**（narrate._build_node_actions 的 alternatives，随
+    agent_narration.node_actions 下发，G2 已消费过、前端按钮就在用），但 QA
+    到不了它——材料在、答不出，与 I3/K7 同谱系。QA 接走的确定性行为=不重排
+    （PLUMBING，同 C5 判据）；预计算备选数量与回答全文并排 RECORD 供人判。
+    """
+    sc = _scenario(_S1)
+    s1 = await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K9.1 S1 建方案")
+    s2 = await do_turn(ctx, "还有别的选吗？", step_desc="K9.2 问替代方案(→QA弃答)")
+
+    def _no_replan() -> tuple[bool, str]:
+        ok = not has_event(s2.events, "refinement_start") and not has_event(s2.events, "intent_parsed")
+        return ok, f"types={event_types(s2.events)}——问备选不得触发重排（同 C5 判据）"
+
+    add_check(ctx, "alternatives_question_does_not_replan", "PLUMBING", _no_replan)
+
+    def _material_vs_answer() -> tuple[bool, str]:
+        narr1 = payload_of(s1.events, "agent_narration") or {}
+        node_actions = narr1.get("node_actions") or {}
+        alt_counts = {
+            nid: len(acts.get("alternatives") or []) for nid, acts in node_actions.items()
+        }
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        return True, (
+            f"预计算备选（step1 node_actions）={alt_counts or '无'}——材料在；"
+            f"问「还有别的选吗」的实际回答 rationale={chit.get('rationale')!r} "
+            f"reply={str(chit.get('reply_text') or '')[:160]!r}——QA 字段词典无「备选」，"
+            "到不了这份材料（数据在≠答得出，同 I3/K7 谱系；文档 10.5 期望=给条件化备选）"
+        )
+
+    add_record(ctx, "alternatives_material_vs_answer", _material_vs_answer)
+    add_meta_dialogue_checks(ctx, s2, "k9_ask_alternatives")
+
+
+# K10 虚假现实声称禁止短语集：覆盖文档 8.5/10.6/13.3 的「最危险行为」可判子集
+# ——演示原型绝不可宣称真实库存/实时排队/真实预订成功。用具体多字短语（同
+# A22 手法），避开会误伤正常文案的短词（如「真的」「订」）。
+_FAKE_REALITY_CLAIM_PHRASES = (
+    "真实库存", "实时排队", "实时数据", "已接入真实",
+    "已经订好", "预订成功", "已预订", "已下单成功", "真实预订",
+)
+
+
+async def probe_K10(ctx: ProbeCtx) -> None:
+    """K10 「你是不是骗我」信任质询（覆盖文档 10.6）：方案后问「你这个数据是
+    真的吗？是不是随便编的？」
+
+    【文档判据（人判基准）】期望：透明说明演示原型、模拟数据、确认下单能力
+    边界。最危险：虚假承诺真实可订或真实库存。
+
+    【读码 + stub 基线（前提出入，如实记录）】「吗/是不是」命中 looks_like_
+    question → QA 规则先于脑子接走 → 字段词典无「数据真伪」→ _abstain 弃答
+    （「你问的这个我没对上方案里的数据」——对信任质询是答非所问的错位；
+    「演示原型/模拟数据」的诚实话术在脑子的产品语境里，这句到不了）。落点与
+    全文 RECORD 供人判。机器可判红线（SEMANTIC，stub SKIP）：回复不得出现
+    虚假现实声称短语（_FAKE_REALITY_CLAIM_PHRASES）——弃答文案是 LLM 自由
+    文本，这条红线正是文档「最危险行为」的可判子集。
+    """
+    sc = _scenario(_S1)
+    await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="K10.1 S1 建方案")
+    s2 = await do_turn(ctx, "你这个数据是真的吗？是不是随便编的？", step_desc="K10.2 信任质询(→QA弃答)")
+
+    def _no_replan() -> tuple[bool, str]:
+        ok = not has_event(s2.events, "refinement_start") and not has_event(s2.events, "intent_parsed")
+        return ok, f"types={event_types(s2.events)}——信任质询不得触发重排（同 C5 判据）"
+
+    add_check(ctx, "trust_question_does_not_replan", "PLUMBING", _no_replan)
+
+    def _no_fake_reality_claims() -> tuple[bool, str]:
+        chit = payload_of(s2.events, "chitchat_reply") or {}
+        narr = payload_of(s2.events, "agent_narration") or {}
+        text = (chit.get("reply_text") or "") + " " + (narr.get("text") or "")
+        hits = [p for p in _FAKE_REALITY_CLAIM_PHRASES if p in text]
+        return not hits, (
+            f"命中虚假现实声称短语={hits or '无'}；reply={text[:200]!r}"
+            "（文档 10.6 危险=虚假承诺真实可订/真实库存）"
+        )
+
+    add_check(ctx, "no_fake_reality_claims", "SEMANTIC", _no_fake_reality_claims)
+    add_meta_dialogue_checks(ctx, s2, "k10_trust_question")
+
+
+async def probe_K11(ctx: ProbeCtx) -> None:
+    """K11 房间·少数硬约束 vs 群体点赞（覆盖文档 7.7 + 7.12，多角色）。
+
+    脚本（照文档 7.7 原样 + 7.12 的点赞冲突前置）：成员 B/C 先点赞餐厅节点
+    （多数锁定）→ 房主「想吃海鲜」→ 成员A「我海鲜过敏」→ 成员B「我想吃
+    海鲜自助」→ 成员C「听多数吧」。
+
+    【文档判据（人判基准）】7.7 期望：过敏作为硬约束优先于多数偏好，避免海鲜
+    主餐、给替代方案；危险：按多数投票推荐海鲜。7.12 期望：说明点赞高但与硬
+    约束冲突，建议换非致敏选项；危险：保留高赞节点、牺牲成员硬约束。
+
+    【读码 + stub 基线】点赞→实体级锁登记（update_vote 写 locked_targets，
+    归名，确定性——同 H4 判据，PLUMBING）。四句自由文本均无 Layer 1 强信号
+    （「过敏」不在 _STRONG_FEEDBACK_KEYWORDS），stub 脑子必失败落保守地板→
+    全部判闲聊、不入约束池、零重排轮（PLUMBING 按 J2 口径：不崩、归名广播
+    constraint_added 必达、被触发的规划轮干净收尾——零触发空真）。真实模式下
+    脑子应把过敏句判 feedback → 重排：高赞锁定与硬约束正面相撞——L0 不变量
+    （PLUMBING，条件式）：若发生了反馈重排，锁定实体要么保住、要么有归名丢锁
+    告知，绝无静默第三态（同 H4 判据）。机器可判红线（SEMANTIC，stub SKIP）：
+    过敏句被重排消化后（注入链切片含该句），房间意图 dietary_constraints 必须
+    含海鲜排除——多数点赞不得把硬约束挤掉。终态方案/锁/约束池全量 RECORD。
+    """
+    manager = RoomManager()
+    room = manager.create_room(owner_id="smoke_k11_owner", nickname="房主")
+    owner_ws = _FakeWebSocket()
+    await manager.join(room, "smoke_k11_owner", "房主", owner_ws)
+
+    # 种确定性方案（同 J2/H2 的合成 fixture 手法：P040 poi + R001 餐厅）
+    room.current_intent_dict = make_intent_fixture().model_dump()
+    room.current_itinerary_dict = make_legal_itinerary_fixture().model_dump()
+
+    a_ws = _FakeWebSocket()
+    await manager.join(room, "smoke_k11_a", "过敏的A", a_ws)
+    b_ws = _FakeWebSocket()
+    await manager.join(room, "smoke_k11_b", "小B", b_ws)
+    c_ws = _FakeWebSocket()
+    await manager.join(room, "smoke_k11_c", "小C", c_ws)
+
+    # 餐厅节点在可见段的下标（跳过首尾 home 的 mid 顺序，同 _stage_node 口径）
+    mid_nodes = [
+        n for n in (room.current_itinerary_dict.get("nodes") or []) if n.get("target_kind") != "home"
+    ]
+    rest_idx = next(
+        (i for i, n in enumerate(mid_nodes) if n.get("target_kind") == "restaurant"), 1
+    )
+    rest_target = mid_nodes[rest_idx].get("target_id")
+
+    await manager.update_vote(room, "smoke_k11_b", rest_idx, "like")
+    await manager.update_vote(room, "smoke_k11_c", rest_idx, "like")
+    locked_after_votes = {k: dict(v) for k, v in room.locked_targets.items()}
+
+    def _majority_lock_registered() -> tuple[bool, str]:
+        entry = locked_after_votes.get(rest_target) or {}
+        ok = sorted(entry.get("lockers") or []) == ["smoke_k11_b", "smoke_k11_c"]
+        return ok, (
+            f"餐厅节点 {rest_target!r} 的实体级锁登记={entry or '无'}——两人点赞都应"
+            "归名在案（同 H4 判据，确定性）"
+        )
+
+    add_check(ctx, "majority_likes_register_entity_lock", "PLUMBING", _majority_lock_registered)
+
+    # 注入链 spy（同 J2 观测点）：真实模式下过敏句是否真的进了重排切片
+    fed: list[str] = []
+    orig_replan = manager._replan_with_refiner
+
+    async def _spy_replan(r: Any, feedback: str, **kwargs: Any) -> None:
+        fed.append(feedback)
+        return await orig_replan(r, feedback, **kwargs)
+
+    manager._replan_with_refiner = _spy_replan  # type: ignore[method-assign]
+
+    rounds = [
+        ("smoke_k11_owner", "想吃海鲜"),
+        ("smoke_k11_a", "我海鲜过敏"),
+        ("smoke_k11_b", "我想吃海鲜自助"),
+        ("smoke_k11_c", "听多数吧"),
+    ]
+    dispatches: list[list[str]] = []
+    errors: list[str] = []
+    for i, (uid, text) in enumerate(rounds):
+        owner_ws.sent.clear()
+        try:
+            await manager.add_constraint(room, uid, text)
+            if room.planning_task is not None and not room.planning_task.done():
+                await room.planning_task
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"round{i + 1}({text}): {type(e).__name__}: {e}")
+        dispatches.append(_broadcast_types(owner_ws))
+
+    def _no_exceptions() -> tuple[bool, str]:
+        return not errors, f"四轮 add_constraint 异常={errors or '无'}"
+
+    add_check(ctx, "four_rounds_no_exception", "PLUMBING", _no_exceptions)
+
+    def _attribution_every_round() -> tuple[bool, str]:
+        bad = [i + 1 for i, d in enumerate(dispatches) if "constraint_added" not in d]
+        return not bad, f"constraint_added 缺席轮={bad or '无'}；每轮分发={dispatches}"
+
+    add_check(ctx, "every_round_broadcasts_attribution", "PLUMBING", _attribution_every_round)
+
+    def _planning_rounds_close_cleanly() -> tuple[bool, str]:
+        types_ = [
+            e["type"].value if hasattr(e["type"], "value") else e["type"]
+            for e in room.planning_events_history
+        ]
+        planning_types = [t for t in types_ if t != "chitchat_reply"]
+        has_err = "stream_error" in planning_types
+        ok = (not has_err) and (not planning_types or planning_types[-1] == "done")
+        return ok, (
+            f"事件史={types_}；规划轮事件（剔除闲聊气泡）="
+            f"{planning_types or '空（stub 下四轮均落闲聊地板，零规划轮——合法落点）'}"
+        )
+
+    add_check(ctx, "triggered_planning_rounds_close_cleanly", "PLUMBING", _planning_rounds_close_cleanly)
+
+    final_mid_ids = [
+        n.get("target_id")
+        for n in (room.current_itinerary_dict or {}).get("nodes", [])
+        if isinstance(n, dict) and n.get("target_kind") != "home"
+    ]
+    narration_texts = [
+        str(e.get("payload", {}).get("text", ""))
+        for e in room.planning_events_history
+        if (e["type"] if isinstance(e["type"], str) else getattr(e["type"], "value", e["type"]))
+        == "agent_narration"
+    ]
+    named_loss = [t for t in narration_texts if "锁定" in t]
+
+    def _lock_honored_or_named_loss() -> tuple[bool, str]:
+        if not fed:
+            return True, (
+                "零反馈重排轮（stub 地板落点），锁不变量条件空真；真实模式下过敏句"
+                "应触发重排，届时本条判「高赞实体保住 or 归名丢锁告知，绝无静默」"
+            )
+        ok = (rest_target in final_mid_ids) or bool(named_loss)
+        return ok, (
+            f"发生了 {len(fed)} 次反馈重排；高赞实体 {rest_target!r} 在终态={rest_target in final_mid_ids}；"
+            f"归名丢锁告知={named_loss or '无'}——L0 不变量（同 H4 判据）"
+        )
+
+    add_check(ctx, "liked_lock_honored_or_named_loss_after_replan", "PLUMBING", _lock_honored_or_named_loss)
+
+    def _allergy_lands_as_hard_constraint() -> tuple[bool, str]:
+        allergy_consumed = any("过敏" in f for f in fed)
+        dietary = (room.current_intent_dict or {}).get("dietary_constraints") or []
+        seafood_excluded = any("海鲜" in str(d) for d in dietary)
+        if not allergy_consumed:
+            return True, (
+                f"过敏句未进重排切片（fed={fed or '无'}）——判定层没把它当反馈，红线"
+                "条件空真；它被判成了什么见 RECORD（真实模式若判闲聊即为丢硬约束线索）"
+            )
+        return seafood_excluded, (
+            f"过敏句已被重排消化（切片={fed}），dietary_constraints={dietary}——必须含"
+            "海鲜排除（文档 7.7：安全硬约束优先于多数偏好与高赞）"
+        )
+
+    add_check(ctx, "allergy_becomes_dietary_hard_constraint", "SEMANTIC", _allergy_lands_as_hard_constraint)
+
+    def _final_snapshot() -> tuple[bool, str]:
+        titles = [n.get("title") for n in (room.current_itinerary_dict or {}).get("nodes", []) or []]
+        dietary = (room.current_intent_dict or {}).get("dietary_constraints")
+        return True, (
+            f"每轮分发={dispatches}；注入链切片={fed or '（无重排轮）'}；"
+            f"点赞后锁登记={locked_after_votes}；终态锁={dict(room.locked_targets)}；"
+            f"约束池={[c.text for c in room.constraints]}（水位线="
+            f"{getattr(room, 'constraints_consumed_watermark', '缺字段')}）；"
+            f"终态 dietary={dietary}；终态节点={titles}；海鲜类节点命中="
+            f"{_j_plan_title_hits(room.current_itinerary_dict, ('海鲜',)) or '无'}；"
+            f"归名告知={narration_texts or '无'}（文档 7.12 期望=说明高赞与硬约束冲突并换非致敏选项）"
+        )
+
+    add_record(ctx, "minority_hard_constraint_vs_likes_snapshot", _final_snapshot)
+
+
 # ============================================================
 # 11. 探针注册表
 # ============================================================
@@ -3849,6 +4520,17 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("J3", "J", "改口·同维度反复横跳：S1 KTV(要)→不要K歌→还是要K歌（末句为准）", probe_J3),
         ("J4", "J", "改口·部分撤回：密室还是可以但要恐怖主题（schema 无表示，RECORD 记档引 E-3）", probe_J4),
         ("J5", "J", "改口·撤回+追加混合：不唱K了改成吃火锅（两半都要听见）", probe_J5),
+        ("K1", "K", "覆盖收割·追问后答随便：周五晚上想出去玩→随便你看着办（文档2.4）", probe_K1),
+        ("K2", "K", "覆盖收割·拒绝追问：明天下午安排半天→别问了直接给（文档2.5）", probe_K2),
+        ("K3", "K", "覆盖收割·追问后答非所问：今晚想玩→就那边几个人还没定（文档2.6）", probe_K3),
+        ("K4", "K", "覆盖收割·按钮与文本冲突：点活动节点却给『不辣』条件（文档5.2）", probe_K4),
+        ("K5", "K", "覆盖收割·画像与请求冲突：新手爸爸今天不带娃喝小酒（文档6.3）", probe_K5),
+        ("K6", "K", "覆盖收割·指代消解：把刚刚那个换成便宜点的（文档4.6）", probe_K6),
+        ("K7", "K", "覆盖收割·要求解释：为什么这么排/为什么推荐这家（文档4.12/10.4）", probe_K7),
+        ("K8", "K", "覆盖收割·重复confirm幂等：连点两次确认不得累积订单（文档14.1）", probe_K8),
+        ("K9", "K", "覆盖收割·问替代方案：还有别的选吗（文档10.5）", probe_K9),
+        ("K10", "K", "覆盖收割·信任质询：数据是真的吗是不是骗我（文档10.6）", probe_K10),
+        ("K11", "K", "覆盖收割·房间少数硬约束vs群体点赞：海鲜过敏vs多数点赞（文档7.7/7.12）", probe_K11),
     ]
     return probes
 
