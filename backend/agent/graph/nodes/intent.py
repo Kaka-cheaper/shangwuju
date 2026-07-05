@@ -96,6 +96,10 @@ def intent_node(state: AgentState) -> dict[str, Any]:
     client = get_llm_client()
     user_input = state.get("user_input") or ""
     user_id = state.get("user_id") or "demo_user"
+    # 读写分离批：user_id=画像模板键（共享只读），session_id=累积键（会话私有
+    # 偏好先验 + 行程档案召回）——两把钥匙都从图 state 取，房间路径的持久线程
+    # （collab_{room_id}）与单人会话同构，无需分叉。
+    session_id = state.get("session_id")
 
     # E-1 缺口修复(ADR-0011 落地状态节有案):canonical「重新规划一个」这五个字
     # 不含任何需求要素,语义=「重做我的需求」——复用上一事件 intent 的 raw_input
@@ -115,7 +119,11 @@ def intent_node(state: AgentState) -> dict[str, Any]:
         # max_retries=2（共 3 次机会）：LLM 偶发 JSON 错是瞬态，多给一次重试
         # 显著降低落到兜底意图的概率（兜底是降级体验，能避则避）
         intent = parse_intent(
-            user_input, client=client, user_id=user_id, max_retries=2
+            user_input,
+            client=client,
+            user_id=user_id,
+            session_id=session_id,
+            max_retries=2,
         )
     except IntentParseError as e:
         import logging as _logging

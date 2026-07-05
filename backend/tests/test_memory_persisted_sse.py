@@ -79,6 +79,10 @@ def test_finalize_node_returns_memory_status_on_confirm(
     """confirm 路径下 execute_finalize_node 返 memory_status.success=True
 
     新语义（2026-05-25 修正）：用户确认预约后才记住偏好，不是方案就绪就记住。
+
+    【判据变更（记忆身份读写分离批，2026-07-05）】state 必须带 session_id——
+    行程档案按会话键控（会话即身份），无会话身份 persist 会诚实跳过
+    （success=False）。图路径 state 恒有 session_id，这里补上以对齐真实前置。
     """
     # 让 finalize_node 内的 get_llm_client 返 stub
     stub_client = MagicMock()
@@ -96,6 +100,7 @@ def test_finalize_node_returns_memory_status_on_confirm(
         "itinerary": itinerary,
         "user_decision": "confirm",
         "user_id": "demo_user",
+        "session_id": "sess_memory_status_test",
     }
 
     result = execute_finalize_node(state)
@@ -213,6 +218,7 @@ def test_finalize_node_summary_preview_format(
         "itinerary": itinerary,
         "user_decision": "confirm",
         "user_id": "demo_user",
+        "session_id": "sess_preview_format_test",
     }
 
     result = execute_finalize_node(state)

@@ -70,6 +70,9 @@ def router_node(state: AgentState) -> dict[str, Any]:
         client=get_llm_client(),
         context_source=GraphStateSource(state),
         classify_fn=classify_turn,
+        # 读写分离批：session_id 是累积记忆的键（persona_qa 的会话私有偏好），
+        # user_id 只再承担画像模板（共享只读）。
+        session_id=state.get("session_id"),
     )
 
     result: dict[str, Any] = {"route_kind": outcome.kind, "router_decision": outcome.decision}

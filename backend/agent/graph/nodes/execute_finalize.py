@@ -3,7 +3,8 @@
 职责：
 - 用户确认方案后，调用执行类 Tool，把订单写回 Itinerary.orders。
 - 生成 share_message 与 confirm 阶段 narration。
-- 在确认成功后触发 memory_writer，把本次场景偏好写回记忆。
+- 在确认成功后触发 memory_writer，把本次行程档案写进**会话私有**记忆
+  （键=state["session_id"]，读写分离批：会话即身份，见 memory_writer docstring）。
 
 不负责：
 - 规划与重规划。

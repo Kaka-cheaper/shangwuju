@@ -1893,6 +1893,28 @@ async def probe_G3(ctx: ProbeCtx) -> None:
 
     add_record(ctx, "memory_persisted_note", _memory_persisted_note)
 
+    # 记忆身份读写分离批：数据层取证适配新存储——confirm 的两轨记忆副作用
+    # 都按 session_id 键控（会话即身份），等后台任务收敛后直接读会话私有存储。
+    drain_note = await _await_confirm_memory_tasks()
+
+    def _session_store_evidence() -> tuple[bool, str]:
+        trips = _read_recent_trips(ctx.session_id)
+        try:
+            from data.memory_store import get_memory
+
+            acc = dict((get_memory(ctx.session_id).accepted_tags.counts) or {})
+        except Exception as e:  # noqa: BLE001
+            acc = {"_读取失败": f"{type(e).__name__}: {e}"}  # type: ignore[dict-item]
+        ok = bool(trips) and bool(acc)
+        return ok, (
+            f"{drain_note}；会话私有存储（键={ctx.session_id!r}）："
+            f"recent_trips={len(trips)}条（头部={trips[0] if trips else '无'}），"
+            f"accepted_tags={acc or '空'}——两轨（memory_writer 档案 + memory_store"
+            " 标签累积）confirm 后都应落在本会话键下（确定性，任何 provider）"
+        )
+
+    add_check(ctx, "session_keyed_memory_dual_track", "PLUMBING", _session_store_evidence)
+
 
 async def probe_G4(ctx: ProbeCtx) -> None:
     sc = _scenario(_S2)
@@ -2866,19 +2888,19 @@ async def probe_F5(ctx: ProbeCtx) -> None:
 #     stub 下自动 SKIP 不假失败。
 
 
-def _read_recent_trips() -> list[dict[str, Any]]:
-    """读隔离 mock 目录的 user_profile.json → recent_trips 列表（取证只读）。
+def _read_recent_trips(session_id: str) -> list[dict[str, Any]]:
+    """读会话私有行程档案（取证只读；记忆身份读写分离批适配）。
 
-    memory_writer._resolve_profile_path 在 SHANGWUJU_MOCK_DIR 已设时读写都走
-    该目录（_isolate_mock_dir 已保证绝不碰版本控制的种子）。失败返回空列表，
+    存储变更（ADR-0015 身份边界补充决策，2026-07-05）：recent_trips 不再是
+    user_profile.json 全局单档，而是 `data.memory_store.get_recent_trips(
+    session_id)` 的进程内**会话私有**档案（会话即身份）——smoke 进程内驱动
+    ASGI（同一进程同一存储），直接读数据层取证。失败返回空列表，
     不让取证 helper 炸探针。
     """
     try:
-        mock_dir = os.environ.get("SHANGWUJU_MOCK_DIR") or ""
-        if not mock_dir:
-            return []
-        raw = json.loads((Path(mock_dir) / "user_profile.json").read_text(encoding="utf-8"))
-        return list(raw.get("recent_trips") or [])
+        from data.memory_store import get_recent_trips
+
+        return [t.model_dump() for t in get_recent_trips(session_id)]
     except Exception:  # noqa: BLE001
         return []
 
@@ -2950,13 +2972,15 @@ async def probe_I1(ctx: ProbeCtx) -> None:
     【读码依据 + stub 实测基线】问句同时含 persona_qa._PERSONA_CUES 的
     「你了解我」「我的画像」两个线索 → route_turn Layer 1.7（规则识别，不调
     LLM，先于脑子）确定性命中 → chitchat 气泡，rationale="persona_question"，
-    reply 由 answer_persona_question(user_id) 用 get_persona + compute_priors
-    grounded 生成（缺省 demo_user → 别名指向 u_dad「新手爸爸」画像）。规则
-    与 provider 无关（stub 下同样命中），故规则命中按 PLUMBING 钉住——这正是
-    本探针补的洞：该规则此前从无端到端验证（C4 只测过"我是谁"一个线索词）。
-    注意：compute_priors 读进程内 memory_store，全量跑时早前探针（G3/B9/H1
-    的 confirm）对 demo_user 的累积会体现在回答里——与真实演示"用多了越懂你"
-    同构，不是污染，记录供人判。
+    reply 由 answer_persona_question(user_id, session_id) 用 get_persona +
+    compute_priors 双键 grounded 生成（缺省 demo_user → 别名指向 u_dad
+    「新手爸爸」画像模板）。规则与 provider 无关（stub 下同样命中），故规则
+    命中按 PLUMBING 钉住——这正是本探针补的洞：该规则此前从无端到端验证
+    （C4 只测过"我是谁"一个线索词）。
+    注（记忆身份读写分离批更新）：累积偏好已按 session_id 键控（会话私有），
+    早前探针的 confirm 累积落在各自会话键下，**不再**渗进本探针的回答——本
+    探针只建方案未 confirm，回答应为纯模板（label + persona 默认 tag）；同会话
+    confirm 后的累积可见性由 I6 专项钉住。
     """
     sc = _scenario(_S1)
     await do_turn(ctx, sc["input"], scenario_id=sc["id"], step_desc="step1(S1 建方案)")
@@ -3147,39 +3171,32 @@ async def probe_I4(ctx: ProbeCtx) -> None:
     """I4 元对话·跨会话问活动史：会话一 S2 建方案+confirm（触发记忆写入，G3
     同款机制）→ **同 user_id 开新会话** → 问「我上次去过哪些地方？」
 
+    【设计语义（记忆身份读写分离批重钉，ADR-0015 身份边界补充决策，2026-07-05）】
+    demo 无账号体系，**会话即身份**：确认产生的一切累积（行程档案 recent_trips
+    + 标签/访问累积）按 session_id 键控、会话私有；user_id 只锚定共享只读的
+    画像模板。因此"同 user_id 开新会话"的正确行为是**跨会话诚实不认识**——
+    演示日多访客可能共用同一画像模板 id，新会话若能"记得"上一会话去过哪，
+    等于把 A 访客确认的行程说给 B 听（隐私串味）。答不出不是缺陷，是隐私式
+    诚实的设计语义；生产迁移把键换成账号 ID 后，跨会话记忆自然恢复，机制不动。
+    （旧版本探针在此记录的"recent_trips 全局单档不按 user 分档"前提出入，
+    已被本批根治——存储即会话私有，不再需要如实记录那条断裂。）
+
     【跨会话机制】user_id 用探针私有唯一值：turn body 带 user_id（解析优先级
-    body > X-User-Id header > demo_user，见 resolve_user_id），turn 时
-    sync_snapshot 把它缓存进 SESSION_STORE，confirm 读 cached["user_id"]。
-    confirm 的两路记忆副作用都是 fire-and-forget 后台任务——开新会话前先
-    await `_await_confirm_memory_tasks()` 等它们真正收敛，再取证（不睡等）。
-
-    【前提出入（读码事实，如实记录）】
-    (a) recent_trips 档案是**单文件全局档**：memory_writer 不按 user_id 分档
-        （"demo 仅单用户"是其明载设计边界），"同 user_id"对这条管线不构成
-        隔离；按 user_id 分档的是 memory_store 累积管线（accepted_tags/
-        visited）。两路证据都记录。
-    (b) 写入有 social_context + 5 分钟幂等窗（stub intent 恒为"家庭日常"）：
-        全量跑时早前 G3/B9/H1 的 confirm 大概率已写入同场景条目 → 本探针的
-        写入被幂等去重跳过——数据仍在档案里。取证按「问话时档案 recent_trips
-        是否非空」与「本次是否新增（头部条目变化）」两个事实分开记录，不把
-        去重误报成写入失败。
-
-    【预期暴露面（画像双管线断裂的已知面）】新会话的脑子上下文由 packer 打包，
-    packer 明确把 recent_trips 排除在画像段之外（agent/context/packer.py
-    _PROFILE_KEY_FIELDS 拍板注释），turn_log 只有本句——脑子面对"我去过哪些
-    地方"**零材料**。预期摸底暴露"答不出或幻觉"。stub 实测基线：新会话无
-    方案 → 壳3 无方案分支 → chitchat 暖引导气泡（答不出，但体面）。
+    body > X-User-Id header > demo_user，见 resolve_user_id）。confirm 的两路
+    记忆副作用都是 fire-and-forget 后台任务（键=confirm 的 session_id）——
+    开新会话前先 await `_await_confirm_memory_tasks()` 等它们真正收敛，再取证
+    （不睡等）。
 
     【判定哲学】摸底（I 类共同）：PLUMBING = 管道 + confirm 真下单（orders
-    非空，铺垫完整性，同 G3 判据）；回答全文 RECORD。唯一 SEMANTIC 例外
-    （任务书授权的机器可判红线）：问话轮若没有产出新方案，回复文本不得出现
-    mock 目录里任何具体 POI/餐厅名——记忆摘要按设计脱敏（memory_writer
-    prompt 禁具体店名，兜底摘要只有品类），新会话上下文里也没有任何实体名，
-    出现具体店名的唯一出处只能是模型编造。红线依据是读码推演（真实点火本批
-    禁做），灰区由人眼复核；stub 下 SEMANTIC 自动 SKIP，不假失败。
+    非空，铺垫完整性，同 G3 判据）+ 数据层键语义两条（确定性，任何 provider）：
+    会话一的键下有档案（写入真的发生了）、新会话的键下零累积（诚实"不认识"
+    有数据层依据）。回答全文 RECORD。唯一 SEMANTIC 例外（任务书授权的机器可
+    判红线，**原样保留**）：问话轮若没有产出新方案，回复文本不得出现 mock
+    目录里任何具体 POI/餐厅名——新会话零累积零实体材料，出现具体店名的唯一
+    出处只能是模型编造。红线依据是读码推演（真实点火本批禁做），灰区由人眼
+    复核；stub 下 SEMANTIC 自动 SKIP，不假失败。
     """
     uid = f"smoke_i4_user_{uuid.uuid4().hex[:8]}"
-    trips_before = _read_recent_trips()
 
     sc = _scenario(_S2)
     await do_turn(
@@ -3195,7 +3212,7 @@ async def probe_I4(ctx: ProbeCtx) -> None:
     add_check(ctx, "pretext_confirm_orders_present", "PLUMBING", _orders_present)
 
     drain_note = await _await_confirm_memory_tasks()
-    trips_after = _read_recent_trips()
+    trips_session1 = _read_recent_trips(ctx.session_id)
 
     sess2 = f"{ctx.session_id}_s2"
     s3 = await do_turn(
@@ -3203,28 +3220,34 @@ async def probe_I4(ctx: ProbeCtx) -> None:
         "我上次去过哪些地方？",
         session_id=sess2,
         user_id=uid,
-        step_desc="step3(同 user_id 新会话:问活动史)",
+        step_desc="step3(同 user_id 新会话:问活动史→应诚实不认识)",
     )
 
-    def _memory_evidence() -> tuple[bool, str]:
-        head_changed = bool(trips_after) and (
-            not trips_before or trips_after[0] != trips_before[0]
+    def _session1_wrote() -> tuple[bool, str]:
+        return bool(trips_session1), (
+            f"{drain_note}；会话一（键={ctx.session_id!r}）行程档案="
+            f"{len(trips_session1)}条，头部={trips_session1[0] if trips_session1 else '无'}"
+            "——confirm 的写入真的发生、且落在会话私有键下（确定性）"
         )
+
+    add_check(ctx, "session1_trip_archive_written", "PLUMBING", _session1_wrote)
+
+    def _fresh_session_zero_accumulation() -> tuple[bool, str]:
+        trips2 = _read_recent_trips(sess2)
         try:
             from data.memory_store import get_memory
 
-            acc = dict((get_memory(uid).accepted_tags.counts) or {})
+            acc2 = dict((get_memory(sess2).accepted_tags.counts) or {})
         except Exception as e:  # noqa: BLE001
-            acc = {"_读取失败": f"{type(e).__name__}: {e}"}  # type: ignore[dict-item]
-        return True, (
-            f"{drain_note}；recent_trips(全局单档,不按 user 分档): "
-            f"before={len(trips_before)}条 after={len(trips_after)}条 本次新增(头部条目变化)={head_changed}"
-            "（未新增且已有同 social_context 条目=5分钟幂等去重，数据仍在档案）；"
-            f"档案头部条目={trips_after[0] if trips_after else '无'}；"
-            f"memory_store 按 user 累积({uid}): accepted_tags={acc or '空'}"
+            return False, f"memory_store 读取失败：{type(e).__name__}: {e}"
+        ok = not trips2 and not acc2
+        return ok, (
+            f"新会话（键={sess2!r}）：recent_trips={len(trips2)}条 "
+            f"accepted_tags={acc2 or '空'}——零累积是「诚实答不知道」的数据层"
+            "依据（会话即身份；同 user_id 不构成跨会话通道）"
         )
 
-    add_record(ctx, "cross_session_memory_evidence", _memory_evidence)
+    add_check(ctx, "fresh_session_zero_accumulation", "PLUMBING", _fresh_session_zero_accumulation)
 
     def _no_fabricated_venue_names() -> tuple[bool, str]:
         if has_event(s3.events, "itinerary_ready"):
@@ -3252,23 +3275,29 @@ async def probe_I5(ctx: ProbeCtx) -> None:
     """I5 元对话·跨会话问画像：同 I4 机制（S2 建方案+confirm+await 后台记忆
     任务 → 同 user_id 新会话）→ 问「我的口味偏好你还记得吗？」
 
-    【前提出入（如实记录）】任务书原句**不**命中 persona_qa 线索表——「我的
-    口味偏好」把"口味"插在「我的」和「偏好」之间，唯一近似线索「我的偏好」
-    是精确子串匹配，不中；「你还记得吗」也不含「记得我」。→ 原句确定落脑子
-    （真实模式）/壳3 无方案地板（stub 实测基线：chitchat 暖引导）。而脑子
-    上下文的画像段只有 dietary/transport/budget 三键（packer._PROFILE_KEY_
-    FIELDS），无 recent_trips、无累积标签——同 I4 的断裂面。
+    【设计语义（记忆身份读写分离批重钉，ADR-0015 身份边界补充决策，2026-07-05）】
+    画像回答按**双键**取数：模板按 user_id（共享只读，跨会话可见——这是
+    onboarding 选画像链路的价值），累积按 session_id（会话私有，跨会话**不可
+    见**）。所以对照句「我的偏好你还记得吗？」在新会话的正确回答=**模板偏好**
+    （persona label + 默认 tag），且**不含上一会话 confirm 攒下的累积标签**——
+    "跨会话只认模板、不认累积"正是隐私式诚实：多访客共用画像模板 id 时，
+    B 访客问偏好绝不能听到 A 访客确认行程攒出来的东西。
+    （旧版本探针在此记录的"跨会话累积管线是通的（同 user_id 同进程）"工作面
+    描述，语义已翻转——那条"通路"正是本批要堵的串味通道。）
 
-    为把断裂面与工作面并排取证，追加对照句「我的偏好你还记得吗？」：精确
-    命中「我的偏好」线索 → Layer 1.7 画像规则（确定性，任何 provider）跨
-    会话读 get_persona(uid) + compute_priors(uid)——后者含刚才 confirm 后台
-    累积进 memory_store 的 accepted_tags（同 user_id、同进程），这条管线是
-    通的。两句的回答并排记录，就是"画像双管线"现状的最直接材料：**换一个
-    措辞答得出，换回来就答不出**。
+    【前提出入（原样保留，仍成立）】任务书原句**不**命中 persona_qa 线索表——
+    「我的口味偏好」把"口味"插在「我的」和「偏好」之间，唯一近似线索
+    「我的偏好」是精确子串匹配，不中；「你还记得吗」也不含「记得我」。→
+    原句确定落脑子（真实模式）/壳3 无方案地板（stub 实测基线：chitchat 暖
+    引导）。脑子上下文画像段只有 dietary/transport/budget 三键
+    （packer._PROFILE_KEY_FIELDS）。对照句「我的偏好你还记得吗？」精确命中
+    「我的偏好」→ Layer 1.7 画像规则（确定性，任何 provider）接走。
 
     【判定哲学】摸底（I 类共同）：PLUMBING = 管道 + confirm 真下单（同 G3）+
-    对照句的画像规则命中（确定性规则行为，判级依据同 I1/C4）；两句回答内容
-    全部 RECORD 供人判，不做先验 SEMANTIC 断言。
+    对照句的画像规则命中（确定性规则行为，判级依据同 I1/C4）+ 跨会话不泄漏
+    （确定性：对照句回答不得含"上一会话累积、且不在模板 top_priors 里"的
+    标签——回答由规则从 compute_priors(uid, 新会话) 生成，泄漏=键没切干净）；
+    两句回答内容全部 RECORD 供人判，不做先验 SEMANTIC 断言。
     """
     uid = f"smoke_i5_user_{uuid.uuid4().hex[:8]}"
 
@@ -3300,7 +3329,7 @@ async def probe_I5(ctx: ProbeCtx) -> None:
         "我的偏好你还记得吗？",
         session_id=sess2,
         user_id=uid,
-        step_desc="step4(对照句:精确命中「我的偏好」→画像规则跨会话作答)",
+        step_desc="step4(对照句:命中「我的偏好」→画像规则跨会话答模板、不含累积)",
     )
 
     def _persona_rule_hit_cross_session() -> tuple[bool, str]:
@@ -3313,31 +3342,161 @@ async def probe_I5(ctx: ProbeCtx) -> None:
         return ok, (
             f"input_kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
             f"types={event_types(s4.events)}——对照句应由 Layer 1.7 画像规则跨会话接走"
-            "（确定性，不调 LLM）"
+            "（确定性，不调 LLM；答的是模板画像）"
         )
 
     add_check(ctx, "contrast_persona_rule_hit_cross_session", "PLUMBING", _persona_rule_hit_cross_session)
 
-    def _accumulated_prefs_evidence() -> tuple[bool, str]:
+    def _no_cross_session_leak() -> tuple[bool, str]:
         try:
             from data.memory_store import compute_priors, get_memory
 
-            acc = dict((get_memory(uid).accepted_tags.counts) or {})
-            priors = list(compute_priors(uid).top_priors or [])
+            session1_acc = dict(
+                (get_memory(ctx.session_id).accepted_tags.counts) or {}
+            )
+            template_priors = list(compute_priors(uid).top_priors or [])
         except Exception as e:  # noqa: BLE001
-            return True, f"{drain_note}；memory_store 读取失败：{type(e).__name__}: {e}"
+            return False, f"memory_store 读取失败：{type(e).__name__}: {e}"
         chit4 = payload_of(s4.events, "chitchat_reply") or {}
         reply4 = chit4.get("reply_text") or ""
-        surfaced = [t for t in priors if t and t in reply4]
-        return True, (
-            f"{drain_note}；memory_store({uid}): accepted_tags={acc or '空'} "
-            f"top_priors={priors or '空'}；对照句回答里出现的偏好标签={surfaced or '无'}"
-            "——工作面（画像规则管线）与断裂面（原句落脑子零材料）并排对照"
+        # 只把"上一会话累积独有（不在模板 top_priors）"的标签算泄漏——模板
+        # 本来就该出现在回答里
+        accumulated_only = [
+            t for t in session1_acc if t and t not in template_priors
+        ]
+        leaked = [t for t in accumulated_only if t in reply4]
+        surfaced_template = [t for t in template_priors if t and t in reply4]
+        return not leaked, (
+            f"{drain_note}；会话一累积（键={ctx.session_id!r}）="
+            f"{session1_acc or '空'}，其中累积独有标签={accumulated_only or '无'}，"
+            f"泄漏进新会话回答的={leaked or '无'}（必须为无）；模板 top_priors="
+            f"{template_priors or '空'}，回答中出现的模板标签={surfaced_template or '无'}"
+            "——跨会话只认模板、不认累积（隐私式诚实）"
         )
 
-    add_record(ctx, "accumulated_prefs_and_contrast", _accumulated_prefs_evidence)
+    add_check(ctx, "no_cross_session_accumulation_leak", "PLUMBING", _no_cross_session_leak)
     add_meta_dialogue_checks(ctx, s3, "ask_taste_orig")
     add_meta_dialogue_checks(ctx, s4, "ask_prefs_contrast")
+
+
+async def probe_I6(ctx: ProbeCtx) -> None:
+    """I6 元对话·同会话记忆延续：S2 建方案+confirm → **同一会话**问「我的偏好
+    你还记得吗？」——记忆身份读写分离批（ADR-0015 身份边界补充决策）新增。
+
+    【为什么必须有这条】读写分离把累积改会话私有后，I4/I5 钉的是"跨会话诚实
+    不认识"；而**同会话内确认后的记忆延续**是方案 A 保留的核心能力（不然
+    "读写分离"退化成"根本不记忆"），此前无探针覆盖——本探针把它钉死。
+
+    【钉三个确定性接缝（任何 provider）】
+    1. 数据层：confirm + 后台任务收敛后，本会话键下两轨都非空
+       （recent_trips 档案 + accepted_tags 标签累积）；
+    2. 召回接缝：`build_intent_parser_system_prompt_with_priors(uid, 本会话)`
+       ——与 intent_node 下一局规划消费的同一接缝——包含「用户最近行程」段
+       （同会话下一局规划会带着上一局的档案，这就是"会话内越用越懂你"）；
+    3. 规则命中：同会话问「我的偏好你还记得吗？」由 Layer 1.7 画像规则接走
+       （确定性，不调 LLM），回答由 compute_priors(uid, 本会话) 生成——
+       含本会话累积的合并视图。
+
+    【RECORD（不做先验断言）】回答全文 + 本会话累积标签中实际浮出回答的子集
+    ——单次 confirm 的累积权重（1×0.7）不一定压过模板 tag（3×0.3），累积
+    标签是否进 top4 取决于与模板的重叠度，这是打分器的既有语义，不在本探针
+    强断言；持续多局后累积必然压过模板（test_priors_memory_overwhelms_persona
+    已在单测钉住）。
+    """
+    uid = f"smoke_i6_user_{uuid.uuid4().hex[:8]}"
+
+    sc = _scenario(_S2)
+    await do_turn(
+        ctx, sc["input"], scenario_id=sc["id"], user_id=uid, step_desc="step1(S2 建方案,带私有 user_id)"
+    )
+    s2 = await do_confirm(ctx, user_id=uid, step_desc="step2(confirm→触发记忆写入)")
+
+    def _orders_present() -> tuple[bool, str]:
+        itin = payload_of(s2.events, "itinerary_ready") or {}
+        orders = itin.get("orders") or []
+        return bool(orders), f"orders={orders}（铺垫完整性，同 G3 判据）"
+
+    add_check(ctx, "pretext_confirm_orders_present", "PLUMBING", _orders_present)
+
+    drain_note = await _await_confirm_memory_tasks()
+
+    def _same_session_store_evidence() -> tuple[bool, str]:
+        trips = _read_recent_trips(ctx.session_id)
+        try:
+            from data.memory_store import get_memory
+
+            acc = dict((get_memory(ctx.session_id).accepted_tags.counts) or {})
+        except Exception as e:  # noqa: BLE001
+            return False, f"memory_store 读取失败：{type(e).__name__}: {e}"
+        ok = bool(trips) and bool(acc)
+        return ok, (
+            f"{drain_note}；本会话（键={ctx.session_id!r}）：recent_trips="
+            f"{len(trips)}条（头部={trips[0] if trips else '无'}），"
+            f"accepted_tags={acc or '空'}——confirm 后两轨都应在本会话键下可见"
+        )
+
+    add_check(ctx, "same_session_dual_track_visible", "PLUMBING", _same_session_store_evidence)
+
+    def _recall_seam_carries_trips() -> tuple[bool, str]:
+        try:
+            from agent.intent.prompts.intent_parser_prompt import (
+                build_intent_parser_system_prompt_with_priors,
+            )
+
+            prompt = build_intent_parser_system_prompt_with_priors(uid, ctx.session_id)
+        except Exception as e:  # noqa: BLE001
+            return False, f"prompt builder 调用失败：{type(e).__name__}: {e}"
+        hit = "用户最近行程" in prompt
+        seg = ""
+        if hit:
+            idx = prompt.find("用户最近行程")
+            seg = prompt[idx : idx + 120].replace("\n", " ")
+        return hit, (
+            f"intent prompt（uid={uid!r}, session={ctx.session_id!r}）含「用户最近"
+            f"行程」召回段={hit}；片段={seg!r}——这是 intent_node 下一局规划消费"
+            "的同一接缝（会话内记忆延续的机制证据）"
+        )
+
+    add_check(ctx, "next_round_prompt_recalls_this_trip", "PLUMBING", _recall_seam_carries_trips)
+
+    s3 = await do_turn(
+        ctx, "我的偏好你还记得吗？", user_id=uid, step_desc="step3(同会话问偏好→画像规则+会话累积)"
+    )
+
+    def _persona_rule_hit_same_session() -> tuple[bool, str]:
+        chit = payload_of(s3.events, "chitchat_reply") or {}
+        ok = (
+            chit.get("input_kind") == "chitchat"
+            and chit.get("rationale") == "persona_question"
+            and not has_event(s3.events, "itinerary_ready")
+        )
+        return ok, (
+            f"input_kind={chit.get('input_kind')!r} rationale={chit.get('rationale')!r} "
+            f"types={event_types(s3.events)}——Layer 1.7 画像规则接走（确定性，"
+            "回答键=模板 uid + 本会话累积）"
+        )
+
+    add_check(ctx, "persona_rule_hit_same_session", "PLUMBING", _persona_rule_hit_same_session)
+
+    def _accumulated_surfacing_record() -> tuple[bool, str]:
+        try:
+            from data.memory_store import compute_priors, get_memory
+
+            acc = dict((get_memory(ctx.session_id).accepted_tags.counts) or {})
+            merged = list(compute_priors(uid, ctx.session_id).top_priors or [])
+            template = list(compute_priors(uid).top_priors or [])
+        except Exception as e:  # noqa: BLE001
+            return True, f"memory_store 读取失败（不影响判定）：{type(e).__name__}: {e}"
+        chit = payload_of(s3.events, "chitchat_reply") or {}
+        reply = chit.get("reply_text") or ""
+        surfaced_acc = [t for t in acc if t and t in reply]
+        return True, (
+            f"回答全文={reply!r}；本会话累积={acc or '空'}；合并 top_priors={merged}"
+            f"（纯模板={template}）；累积标签浮出回答的={surfaced_acc or '无'}"
+            "——单次 confirm 权重可能不过模板线，浮出与否记录供人判（见 docstring）"
+        )
+
+    add_record(ctx, "same_session_reply_and_accumulation", _accumulated_surfacing_record)
 
 
 # ============================================================
@@ -3409,8 +3568,9 @@ def build_probes() -> list[tuple[str, str, str, Callable[[ProbeCtx], Any]]]:
         ("I1", "I", "元对话·同会话问画像：建方案后「你了解我什么？我的画像是什么」（Layer1.7 规则端到端）", probe_I1),
         ("I2", "I", "元对话·记得对话吗：原句实测被画像规则抢答 + 无线索对照句落脑子（摸底）", probe_I2),
         ("I3", "I", "元对话·同会话问方案史：原句被 QA 规则拦截弃答（到不了脑子）+ 陈述式对照句（摸底）", probe_I3),
-        ("I4", "I", "元对话·跨会话问活动史：confirm 写记忆→同 user_id 新会话（预期暴露画像双管线断裂）", probe_I4),
-        ("I5", "I", "元对话·跨会话问画像：原句落脑子（断裂面）vs 对照句命中画像规则（工作面）并排摸底", probe_I5),
+        ("I4", "I", "元对话·跨会话问活动史：confirm 写会话私有记忆→同 user_id 新会话应诚实不认识（读写分离语义）", probe_I4),
+        ("I5", "I", "元对话·跨会话问画像：原句落脑子 vs 对照句画像规则答模板、不含上一会话累积（隐私式诚实）", probe_I5),
+        ("I6", "I", "元对话·同会话记忆延续：confirm 后同会话问偏好+下一局召回接缝（A 方案核心能力）", probe_I6),
     ]
     return probes
 

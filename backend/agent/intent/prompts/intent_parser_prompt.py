@@ -365,13 +365,19 @@ class InjectedPriors:
 _EMPTY_INJECTED_PRIORS = InjectedPriors(social_context=None, distance_max_km=None, tags=frozenset())
 
 
-def compute_injected_priors(user_id: str | None) -> InjectedPriors:
+def compute_injected_priors(
+    user_id: str | None, session_id: str | None = None
+) -> InjectedPriors:
     """算出"这次会被注入 prompt 的先验值"，供 parser 规则交叉校正用。
 
-    覆盖三类（与 `build_intent_parser_system_prompt_with_priors` 的 addendum
-    实际写进 prompt 的信息一一对应）：
-    - social_context：persona.default_tags.suitable_for_priority 第一项
-    - distance_max_km：建议默认距离（memory 中位数，退化到 persona 默认）
+    双键（记忆身份读写分离批，ADR-0015 身份边界补充决策）：`user_id` 取共享
+    只读的 persona 模板，`session_id` 取会话私有累积——与
+    `build_intent_parser_system_prompt_with_priors` 传同一对键，保证"校正认的
+    先验集"与"实际注入 prompt 的先验集"仍是同一份计算。
+
+    覆盖三类（与 addendum 实际写进 prompt 的信息一一对应）：
+    - social_context：persona.default_tags.suitable_for_priority 第一项（模板）
+    - distance_max_km：建议默认距离（会话 memory 中位数，退化到 persona 默认）
     - tags：合并后高优先 tag（`top_priors`，跨 physical/dietary/experience）
 
     不包含 memory.rejected_tags（prompt 明确指示"不要主动加"，不是会被输出的
@@ -385,7 +391,7 @@ def compute_injected_priors(user_id: str | None) -> InjectedPriors:
     except Exception:  # noqa: BLE001
         return _EMPTY_INJECTED_PRIORS
     try:
-        view = compute_priors(user_id)
+        view = compute_priors(user_id, session_id)
     except Exception:  # noqa: BLE001
         return _EMPTY_INJECTED_PRIORS
 
@@ -397,8 +403,16 @@ def compute_injected_priors(user_id: str | None) -> InjectedPriors:
     )
 
 
-def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
-    """在 INTENT_PARSER_SYSTEM_PROMPT 末尾追加 user 的 persona/memory prior。
+def build_intent_parser_system_prompt_with_priors(
+    user_id: str | None, session_id: str | None = None
+) -> str:
+    """在 INTENT_PARSER_SYSTEM_PROMPT 末尾追加 persona 模板 + 会话累积 prior。
+
+    键语义（记忆身份读写分离批，ADR-0015 身份边界补充决策）：demo 无账号体系，
+    **会话即身份**——`user_id` 只取共享只读的画像模板（label / 默认 tag / 默认
+    距离），`session_id` 取会话私有累积（历史接受/拒绝 top、距离中位数、行程
+    档案召回）。多访客共用同一模板 id 时，谁也读不到谁确认攒下的东西。
+    生产迁移 = 把会话键换成账号键，机制不动。
 
     设计原则（D9 不破）：
     - persona 是 user 维度（"我是谁"），与 scene_type 枚举不同——不引入新分支
@@ -408,7 +422,7 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
 
     用法：
         from agent.intent.prompts.intent_parser_prompt import build_intent_parser_system_prompt_with_priors
-        system = build_intent_parser_system_prompt_with_priors(user_id)
+        system = build_intent_parser_system_prompt_with_priors(user_id, session_id)
         # 替代直接用 INTENT_PARSER_SYSTEM_PROMPT
     """
     if not user_id:
@@ -421,7 +435,7 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
         return INTENT_PARSER_SYSTEM_PROMPT
 
     try:
-        view = compute_priors(user_id)
+        view = compute_priors(user_id, session_id)
     except Exception:  # noqa: BLE001
         return INTENT_PARSER_SYSTEM_PROMPT
 
@@ -501,41 +515,50 @@ def build_intent_parser_system_prompt_with_priors(user_id: str | None) -> str:
    - 完全没有任何来源（用户没提、也没有可用先验）时用的 schema 默认值 →
      标 `default`（如没提距离时的默认 5 公里、没提时长时的默认 [4,6]）
 """
-    # spec algorithm-redesign R5：user_profile.json 三层 schema 召回（dietary_preference / recent_trips）
-    profile_addendum = _build_user_profile_addendum()
+    # spec algorithm-redesign R5：三层 schema 召回（dietary_preference 模板 +
+    # recent_trips 会话私有档案）
+    profile_addendum = _build_user_profile_addendum(session_id)
 
     return INTENT_PARSER_SYSTEM_PROMPT + addendum + profile_addendum
 
 
-def _build_user_profile_addendum() -> str:
-    """从 mock_data/user_profile.json 拿 dietary_preference + recent_trips 注入 prompt。
+def _build_user_profile_addendum(session_id: str | None) -> str:
+    """拼「饮食偏好（模板）+ 最近行程（会话私有档案）」注入段。
 
     spec algorithm-redesign R5（TravelAgent / TriFlow 范式）：
-    - dietary_preference 自然语言段落：让 LLM 在搜索餐厅时自然考虑
-    - recent_trips：让 LLM 复用上次同 social_context 场景的成功模板
+    - dietary_preference 自然语言段落：让 LLM 在搜索餐厅时自然考虑——
+      仍从 mock_data/user_profile.json **模板**读（共享只读，不是累积）
+    - recent_trips：让 LLM 复用上次同场景的成功模板——只从
+      `data.memory_store.get_recent_trips(session_id)` 的**会话私有档案**读
+      （读写分离批：种子文件里预置的 recent_trips **不再注入**——新会话零累积
+      就该零召回，不能拿全局演示数据冒充"这位访客上次去过"）
 
     设计纪律：
     - 失败兜底返空字符串（不阻断 intent parser）
     - 仅注入摘要级信息（不暴露 user_id / 经纬度等敏感字段）
     """
-    try:
-        from data.loader import load_user_profile
-        profile = load_user_profile()
-    except Exception:
-        return ""
-
-    if profile is None:
-        return ""
-
     parts: list[str] = []
 
-    # dietary_preference 段
-    dietary = getattr(profile, "dietary_preference", None)
+    # dietary_preference 段（模板侧）
+    try:
+        from data.loader import load_user_profile
+
+        profile = load_user_profile()
+    except Exception:
+        profile = None
+    dietary = getattr(profile, "dietary_preference", None) if profile else None
     if dietary:
         parts.append(f"\n【用户饮食偏好（自然语言，仅用于搜餐厅时参考）】\n{dietary}")
 
-    # recent_trips 段
-    recent = getattr(profile, "recent_trips", None) or []
+    # recent_trips 段（会话私有档案）
+    recent: list = []
+    if session_id:
+        try:
+            from data.memory_store import get_recent_trips
+
+            recent = get_recent_trips(session_id)
+        except Exception:
+            recent = []
     if recent:
         # 仅取最新 2 条（避免 prompt 过长）
         recent_lines = []

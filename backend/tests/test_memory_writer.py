@@ -1,22 +1,30 @@
-"""spec algorithm-redesign R5：memory_writer 副作用单测。
+"""memory_writer 副作用单测（记忆身份读写分离批重钉）。
 
-测试覆盖（≥ 5 项）：
-- 5 条上限：写入第 6 条时丢弃最旧的
-- 幂等键 5 分钟窗口：同 social_context + 5min 内重复不追加
-- 失败 / cancel 不写回
-- 隐私脱敏：summary 不含「5 岁」原始数字（由 LLM 处理；这里测 fallback 摘要）
-- 文件锁不冲突（threading.Lock）
-- profile schema 向后兼容（旧 4 字段也能加载）
-- summary 上限 500 字符
+【判据变更理由（ADR-0015 身份边界补充决策，2026-07-05）】
+旧判据：persist_memory 写全局单文件 user_profile.json 的 recent_trips——
+demo 单用户假设下成立；演示日多访客并发时，A 确认的行程会串进 B 的意图
+prompt（accumulation 默认身份共享）。新判据：行程档案按 **session_id 键控**
+写进程内会话私有存储（data.memory_store 的 recent_trips 区），user_profile.json
+退为只读模板（dietary_preference / home_location 等），运行时零文件写入——
+并发写文件竞态随之消失，旧的 mock_data_runtime 护栏测试一并退役。
+
+保留原样的策略语义（键变、机制不动）：
+- 5 条上限（LIFO，最新在头）
+- social_context + 5 分钟幂等窗
+- cancel / 缺 intent/itinerary 不写
+- 摘要脱敏（stub fallback 不含具体年龄数字）+ 500 字上限
+- 永不抛异常
+
+新增不变式：
+- 无 session_id（无会话身份）不写——"会话即身份"，没有身份就没有归属
+- 会话隔离：同 user_id 两个 session 的档案互不可见
 
 不消费真 LLM；用 stub client。
 """
 
 from __future__ import annotations
 
-import json
 import sys
-import threading
 import types
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -31,13 +39,8 @@ if "agent" not in sys.modules or not hasattr(sys.modules["agent"], "__path__"):
     sys.modules["agent"] = _stub
 
 
-from agent.planning.memory_writer import (  # noqa: E402
-    _is_duplicate,
-    _now_iso,
-    _resolve_profile_path,
-    persist_memory,
-)
-from schemas.domain import RecentTrip, UserProfile  # noqa: E402
+from agent.planning.memory_writer import persist_memory  # noqa: E402
+from data.memory_store import get_recent_trips, reset_all_memory  # noqa: E402
 from tests.test_critics_v2 import _make_intent, _make_legal_itinerary  # noqa: E402
 
 
@@ -46,24 +49,11 @@ from tests.test_critics_v2 import _make_intent, _make_legal_itinerary  # noqa: E
 # ============================================================
 
 
-@pytest.fixture
-def temp_profile_path(tmp_path: Path) -> Path:
-    """临时 user_profile.json，含 4 字段最小完整 profile + 空 recent_trips"""
-    path = tmp_path / "user_profile.json"
-    profile = {
-        "user_id": "demo_user",
-        "home_location": {
-            "name": "测试家",
-            "lat": 30.275,
-            "lng": 120.075,
-        },
-        "default_budget": 300.0,
-        "transport_preference": "taxi",
-        "recent_trips": [],
-        "social_context_history": [],
-    }
-    path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
-    return path
+@pytest.fixture(autouse=True)
+def _clean_memory():
+    reset_all_memory()
+    yield
+    reset_all_memory()
 
 
 @pytest.fixture
@@ -77,318 +67,166 @@ def _make_state(
     *,
     user_decision: str = "confirm",
     social_context: str = "家庭日常",
+    session_id: str | None = "sess_mw_test",
+    user_id: str = "demo_user",
 ) -> dict:
     intent = _make_intent(social_context=social_context)
     itinerary = _make_legal_itinerary()
-    return {
+    state: dict = {
         "intent": intent,
         "itinerary": itinerary,
         "user_decision": user_decision,
-        "user_id": "demo_user",
+        "user_id": user_id,
     }
+    if session_id is not None:
+        state["session_id"] = session_id
+    return state
 
 
 # ============================================================
-# 测试 1：成功写入 1 条
+# 测试 1：成功写入 1 条（session 键控，不再落文件）
 # ============================================================
 
 
-def test_persist_memory_writes_recent_trip(temp_profile_path, stub_client):
-    state = _make_state()
-    ok = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
+def test_persist_memory_writes_recent_trip_session_keyed(stub_client):
+    state = _make_state(session_id="sess_a")
+    ok = persist_memory(state, client=stub_client)
     assert ok is True
 
-    raw = json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    profile = UserProfile.model_validate(raw)
-    assert profile.recent_trips is not None
-    assert len(profile.recent_trips) == 1
-    assert profile.recent_trips[0].social_context == "家庭日常"
-    assert profile.recent_trips[0].success is True
-    assert profile.recent_trips[0].summary  # 非空
+    trips = get_recent_trips("sess_a")
+    assert len(trips) == 1
+    assert trips[0].social_context == "家庭日常"
+    assert trips[0].success is True
+    assert trips[0].summary  # 非空
+
+
+def test_persist_memory_does_not_touch_profile_template(stub_client):
+    """user_profile.json 是只读模板：persist 后模板文件逐字节不变（运行时零文件写）。"""
+    import os
+
+    template = Path(os.environ["SHANGWUJU_MOCK_DIR"]) / "user_profile.json"
+    before = template.read_bytes()
+
+    ok = persist_memory(_make_state(session_id="sess_ro"), client=stub_client)
+    assert ok is True
+    assert template.read_bytes() == before, "行程档案已改会话私有存储，模板文件不得被写"
 
 
 # ============================================================
-# 测试 2：5 条上限
+# 测试 2：会话隔离（本批核心不变式）
 # ============================================================
 
 
-def test_persist_memory_5_trips_upper_limit(temp_profile_path, stub_client):
-    """先写 5 条，再写第 6 条 → 丢弃最旧"""
-    # 先塞 5 条已有记录（LIFO 顺序：最新在头，最旧在尾）
-    raw = json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    raw["recent_trips"] = [
-        {
-            # 最新在头：i=5 → 2026-04-05；i=1 → 2026-04-01
-            "timestamp": f"2026-04-{6-i:02d}T10:00:00Z",
-            "social_context": f"old_context_{i}",
-            "summary": f"old summary {i}",
-            "success": True,
-        }
-        for i in range(1, 6)
-    ]
-    temp_profile_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-
-    # 写第 6 条（不同 social_context 避免幂等键拦下）
-    state = _make_state(social_context="情侣亲密")
-    ok = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
+def test_sessions_are_isolated_even_with_same_user_id(stub_client):
+    """同 user_id、不同 session → 档案互不可见（会话即身份，跨访客不串味）。"""
+    ok = persist_memory(
+        _make_state(session_id="sess_visitor_a", user_id="u_dad"), client=stub_client
+    )
     assert ok is True
 
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
+    assert len(get_recent_trips("sess_visitor_a")) == 1
+    assert get_recent_trips("sess_visitor_b") == [], (
+        "访客 B 的会话不得看到访客 A 确认的行程档案"
     )
-    assert len(profile.recent_trips) == 5  # 上限维持
-    # 最新的在头
-    assert profile.recent_trips[0].social_context == "情侣亲密"
-    # old_context_5（fixture 中尾部最旧记录）应被丢弃
-    contexts = [t.social_context for t in profile.recent_trips]
-    assert "old_context_5" not in contexts, f"最旧的 old_context_5 应被丢弃，实际：{contexts}"
 
 
-# ============================================================
-# 测试 3：幂等键 5 分钟窗口
-# ============================================================
-
-
-def test_idempotent_within_5min_window(temp_profile_path, stub_client):
-    """同一 session 5 分钟内同 social_context 重复 persist → 第二次跳过"""
-    state = _make_state()
-    ok1 = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
-    assert ok1 is True
-
-    # 立即再写一次（5 分钟内）
-    ok2 = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
-    assert ok2 is False, "5 分钟内重复应被幂等键拦下"
-
-    # 验证 profile 只有 1 条
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    )
-    assert len(profile.recent_trips) == 1
-
-
-def test_is_duplicate_same_context_within_window():
-    """_is_duplicate helper：5 分钟内同 social_context → True"""
-    now = _now_iso()
-    trip = RecentTrip(
-        timestamp=now,
-        social_context="家庭日常",
-        summary="测试",
-        success=True,
-    )
-    assert _is_duplicate([trip], "家庭日常", now) is True
-    # 不同 social_context 不算 duplicate
-    assert _is_duplicate([trip], "情侣亲密", now) is False
-
-
-def test_is_duplicate_outside_window():
-    """超 5 分钟窗口 → 不算 duplicate"""
-    trip = RecentTrip(
-        timestamp="2026-05-18T10:00:00Z",
-        social_context="家庭日常",
-        summary="旧",
-        success=True,
-    )
-    now = "2026-05-18T11:00:00Z"  # 1 小时后
-    assert _is_duplicate([trip], "家庭日常", now) is False
-
-
-# ============================================================
-# 测试 4：cancel 不写回
-# ============================================================
-
-
-def test_cancel_decision_skips_write(temp_profile_path, stub_client):
-    state = _make_state(user_decision="cancel")
-    ok = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
+def test_missing_session_id_skips_write(stub_client):
+    """无 session_id（无会话身份）→ 不写、返 False——没有身份就没有归属。"""
+    ok = persist_memory(_make_state(session_id=None), client=stub_client)
     assert ok is False
 
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
+
+# ============================================================
+# 测试 3：5 条上限（LIFO，最新在头）
+# ============================================================
+
+
+def test_persist_memory_5_trips_upper_limit(stub_client):
+    """写 6 条不同 social_context → 保 5 条，最旧的被丢弃。"""
+    contexts = ["家庭日常", "老人伴助", "闺蜜聊天", "朋友热闹", "情侣亲密", "商务接待"]
+    for sc in contexts:
+        ok = persist_memory(
+            _make_state(social_context=sc, session_id="sess_cap"), client=stub_client
+        )
+        assert ok is True
+
+    trips = get_recent_trips("sess_cap")
+    assert len(trips) == 5  # 上限维持
+    assert trips[0].social_context == "商务接待"  # 最新在头
+    kept = [t.social_context for t in trips]
+    assert "家庭日常" not in kept, f"最旧的一条应被丢弃，实际：{kept}"
+
+
+# ============================================================
+# 测试 4：幂等键 5 分钟窗口
+# ============================================================
+
+
+def test_idempotent_within_5min_window(stub_client):
+    """同 session 5 分钟内同 social_context 重复 persist → 第二次跳过。"""
+    state = _make_state(session_id="sess_dup")
+    assert persist_memory(state, client=stub_client) is True
+    assert persist_memory(state, client=stub_client) is False, "5 分钟内重复应被幂等键拦下"
+    assert len(get_recent_trips("sess_dup")) == 1
+
+
+def test_same_context_different_sessions_both_write(stub_client):
+    """幂等窗按 session 隔离：不同 session 同 social_context 各写各的。"""
+    assert persist_memory(_make_state(session_id="sess_x"), client=stub_client) is True
+    assert persist_memory(_make_state(session_id="sess_y"), client=stub_client) is True
+    assert len(get_recent_trips("sess_x")) == 1
+    assert len(get_recent_trips("sess_y")) == 1
+
+
+# ============================================================
+# 测试 5：cancel / refine 草稿语义（原样保留）
+# ============================================================
+
+
+def test_cancel_decision_skips_write(stub_client):
+    ok = persist_memory(_make_state(user_decision="cancel"), client=stub_client)
+    assert ok is False
+    assert get_recent_trips("sess_mw_test") == []
+
+
+def test_refine_draft_writes_with_success_false(stub_client):
+    """user_decision=None / "refine" → 写入但 success=False。"""
+    ok = persist_memory(
+        _make_state(user_decision="refine", session_id="sess_draft"), client=stub_client
     )
-    assert profile.recent_trips == []  # 空
-
-
-# ============================================================
-# 测试 5：success=False（refine 草稿）也允许写入
-# ============================================================
-
-
-def test_refine_draft_writes_with_success_false(temp_profile_path, stub_client):
-    """user_decision=None / "refine" → 写入但 success=False"""
-    state = _make_state(user_decision="refine")
-    ok = persist_memory(state, profile_path=temp_profile_path, client=stub_client)
     assert ok is True
-
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    )
-    assert len(profile.recent_trips) == 1
-    assert profile.recent_trips[0].success is False
+    trips = get_recent_trips("sess_draft")
+    assert len(trips) == 1
+    assert trips[0].success is False
 
 
 # ============================================================
-# 测试 6：summary 长度上限 + 隐私（fallback 不含具体数字）
+# 测试 6：summary 脱敏 + 长度上限（原样保留）
 # ============================================================
 
 
-def test_summary_does_not_contain_age_numbers_in_fallback(
-    temp_profile_path, stub_client
-):
-    """stub 模式 fallback summary 应不含具体年龄数字（虽然原始 itinerary 节点没年龄）
-
-    更重要的：stub 模式生成的 fallback 文本是格式化字符串，不会泄漏 intent.companions 中
-    的 age 字段。这是设计纪律：fallback summary 仅含 social_context + 节点类型 + 时长。
-    """
-    state = _make_state()
-    persist_memory(state, profile_path=temp_profile_path, client=stub_client)
-
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    )
-    summary = profile.recent_trips[0].summary
+def test_summary_does_not_contain_age_numbers_in_fallback(stub_client):
+    """stub fallback summary 仅含 social_context + 节点类型 + 时长，不泄漏年龄。"""
+    persist_memory(_make_state(session_id="sess_pii"), client=stub_client)
+    summary = get_recent_trips("sess_pii")[0].summary
     assert summary
-    # fallback summary 不应含具体年龄关键字（intent 里也没年龄数字所以这里更稳）
     assert "5 岁" not in summary
     assert "5岁" not in summary
-    # 长度限制
     assert len(summary) <= 500
 
 
 # ============================================================
-# 测试 7：threading.Lock 跨平台不依赖 fcntl
+# 测试 7：永不抛异常
 # ============================================================
 
 
-def test_threading_lock_used_for_cross_platform():
-    """memory_writer 使用 threading.Lock（不应导入 fcntl）"""
-    import agent.planning.memory_writer as mw
-    # 验证 _FILE_LOCK 是 threading.Lock 实例（_lock 内部类型）
-    assert isinstance(mw._FILE_LOCK, type(threading.Lock())) or hasattr(
-        mw._FILE_LOCK, "acquire"
+def test_persist_memory_never_raises(stub_client):
+    """intent / itinerary 缺失 → 返 False，不抛异常。"""
+    ok = persist_memory({"session_id": "sess_bad"}, client=stub_client)
+    assert ok is False
+
+    ok2 = persist_memory(
+        {"session_id": "sess_bad", "intent": object(), "itinerary": None},
+        client=stub_client,
     )
-    # 验证不依赖 fcntl
-    src = Path(mw.__file__).read_text(encoding="utf-8")
-    assert "import fcntl" not in src
-    assert "from fcntl" not in src
-
-
-# ============================================================
-# 测试 8：social_context_history 去重 + 上限
-# ============================================================
-
-
-def test_social_context_history_dedup_and_cap(temp_profile_path, stub_client):
-    """重复的 social_context 应去重；新值移到头部"""
-    # 先塞已有 history
-    raw = json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    raw["social_context_history"] = ["独处放空", "家庭日常", "情侣纪念"]
-    temp_profile_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-
-    state = _make_state(social_context="家庭日常")
-    persist_memory(state, profile_path=temp_profile_path, client=stub_client)
-
-    profile = UserProfile.model_validate(
-        json.loads(temp_profile_path.read_text(encoding="utf-8"))
-    )
-    history = profile.social_context_history or []
-    # 新 social_context "家庭日常" 应去重并移到头
-    assert history[0] == "家庭日常"
-    # 总数不变（去重后还是 3 条）
-    assert len(history) == 3
-    assert "独处放空" in history
-    assert "情侣纪念" in history
-
-
-# ============================================================
-# 测试 9：schema 向后兼容（旧 4 字段也能加载）
-# ============================================================
-
-
-def test_old_4_field_profile_loads(tmp_path):
-    """旧 user_profile.json 仅 4 字段（无 dietary / recent_trips） → 仍可加载"""
-    path = tmp_path / "user_profile.json"
-    old = {
-        "user_id": "demo_user",
-        "home_location": {"name": "家", "lat": 30.0, "lng": 120.0},
-        "default_budget": 300.0,
-        "transport_preference": "taxi",
-    }
-    path.write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
-
-    profile = UserProfile.model_validate(json.loads(path.read_text(encoding="utf-8")))
-    assert profile.user_id == "demo_user"
-    assert profile.recent_trips is None  # 缺省 None
-    assert profile.social_context_history is None
-    assert profile.dietary_preference is None
-
-
-# ============================================================
-# 测试 10：失败时不抛异常
-# ============================================================
-
-
-def test_persist_memory_never_raises(stub_client, tmp_path):
-    """profile_path 不存在 / 不可写 → 返 False，不抛异常"""
-    bad_path = tmp_path / "nonexistent" / "subdir" / "user_profile.json"
-    state = _make_state()
-    ok = persist_memory(state, profile_path=bad_path, client=stub_client)
-    assert ok is False  # 不抛异常，仅返 False
-
-
-# ============================================================
-# 测试：护栏——env 未设时不写 tracked 种子（落 gitignore 运行副本）
-# ============================================================
-
-
-def test_default_write_target_avoids_tracked_seed(monkeypatch):
-    """SHANGWUJU_MOCK_DIR 未设 + 无 profile_path override 时，写入目标必须避开
-    版本控制的 mock_data/user_profile.json 种子，改落 gitignore 的 mock_data_runtime/。
-
-    根因：memory_writer 是运行时唯一改 user_profile 的写入点；env 未设的裸跑
-    （脚本 / dev app）此前会直接改 tracked 种子 → git 噪音 + 误提运行时状态。
-    """
-    monkeypatch.delenv("SHANGWUJU_MOCK_DIR", raising=False)
-
-    repo_root = Path(__file__).resolve().parents[2]
-    tracked_seed = repo_root / "mock_data" / "user_profile.json"
-    runtime_dir = repo_root / "mock_data_runtime"
-
-    try:
-        resolved = _resolve_profile_path(None)
-        assert resolved != tracked_seed, "默认写入目标不得是 tracked 种子"
-        assert "mock_data_runtime" in resolved.parts, (
-            f"默认写入应落 mock_data_runtime 运行副本，实际 {resolved}"
-        )
-    finally:
-        import shutil
-
-        if runtime_dir.exists():
-            shutil.rmtree(runtime_dir, ignore_errors=True)
-
-
-def test_persist_does_not_mutate_tracked_seed(monkeypatch, stub_client):
-    """env 未设 + 无 override 时 persist_memory 写运行副本，绝不改动 tracked 种子。"""
-    monkeypatch.delenv("SHANGWUJU_MOCK_DIR", raising=False)
-
-    repo_root = Path(__file__).resolve().parents[2]
-    tracked_seed = repo_root / "mock_data" / "user_profile.json"
-    runtime_dir = repo_root / "mock_data_runtime"
-
-    before = tracked_seed.read_bytes() if tracked_seed.exists() else None
-    try:
-        # 独处放空：种子里即使有也是旧时间戳，不会撞 5min 幂等键
-        state = _make_state(social_context="独处放空")
-        ok = persist_memory(state, client=stub_client)
-
-        after = tracked_seed.read_bytes() if tracked_seed.exists() else None
-        assert after == before, "persist_memory 不得改动版本控制的 mock_data 种子"
-        assert ok is True, "写应成功落到运行副本"
-        assert (runtime_dir / "user_profile.json").exists(), "运行副本应被创建"
-    finally:
-        # 防御：即便实现有 bug 改了种子，也逐字节还原，绝不留污染
-        if before is not None:
-            tracked_seed.write_bytes(before)
-        import shutil
-
-        if runtime_dir.exists():
-            shutil.rmtree(runtime_dir, ignore_errors=True)
+    assert ok2 is False

@@ -56,10 +56,11 @@ def _load_fake_tools_module():
 def _isolated_mock_dir(tmp_path_factory):
     """把仓库 mock_data 复制到 session 临时目录；所有测试的 mock 读写都走副本。
 
-    根因：memory_writer（narrate 副作用）会把 recent_trips 写回 user_profile.json，
-    旧 conftest 把 SHANGWUJU_MOCK_DIR 指向活体仓库 mock_data/，导致跑测试会污染
-    版本控制的 mock 数据（recent_trips 被测试场景刷掉）。指向副本后真目录永不被写。
-    读照旧（副本同内容）；个别测试仍可用 monkeypatch.setenv 覆盖到自己的 tmp。
+    历史根因：memory_writer 曾把 recent_trips 写回 user_profile.json，指向活体
+    仓库 mock_data/ 会污染版本控制的种子。记忆身份读写分离批（2026-07-05）后
+    memory_writer 已改写进程内会话私有存储、运行时零文件写——本隔离保留作为
+    纵深防御（任何未来写者都打不到真种子），且个别测试仍用 monkeypatch.setenv
+    覆盖到自己的 tmp 构造窄目录场景。
     """
     import shutil
 

@@ -7,8 +7,14 @@
 4. record_visited 200 条上限滚动
 5. UserMemory 向后兼容（旧 JSON 加载不报）
 6. search_pois exclude_visited_ids 真生效
-7. search_pois_for_intent 自动从 memory 拉 visited 排除
+7. search_pois_for_intent 自动从 memory 拉 visited 排除（按 session 键）
 8. 不同 kind 的 visited 互不影响（poi 不影响餐厅 search）
+
+【判据变更理由（记忆身份读写分离批，ADR-0015 身份边界补充决策，2026-07-05）】
+visited 排重是"确认累积"的读侧之一：累积改按 session_id 键控后，
+search_*_for_intent 的排除键从 user_id 参数改为独立的 session_id 参数
+（user_id 仍保留，只用于 home 坐标这类模板读）。会话隔离新增钉在
+test_search_exclusion_is_session_scoped。
 
 不调 LLM；用真 mock。
 """
@@ -161,16 +167,10 @@ def test_search_pois_excludes_visited_id():
         assert "P001" not in ids, "exclude_visited_ids 应该过滤掉 P001"
 
 
-def test_search_pois_for_intent_auto_excludes_recently_visited():
-    """confirm 过 P011 后，下次 search_pois_for_intent(user_id=...) 应排除 P011。"""
-    from agent.runtime.tools.search_adapter import search_pois_for_intent
+def _mk_intent(social_context: str = "独处放空"):
     from schemas.intent import IntentExtraction
 
-    user_id = "u_test_exclude"
-    # 模拟 confirm 后写入
-    record_visited(user_id, visits=[("P011", "poi")])
-
-    intent = IntentExtraction(
+    return IntentExtraction(
         start_time="2026-05-22T14:00",
         duration_hours=[4, 6],  # type: ignore[arg-type]
         distance_max_km=10.0,
@@ -178,41 +178,49 @@ def test_search_pois_for_intent_auto_excludes_recently_visited():
         physical_constraints=[],
         dietary_constraints=[],
         experience_tags=[],
-        social_context="独处放空",
+        social_context=social_context,
         raw_input="测试",
         parse_confidence=0.9,
     )
-    pois, _ = search_pois_for_intent(intent, user_id=user_id)
+
+
+def test_search_pois_for_intent_auto_excludes_recently_visited():
+    """本会话 confirm 过 P011 后，同会话 search_pois_for_intent(session_id=...) 应排除 P011。"""
+    from agent.runtime.tools.search_adapter import search_pois_for_intent
+
+    session_id = "sess_test_exclude"
+    # 模拟 confirm 后写入（会话键）
+    record_visited(session_id, visits=[("P011", "poi")])
+
+    pois, _ = search_pois_for_intent(_mk_intent(), session_id=session_id)
     ids = [p.id for p in pois]
     assert "P011" not in ids, (
-        f"confirm 过的 P011 应被自动排除，实际候选 ids={ids}"
+        f"本会话 confirm 过的 P011 应被自动排除，实际候选 ids={ids}"
+    )
+
+
+def test_search_exclusion_is_session_scoped():
+    """会话隔离：A 会话的 visited 不影响 B 会话的候选（跨访客不串味）。"""
+    from agent.runtime.tools.search_adapter import search_pois_for_intent
+
+    record_visited("sess_visitor_a", visits=[("P011", "poi")])
+    pois, _ = search_pois_for_intent(_mk_intent(), session_id="sess_visitor_b")
+    ids = [p.id for p in pois]
+    assert "P011" in ids, (
+        f"B 会话不该被 A 会话的访问史排重（累积会话私有），实际候选 ids={ids}"
     )
 
 
 def test_search_pois_does_not_exclude_other_kind_visited():
-    """confirm 过餐厅 R007 不应影响 POI 搜索。"""
+    """本会话 confirm 过餐厅 R007 不应影响 POI 搜索。"""
     from agent.runtime.tools.search_adapter import search_pois_for_intent
-    from schemas.intent import IntentExtraction
 
-    user_id = "u_test_kind"
+    session_id = "sess_test_kind"
     # 只 confirm 餐厅 R007
-    record_visited(user_id, visits=[("R007", "restaurant")])
+    record_visited(session_id, visits=[("R007", "restaurant")])
 
-    intent = IntentExtraction(
-        start_time="2026-05-22T14:00",
-        duration_hours=[4, 6],  # type: ignore[arg-type]
-        distance_max_km=10.0,
-        companions=[],
-        physical_constraints=[],
-        dietary_constraints=[],
-        experience_tags=[],
-        social_context="独处放空",
-        raw_input="测试",
-        parse_confidence=0.9,
-    )
-    pois, _ = search_pois_for_intent(intent, user_id=user_id)
+    pois, _ = search_pois_for_intent(_mk_intent(), session_id=session_id)
     # POI 候选不应受 R007 影响（可能本身没合规候选，但不会因 R007 被过滤）
-    # 主要验：P011 / P008 等独处类 POI 仍可候选
     ids = [p.id for p in pois]
     if pois:  # 有候选时
         # R007 不应出现（它是餐厅）也不应让 POI 被过滤；只验候选不为空
@@ -220,26 +228,13 @@ def test_search_pois_does_not_exclude_other_kind_visited():
 
 
 # ============================================================
-# 默认 user_id 不调 memory（向后兼容）
+# 无会话键不调 memory（向后兼容）
 # ============================================================
 
-def test_no_user_id_no_exclude():
-    """user_id=None 时不查 memory，候选不变。"""
+def test_no_session_id_no_exclude():
+    """session_id=None 时不查 memory，候选不变。"""
     from agent.runtime.tools.search_adapter import search_pois_for_intent
-    from schemas.intent import IntentExtraction
 
-    intent = IntentExtraction(
-        start_time="2026-05-22T14:00",
-        duration_hours=[4, 6],  # type: ignore[arg-type]
-        distance_max_km=10.0,
-        companions=[],
-        physical_constraints=[],
-        dietary_constraints=[],
-        experience_tags=[],
-        social_context="家庭日常",
-        raw_input="测试",
-        parse_confidence=0.9,
-    )
-    pois, _ = search_pois_for_intent(intent, user_id=None)
+    pois, _ = search_pois_for_intent(_mk_intent("家庭日常"), user_id=None)
     # 应有候选（P001 等亲子 POI）
     assert len(pois) > 0

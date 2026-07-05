@@ -48,13 +48,16 @@ def _build_messages(
     error_feedback: str | None = None,
     *,
     user_id: str | None = None,
+    session_id: str | None = None,
 ) -> list[LLMMessage]:
     """组装 system + few-shot + user 消息。
 
     user_id 不为空时，system prompt 会拼接 persona/memory prior（Phase 0.7）。
+    双键（读写分离批）：user_id=画像模板（共享只读），session_id=会话私有累积
+    （历史偏好 / 行程档案召回）。
     """
     system_prompt = (
-        build_intent_parser_system_prompt_with_priors(user_id)
+        build_intent_parser_system_prompt_with_priors(user_id, session_id)
         if user_id
         else INTENT_PARSER_SYSTEM_PROMPT
     )
@@ -174,7 +177,7 @@ def _distance_stated_in_raw(raw: str) -> bool:
 
 
 def _apply_provenance_correction(
-    intent: IntentExtraction, user_id: str | None
+    intent: IntentExtraction, user_id: str | None, session_id: str | None = None
 ) -> IntentExtraction:
     """首轮出处：LLM 自报 + 规则交叉校正（ADR-0014 决策 1）。
 
@@ -188,7 +191,7 @@ def _apply_provenance_correction(
     - 否则沿用 LLM 自报；自报缺失时按 schema 默认值兜底（等于默认值→
       `default`，否则 `user_stated`）。
     """
-    priors = compute_injected_priors(user_id)
+    priors = compute_injected_priors(user_id, session_id)
     self_reported = dict(intent.field_provenance or {})
     raw = intent.raw_input or ""
     corrected: dict[str, str] = {}
@@ -249,11 +252,17 @@ def parse_intent(
     client: LLMClient,
     max_retries: int = 1,
     user_id: str | None = None,
+    session_id: str | None = None,
 ) -> IntentExtraction:
     """主入口：用 LLM 抽取意图，Pydantic 二次校验。
 
     Phase 0.7：传 user_id 时 system prompt 注入 persona+memory prior（"我是谁 + 学过什么"）。
     user_id 为 None 时退化为原行为（无 prior，按 §5.7 D-SoT 抽取）。
+
+    双键（记忆身份读写分离批，ADR-0015 身份边界补充决策）：demo 无账号体系，
+    会话即身份——`user_id` 只锚定共享只读的画像模板，`session_id` 锚定会话私有
+    累积（历史偏好先验 + "用户最近行程"档案召回）。不传 session_id 时先验退化
+    为纯模板（不混入任何会话的累积）。生产迁移 = 会话键换账号键，机制不动。
 
     流程：
     1. 调 LLM（response_format=json_object）
@@ -265,7 +274,9 @@ def parse_intent(
     last_response: LLMChatResponse | None = None
 
     for attempt in range(max_retries + 1):
-        messages = _build_messages(user_input, error_feedback, user_id=user_id)
+        messages = _build_messages(
+            user_input, error_feedback, user_id=user_id, session_id=session_id
+        )
         last_response = client.chat(
             messages,
             temperature=0.1,
@@ -297,7 +308,7 @@ def parse_intent(
             intent = intent.model_copy(update={"raw_input": user_input})
         # ADR-0014 决策 1（G-1）：出处交叉校正（必须在 raw_input 兜底之后——
         # 校正要用最终 raw_input 判断"原话有没有提到"）
-        intent = _apply_provenance_correction(intent, user_id)
+        intent = _apply_provenance_correction(intent, user_id, session_id)
         return intent
 
     # 不应到达

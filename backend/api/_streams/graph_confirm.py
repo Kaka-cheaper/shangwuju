@@ -5,11 +5,12 @@ SESSION_STORE；用户点确认后，本流读取该快照，调用 graph/nodes/
 的真实执行函数（不是图内节点，见下）完成预约 / 购票 / 附加服务 / 转发文案。
 
 确认成功后三件事并行发生（ADR-0012 决策 5：两种记忆副作用不是二选一，缺一都会
-断掉一条已有读者的闭环）：
-- memory_writer 副作用（写 user_profile.json 的 recent_trips）作为后台任务执行；
+断掉一条已有读者的闭环；记忆身份读写分离批起，两轨的累积键都是 **session_id**
+——会话即身份、会话私有，见 data/memory_store.py 模块 docstring 的身份边界）：
+- memory_writer 副作用（写会话私有的 recent_trips 行程档案）作为后台任务执行；
 - memory_store 标签 / 访问累积（`.memory._accumulate_memory_after_confirm`，写
-  UserMemory——persona_qa / intent_parser 先验 / search_adapter 排重 / preferences
-  API 的真实读者）同样作为后台任务执行，与 memory_writer 并列、互不等待；
+  会话私有 UserMemory——persona_qa / intent_parser 先验 / search_adapter 排重
+  的真实读者）同样作为后台任务执行，与 memory_writer 并列、互不等待；
   二者都不阻塞 tool_call / itinerary_ready / done。
 - 终版方案（含 orders）与 user_decision="confirm" 在推 DONE 事件之前**同步**回写进
   LangGraph 图状态（ADR-0012 决策 2：会话跨轮真相源=图状态），使下一轮 /chat/turn
@@ -174,13 +175,14 @@ async def _graph_confirm(req: ChatConfirmRequest) -> AsyncIterator[SseEvent]:
         SESSION_STORE[req.session_id] = {**cached, "itinerary": final_payload}
         yield emit(SseEventType.ITINERARY_READY, final_payload)
 
-        # ADR-0012 决策 5 硬门 1：memory_store 标签/访问累积——平移 _stub_confirm
-        # 的调用语义（无条件调用，不依赖 intent 是否解析成功；用 cached 里的原始
-        # user_id，不是 finalize_state 兜底过的那个，见任务报告「自行拍板判断点」），
-        # 与 memory_writer 并列作为后台任务执行。
+        # ADR-0012 决策 5 硬门 1：memory_store 标签/访问累积——无条件调用（不依赖
+        # intent 是否解析成功），与 memory_writer 并列作为后台任务执行。累积键=
+        # req.session_id（读写分离批：旧实现用 cached["user_id"]，那是共享画像
+        # 模板 id，多访客并发会跨访客串味）。
         _schedule_background_memory_accumulate(
             cached=cached,
             final_itinerary_dict=final_payload,
+            session_id=req.session_id,
         )
 
         # intent 缺省（ReAct 路径没落库）时跳过写偏好——没意图无从推画像；订单/文案/record 照常。
@@ -259,17 +261,25 @@ def _schedule_background_memory_accumulate(
     *,
     cached: dict[str, Any],
     final_itinerary_dict: dict[str, Any],
+    session_id: str,
 ) -> None:
     """ADR-0012 决策 5 硬门 1：调度 memory_store 标签/访问累积（与 memory_writer 并列）。
 
-    平移 `_stub_confirm`（已删除）里 `_accumulate_memory_after_confirm` 的调用
-    语义：无条件调用——不像 memory_writer 那样要求 intent 解析成功（tag 来自
-    itinerary.nodes 反查 mock_data，不依赖 IntentExtraction 对象本身），user_id
-    取原始 SESSION_STORE 快照里的 `cached["user_id"]`（房间确认前已把 room.owner_id
-    写进这里；缺失时 `_accumulate_memory_after_confirm` 自己短路跳过，不阻塞主流程）。
+    调用语义：无条件调用——不像 memory_writer 那样要求 intent 解析成功（tag 来自
+    itinerary.nodes 反查 mock_data，不依赖 IntentExtraction 对象本身）。
+
+    累积键（记忆身份读写分离批，ADR-0015 身份边界补充决策）：**session_id**——
+    会话即身份、会话私有。房间确认传的是房间持久线程键 `collab_{room_id}`（房间
+    确认前已把方案写进该 session 的 SESSION_STORE 投影），单人确认就是本会话 id
+    ——同一条管线，无需分叉。旧实现按 `cached["user_id"]`（共享画像模板 id）
+    键控，多访客并发会跨访客串味。
     """
     task = asyncio.create_task(
-        _accumulate_memory_later(cached=cached, final_itinerary_dict=final_itinerary_dict)
+        _accumulate_memory_later(
+            cached=cached,
+            final_itinerary_dict=final_itinerary_dict,
+            session_id=session_id,
+        )
     )
     _track_background_task(task)
 
@@ -278,10 +288,14 @@ async def _accumulate_memory_later(
     *,
     cached: dict[str, Any],
     final_itinerary_dict: dict[str, Any],
+    session_id: str,
 ) -> None:
     try:
         await asyncio.to_thread(
-            _accumulate_memory_after_confirm, cached, final_itinerary_dict
+            _accumulate_memory_after_confirm,
+            cached,
+            final_itinerary_dict,
+            session_id=session_id,
         )
     except Exception:  # noqa: BLE001
         logger.debug("graph_confirm: background memory accumulate failed", exc_info=True)
