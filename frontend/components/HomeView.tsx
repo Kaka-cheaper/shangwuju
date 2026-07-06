@@ -2,8 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
-import { useCollabStore } from "@/lib/collab-store";
+import {
+  buildCollabChatStateSnapshot,
+  buildCollabPlanningEvents,
+  useCollabStore,
+} from "@/lib/collab-store";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import {
   clearUserIdCookie,
@@ -18,7 +23,6 @@ import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ConstraintFeed from "./ConstraintFeed";
 import ItineraryCard from "./ItineraryCard";
-import ItineraryUtilityBar from "./ItineraryUtilityBar";
 import MockModeBadge from "./MockModeBadge";
 import OfflineReadyBadge from "./OfflineReadyBadge";
 import PlannerModeBadge from "./PlannerModeBadge";
@@ -48,11 +52,57 @@ export default function HomeView() {
 
   // 协作模式
   const roomId = useCollabStore((s) => s.roomId);
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const createRoom = useCollabStore((s) => s.createRoom);
+  const joinRoom = useCollabStore((s) => s.joinRoom);
+  const pushToast = useChatStore((s) => s.pushToast);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
 
   // A9 根治：planner 模式的 cookie/health 校准不再依赖 PlannerModeBadge 是否
   // 挂载，根组件统一调用一次（Web/移动端共用同一份实现，见 hook docstring）。
   useBootstrapPlannerMode();
+
+  // 2026-07-06 收口：「开多人房间」从「方案工具」ItineraryUtilityBar 摘到顶栏
+  // 会话控件簇——这是协作/邀请动作，且不依赖已有方案（可以先开房再一起
+  // 规划），业界 Figma/Notion 的 Share 就常驻右上角，不是"对着某份文档才
+  // 出现"的工具。摘走之后 ItineraryUtilityBar 三个按钮（播报/海报/开房）
+  // 全部分流完毕（播报/海报进 ItineraryCard 的安静工具行），组件已整个
+  // 删除（见该文件删除说明）。
+  const showShareRoom = collabMode && !!roomId;
+
+  const handleRoomAction = async () => {
+    if (creatingRoom || streaming) return;
+    if (showShareRoom) {
+      setShareModalOpen(true);
+      return;
+    }
+    setCreatingRoom(true);
+    try {
+      const state = useChatStore.getState();
+      const userId = state.currentUserId || "demo_user";
+      const planningEvents = buildCollabPlanningEvents(state);
+      const chatState = buildCollabChatStateSnapshot(state);
+      const newRoomId = await createRoom(
+        userId,
+        "发起人",
+        state.sessionId,
+        planningEvents,
+        state.messages as unknown as Record<string, unknown>[],
+        chatState,
+      );
+
+      if (!newRoomId) {
+        pushToast({ kind: "warn", text: "多人房间创建失败" });
+        return;
+      }
+
+      joinRoom(newRoomId, userId, "发起人");
+      setShareModalOpen(true);
+    } finally {
+      setCreatingRoom(false);
+    }
+  };
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
@@ -199,6 +249,24 @@ export default function HomeView() {
             <PlannerModeBadge />
             <MockModeBadge />
             <OfflineReadyBadge />
+            {/* 开多人房间/分享房间——从「方案工具」ItineraryUtilityBar 摘到
+                会话控件簇（2026-07-06 收口）：协作/邀请动作不依赖已有方案，
+                同「新会话」一样是"持久可见的会话级操作"，放在它旁边而不是
+                挂在方案卡上——方案还没出来时也能先开房叫人一起规划。 */}
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-accent-400/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void handleRoomAction()}
+              disabled={creatingRoom || streaming}
+              title={showShareRoom ? "分享协作房间链接" : "创建多人协作房间：可先开房再一起规划"}
+            >
+              {creatingRoom ? (
+                <Icons.thinking className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Icons.users className="h-3.5 w-3.5" />
+              )}
+              <span>{showShareRoom ? "分享房间" : "开多人房间"}</span>
+            </button>
             <button
               className="inline-flex items-center rounded-full border border-ink-300 bg-white px-3.5 py-1.5 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-[0.98]"
               onClick={startNewSession}
@@ -258,13 +326,11 @@ export default function HomeView() {
             （合并原 ToolTracePanel/ThoughtPanel/DecisionTraceCard 三面板）
             插在 ItineraryCard 内部"叙事和时间轴之间"，不在这一层再单独挂载。
 
-            方案工具治 CLS：ItineraryUtilityBar 曾挂在 ItineraryCard 之上——
-            规划完成时它才出现（itinerary 从 null 变有值），会把下面的信任带
-            往下挤一次（布局跳动）。挪到 ItineraryCard 下方后，它和方案卡同时
-            出现/消失（itinerary null 时两者都不渲染），信任带固定挂在方案卡
-            容器上方的位置不再被工具栏出现与否影响；工具栏本身也和它操作的
-            那个方案挨在一起，语义上更顺（工具是"对这份方案"的操作，不是
-            独立于方案存在的东西）。 */}
+            2026-07-06 收口：原挂在这里的「方案工具」ItineraryUtilityBar
+            （播报/海报/开多人房间三按钮）已整个删除——播报/海报摘进
+            ItineraryCard 操作区的安静工具行，开多人房间摘到顶栏会话控件簇
+            （不依赖已有方案，见上方 header），三个按钮分流完毕后组件已空，
+            不再需要单独占一块区域，也顺带去掉了它曾经引入的一次 CLS 布局跳动。 */}
         <div
           className={cn(
             "mt-4 space-y-3 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
@@ -272,9 +338,6 @@ export default function HomeView() {
           )}
         >
           <ItineraryCard />
-          <ItineraryUtilityBar
-            onOpenShareModal={() => setShareModalOpen(true)}
-          />
         </div>
       </main>
 

@@ -21,7 +21,7 @@
  *     z-60 UserSwitcher 下拉（Portal） + Confetti（fixed inset z-60）
  *     z-50 CommandPalette
  *     z-40 ToastStack
- *     z-30 ChatDock / RefinementDialog
+ *     z-30 ChatDock
  *     z-20 Header
  *     z-1  main / header relative-content
  *     z-0  aurora-bg

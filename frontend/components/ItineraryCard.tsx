@@ -1,16 +1,14 @@
 ﻿"use client";
 
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, ChevronDown, type LucideIcon, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, type LucideIcon, SlidersHorizontal } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
 import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
-import { buildIntentChips } from "@/lib/intent-chips";
 import type {
-  AgentNarrationMessage,
   AlternativeOption,
   HopMode,
   IntentExtraction,
@@ -22,11 +20,12 @@ import { cn, primaryStoreName } from "@/lib/utils";
 
 import NodeFactPanel, { NodeHeadline } from "./NodeFactPanel";
 import NumberTicker from "./NumberTicker";
-import RefinementDialog from "./RefinementDialog";
+import PosterGenerator from "./PosterGenerator";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
 import MapOverlay from "./MapOverlay";
 import TrustBelt from "./TrustBelt";
+import TtsPlayer from "./TtsPlayer";
 import VoteButtons from "./VoteButtons";
 
 /**
@@ -49,7 +48,6 @@ export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const intent = useChatStore((s) => s.intent);
   const narration = useChatStore((s) => s.narration);
-  const narrationMessages = useChatStore((s) => s.narrationMessages);
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
@@ -68,8 +66,6 @@ export default function ItineraryCard() {
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const cancel = useChatStore((s) => s.cancel);
-
-  const [refineOpen, setRefineOpen] = useState(false);
 
   // 聚光灯：itinerary 从 null/无 → 有时触发一次性脉冲
   // confirm 阶段是接续不重置，spotlight 不应触发（保留 demo UX 连续）
@@ -337,15 +333,12 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* Agent 暖心开场白 + intent 命中可视化 */}
-      {(narration?.text || intent) && (
+      {/* Agent 暖心开场白——唯一的叙事声音（2026-07-06 收口：删掉与这段正文
+          重复的「为你考虑了」intent chips 与「查看全部取舍说明」折叠，见
+          下方 NarrationBlock docstring）。 */}
+      {narration?.text && (
         <div className="px-4 pt-3">
-          <NarrationBlock
-            text={narration?.text}
-            stage={narration?.stage ?? "stream"}
-            messages={narrationMessages}
-            intent={intent}
-          />
+          <NarrationBlock text={narration.text} stage={narration?.stage ?? "stream"} />
         </div>
       )}
 
@@ -730,12 +723,17 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="px-4 pb-4">
+      {/* Action buttons：一主 + 一条安静工具行（2026-07-06 收口）——
+          删掉「说说哪不对」（反馈走下方聊天框即可，聊天框本就能打「太远了」，
+          上方叙事正文也写着"不合适跟我说"，不需要重复一个专门弹窗入口）；
+          播报/海报从「方案工具」ItineraryUtilityBar 摘过来，与「取消方案」
+          合并成次级工具行——一屏只留一个 primary（确认并预约，亮黄实底
+          不变），其余全部降权成小号 ghost，不与主按钮抢视线。 */}
+      <div className="px-4 pb-4 space-y-2">
         {!hasOrders && !cancelled && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <>
             <button
-              className={cn("btn-primary font-bold", streaming && "shimmer-border")}
+              className={cn("btn-primary w-full font-bold", streaming && "shimmer-border")}
               disabled={!canConfirm}
               onClick={handleConfirm}
               title={
@@ -756,25 +754,32 @@ export default function ItineraryCard() {
                 </>
               )}
             </button>
-            <button
-              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!canAct}
-              onClick={() => setRefineOpen(true)}
-              title="基于你的反馈调整原方案，不会从零重新规划"
-            >
-              <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
-              <span>说说哪不对</span>
-            </button>
-            <button
-              className="btn-danger-ghost disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!canAct}
-              onClick={cancel}
-              title="放弃当前方案 · 不写入长期记忆"
-            >
-              <Icons.close className="w-3.5 h-3.5" strokeWidth={2.25} />
-              <span>取消方案</span>
-            </button>
-          </div>
+
+            {/* 安静工具行：语音播报 / 一键生成海报 / 取消方案——三者同级次级。
+                TtsPlayer/PosterGenerator 只压小尺寸（h-9/text-sm），不动它们
+                自身的白底/描边配色——播报中会切到 accent 高亮的「播报中」状态
+                指示，那是有意义的进行时信号，不该被压成灰底盖掉。取消方案
+                （destructive）单独控制样式，放最右、色弱，仅 hover 时才露红。 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <TtsPlayer compact className="h-9 w-auto flex-1 text-sm" />
+              <PosterGenerator compact className="h-9 w-auto flex-1 text-sm" />
+              <button
+                type="button"
+                className={cn(
+                  "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-medium tracking-tight transition-colors",
+                  "border-black/[0.08] bg-transparent text-ink-400",
+                  "hover:border-red-500/25 hover:bg-red-500/[0.05] hover:text-red-600",
+                  "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-black/[0.08] disabled:hover:bg-transparent disabled:hover:text-ink-400",
+                )}
+                disabled={!canAct}
+                onClick={cancel}
+                title="放弃当前方案 · 不写入长期记忆"
+              >
+                <Icons.close className="w-3.5 h-3.5" strokeWidth={2.25} />
+                <span>取消方案</span>
+              </button>
+            </div>
+          </>
         )}
         {hasOrders && (
           <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-400">
@@ -788,11 +793,6 @@ export default function ItineraryCard() {
           </div>
         )}
       </div>
-
-      <RefinementDialog
-        open={refineOpen}
-        onClose={() => setRefineOpen(false)}
-      />
         </div>
       </div>
     </div>
@@ -901,26 +901,25 @@ function ShareMessage({ text }: { text: string }) {
 
 // ============================================================
 // NarrationBlock —— Agent 暖心开场白（导游口播）
+//
+// 2026-07-06 收口（方案卡去冗余）：原来这里叠了三份声音——叙事正文 + 「为你
+// 考虑了」intent chips（buildIntentChips）+「查看全部取舍说明」折叠
+// （narrationMessages）。三者说的是同一件事（Agent 权衡了哪些约束），叙事
+// 正文已经把取舍写进一句人话里，chips/折叠列表只是把同一份信息又摆了两遍，
+// 一屏三个声音反而稀释了正文——删掉后者两个，只留 text 这一个唯一声音。
+// chips/折叠这两处如果以后要恢复，对应逻辑还留在 lib/intent-chips.ts 与
+// AgentNarrationMessage 类型里，没有被删，只是这里不再消费。
 // ============================================================
 
 function NarrationBlock({
   text,
   stage,
-  messages,
-  intent,
 }: {
   text?: string;
   stage: "stream" | "confirm";
-  /** D-7：narrate 文字里被限额折叠的完整取舍列表（"还有 N 处小取舍"的
-   * "点开看全部"落点）。非空时在暖场文案下方挂一个可展开小节；null/[] 不渲染。 */
-  messages?: AgentNarrationMessage[] | null;
-  intent: IntentExtraction | null;
 }) {
   const isConfirm = stage === "confirm";
-  const [expanded, setExpanded] = useState(false);
-  const hasMessages = !!messages && messages.length > 0;
-  const chips = intent ? buildIntentChips(intent) : [];
-  if (!text && chips.length === 0) return null;
+  if (!text) return null;
 
   return (
     <div
@@ -935,71 +934,18 @@ function NarrationBlock({
         color: "rgb(31 41 55 / 0.92)",
       }}
     >
-      {text && (
-        <div className="flex items-start gap-2">
-          <Icons.spark
-            className={cn(
-              "w-4 h-4 mt-1 shrink-0",
-              isConfirm ? "text-emerald-400" : "text-accent-600",
-            )}
-            strokeWidth={2}
-          />
-          <p className="whitespace-pre-wrap text-xl leading-relaxed">
-            <HighlightText text={text} />
-          </p>
-        </div>
-      )}
-
-      {chips.length > 0 && (
-        <div className={cn("flex flex-wrap items-center gap-2", text && "mt-3 border-t border-black/[0.06] pt-3")}>
-          <div className="mr-1 inline-flex items-center gap-1.5 text-base font-semibold text-ink-500">
-            <Icons.spark className="w-4 h-4 text-ink-500" strokeWidth={2.5} />
-            <span>为你考虑了</span>
-          </div>
-          {chips.map((c, i) => {
-            const Ico = Icons[c.icon];
-            return (
-              <span
-                key={`${c.label}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 text-base font-semibold tracking-tight text-ink-700 animate-fade-in"
-              >
-                <Ico className="w-4 h-4" strokeWidth={2} />
-                {c.label}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* D-7：全部取舍说明——narrate 文字里折叠的"还有 N 处小取舍"在这里展开看全部 */}
-      {hasMessages && (
-        <div className={cn("ml-[26px]", text || chips.length > 0 ? "mt-2" : "")}>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1 text-sm font-medium transition-colors",
-              isConfirm ? "text-emerald-600 hover:text-emerald-700" : "text-ink-600 hover:text-ink-800",
-            )}
-            aria-expanded={expanded}
-          >
-            <span>{expanded ? "收起取舍说明" : `查看全部取舍说明（${messages!.length}）`}</span>
-            <ChevronDown
-              className={cn("w-3 h-3 transition-transform duration-200", !expanded && "-rotate-90")}
-              strokeWidth={2.5}
-            />
-          </button>
-          {expanded && (
-            <ul className="mt-1.5 space-y-1 list-disc list-outside ml-4 animate-collapse-in">
-              {messages!.map((m, i) => (
-                <li key={`${m.code ?? "advisory"}-${i}`} className="text-sm leading-relaxed text-ink-700">
-                  {m.text}
-                </li>
-              ))}
-            </ul>
+      <div className="flex items-start gap-2">
+        <Icons.spark
+          className={cn(
+            "w-4 h-4 mt-1 shrink-0",
+            isConfirm ? "text-emerald-400" : "text-accent-600",
           )}
-        </div>
-      )}
+          strokeWidth={2}
+        />
+        <p className="whitespace-pre-wrap text-xl leading-relaxed">
+          <HighlightText text={text} />
+        </p>
+      </div>
     </div>
   );
 }

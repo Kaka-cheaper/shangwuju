@@ -166,7 +166,7 @@ pnpm test:watch    # 监听模式
 
 ## 组件清单
 
-`components/` 下共 29 个组件：
+`components/` 下共 27 个组件：
 
 ```
 HomeView              页面骨架：顶栏 + 聊天 + 行程/链路双栏
@@ -176,9 +176,8 @@ IntentSummary         实时意图摘要卡片
 ToolTracePanel        工具调用链路可视化
 ThoughtPanel          Agent 思考过程
 DecisionTraceCard     决策依据卡片
-ItineraryCard         行程时间轴卡片（确认 / 反馈 / 取消）
-ItineraryUtilityBar   行程辅助操作条
-RefinementDialog      反馈重规划弹窗
+ItineraryCard         行程时间轴卡片（确认 / 反馈 / 取消，含语音播报 / 海报 /
+                      取消方案的安静工具行；开多人房间已挪到顶栏会话控件簇）
 ComparisonView        新旧方案对比视图
 MapOverlay            高德地图行程标注（无 key 时降级文字列表）
 PosterGenerator       一键生成行程海报（modern-screenshot）

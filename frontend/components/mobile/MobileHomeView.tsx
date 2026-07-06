@@ -32,11 +32,9 @@ import { buildCriticTimeline } from "@/lib/critic-timeline";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
-import { buildIntentChips } from "@/lib/intent-chips";
 import { useChatStore } from "@/lib/store";
 import { formatStartTimeLabel } from "@/lib/time-labels";
 import type {
-  AgentNarrationMessage,
   AlternativeOption,
   DecisionTrace,
   HopMode,
@@ -68,7 +66,6 @@ import NodeFactPanel, { NodeHeadline } from "../NodeFactPanel";
 import OfflineReadyBadge from "../OfflineReadyBadge";
 import PlannerModeBadge from "../PlannerModeBadge";
 import PosterGenerator from "../PosterGenerator";
-import RefinementDialog from "../RefinementDialog";
 import ShareModal from "../ShareModal";
 import ToastStack from "../ToastStack";
 import ToolTracePanel from "../ToolTracePanel";
@@ -102,7 +99,6 @@ export default function MobileHomeView() {
 
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [refineOpen, setRefineOpen] = useState(false);
   const [visibleIntent, setVisibleIntent] = useState<IntentExtraction | null>(null);
   const personaResetOnLoadRef = useRef(false);
   const visibleIntentSessionRef = useRef(sessionId);
@@ -150,6 +146,7 @@ export default function MobileHomeView() {
       <MobileTopBar
         onNewSession={startNewSession}
         onOpenCommandPalette={openCommandPalette}
+        onOpenShareModal={() => setShareModalOpen(true)}
       />
 
       <main
@@ -214,21 +211,10 @@ export default function MobileHomeView() {
         )}
       </main>
 
-      <MobileActionRail
-        onOpenTrace={() => setSheet("trace")}
-        onOpenShareModal={() => setShareModalOpen(true)}
-        onOpenRefine={() => setRefineOpen(true)}
-      />
+      <MobileActionRail onOpenTrace={() => setSheet("trace")} />
       <MobileComposer />
       <ToastStack />
       <Confetti origin={MOBILE_CONFETTI_ORIGIN} />
-      {/* B4：「说说哪不对」反馈弹窗——挂在根组件而非 MobileActionRail 内部：
-          MobileActionRail 在 streaming 时会整体切到另一个 return 分支（Agent
-          正在思考的进度条），若 RefinementDialog 挂在那个分支之外，用户打开
-          弹窗后 streaming 一旦变 true 弹窗会被硬生生卸载。挂在根组件不受
-          MobileActionRail 内部分支影响，同 CommandPalette/ShareModal 的既有
-          挂载方式一致（本身是 createPortal 渲染的居中弹层，位置不影响布局）。 */}
-      <RefinementDialog open={refineOpen} onClose={() => setRefineOpen(false)} />
       {/* B5：会话切换/历史入口——移动端此前开新对话后回不去旧的。CommandPalette
           本身已是响应式居中弹层（fixed inset-0 + max-w-xl w-full px-4），
           直接复用而不是另起一份组件；顶栏的"命令"图标按钮触发它。 */}
@@ -262,10 +248,59 @@ export default function MobileHomeView() {
 function MobileTopBar({
   onNewSession,
   onOpenCommandPalette,
+  onOpenShareModal,
 }: {
   onNewSession: () => void;
   onOpenCommandPalette: () => void;
+  onOpenShareModal: () => void;
 }) {
+  // 2026-07-06 收口：「开多人房间」从「方案工具」抽屉摘到顶栏持久位置——
+  // 这是协作/邀请动作、且不依赖已有方案（可以先开房再一起规划），同桌面端
+  // HomeView 头部同款处理（Figma/Notion 的 Share 常驻右上角，不是"对着
+  // 某份文档才出现"的工具）。原按钮逻辑照 ItineraryUtilityBar.tsx /
+  // MobileActionRail 既有 handleCreateRoom 搬来，去掉了 !itinerary 这层
+  // 依赖——buildCollabPlanningEvents/buildCollabChatStateSnapshot 本就按
+  // state 里各字段是否存在分别兜底，itinerary 为 null 时一样能开出空房间。
+  const streaming = useChatStore((s) => s.streaming);
+  const pushToast = useChatStore((s) => s.pushToast);
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const roomId = useCollabStore((s) => s.roomId);
+  const createRoom = useCollabStore((s) => s.createRoom);
+  const joinRoom = useCollabStore((s) => s.joinRoom);
+  const [creatingRoom, setCreatingRoom] = useState(false);
+  const showShareRoom = collabMode && !!roomId;
+
+  const handleRoomAction = async () => {
+    if (creatingRoom || streaming) return;
+    if (showShareRoom) {
+      onOpenShareModal();
+      return;
+    }
+    setCreatingRoom(true);
+    try {
+      const state = useChatStore.getState();
+      const userId = state.currentUserId || "demo_user";
+      const planningEvents = buildCollabPlanningEvents(state);
+      const chatState = buildCollabChatStateSnapshot(state);
+      const newRoomId = await createRoom(
+        userId,
+        "发起人",
+        state.sessionId,
+        planningEvents,
+        state.messages as unknown as Record<string, unknown>[],
+        chatState,
+      );
+      if (!newRoomId) {
+        pushToast({ kind: "warn", text: "多人房间创建失败" });
+        return;
+      }
+      joinRoom(newRoomId, userId, "发起人");
+      onOpenShareModal();
+    } finally {
+      setCreatingRoom(false);
+    }
+  };
+
   return (
     <header className="fixed inset-x-0 top-0 z-40 border-b border-black/[0.06] bg-white/[0.88] backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[480px] items-center justify-between gap-3 px-4">
@@ -319,6 +354,20 @@ function MobileTopBar({
             <Compass className="h-4 w-4" strokeWidth={2} />
           </button>
           <UserSwitcher autoOpenOnMount />
+          <button
+            type="button"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.68] text-ink-600 shadow-sm backdrop-blur transition hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void handleRoomAction()}
+            disabled={creatingRoom || streaming}
+            aria-label={showShareRoom ? "分享协作房间链接" : "创建多人协作房间"}
+            title={showShareRoom ? "分享协作房间链接" : "创建多人协作房间：可先开房再一起规划"}
+          >
+            {creatingRoom ? (
+              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+            ) : (
+              <Users className="h-4 w-4" strokeWidth={2} />
+            )}
+          </button>
           <button
             type="button"
             className="h-9 rounded-full border border-ink-300 bg-white px-3.5 text-sm font-bold tracking-tight text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-95"
@@ -748,9 +797,7 @@ function MobileBubble({
 function MobilePlanCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
-  const intent = useChatStore((s) => s.intent);
   const narration = useChatStore((s) => s.narration);
-  const narrationMessages = useChatStore((s) => s.narrationMessages);
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const cancelled = useChatStore((s) => s.cancelled);
@@ -831,17 +878,13 @@ function MobilePlanCard() {
         </div>
       )}
 
-      {/* B1：narration 暖心文案 + "为你考虑了" chips + 取舍说明——此前只显示
-          裸 itinerary.summary，从没消费 narration/narrationMessages，手机用户
-          看到的正是被替代掉的旧套话。 */}
-      {(narration?.text || intent) && (
+      {/* B1：narration 暖心文案——此前只显示裸 itinerary.summary，从没消费
+          narration，手机用户看到的正是被替代掉的旧套话。2026-07-06 收口：
+          "为你考虑了" chips 与取舍说明折叠已删（与叙事正文重复的第二/三份
+          声音，同 Web 端 ItineraryCard 同批处理），只留 narration.text 这一份。 */}
+      {narration?.text && (
         <div className="px-4 pt-2">
-          <MobileNarrationBlock
-            text={narration?.text}
-            stage={narration?.stage ?? "stream"}
-            messages={narrationMessages}
-            intent={intent}
-          />
+          <MobileNarrationBlock text={narration.text} stage={narration?.stage ?? "stream"} />
         </div>
       )}
 
@@ -970,19 +1013,12 @@ function MobileRefinementBanner({
 function MobileNarrationBlock({
   text,
   stage,
-  messages,
-  intent,
 }: {
   text?: string;
   stage: "stream" | "confirm";
-  messages?: AgentNarrationMessage[] | null;
-  intent: IntentExtraction | null;
 }) {
   const isConfirm = stage === "confirm";
-  const [expanded, setExpanded] = useState(false);
-  const hasMessages = !!messages && messages.length > 0;
-  const chips = intent ? buildIntentChips(intent) : [];
-  if (!text && chips.length === 0) return null;
+  if (!text) return null;
 
   return (
     <div
@@ -993,74 +1029,16 @@ function MobileNarrationBlock({
           : "border-black/[0.06] bg-white/[0.90]",
       )}
     >
-      {text && (
-        <div className="flex items-start gap-2">
-          <Sparkles
-            className={cn(
-              "mt-0.5 h-4 w-4 shrink-0",
-              isConfirm ? "text-emerald-500" : "text-ink-500",
-            )}
-            strokeWidth={2}
-          />
-          <p className="whitespace-pre-wrap text-ink-900">{text}</p>
-        </div>
-      )}
-
-      {chips.length > 0 && (
-        <div
+      <div className="flex items-start gap-2">
+        <Sparkles
           className={cn(
-            "flex flex-wrap items-center gap-1.5",
-            text && "mt-3 border-t border-black/[0.06] pt-3",
+            "mt-0.5 h-4 w-4 shrink-0",
+            isConfirm ? "text-emerald-500" : "text-ink-500",
           )}
-        >
-          <span className="mr-1 inline-flex items-center gap-1 text-xs font-semibold text-ink-500">
-            <Sparkles className="h-3.5 w-3.5 text-ink-500" strokeWidth={2.5} />
-            为你考虑了
-          </span>
-          {chips.map((c, i) => {
-            const Ico = Icons[c.icon];
-            return (
-              <span
-                key={`${c.label}-${i}`}
-                className="inline-flex items-center gap-1 rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-semibold tracking-tight text-ink-700"
-              >
-                <Ico className="h-3.5 w-3.5" strokeWidth={2} />
-                {c.label}
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* D-7：全部取舍说明——narrate 文字里折叠的"还有 N 处小取舍"在这里展开看全部 */}
-      {hasMessages && (
-        <div className={cn(text || chips.length > 0 ? "mt-2.5" : "")}>
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1 text-sm font-medium",
-              isConfirm ? "text-emerald-600" : "text-ink-600",
-            )}
-            aria-expanded={expanded}
-          >
-            <span>{expanded ? "收起取舍说明" : `查看全部取舍说明（${messages!.length}）`}</span>
-            <ChevronDown
-              className={cn("h-3 w-3 transition-transform duration-200", !expanded && "-rotate-90")}
-              strokeWidth={2.5}
-            />
-          </button>
-          {expanded && (
-            <ul className="mt-1.5 ml-4 list-disc list-outside space-y-1">
-              {messages!.map((m, i) => (
-                <li key={`${m.code ?? "advisory"}-${i}`} className="text-sm leading-relaxed text-ink-700">
-                  {m.text}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
+          strokeWidth={2}
+        />
+        <p className="whitespace-pre-wrap text-ink-900">{text}</p>
+      </div>
     </div>
   );
 }
@@ -1597,12 +1575,8 @@ function MobileInlineCompare({
 
 function MobileActionRail({
   onOpenTrace,
-  onOpenShareModal,
-  onOpenRefine,
 }: {
   onOpenTrace: () => void;
-  onOpenShareModal: () => void;
-  onOpenRefine: () => void;
 }) {
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
@@ -1611,13 +1585,7 @@ function MobileActionRail({
   const replans = useChatStore((s) => s.replans);
   const thoughts = useChatStore((s) => s.thoughts);
   const cancel = useChatStore((s) => s.cancel);
-  const pushToast = useChatStore((s) => s.pushToast);
-  const collabMode = useCollabStore((s) => s.collabMode);
-  const roomId = useCollabStore((s) => s.roomId);
-  const createRoom = useCollabStore((s) => s.createRoom);
-  const joinRoom = useCollabStore((s) => s.joinRoom);
   const [expanded, setExpanded] = useState(false);
-  const [creatingRoom, setCreatingRoom] = useState(false);
   // A6 根治：确认按钮此前无条件调单人 confirm() action，房间参与者能绕过
   // "仅房主可确认"守卫（且完全没走 WS confirm 通道，其它成员看不到）。
   // canConfirm/handleConfirm/confirmLabel 已由共享 hook 统一判定（同
@@ -1673,45 +1641,14 @@ function MobileActionRail({
   }
 
   const hasOrders = itinerary?.orders.length ?? 0;
-  const canCreateRoom = Boolean(itinerary && !hasOrders && !cancelled && !collabMode);
-  const showShareRoom = collabMode && !!roomId;
-
-  const handleCreateRoom = async () => {
-    if (creatingRoom || streaming) return;
-    if (showShareRoom) {
-      onOpenShareModal();
-      return;
-    }
-
-    setCreatingRoom(true);
-    try {
-      const state = useChatStore.getState();
-      const userId = state.currentUserId || "demo_user";
-      const planningEvents = buildCollabPlanningEvents(state);
-      const chatState = buildCollabChatStateSnapshot(state);
-      const newRoomId = await createRoom(
-        userId,
-        "发起人",
-        state.sessionId,
-        planningEvents,
-        state.messages as unknown as Record<string, unknown>[],
-        chatState,
-      );
-
-      if (!newRoomId) {
-        pushToast({ kind: "warn", text: "多人房间创建失败" });
-        return;
-      }
-
-      joinRoom(newRoomId, userId, "发起人");
-      onOpenShareModal();
-    } finally {
-      setCreatingRoom(false);
-    }
-  };
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom,0px))] z-40 px-4">
+      {/* 展开抽屉：语音播报 / 一键生成海报 / 取消方案——2026-07-06 收口：
+          「开多人房间」已挪到顶栏持久位置（MobileTopBar），「说说哪不对」
+          已删（反馈走下方聊天框即可），抽屉里只留这三个次级工具，同桌面端
+          ItineraryCard「安静工具行」一个意思，只是移动端沿用既有的收纳
+          抽屉承载而不是常驻一行（屏窄，收纳比常驻更合适）。 */}
       {expanded && itinerary && !hasOrders && !cancelled && (
         <div className="pointer-events-auto mx-auto mb-2 flex max-w-[480px] justify-end">
           <div className="flex w-[190px] flex-col gap-2 rounded-[24px] border border-white/[0.74] bg-white/[0.72] p-2 shadow-[0_18px_44px_-30px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 animate-drawer-slide-up">
@@ -1723,34 +1660,6 @@ function MobileActionRail({
             compact
             className="!h-10 !rounded-full !text-sm !font-semibold"
           />
-          <button
-            type="button"
-            className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/[0.74] bg-white/[0.72] px-3 text-sm font-semibold text-ink-700 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={creatingRoom || streaming || (!canCreateRoom && !showShareRoom)}
-            onClick={() => void handleCreateRoom()}
-          >
-            {creatingRoom ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Users className="h-3.5 w-3.5" />
-            )}
-            <span>{showShareRoom ? "分享房间" : "开多人房间"}</span>
-          </button>
-          {/* B4：「说说哪不对」反馈弹窗——RefinementDialog 挂在根组件
-              MobileHomeView（见该组件 docstring 注释），这里只负责打开它；
-              composer 打字是既有等价路径，这里补上和桌面端一致的显式入口。 */}
-          <button
-            type="button"
-            className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/[0.74] bg-white/[0.72] px-3 text-sm font-semibold text-ink-700 transition active:scale-[0.98] disabled:text-ink-400"
-            disabled={streaming}
-            onClick={() => {
-              setExpanded(false);
-              onOpenRefine();
-            }}
-          >
-            <Wrench className="h-3.5 w-3.5" />
-            <span>说说哪不对</span>
-          </button>
           <button
             type="button"
             className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-red-500/15 bg-white/[0.78] px-3 text-sm font-semibold text-red-500 transition active:scale-[0.98] disabled:text-ink-400"
