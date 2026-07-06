@@ -1058,9 +1058,56 @@ def _parse_title_narration(raw: str) -> tuple[Optional[str], str, Optional[list]
     except (ValueError, TypeError):
         pass
 
-    # JSON 不可解析 / 缺 narration → 整段原文当 narration（title 让规则兜底补）
-    narration = _clean_narration_text(narration_raw if narration_raw is not None else raw)
+    # json.loads 失败最常见的根因（真机实锤）：narration 值里嵌了**未转义的
+    # 双引号**——反馈轮复述用户原话「"吃饭前想去个KTV"」时，那个 " 提前闭合
+    # 了 JSON 字符串 → 整个对象非法 → 旧代码把整段 {"title":...,"narration":...}
+    # 原样当 narration 抖给用户（气泡里显示原始 JSON）。这里先容错抢救
+    # narration 字段的值（能救回 LLM 那句正常叙事）。
+    if narration_raw is None:
+        narration_raw = _salvage_narration(candidate)
+
+    if narration_raw is not None:
+        narration = _clean_narration_text(narration_raw)
+    elif candidate.lstrip().startswith("{"):
+        # 抢救也失败，但内容明显是（坏的）JSON 对象——**绝不 dump 原始 JSON**。
+        # 返回空串 → generate_title_and_narration 的 `llm_narration or 模板`
+        # 自动回落干净的规则模板叙事（最坏也是一句正常的话，不是一坨 JSON）。
+        narration = ""
+    else:
+        # 真·纯文本（模型没走 JSON、直接给了一段话）→ 保留旧行为用原文当叙事。
+        narration = _clean_narration_text(raw)
     return _sanitize_title(title), narration, node_chips_raw
+
+
+def _salvage_narration(candidate: str) -> Optional[str]:
+    """从**解析失败**的叙事 JSON 里容错抠出 narration 字段的值。
+
+    根因见 `_parse_title_narration`：narration 值里嵌未转义 " 会让 json.loads
+    炸掉。这里用贪婪匹配 + 结构锚点（narration 后面跟 node_chips / title / 收尾
+    }）把 narration 的完整值抠出来——贪婪 .* 允许值里含内层引号，锚点保证匹到
+    的是真正的闭合引号而非内层引号。best-effort：抠不出返 None，由调用方走
+    "空串→模板"硬兜底，无论如何用户不会看到原始 JSON。
+    """
+    import re
+
+    for pat in (
+        r'"narration"\s*:\s*"(.*)"\s*,\s*"node_chips"\s*:',  # narration 后跟 node_chips
+        r'"narration"\s*:\s*"(.*)"\s*,\s*"title"\s*:',        # narration 后跟 title
+        r'"narration"\s*:\s*"(.*)"\s*\}',                      # narration 是最后一个字段
+    ):
+        m = re.search(pat, candidate, re.DOTALL)
+        if m:
+            val = m.group(1).strip()
+            if val:
+                # 还原 JSON 字符串里的合法转义序列（\" \n \t \\）
+                val = (
+                    val.replace('\\"', '"')
+                    .replace("\\n", "\n")
+                    .replace("\\t", "\t")
+                    .replace("\\\\", "\\")
+                )
+                return val or None
+    return None
 
 
 def _sanitize_title(title: Optional[str]) -> Optional[str]:
@@ -1224,6 +1271,13 @@ def _call_llm_narrator(
             # （见 _MIMO_THINKING_DISABLED_EXTRA_BODY 注释的根因链）。拉高
             # 到 2400/1200：即使皮带（关思考）失效，背带（更大预算）也兜得住。
             max_tokens=2400 if want_title else 1200,
+            # 源头减少坏 JSON（叙事气泡显示原始 JSON 的 bug 根治·源头层）：
+            # want_title 路径要求 JSON 输出，强制 response_format=json_object 让
+            # provider 保证合法 JSON（内层引号由 provider 转义），从源头压低
+            # "narration 嵌未转义引号→json.loads 炸→dump 原文"的触发率；
+            # _parse_title_narration 的抢救+空串硬兜底是"抢救+背带"，双保险。
+            # 非 want_title 路径是纯文本叙事，不加约束。
+            response_format={"type": "json_object"} if want_title else None,
             # 皮带半：显式关闭 MiMo 深度思考模式（见上方
             # _MIMO_THINKING_DISABLED_EXTRA_BODY 注释）。对非思考模型/不认识
             # 该字段的 provider 是无害的多余字段（OpenAI 兼容服务通常忽略
