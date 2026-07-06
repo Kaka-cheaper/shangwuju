@@ -114,6 +114,10 @@ const config: Config = {
         "aurora-drift-slow": "auroraDrift 28s ease-in-out infinite reverse",
         "spotlight-once": "spotlightPulse 2400ms ease-out 1",
         "confetti-fly": "confettiFly 1600ms cubic-bezier(0.22, 0.61, 0.36, 1) forwards",
+        // 信任带（AI 思考流）§七动效参数：进场 opacity 0→1 + translateY(8px→0)
+        // ~400ms cubic-bezier(0.16,1,0.3,1)（区别于既有 fade-in-up 的 6px/280ms，
+        // 信任带设计终稿明确要这套参数，不复用旧值）。
+        "trust-belt-enter": "trustBeltEnter 400ms cubic-bezier(0.16,1,0.3,1)",
       },
       keyframes: {
         pulseSoft: {
@@ -140,6 +144,10 @@ const config: Config = {
         collapseIn: {
           from: { opacity: "0", maxHeight: "0", transform: "translateY(-2px)" },
           to: { opacity: "1", maxHeight: "1000px", transform: "translateY(0)" },
+        },
+        trustBeltEnter: {
+          from: { opacity: "0", transform: "translateY(8px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
         },
         auroraDrift: {
           "0%, 100%": {

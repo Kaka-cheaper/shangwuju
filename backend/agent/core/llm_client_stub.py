@@ -49,6 +49,7 @@ class StubLLMClient:
             "raw_input": _last_user(messages),
             "parse_confidence": 0.88,
             "ambiguous_fields": [],
+            "understanding": "用户带老婆孩子出门，我理解成要亲子友好又轻松的安排",
             # ADR-0014 决策 1（G-1）：本 stub 的固定 JSON 被多处测试当作
             # "任意一次 client.chat() 的通用回复"复用（不止 parse_intent，
             # 也包括 itinerary_qa._abstain 等把 resp.content 直接当 reply_text

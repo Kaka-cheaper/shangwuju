@@ -17,7 +17,6 @@ import CollabBar from "./CollabBar";
 import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ConstraintFeed from "./ConstraintFeed";
-import DecisionTraceCard from "./DecisionTraceCard";
 import ItineraryCard from "./ItineraryCard";
 import ItineraryUtilityBar from "./ItineraryUtilityBar";
 import MockModeBadge from "./MockModeBadge";
@@ -27,8 +26,6 @@ import PreferencesPanel from "./PreferencesPanel";
 import QuickScenarios from "./QuickScenarios";
 import ShareModal from "./ShareModal";
 import ToastStack from "./ToastStack";
-import ThoughtPanel from "./ThoughtPanel";
-import ToolTracePanel from "./ToolTracePanel";
 import UserSwitcher from "./UserSwitcher";
 
 export default function HomeView() {
@@ -52,7 +49,6 @@ export default function HomeView() {
   // 协作模式
   const roomId = useCollabStore((s) => s.roomId);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const decisionTrace = useChatStore((s) => s.itinerary?.decision_trace);
 
   // A9 根治：planner 模式的 cookie/health 校准不再依赖 PlannerModeBadge 是否
   // 挂载，根组件统一调用一次（Web/移动端共用同一份实现，见 hook docstring）。
@@ -217,6 +213,13 @@ export default function HomeView() {
       {/* 协作状态条 */}
       <CollabBar />
 
+      {/* §八布局：约束栏移到顶部而非侧栏（原侧栏已随三技术面板合并为信任带一并
+          取消）。ConstraintFeed 自身按"房间模式+有约束"或"有诉求台账"两个
+          条件独立 return null，非房间态/无内容时零渲染，放最外层不会占空间。 */}
+      <div className="relative-content mx-auto max-w-7xl px-4 sm:px-6">
+        <ConstraintFeed />
+      </div>
+
       {/* ============================================================
           初始态：偏好画像 + 演示场景 + 输入栏 垂直居中
           激活态：正常布局（偏好画像 + 演示场景顶部 + 两栏主区）
@@ -251,26 +254,19 @@ export default function HomeView() {
           </div>
         )}
 
-        {/* 激活态：两栏主区 */}
+        {/* 激活态：单栏全宽主区（§八：侧栏取消，方案独占全宽）。信任带
+            （合并原 ToolTracePanel/ThoughtPanel/DecisionTraceCard 三面板）
+            插在 ItineraryCard 内部"叙事和时间轴之间"，不在这一层再单独挂载。 */}
         <div
           className={cn(
-            "mt-4 grid grid-cols-1 lg:grid-cols-4 gap-4 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
+            "mt-4 space-y-3 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
             !activated && "opacity-0 pointer-events-none h-0 overflow-hidden mt-0",
           )}
         >
-          <section className="order-1 lg:order-2 lg:col-span-3 space-y-3">
-            <ItineraryUtilityBar
-              onOpenShareModal={() => setShareModalOpen(true)}
-            />
-            <ItineraryCard />
-          </section>
-
-          <section className="order-2 lg:order-1 lg:col-span-1">
-            <ConstraintFeed />
-            <ToolTracePanel />
-            <ThoughtPanel />
-            <DecisionTraceCard trace={decisionTrace} />
-          </section>
+          <ItineraryUtilityBar
+            onOpenShareModal={() => setShareModalOpen(true)}
+          />
+          <ItineraryCard />
         </div>
       </main>
 

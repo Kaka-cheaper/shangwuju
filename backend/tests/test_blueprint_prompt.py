@@ -261,6 +261,29 @@ def test_build_user_message_tail_instructs_strict_json() -> None:
     msg = build_user_message("{}", "{}")
     assert "nodes" in msg
     assert "preferred_start_time" in msg
+
+
+# ---- Test：信任带 §四③ plan_reason 风格红线（放 user 消息侧，见 build_user_message
+# docstring："系统提示 2800 字符 cap 逼近上限，规则改放 user 消息侧") ----
+
+
+def test_build_user_message_includes_plan_reason_style_rules() -> None:
+    """plan_reason 风格红线必须无条件出现在 user 消息里（每轮都要产出该字段，
+    不是像 pinned/critic_feedback 那样"按需出现"的动态数据）。"""
+    msg = build_user_message("{}", "{}")
+    assert "plan_reason" in msg
+    assert "用户……，所以先……" in msg
+    assert "≤30 字" in msg
+    assert "为您" in msg  # 禁词清单本身含"为您"三个字（列在"禁词："之后）
+
+
+def test_build_user_message_plan_reason_rule_present_even_with_feedback() -> None:
+    """critic_feedback / pinned 存在时，plan_reason 风格段不应被挤掉。"""
+    msg = build_user_message(
+        "{}", "{}", critic_feedback=["总时长超出"], pinned=[{"kind": "poi", "target_id": "P001", "name": "测试"}]
+    )
+    assert "plan_reason" in msg
+    assert "用户……，所以先……" in msg
     assert "rationale" in msg
 
 

@@ -296,6 +296,15 @@ INTENT_FIELD_NOT_CONSUMED_OUTSIDE_SCHEMAS: dict[str, str] = {
         "（parse_confidence < 0.6 时 Agent 触发 ask back）是 E-3 的既定"
         "范围（ADR-0014 决策 4），当前尚未实现。"
     ),
+    "understanding": (
+        "信任带（AI 思考流）①拍专用的第一人称旁白句（2026-07-06 新增），"
+        "唯一消费方是前端——`emit_intent` 把整份 `intent.model_dump()` 推成 "
+        "INTENT_PARSED，前端信任带组件直接渲染这句话。它是纯自然语言叙事"
+        "（LLM 现生成的一句话），不是结构化约束，backend 规则/critic/planner "
+        "没有、也不应该读它做任何决策分支——同 raw_input 的展示性质，但"
+        "raw_input 恰好还被 `_apply_provenance_correction` 当子串扫描读取，"
+        "understanding 没有对应的规则消费点，故显式登记而非假装有消费方。"
+    ),
 }
 
 # 在 Advisory 轴排除集基础上追加 scripts/——理由见模块 docstring【实现手法】

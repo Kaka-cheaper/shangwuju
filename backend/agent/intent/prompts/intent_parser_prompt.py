@@ -83,8 +83,16 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
   "raw_input": str,                   // 原样回填用户输入
   "parse_confidence": float,          // 0-1，对自身抽取的信心；不确定字段越多越低
   "ambiguous_fields": list[str],      // 自报"哪些字段我不确定"
-  "field_provenance": dict[str, str]  // 每个字段/标签的出处自报，见下方【出处自报】
+  "field_provenance": dict[str, str], // 每个字段/标签的出处自报，见下方【出处自报】
+  "understanding": str                // 信任带①拍专用一句话，见下方【understanding 风格】
 }}
+
+【understanding 风格（信任带①拍，关键）】
+第一人称，像在心里过一遍：先点用户说的关键词，再说你据此判断了什么。
+- 句式："用户……，我理解成……"
+- 必须暴露一次推断（如"别太贵"→预算敏感、"4 人"→热闹），不是复述原话
+- 一句、≤40 字、自然口语、不分点
+- 禁词：为您/精心/智能/贴心/一站式/量身
 
 【硬性约束（违反即视为失败）】
 1. 严禁出现以下字段：scene_type / relation_type / is_family / is_friends（任何形式枚举）。
@@ -232,7 +240,8 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"field_provenance":{"start_time":"user_stated","duration_hours":"user_stated",'
         '"distance_max_km":"inferred","social_context":"inferred",'
         '"physical_constraints:亲子友好":"inferred","physical_constraints:适合 5-10 岁":"inferred",'
-        '"dietary_constraints:低脂":"inferred","dietary_constraints:健康轻食":"inferred"}}',
+        '"dietary_constraints:低脂":"inferred","dietary_constraints:健康轻食":"inferred"},'
+        '"understanding":"用户带老婆孩子出门、孩子 5 岁老婆在减肥，我理解成要亲子友好又清淡的安排"}',
     ),
     (
         "周日下午想带外公外婆出去走走，别走太远他们腿不好。",
@@ -251,7 +260,8 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"field_provenance":{"start_time":"user_stated","start_weekday":"user_stated",'
         '"duration_hours":"inferred","distance_max_km":"inferred","social_context":"inferred",'
         '"physical_constraints:适合老人":"inferred","physical_constraints:无台阶":"inferred",'
-        '"physical_constraints:可休息":"inferred","dietary_constraints:软烂":"inferred"}}',
+        '"physical_constraints:可休息":"inferred","dietary_constraints:软烂":"inferred"},'
+        '"understanding":"用户带外公外婆、说腿不好，我理解成要慢节奏、近距离、能歇脚的安排"}',
     ),
     (
         # 预算正例（ADR-0014 决策 3·G-3）：原话明说数字 → budget_per_person 填数字 + user_stated
@@ -268,7 +278,8 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"parse_confidence":0.86,"ambiguous_fields":[],'
         '"field_provenance":{"start_time":"user_stated","duration_hours":"inferred",'
         '"distance_max_km":"default","social_context":"inferred",'
-        '"experience_tags:热闹":"inferred","budget_per_person":"user_stated"}}',
+        '"experience_tags:热闹":"inferred","budget_per_person":"user_stated"},'
+        '"understanding":"用户和兄弟撸串、人均 50 封顶，我理解成图热闹但预算卡得紧"}',
     ),
     (
         # 预算反例（ADR-0014 决策 3·G-3）：定性"别太贵"不映射数字，留 null +
@@ -286,7 +297,8 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"parse_confidence":0.82,"ambiguous_fields":["budget_per_person"],'
         '"field_provenance":{"start_time":"user_stated","start_weekday":"user_stated",'
         '"duration_hours":"inferred","distance_max_km":"default","social_context":"inferred",'
-        '"capacity_requirement":"user_stated","experience_tags:热闹":"inferred"}}',
+        '"capacity_requirement":"user_stated","experience_tags:热闹":"inferred"},'
+        '"understanding":"用户 4 人周五去 K 歌、说别太贵，我理解成想热闹但价格敏感"}',
     ),
 ]
 

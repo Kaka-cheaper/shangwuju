@@ -77,7 +77,9 @@ class SseEvent(BaseModel):
     - CRITIC_VIOLATIONS payload = {"violations": [...], "fix_attempt": int}
     - CRITIC_FIX_ATTEMPT payload = {"attempt": int, "feedback_text": str}
     - PLAN_FALLBACK    payload = {"from": str, "to": str, "reason": str}
-    - AGENT_THOUGHT   payload = {"text": str}
+    - AGENT_THOUGHT   payload = {"text": str}，蓝图节点这一条额外携带可选兄弟
+      字段 "plan_reason": str（信任带 §四③ 专用一句话，PlanBlueprint.plan_reason
+      非空时才出现，"无内容不加字段"）
     - ITINERARY_READY payload = Itinerary.model_dump()，可选再加一个兄弟字段
       "node_actions": {node_id: {"chips": [NodeChip.model_dump(), ...],
       "alternatives": [AlternativeOption(dataclass) 的字段字典, ...]}}

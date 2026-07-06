@@ -182,6 +182,18 @@ class IntentExtraction(BaseModel):
         ),
     )
 
+    # ===== 信任带 §四①（2026-07-06）=====
+    understanding: str = Field(
+        default="",
+        description=(
+            "第一人称『我理解成……』一句话（信任带①拍专用，非结构化字段的"
+            "补充叙事）。LLM 现生成，风格红线见 intent_parser_prompt："
+            "句式「用户……，我理解成……」、暴露一次推断、≤40 字、禁词见 prompt。"
+            "Optional 默认空串——旧 checkpoint / stub 不产该字段时前端静默不"
+            "渲染①拍，不影响任何既有消费方（D-SoT 结构化字段不受影响）。"
+        ),
+    )
+
     # ===== 元数据 =====
     raw_input: str = Field(..., description="原始用户输入字符串")
     parse_confidence: float = Field(

@@ -163,6 +163,7 @@ def test_plan_blueprint_single_node():
     assert len(bp.nodes) == 1
     assert bp.preferred_start_time == "14:00"  # 默认值
     assert bp.rationale == ""
+    assert bp.plan_reason == ""  # 信任带 §四③：Optional 默认空串，不破坏既有构造
 
 
 def test_plan_blueprint_multi_node():
@@ -209,6 +210,41 @@ def test_plan_blueprint_invalid_start_time_format():
             ],
             preferred_start_time="2pm",
         )
+
+
+def test_plan_blueprint_plan_reason_optional_and_independent_of_rationale():
+    """§四③ plan_reason 与既有 rationale 各自独立字段，互不覆盖/互不联动。"""
+    bp = PlanBlueprint(
+        nodes=[
+            BlueprintNode(
+                kind="主活动",
+                target_kind=BlueprintTargetKind.POI,
+                target_id="P040",
+                duration_min=120,
+            ),
+        ],
+        rationale="经典下午局：先逛后吃",
+        plan_reason="用户同行年轻人多，所以先用 KTV 带动气氛",
+    )
+    assert bp.rationale == "经典下午局：先逛后吃"
+    assert bp.plan_reason == "用户同行年轻人多，所以先用 KTV 带动气氛"
+
+
+def test_plan_blueprint_old_payload_without_plan_reason_still_validates():
+    """旧 LLM 输出 / 未升级的 mock 数据没有 plan_reason 键也能 model_validate。"""
+    payload = {
+        "nodes": [
+            {
+                "kind": "用餐",
+                "target_kind": "restaurant",
+                "target_id": "R001",
+                "duration_min": 60,
+            }
+        ],
+        "rationale": "旧格式",
+    }
+    bp = PlanBlueprint.model_validate(payload)
+    assert bp.plan_reason == ""
 
 
 def test_plan_blueprint_extra_field_forbidden():

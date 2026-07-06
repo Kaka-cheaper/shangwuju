@@ -68,6 +68,7 @@ import ShareModal from "../ShareModal";
 import ShimmerStripe from "../ShimmerStripe";
 import ToastStack from "../ToastStack";
 import ToolTracePanel from "../ToolTracePanel";
+import TrustBelt from "../TrustBelt";
 import TtsPlayer from "../TtsPlayer";
 import UserSwitcher from "../UserSwitcher";
 import VoteButtons from "../VoteButtons";
@@ -754,17 +755,21 @@ function MobilePlanCard() {
 
   if (!itinerary) {
     return (
-      <section className="mt-3 rounded-[24px] border border-[#FFD100]/[0.42] bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
-        <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          正在拼装行程方案~
-        </div>
-        <div className="mt-4 space-y-2.5">
-          <div className="h-4 rounded-full shimmer-skeleton" />
-          <div className="h-4 w-4/5 rounded-full shimmer-skeleton" />
-          <div className="h-20 rounded-2xl shimmer-skeleton" />
-        </div>
-      </section>
+      <div className="mt-3 space-y-3">
+        {/* 信任带（移动端同款）：规划中就该看到"它在想什么"，不必等方案落地。 */}
+        <TrustBelt />
+        <section className="rounded-[24px] border border-[#FFD100]/[0.42] bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在拼装行程方案~
+          </div>
+          <div className="mt-4 space-y-2.5">
+            <div className="h-4 rounded-full shimmer-skeleton" />
+            <div className="h-4 w-4/5 rounded-full shimmer-skeleton" />
+            <div className="h-20 rounded-2xl shimmer-skeleton" />
+          </div>
+        </section>
+      </div>
     );
   }
 
@@ -838,6 +843,12 @@ function MobilePlanCard() {
           />
         </div>
       )}
+
+      {/* 信任带（移动端同款）：叙事（上方 narration/memory 徽标）和时间轴
+          （下方 <ol>）之间，同 Web 端 ItineraryCard 的插入位置。 */}
+      <div className="px-4 pt-3">
+        <TrustBelt />
+      </div>
 
       <ol className="relative px-3 pb-5 pt-3">
         {noteItems.map(({ entry, entryIndex }, index) => {

@@ -137,6 +137,15 @@ class PlanBlueprint(BaseModel):
     rationale: str = Field(
         default="", description="LLM 对方案的简短中文 rationale（用于 DecisionTrace）"
     )
+    plan_reason: str = Field(
+        default="",
+        description=(
+            "信任带 §四③ 专用一句话（不是 DecisionTrace 的 rationale，两者"
+            "各自独立消费，互不改写）：第一人称『用户……，所以先……』，"
+            "≤30 字，扣住这一局的人和场景真实理由。Optional 默认空串——"
+            "旧数据 / stub 不产该字段时不炸，前端信任带③拍静默不渲染。"
+        ),
+    )
 
     @field_validator("preferred_start_time")
     @classmethod

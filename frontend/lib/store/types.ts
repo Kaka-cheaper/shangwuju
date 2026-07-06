@@ -172,7 +172,13 @@ export interface ChatState {
   intent: IntentExtraction | null;
   toolCalls: ToolCallRecord[];
   replans: ReplanRecord[];
-  thoughts: { seq: number; text: string; timestamp_ms: number | null }[];
+  thoughts: {
+    seq: number;
+    text: string;
+    timestamp_ms: number | null;
+    /** 信任带③拍：见 AgentThoughtPayload.plan_reason 字段注释。 */
+    planReason?: string | null;
+  }[];
   /** Step 2：critic 校验 + 自愈闭环（critic_violations/critic_fix_attempt/
    * plan_fallback 三事件落地）——驱动 ThoughtPanel「质检与自愈」小节。 */
   criticReport: CriticReport;

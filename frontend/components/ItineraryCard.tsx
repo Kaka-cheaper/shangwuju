@@ -25,6 +25,7 @@ import RefinementDialog from "./RefinementDialog";
 import ShimmerStripe from "./ShimmerStripe";
 import ComparisonView from "./ComparisonView";
 import MapOverlay from "./MapOverlay";
+import TrustBelt from "./TrustBelt";
 import VoteButtons from "./VoteButtons";
 
 /** 行程卡片：聚焦方案摘要、时间轴、地图、预订结果和主执行动作。 */
@@ -205,15 +206,21 @@ export default function ItineraryCard() {
 
   if (!itinerary) {
     return (
-      <div className="card px-4 py-5 space-y-3">
-        <div className="flex items-center gap-1.5 text-xs text-brand-600">
-          <Icons.thinking
-            className="w-3.5 h-3.5 animate-spin"
-            strokeWidth={2}
-          />
-          <span className="tracking-tight">正在为你拼装行程...</span>
+      <div className="space-y-3">
+        {/* 信任带：规划中就该看到"它在想什么"，不必等方案落地——§八布局把
+            三面板合成的这条思考流放在"叙事和时间轴之间"，而这里正是还没有
+            "叙事"内容的规划中间态，信任带独自撑起这段等待时间的可见性。 */}
+        <TrustBelt />
+        <div className="card px-4 py-5 space-y-3">
+          <div className="flex items-center gap-1.5 text-xs text-brand-600">
+            <Icons.thinking
+              className="w-3.5 h-3.5 animate-spin"
+              strokeWidth={2}
+            />
+            <span className="tracking-tight">正在为你拼装行程...</span>
+          </div>
+          <ShimmerStripe rows={4} />
         </div>
-        <ShimmerStripe rows={4} />
       </div>
     );
   }
@@ -313,6 +320,14 @@ export default function ItineraryCard() {
           />
         </div>
       )}
+
+      {/* 信任带（AI 思考流）：三技术面板（ToolTracePanel/ThoughtPanel/
+          DecisionTraceCard）合成后的唯一落点——§八布局"叙事和时间轴之间"，
+          绝不进时间轴与地图之间。恒定 3 行高，出稿后仍留在这里（冻结展示
+          自愈高潮 + 定稿），不随方案落地而消失。 */}
+      <div className="px-4 pt-3">
+        <TrustBelt />
+      </div>
 
       {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
       {animating && (

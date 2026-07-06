@@ -207,7 +207,15 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
       set((s) => ({
         thoughts: [
           ...s.thoughts,
-          { seq: ev.seq, text: p.text, timestamp_ms: ev.timestamp_ms ?? null },
+          {
+            seq: ev.seq,
+            text: p.text,
+            timestamp_ms: ev.timestamp_ms ?? null,
+            // 信任带③拍：见 AgentThoughtPayload.plan_reason 字段注释——
+            // 缺省（undefined）保留为 null，不是空字符串（区分"没这个字段"
+            // 与"字段值为空串"，虽然当前后端只会二选一地不挂键）。
+            planReason: p.plan_reason ?? null,
+          },
         ],
       }));
       break;

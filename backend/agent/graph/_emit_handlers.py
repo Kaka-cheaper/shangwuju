@@ -160,16 +160,22 @@ def emit_planner(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         )
     if blueprint is not None and weights is not None:
         # edge_v1：蓝图里只有 mid nodes（不含 home 首尾）。
-        out.append(
-            ctx.emit(
-                SseEventType.AGENT_THOUGHT,
-                {
-                    "text": (
-                        f"蓝图 {len(blueprint.nodes)} 个节点：{blueprint.rationale[:80]}"
-                    ),
-                },
-            )
-        )
+        payload: dict[str, Any] = {
+            "text": (
+                f"蓝图 {len(blueprint.nodes)} 个节点：{blueprint.rationale[:80]}"
+            ),
+        }
+        # 信任带 §四③（2026-07-06）：plan_reason 是 blueprint 新增的短字段
+        # （不是 rationale——两者各自独立消费，见 schemas 的 blueprint.py
+        # docstring）。复用**这条已有的** AGENT_THOUGHT 事件把它带到前端
+        # （不新造 SSE 事件类型），加一个兄弟字段而非改写 text——前端信任带
+        # ③拍据此字段精确识别"这是规划理由"，不必对 text 做脆弱的正则/
+        # 文本匹配。"无内容不加字段"同 narrate.py advisories/messages 的既有
+        # 先例：plan_reason 为空串（stub / rule / ILS 兜底路径未经此 LLM
+        # 调用）时不挂这个键，前端③拍据此静默跳过，不渲染空句子。
+        if blueprint.plan_reason:
+            payload["plan_reason"] = blueprint.plan_reason
+        out.append(ctx.emit(SseEventType.AGENT_THOUGHT, payload))
     return out
 
 

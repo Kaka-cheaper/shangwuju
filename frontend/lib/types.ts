@@ -123,6 +123,14 @@ export interface PlanFallbackPayload {
 
 export interface AgentThoughtPayload {
   text: string;
+  /**
+   * 信任带（AI 思考流）③拍专用（2026-07-06 新增）：蓝图 `PlanBlueprint.
+   * plan_reason` 非空时，`emit_planner` 把它挂在"蓝图 N 个节点：..."这条
+   * 既有 AGENT_THOUGHT 事件的兄弟字段上（不新造事件类型）。"无内容不加
+   * 字段"——stub / rule / ILS 兜底路径没跑到这次 LLM 调用时缺省，信任带
+   * ③拍据此静默跳过，不是渲染空句子。
+   */
+  plan_reason?: string;
 }
 
 export interface RefinementStartPayload {
@@ -478,6 +486,14 @@ export interface IntentExtraction {
   raw_input: string;
   parse_confidence: number;
   ambiguous_fields: string[];
+  /**
+   * 信任带（AI 思考流）①拍专用一句话（2026-07-06 新增，`schemas/intent.py`
+   * `Field(default="")`）：LLM 第一人称"用户……，我理解成……"。恒随
+   * `intent.model_dump()` 整体出现在 INTENT_PARSED payload 里（后端 Optional
+   * 默认空串，但 model_dump 恒带这个键）——类型上视为 required string，空串
+   * 表示"这次没有可展示的理解句"，信任带组件据此静默跳过①拍，不当错误处理。
+   */
+  understanding: string;
   /**
    * 字段/元素出处标注（ADR-0014 决策 1）。标量字段键=字段名本身（如
    * "distance_max_km"）；列表字段键="字段名:元素值"（如
