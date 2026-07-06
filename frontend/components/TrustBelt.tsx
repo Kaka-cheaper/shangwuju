@@ -76,7 +76,16 @@ export default function TrustBelt() {
 
   const reducedMotion = usePrefersReducedMotion();
 
-  const [revealedCount, setRevealedCount] = useState(0);
+  // 修复"规划完成后从头到尾又演一遍":TrustBelt 在 ItineraryCard 的"规划中
+  // （itinerary 为 null）"与"方案就绪"两个分支各挂一个实例，itinerary null→
+  // 非 null 切分支会卸载旧实例、挂载全新实例，revealedCount 若从 useState(0)
+  // 起就被重置回 0 → 全弧从头逐拍重演。根治：挂载时方案已就绪（itinerary!=null）
+  // 说明这是"就绪分支"的实例，直接初始化为全拍已显——逐拍揭示只是直播规划期
+  // 的动效，方案定了就该显定稿全弧、不该再演一遍。规划中分支挂载时 itinerary
+  // 为 null → 初始化 0，正常逐拍长出。
+  const [revealedCount, setRevealedCount] = useState(() =>
+    itinerary != null ? beats.length : 0,
+  );
 
   // 新一轮重跑：beats 变短（store 清空重来）时同步回退计数，不残留上一轮多出的拍。
   useEffect(() => {
