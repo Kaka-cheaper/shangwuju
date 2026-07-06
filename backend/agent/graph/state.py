@@ -206,6 +206,14 @@ class AgentState(TypedDict, total=False):
     # payload 兄弟字段;绑定"这一版方案",换方案即失效。F-3 实测:LangGraph 1.2
     # 会静默丢弃节点返回的未声明字段——本行不声明,narrate 算得再对也到不了 SSE。
 
+    node_detail: dict[str, Any]    # EPISODE_SCOPED：{target_id: NodeDetail.model_dump()}
+    # (ADR-0015「事实/计算归确定性代码与数据」在 ItineraryCard 的现场体现)：
+    # narrate_node 唯一写手（`_build_node_detail`，复用 node_actions 同一份
+    # 实体反查），emit_narrate 装进 AGENT_NARRATION payload 兄弟字段（与
+    # node_actions 同一先例，见 schemas/node_detail.py）；绑定"这一版方案"，
+    # 换方案即失效。同 node_actions 注释指出的 LangGraph 1.2 缺陷：本行不
+    # 声明，narrate 算得再对也到不了 SSE。
+
     # ---- 暖语气 ----
     narration: Optional[str]  # EPISODE_SCOPED：本次规划事件的方案文案（narrate_node 每事件必写一次；提前清零防御未来新增的"narrate 前读者"）
 
@@ -332,6 +340,7 @@ EPISODE_SCOPED: frozenset[str] = frozenset({
     "advisories",
     "give_up_chips",
     "node_actions",
+    "node_detail",
     "narration",
     "memory_status",
     "user_decision",
@@ -388,6 +397,7 @@ def reset_for_new_episode() -> dict[str, Any]:
         "advisories": [],
         "give_up_chips": [],
         "node_actions": {},
+        "node_detail": {},
         "narration": None,
         "memory_status": None,
         "user_decision": None,

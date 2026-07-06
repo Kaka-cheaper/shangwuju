@@ -432,6 +432,13 @@ def emit_narrate(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
         node_actions = diff.get("node_actions")
         if node_actions:
             narration_payload["node_actions"] = node_actions
+        # ADR-0015「事实/计算归确定性代码与数据」：节点真实数据详情（评分/
+        # 价钱/距离/可订/标签/营业），与 node_actions 同一先例——挂
+        # AGENT_NARRATION 兄弟字段，"无内容不加字段"，见
+        # `agent.graph.nodes.narrate._build_node_detail` / `schemas/node_detail.py`。
+        node_detail = diff.get("node_detail")
+        if node_detail:
+            narration_payload["node_detail"] = node_detail
         # ADR-0014 决策 2（G-2）配套三件：真正"hard 卡死"（itinerary=None，
         # 见 `nodes.narrate.narrate_node` 的 give_up 兜底分支）时的放宽建议
         # chips——"无内容不加字段"同一纪律，只在非空时才挂。

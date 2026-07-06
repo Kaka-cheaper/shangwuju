@@ -63,7 +63,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.messages import AIMessage
 
@@ -79,6 +79,8 @@ from agent.planning.planners.node_swap import feasible_alternatives
 from data.loader import load_pois, load_restaurants
 from schemas.advisory import AdvisoryCode
 from schemas.node_chip import NodeChip
+from schemas.node_detail import NodeDetail
+from schemas.tags import EXPERIENCE_TAGS
 
 logger = logging.getLogger(__name__)
 
@@ -411,6 +413,219 @@ def _build_node_actions(
     return result
 
 
+def _parse_hhmm_to_min(value: Any) -> Optional[int]:
+    """把 "14:30" 转成总分钟数（870）；格式不合法返 None（宁缺毋崩）。
+
+    与 `agent.planning.critic._rules.helpers.parse_hhmm` 逻辑等价，但不跨层
+    导入那个 `_rules` 私有子包（该包用下划线前缀标记"critic 内部实现"，narrate
+    属于图节点层，不是 critic 的调用方）——三处独立实现同一个"HH:MM 怎么转
+    分钟数"的小工具，是本代码库对"人均花费怎么算"（见 node_swap.py/checks.py
+    同一现象的模块 docstring）已经接受的既有取舍：小工具跨层各自实现，比
+    引入跨层耦合更合适。
+    """
+    if not isinstance(value, str):
+        return None
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        return None
+    try:
+        h, m = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    if not (0 <= h <= 29 and 0 <= m <= 59):
+        return None
+    return h * 60 + m
+
+
+def _opening_close_text(opening_hours: Any) -> Optional[str]:
+    """`"10:30-21:30"` → `"营业至21:30"`；格式不合法优雅省略（不编造）。"""
+    if not isinstance(opening_hours, str):
+        return None
+    parts = opening_hours.split("-")
+    if len(parts) != 2:
+        return None
+    close = parts[1].strip()
+    return f"营业至{close}" if close else None
+
+
+def _pick_descriptor_tag(tags: list[str], exclude: set[str]) -> Optional[str]:
+    """从原始 tags 里挑 1 个补充标签：优先命中 `EXPERIENCE_TAGS`（氛围/场合
+    词典，`schemas/tags.py` §5.3），否则退化为第一个未被排除的原始 tag。
+
+    `exclude` 用于去重——同一条展示信息不该说两遍。两个真实场景都在 mock
+    数据里实测存在（见 `agent.graph.nodes.narrate` 模块内 `_build_node_detail`
+    调用点注释）：
+    1. 餐厅 capacity.private_room=True 派生出"有包间"，该店原始 tags 列表
+       里可能字面也包含"有包间"（如 mock_data 的 R002）。
+    2. POI age_range 派生出"适合X-Y岁"，该 POI 原始 tags 里可能包含另一句
+       措辞不同但同样描述适龄的字符串（如"适合 5-10 岁"）——调用方按"含
+       '岁'字"整体排除这类 tag，不精确去重也不放过。
+    """
+    candidates = [t for t in tags if t not in exclude]
+    for t in candidates:
+        if t in EXPERIENCE_TAGS:
+            return t
+    return candidates[0] if candidates else None
+
+
+def _restaurant_table_tag(capacity: Any) -> Optional[str]:
+    """`RestaurantCapacity` → 桌型标签（capacity 派生，不读 tags 文本）。
+
+    private_room 优先于大桌——包间是比"能坐 6/8 人"更具体、更有决策价值的
+    信息（隐含大桌语义，不需要同时说两句）。全默认（只有 2/4 座）→ 无特别
+    可说，省略，不硬凑"标准桌"之类的编造标签。
+    """
+    if getattr(capacity, "private_room", False):
+        return "有包间"
+    if getattr(capacity, "six", False) or getattr(capacity, "eight", False):
+        return "大圆桌"
+    return None
+
+
+def _nearest_available_slot_text(slots: list[Any], anchor_min: Optional[int]) -> Optional[str]:
+    """reservation_slots 里离 `anchor_min`（节点排定 start_time 的分钟数）
+    最近的一个 `available=True` 槽 → `"可订HH:MM"`。
+
+    【为什么是"最近"而不是"全天最早"】assemble 阶段本就把餐厅节点的
+    start_time 吸附到某个真实可用槽附近（见 `assemble_blueprint.py::
+    _earliest_available_slot_min` 模块 docstring）——对已经排在晚市的节点，
+    报"中午 11:00 有位"虽然真实但对用户此刻的决策毫无帮助，甚至误导成"这
+    家店随时能订上"。就近展示才是诚实且有用的信息（口径与该函数是同一个
+    `reservation_slots` 数据源，不是另算一套）。`anchor_min` 缺失（节点
+    start_time 格式异常等防御性场景）时退化为"全天最早一个可用槽"。
+
+    【诚实红线】没有 `reservation_slots`（该店根本没有预约体系，非"满"）→
+    返回 None（调用方优雅省略该展示位）。有槽表但一个 `available=True` 都
+    没有 → 返回 "需排队"，绝不输出一个 `available=False` 的时段冒充可订。
+    """
+    if not slots:
+        return None
+    available = [s for s in slots if getattr(s, "available", False)]
+    if not available:
+        return "需排队"
+    if anchor_min is None:
+        chosen = min(available, key=lambda s: _parse_hhmm_to_min(s.time) or 0)
+    else:
+        def _dist(s: Any) -> int:
+            m = _parse_hhmm_to_min(s.time)
+            return abs((m if m is not None else 0) - anchor_min)
+        chosen = min(available, key=_dist)
+    return f"可订{chosen.time}"
+
+
+def _restaurant_node_detail(rest: Any, anchor_min: Optional[int]) -> NodeDetail:
+    """餐厅实体 → `NodeDetail`（字段映射见 `schemas/node_detail.py` 模块 docstring 表格）。"""
+    table_tag = _restaurant_table_tag(rest.capacity)
+    exclude = {table_tag} if table_tag else set()
+    extra_tag = _pick_descriptor_tag(list(rest.tags or []), exclude)
+    tags = [t for t in (table_tag, extra_tag) if t]
+    return NodeDetail(
+        kind="restaurant",
+        rating=rest.rating,
+        price_text=f"¥{rest.avg_price:.0f}/人",
+        distance_km=rest.distance_km,
+        availability_text=_nearest_available_slot_text(list(rest.reservation_slots or []), anchor_min),
+        tags=tags,
+        open_until_text=_opening_close_text(rest.opening_hours),
+    )
+
+
+def _poi_age_tag(age_range: Any) -> Optional[str]:
+    """`[min, max]` → `"适合X-Y岁"`；缺失/形状不对 → None（不编造年龄区间）。"""
+    if not age_range or len(age_range) != 2:
+        return None
+    lo, hi = age_range
+    return f"适合{int(lo)}-{int(hi)}岁"
+
+
+def _poi_price_text(price_range: Any) -> Optional[str]:
+    """`[min, max]` → `"¥min–max"`；`None` → `"免费"`（`Poi.price_range` 字段
+    文档原文「None 表示免费」——这是真实数据的既定语义，不是"数据缺失"，
+    如实显示比省略更诚实）。"""
+    if price_range is None:
+        return "免费"
+    if len(price_range) != 2:
+        return None
+    lo, hi = int(price_range[0]), int(price_range[1])
+    return f"¥{lo}" if lo == hi else f"¥{lo}–{hi}"
+
+
+def _poi_availability_text(capacity: Any) -> str:
+    """`capacity.available_slots` → `"余N"` / `0` → `"约满"`（诚实红线②：
+    不隐瞒售罄，`PoiCapacity.available_slots` 有默认值 0，恒可产出，不存在
+    "缺失"分支）。"""
+    slots = getattr(capacity, "available_slots", 0)
+    return "约满" if slots == 0 else f"余{slots}"
+
+
+def _poi_node_detail(poi: Any) -> NodeDetail:
+    """POI 实体 → `NodeDetail`（字段映射见 `schemas/node_detail.py` 模块 docstring 表格）。"""
+    age_tag = _poi_age_tag(poi.age_range)
+    exclude = {t for t in (poi.tags or []) if "岁" in t}
+    if age_tag:
+        exclude.add(age_tag)
+    extra_tag = _pick_descriptor_tag(list(poi.tags or []), exclude)
+    tags = [t for t in (age_tag, extra_tag) if t]
+    return NodeDetail(
+        kind="poi",
+        rating=poi.rating,
+        price_text=_poi_price_text(poi.price_range),
+        distance_km=poi.distance_km,
+        availability_text=_poi_availability_text(poi.capacity),
+        tags=tags,
+        open_until_text=_opening_close_text(poi.opening_hours),
+    )
+
+
+def _build_node_detail(
+    itinerary: Any,
+    pois: list[Any],
+    restaurants: list[Any],
+) -> dict[str, dict[str, Any]]:
+    """组装节点「真实数据详情」：`{target_id: NodeDetail.model_dump(exclude_none=True)}`
+    ——挂 `AGENT_NARRATION` payload 的兄弟字段（见 `agent.graph._emit_handlers.
+    emit_narrate`），与 `node_actions` 并列、同一寻址轴（`ActivityNode.target_id`）。
+
+    【ADR-0015 落地】只从 `pois`/`restaurants`（`_build_node_actions` 同一份
+    全量目录反查结果，见本文件模块 docstring「实体反查改用全量目录」）派生
+    展示文案，不调用任何 LLM——评分/价钱/距离/可订/标签/营业每一项都能反查
+    到具体的真实字段。
+
+    home 节点跳过（无实体可反查）；选中实体在候选池里查不到（防御性——
+    正常路径下全量目录必然覆盖方案已选中的实体，与 `_build_node_actions`
+    同一假设）→ 该节点整个跳过，不崩、不编造一份假详情（宁缺毋崩，同
+    `_build_node_actions` 的节点级隔离纪律）。
+    """
+    poi_by_id = {p.id: p for p in pois}
+    rest_by_id = {r.id: r for r in restaurants}
+
+    result: dict[str, dict[str, Any]] = {}
+    for node in itinerary.nodes:
+        if node.target_kind == "home":
+            continue
+        target_id = node.target_id
+        anchor_min = _parse_hhmm_to_min(getattr(node, "start_time", None))
+        try:
+            if node.target_kind == "poi":
+                entity = poi_by_id.get(target_id)
+                if entity is None:
+                    continue
+                detail = _poi_node_detail(entity)
+            else:  # "restaurant"
+                entity = rest_by_id.get(target_id)
+                if entity is None:
+                    continue
+                detail = _restaurant_node_detail(entity, anchor_min)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "[narrate] node_detail 组装对节点 %s 失败，该节点降级为跳过",
+                target_id, exc_info=True,
+            )
+            continue
+        result[target_id] = detail.model_dump(exclude_none=True)
+    return result
+
+
 _RECAP_QUOTE_RE = re.compile(r"『(.+?)』")
 
 
@@ -597,6 +812,11 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     # new_itinerary 是"不假设两者恒等"的防御）。
     node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
 
+    # ADR-0015「事实/计算归确定性代码与数据」：node_detail 同一纪律——只从
+    # 上面同一份全量目录（pois/restaurants）反查真实字段派生展示文案，不调
+    # LLM。同样用 new_itinerary 算，同 node_actions 的"不假设两者恒等"防御。
+    node_detail = _build_node_detail(new_itinerary, pois, restaurants)
+
     # ADR-0011 前置核实①：规划/反馈轮的会话日志——本节点是这两类 route_kind
     # 唯一走到、也唯一产出"agent 这轮到底说了什么"的地方（chitchat 类分支的
     # 气泡回复在 router_node 里已经写过，见该文件 docstring；两者合起来覆盖
@@ -610,6 +830,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         "itinerary": new_itinerary,
         "advisories": advisories,
         "node_actions": node_actions,
+        "node_detail": node_detail,
         "messages": [AIMessage(content=text)],
     }
     return result
