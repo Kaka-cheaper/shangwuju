@@ -197,6 +197,13 @@ export interface AgentNarrationPayload {
   messages?: AgentNarrationMessage[];
   /** ADR-0013 F-3/F-4：节点调整按钮 + 具名备选，按 ActivityNode.target_id 分组。 */
   node_actions?: NodeActionsMap;
+  /**
+   * 卡片主角化与事实面板设计终稿§三：节点「真实数据详情」（评分/价钱/距离/
+   * 可订余位/标签/营业），按 ActivityNode.target_id 分组——与 node_actions
+   * 同一先例（兄弟字段，"无内容不加字段"），schemas/node_detail.py 的
+   * NodeDetail 逐节点镜像。
+   */
+  node_detail?: NodeDetailMap;
   /** ADR-0013 F-4：诉求台账展示投影（仅 /chat/adjust 换菜成功时携带）。 */
   demand_ledger?: DemandLedgerEntry[];
   /**
@@ -254,6 +261,34 @@ export interface NodeActionsEntry {
 
 /** `{ActivityNode.target_id: NodeActionsEntry}`——挂 agent_narration payload 兄弟字段。 */
 export type NodeActionsMap = Record<string, NodeActionsEntry>;
+
+/**
+ * 一个活动节点的真实数据详情（schemas/node_detail.py::NodeDetail 手抄）——
+ * ItineraryCard 右栏「安静事实面板」消费。只从真实 Poi/Restaurant 实体字段
+ * 派生，绝不由 LLM 生成；字段缺失（后端 `exclude_none` 已省略）时前端该位
+ * 不渲染，不补占位符。home 节点不产出本模型。
+ */
+export interface NodeDetail {
+  kind: "poi" | "restaurant";
+  /** 实体原始评分（0-5），原样透传——事实面板里唯一暖色触点（⭐深金）。 */
+  rating?: number | null;
+  /** 人均/门票展示文案，如 "¥75/人"、"¥80–120"、"免费"。 */
+  price_text?: string | null;
+  /** 距用户家预估直线距离（km），原始数值，前端自行格式化。 */
+  distance_km?: number | null;
+  /** 可订/余位文案，如 "可订17:30"、"需排队"、"余12"、"约满"——诚实红线：
+   * 只报真值，前端照实显、不美化、不补占位。 */
+  availability_text?: string | null;
+  /** 0-2 个精选标签（餐厅：桌型+描述；POI：适龄+描述），不堆全部原始 tags。 */
+  tags: string[];
+  /** 营业时段派生文案，如 "营业至21:30"；可选展示位。 */
+  open_until_text?: string | null;
+}
+
+/** `{ActivityNode.target_id: NodeDetail}`——挂 agent_narration payload 兄弟字段，
+ * 与 NodeActionsMap 同一先例（四条路径全覆盖：/chat/turn、单人换菜、房间换菜、
+ * 房间快照，见 backend/collab/room.py::get_state_snapshot / _snapshot_node_detail）。 */
+export type NodeDetailMap = Record<string, NodeDetail>;
 
 export type DemandLedgerStatus = "active" | "superseded" | "satisfied";
 

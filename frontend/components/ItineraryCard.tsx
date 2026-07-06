@@ -18,8 +18,9 @@ import type {
   NodeChip,
   ScheduleEntry,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, primaryStoreName } from "@/lib/utils";
 
+import NodeFactPanel from "./NodeFactPanel";
 import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
 import ShimmerStripe from "./ShimmerStripe";
@@ -55,6 +56,9 @@ export default function ItineraryCard() {
 
   // ADR-0013 F-4：节点行调整入口（右侧具名备选 / 下方定向调整 chips）
   const nodeActions = useChatStore((s) => s.nodeActions);
+  // 卡片主角化与事实面板设计终稿§三：节点右栏「安静事实面板」的数据源，
+  // 镜像 nodeActions 的读法（同一个 agent_narration payload 兄弟字段）。
+  const nodeDetail = useChatStore((s) => s.nodeDetail);
   const lockedNodeId = useChatStore((s) => s.lockedNodeId);
   const sendAdjust = useChatStore((s) => s.sendAdjust);
 
@@ -210,11 +214,19 @@ export default function ItineraryCard() {
 
   if (!itinerary && !streaming) {
     return (
-      <div className="card px-4 py-8 flex flex-col items-center gap-2.5 text-ink-500">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500/15 to-accent-500/15 flex items-center justify-center border border-black/[0.08]">
-          <Icons.pin className="w-4 h-4 text-brand-600" strokeWidth={1.5} />
+      <div className="space-y-3">
+        {/* 信任带（单一稳定实例，2026-07-06 收口）：固定挂在方案卡容器
+            上方，空闲/规划中/就绪三态共享同一个挂载位置——见下方另外两个
+            分支同款结构。空闲态没有任何 beats 可显示，TrustBelt 内部会
+            自己判定返回 null，这里不需要额外按 streaming/itinerary 条件
+            隐藏它，放在上方也不会在空闲时露出。 */}
+        <TrustBelt />
+        <div className="card px-4 py-8 flex flex-col items-center gap-2.5 text-ink-500">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-500/15 to-accent-500/15 flex items-center justify-center border border-black/[0.08]">
+            <Icons.pin className="w-4 h-4 text-brand-600" strokeWidth={1.5} />
+          </div>
+          <span className="text-sm text-ink-700">行程将在这里出现</span>
         </div>
-        <span className="text-sm text-ink-700">行程将在这里出现</span>
       </div>
     );
   }
@@ -222,9 +234,10 @@ export default function ItineraryCard() {
   if (!itinerary) {
     return (
       <div className="space-y-3">
-        {/* 信任带：规划中就该看到"它在想什么"，不必等方案落地——§八布局把
-            三面板合成的这条思考流放在"叙事和时间轴之间"，而这里正是还没有
-            "叙事"内容的规划中间态，信任带独自撑起这段等待时间的可见性。 */}
+        {/* 信任带：规划中就该看到"它在想什么"，不必等方案落地。同一个
+            挂载位置（卡片容器上方）在三个分支间保持结构一致——itinerary
+            从 null→非 null 切到"就绪"分支时，React 按元素类型+位置比对，
+            这个 <TrustBelt/> 不会被卸载重挂，只有它下面的卡片内容会替换。 */}
         <TrustBelt />
         <div className="card px-4 py-5 space-y-3">
           <div className="flex items-center gap-1.5 text-xs text-accent-600">
@@ -251,12 +264,24 @@ export default function ItineraryCard() {
   const dispatchAdjust = collabMode ? sendCollabAdjust : sendAdjust;
 
   return (
-    <div
-      className={cn(
-        "relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white shadow-[0_28px_72px_-48px_rgba(17,24,39,0.68)] animate-fade-in",
-        spotlight && "spotlight-once",
-      )}
-    >
+    <div className="space-y-3">
+      {/* 信任带（单一稳定实例，2026-07-06 收口——见上方空闲/规划中两个分支
+          同款注释）：固定挂在方案卡容器上方，itinerary 从 null→非 null 切到
+          这个分支时，外层 <div className="space-y-3"> 与这个 <TrustBelt/>
+          在三个分支间类型、位置完全一致，React 不会卸载重挂它——只有它
+          下面这块方案卡内容会替换。层级意图：[AI 幕后·思考过程] 在上、
+          [方案卡·交付物] 在下——过程先于成品，信任带在卡外也不会跟方案卡
+          抢焦点（方案卡本身的"主角化"视觉处理另案处理，本批不动卡头）。 */}
+      <TrustBelt />
+      {/* 方案卡主角化（⑤ 抬升 + 发丝暖描边/顶缘微光 + 到场柔光，见设计终稿§二
+          改版）：relative 包裹层承载"到场柔光"——方案落定那一刻（spotlight 2.4s
+          一次性态）从卡顶后方绽放一团暖光晕再消失；卡片本体换 .itinerary-hero
+          （暖调精修抬升 + 顶缘暖金发丝 rim-light）成为悬浮的交付物主角。替掉旧的
+          黄光环 spotlight-once（硬黄环/色块那套"捞"的做法）——高级感来自材质与
+          光、不来自铺黄。 */}
+      <div className="relative">
+        {spotlight && <div className="itinerary-arrival-glow" aria-hidden />}
+        <div className="itinerary-hero relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white animate-fade-in">
       {/* streaming 时顶部流动黄光带 */}
       {streaming && (
         <div
@@ -335,14 +360,6 @@ export default function ItineraryCard() {
           />
         </div>
       )}
-
-      {/* 信任带（AI 思考流）：三技术面板（ToolTracePanel/ThoughtPanel/
-          DecisionTraceCard）合成后的唯一落点——§八布局"叙事和时间轴之间"，
-          绝不进时间轴与地图之间。恒定 3 行高，出稿后仍留在这里（冻结展示
-          自愈高潮 + 定稿），不随方案落地而消失。 */}
-      <div className="px-4 pt-3">
-        <TrustBelt />
-      </div>
 
       {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
       {animating && (
@@ -445,11 +462,15 @@ export default function ItineraryCard() {
           const actions = targetId ? nodeActions?.[targetId] : undefined;
           const chips = actions?.chips ?? [];
           const alternatives = (actions?.alternatives ?? []).slice(0, 2);
+          // 卡片主角化与事实面板设计终稿§三：右栏「安静事实面板」的数据，
+          // 有值才占用两栏布局（无数据时退回单栏，不留空占位）。
+          const detail = targetId ? nodeDetail?.[targetId] : undefined;
           const isLocked = targetId != null && lockedNodeId === targetId;
           const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
           // 卡片精修终稿§二两行制：内容行 = 玻璃标签 + 店名（唯一视觉焦点）；
           // 时间已被时间轴精修终稿§二挪到脊柱上（不再在卡里重复），note 降级为
-          // 店名后缀，随店名一起 truncate（长名 + title 兜底全文，见卡片终稿§七.1）。
+          // 店名后缀。事实面板设计终稿§3.5 两小修之一：右栏兜住卡宽后，店名
+          // 不再硬截单行（原 truncate 已去掉，见下方渲染），title 仍兜全文。
           const note = nodeNote(itinerary, entry.ref_id);
           const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
 
@@ -500,87 +521,106 @@ export default function ItineraryCard() {
                     暖色化用渐变描边/柔光（.node-card，见 globals.css）+ 和信任带同族的
                     16px 圆角/字色阶） */}
                 <div className="node-card relative flex-1 min-w-0 px-4 pt-3.5 pb-2.5">
-                  {/* 内容行：玻璃标签 + 店名（时间已挪到脊柱上，§二——不再在卡里
-                      重复渲染 start–end/分钟，消除"卡片精修批"引入的时间两处重复）。 */}
-                  <div className="flex items-center gap-x-2">
-                    <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
-                      {nodeKindLabel(itinerary, entry.ref_id)}
-                    </span>
-                    {isLocked ? (
-                      <span
-                        className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
-                        aria-hidden
-                      />
-                    ) : (
-                      <span
-                        className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-snug text-ink-900"
-                        title={fullTitle}
-                      >
-                        {entry.title}
-                        {note && (
-                          <span className="ml-1.5 font-normal text-ink-500">
-                            · {note}
+                  {/* 事实面板设计终稿§3.2 两栏节点卡：左栏（现状不动，本例
+                      的整段内容行+分隔线+操作行）+ 右栏（新，~140px 安静事实
+                      面板，来自 node_detail）。无 detail 时不占列，退回单栏。 */}
+                  <div className={cn("flex items-start", detail && !isLocked && "gap-3")}>
+                    <div className="min-w-0 flex-1">
+                      {/* 内容行：玻璃标签 + 店名（时间已挪到脊柱上，§二——不再在卡里
+                          重复渲染 start–end/分钟，消除"卡片精修批"引入的时间两处重复）。 */}
+                      <div className="flex items-start gap-x-2">
+                        <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+                          {nodeKindLabel(itinerary, entry.ref_id)}
+                        </span>
+                        {isLocked ? (
+                          <span
+                            className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
+                            aria-hidden
+                          />
+                        ) : (
+                          <span
+                            className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
+                            title={fullTitle}
+                          >
+                            {entry.title}
+                            {note && (
+                              <span className="ml-1.5 font-normal text-ink-500">
+                                · {note}
+                              </span>
+                            )}
                           </span>
                         )}
-                      </span>
+                      </div>
+
+                      {/* 渐隐分隔线（§四第 4 条：两侧 mask-image 淡出，比实线更精致） */}
+                      {targetId && <div className="node-card-divider mt-2.5 mb-1.5" aria-hidden />}
+
+                      {/* 操作行：整行降权（更小/幽灰），三群纯视觉分组不加文字标签（§五）——
+                          ②具名备选⇄ / ③定向微调◐（幽灰，与②间一个竖点隔开）/ ④投票恒右对齐。
+                          VoteButtons 自身按 collabMode 隐藏，这一行仍渲染让协作模式下赞踩可见。 */}
+                      {targetId && (
+                        <div
+                          className={cn(
+                            "flex flex-wrap items-center gap-1.5",
+                            isLocked && "pointer-events-none opacity-40",
+                          )}
+                        >
+                          {alternatives.map((alt) => (
+                            <AlternativeButton
+                              key={alt.target_id}
+                              alt={alt}
+                              disabled={!canAdjust}
+                              onClick={() =>
+                                dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                              }
+                            />
+                          ))}
+                          {alternatives.length > 0 && chips.length > 0 && (
+                            <span className="mx-1 h-3 w-px shrink-0 bg-black/[0.08]" aria-hidden />
+                          )}
+                          {chips.map((chip) => (
+                            <AdjustChipButton
+                              key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
+                              chip={chip}
+                              disabled={!canAdjust}
+                              onClick={() =>
+                                dispatchAdjust(targetId, {
+                                  type: "adjust",
+                                  adjustment: chip.adjustment,
+                                  label: chip.label,
+                                })
+                              }
+                            />
+                          ))}
+                          <span className="ml-auto flex items-center">
+                            <VoteButtons stageIndex={stageIndex} />
+                          </span>
+                        </div>
+                      )}
+
+                      {/* 换菜中（loading）：店名位已经是 shimmer 骨架、操作行已降透明，
+                          这里只补一句幽灰小字状态提示——不整卡闪（§六「换菜中」），
+                          替掉旧版整行 ShimmerStripe（视觉响度过重，和新版"降权"不符）。 */}
+                      {isLocked && (
+                        <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
+                          <Icons.thinking className="w-3 h-3 animate-spin" strokeWidth={2} />
+                          <span>换菜中…</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 右栏：安静事实面板（§三.4 克制参数——幽灰微字 + 中性
+                        chip + 评分星深金，唯一暖色触点）。换菜中时随左栏一起
+                        降权，避免展示指向"正在被替换掉的旧实体"的事实。极淡
+                        竖分隔线把两栏隔开，不加重边框。 */}
+                    {detail && !isLocked && (
+                      <NodeFactPanel
+                        detail={detail}
+                        variant="column"
+                        className="w-[132px] shrink-0 border-l border-black/[0.05] pl-3 pt-0.5"
+                      />
                     )}
                   </div>
-
-                  {/* 渐隐分隔线（§四第 4 条：两侧 mask-image 淡出，比实线更精致） */}
-                  {targetId && <div className="node-card-divider mt-2.5 mb-1.5" aria-hidden />}
-
-                  {/* 操作行：整行降权（更小/幽灰），三群纯视觉分组不加文字标签（§五）——
-                      ②具名备选⇄ / ③定向微调◐（幽灰，与②间一个竖点隔开）/ ④投票恒右对齐。
-                      VoteButtons 自身按 collabMode 隐藏，这一行仍渲染让协作模式下赞踩可见。 */}
-                  {targetId && (
-                    <div
-                      className={cn(
-                        "flex flex-wrap items-center gap-1.5",
-                        isLocked && "pointer-events-none opacity-40",
-                      )}
-                    >
-                      {alternatives.map((alt) => (
-                        <AlternativeButton
-                          key={alt.target_id}
-                          alt={alt}
-                          disabled={!canAdjust}
-                          onClick={() =>
-                            dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
-                          }
-                        />
-                      ))}
-                      {alternatives.length > 0 && chips.length > 0 && (
-                        <span className="mx-1 h-3 w-px shrink-0 bg-black/[0.08]" aria-hidden />
-                      )}
-                      {chips.map((chip) => (
-                        <AdjustChipButton
-                          key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
-                          chip={chip}
-                          disabled={!canAdjust}
-                          onClick={() =>
-                            dispatchAdjust(targetId, {
-                              type: "adjust",
-                              adjustment: chip.adjustment,
-                              label: chip.label,
-                            })
-                          }
-                        />
-                      ))}
-                      <span className="ml-auto flex items-center">
-                        <VoteButtons stageIndex={stageIndex} />
-                      </span>
-                    </div>
-                  )}
-
-                  {/* 换菜中（loading）：店名位已经是 shimmer 骨架、操作行已降透明，
-                      这里只补一句幽灰小字状态提示——不整卡闪（§六「换菜中」），
-                      替掉旧版整行 ShimmerStripe（视觉响度过重，和新版"降权"不符）。 */}
-                  {isLocked && (
-                    <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
-                      <Icons.thinking className="w-3 h-3 animate-spin" strokeWidth={2} />
-                      <span>换菜中…</span>
-                    </div>
-                  )}
                 </div>
               </li>
             </Fragment>
@@ -724,6 +764,8 @@ export default function ItineraryCard() {
         open={refineOpen}
         onClose={() => setRefineOpen(false)}
       />
+        </div>
+      </div>
     </div>
   );
 }
@@ -1201,7 +1243,7 @@ function AlternativeButton({
       )}
     >
       <ArrowLeftRight className="w-3 h-3 shrink-0" strokeWidth={2} />
-      <span className="max-w-[9em] truncate">{alt.name}</span>
+      <span className="max-w-[9em] truncate">{primaryStoreName(alt.name)}</span>
     </button>
   );
 }

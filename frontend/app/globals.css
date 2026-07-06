@@ -450,6 +450,57 @@
     animation: spotlightPulse 2400ms ease-out 1;
   }
 
+  /* 方案卡主角化（⑤ 抬升 + 发丝暖描边/顶缘微光 + 到场柔光）——路演PPT/卡片
+     主角化与事实面板设计终稿.md §二（改版）：高级感来自材质/光/发丝描边，不
+     来自色块（Stripe/Linear/Vercel 共识：颜色只用于意义、克制即自信）。这一套
+     替掉旧的黄光环 spotlight-once（硬黄环是"捞"的做法）。 */
+  .itinerary-hero {
+    /* 暖调精修抬升——卡片像悬浮的交付物主角，投影带一点焦糖暖，不是冷灰重影 */
+    box-shadow:
+      0 1px 1px rgba(20, 20, 20, 0.04),
+      0 22px 48px -22px rgba(143, 75, 36, 0.3);
+  }
+  .itinerary-hero::after {
+    /* 顶缘暖金发丝微光——不是色带，是一条 1.5px 会发光的金色顶边（rim-light） */
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1.5px;
+    border-radius: 30px 30px 0 0;
+    background: linear-gradient(
+      90deg,
+      transparent 8%,
+      rgba(217, 119, 6, 0.55),
+      rgba(255, 209, 0, 0.45) 50%,
+      rgba(217, 119, 6, 0.55),
+      transparent 92%
+    );
+    z-index: 3;
+    pointer-events: none;
+  }
+  .itinerary-arrival-glow {
+    /* 到场柔光——方案落定那一刻，从卡顶后方绽放一团柔和暖光晕再消失（≈2.4s，
+       由 spotlight 一次性态挂载/卸载驱动）。置于卡片之后、只露出卡顶上方那一截。 */
+    position: absolute;
+    left: 50%;
+    top: -16px;
+    width: 64%;
+    height: 76px;
+    transform: translateX(-50%);
+    background: radial-gradient(
+      ellipse at center,
+      rgba(245, 158, 11, 0.32),
+      transparent 70%
+    );
+    filter: blur(22px);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 0;
+    animation: itineraryArrivalBloom 2400ms ease-out both;
+  }
+
   /* ============================================================
      烟花容器
      ============================================================ */
@@ -805,6 +856,28 @@
       0 0 32px 9px rgb(245 158 11 / 0.1),
       0 0 56px 16px rgb(245 158 11 / 0.06),
       0 8px 24px -18px rgb(245 158 11 / 0.24);
+  }
+}
+
+@keyframes itineraryArrivalBloom {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+  25% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .itinerary-arrival-glow {
+    animation: none;
+    opacity: 0;
   }
 }
 

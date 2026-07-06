@@ -50,6 +50,7 @@ import {
   FAILURE_REASON_LABEL,
   generateSessionId,
   PLAN_FALLBACK_STAGE_LABEL,
+  primaryStoreName,
   TOOL_LABEL,
   upsertSession,
 } from "@/lib/utils";
@@ -62,6 +63,7 @@ import Confetti, { type ConfettiOrigin } from "../Confetti";
 import ConstraintFeed from "../ConstraintFeed";
 import MapOverlay from "../MapOverlay";
 import MockModeBadge from "../MockModeBadge";
+import NodeFactPanel from "../NodeFactPanel";
 import OfflineReadyBadge from "../OfflineReadyBadge";
 import PlannerModeBadge from "../PlannerModeBadge";
 import PosterGenerator from "../PosterGenerator";
@@ -781,9 +783,18 @@ function MobilePlanCard() {
   const hasOrders = itinerary.orders.length > 0;
 
   return (
-    <article
-      className="relative mt-3 overflow-hidden rounded-[30px] border border-black/[0.06] bg-white shadow-[0_26px_60px_-42px_rgba(17,24,39,0.62)]"
-    >
+    <div className="mt-3 space-y-3">
+      {/* 信任带（单一稳定实例，2026-07-06 收口，同 Web 端 ItineraryCard 的
+          结构）：固定挂在方案卡容器上方，规划中（上方 !itinerary 分支）与
+          就绪两态共享同一个挂载位置——itinerary 从 null→非 null 切分支时，
+          外层 <div className="mt-3 space-y-3"> 与这个 <TrustBelt/> 类型、
+          位置一致，React 不会卸载重挂它。层级意图同 Web 端：[AI 幕后] 在
+          上、[方案卡] 在下——本批不动卡头视觉。 */}
+      <TrustBelt />
+      {/* 方案卡主角化（⑤ 静态部分：暖调精修抬升 + 顶缘暖金发丝 rim-light，见
+          globals.css .itinerary-hero）。移动端无 spotlight 一次性到场态，故"到场
+          柔光绽放"暂缓（记档待补），先给持续的主角身份，与 Web 端观感一致。 */}
+      <article className="itinerary-hero relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white">
       <div
         aria-hidden
         className="absolute right-6 top-0 h-8 w-14 -translate-y-2 rotate-6 rounded-b-lg bg-[#e8d7b5]/70 shadow-sm"
@@ -845,12 +856,9 @@ function MobilePlanCard() {
         </div>
       )}
 
-      {/* 信任带（移动端同款）：叙事（上方 narration/memory 徽标）和时间轴
-          （下方 <ol>）之间，同 Web 端 ItineraryCard 的插入位置。 */}
-      <div className="px-4 pt-3">
-        <TrustBelt />
-      </div>
-
+      {/* 信任带已上移到方案卡容器上方（本函数顶部单一稳定实例，2026-07-06
+          收口）——此处原有的卡内 <TrustBelt/> 已删除，避免移动端渲染两个信任带
+          （上移时的漏删，深审补掉）。 */}
       <ol className="relative px-3 pb-5 pt-3">
         {/* 家（首尾 bookend，卡片精修设计终稿.md §六）+ 时间轴脊柱（时间轴精修
             设计终稿.md §一/§二）：起点 bookend 自己的"到第一站"连接线携带
@@ -921,7 +929,8 @@ function MobilePlanCard() {
         </div>
       )}
 
-    </article>
+      </article>
+    </div>
   );
 }
 
@@ -1298,6 +1307,9 @@ function NotebookTimelineItem({
   // ItineraryCard（房间模式走 WS sendAdjust，单人走 HTTP /chat/adjust）。
   const streaming = useChatStore((s) => s.streaming);
   const nodeActions = useChatStore((s) => s.nodeActions);
+  // 卡片主角化与事实面板设计终稿§四"移动端镜像"：右栏收窄成店名下一行事实
+  // chips，不强上两栏——数据源同 Web 端一样镜像 nodeActions 的读法。
+  const nodeDetail = useChatStore((s) => s.nodeDetail);
   const lockedNodeId = useChatStore((s) => s.lockedNodeId);
   const sendAdjust = useChatStore((s) => s.sendAdjust);
   const collabMode = useCollabStore((s) => s.collabMode);
@@ -1308,6 +1320,7 @@ function NotebookTimelineItem({
   const actions = targetId ? nodeActions?.[targetId] : undefined;
   const chips = actions?.chips ?? [];
   const alternatives = (actions?.alternatives ?? []).slice(0, 2);
+  const detail = targetId ? nodeDetail?.[targetId] : undefined;
   const isLocked = targetId != null && lockedNodeId === targetId;
   const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
   const kindLabel = node?.kind || "活动";
@@ -1346,8 +1359,10 @@ function NotebookTimelineItem({
           hover）。 */}
       <div className="node-card relative min-w-0 px-3.5 pt-3 pb-2.5 transition-transform active:scale-[0.99]">
         {/* 内容行：玻璃标签 + 店名（去下划线）——时间已挪到左侧脊柱，卡内不
-            再重复（时间轴精修设计终稿.md §二：消除"出现两次"）。 */}
-        <div className="flex items-center gap-x-2">
+            再重复（时间轴精修设计终稿.md §二：消除"出现两次"）。事实面板
+            设计终稿§3.5 两小修之一：店名不再硬截单行（原 truncate 已去掉），
+            title 仍兜全文。 */}
+        <div className="flex items-start gap-x-2">
           <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
             {kindLabel}
           </span>
@@ -1355,7 +1370,7 @@ function NotebookTimelineItem({
             <span className="h-4 w-28 shrink-0 rounded shimmer-skeleton" aria-hidden />
           ) : (
             <span
-              className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-snug text-ink-900"
+              className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
               title={fullTitle}
             >
               {entry.title}
@@ -1363,6 +1378,13 @@ function NotebookTimelineItem({
             </span>
           )}
         </div>
+
+        {/* 事实行（设计终稿§四"移动端镜像"：右栏收窄为店名下一行事实 chips，
+            不强上两栏）——安静、幽灰，评分星是唯一暖色触点，随店名一起在
+            换菜中隐藏（isLocked 时该行不渲染，同 Web 端右栏的降权处理）。 */}
+        {detail && !isLocked && (
+          <NodeFactPanel detail={detail} variant="row" className="mt-1.5" />
+        )}
 
         {targetId && hasOperationRow && <div className="node-card-divider mt-2.5 mb-2" aria-hidden />}
 
@@ -1454,7 +1476,7 @@ function MobileAlternativeButton({
       )}
     >
       <ArrowLeftRight className="h-3 w-3 shrink-0" strokeWidth={2} />
-      <span className="max-w-[6rem] truncate">{alt.name}</span>
+      <span className="max-w-[6rem] truncate">{primaryStoreName(alt.name)}</span>
     </button>
   );
 }

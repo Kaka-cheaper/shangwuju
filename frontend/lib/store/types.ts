@@ -14,6 +14,7 @@ import type {
   Itinerary,
   IntentExtraction,
   NodeActionsMap,
+  NodeDetailMap,
   PlanFallbackStage,
   PlannerMode,
   Persona,
@@ -206,6 +207,12 @@ export interface ChatState {
    * itinerary_ready/换菜成功的 agent_narration 整体刷新（"无内容不加字段"，
    * 缺省时保留上一版直到下一次真正刷新——同 narration 字段的持久语义）。 */
   nodeActions: NodeActionsMap | null;
+  /** 卡片主角化与事实面板设计终稿§三：节点「真实数据详情」（评分/价钱/距离/
+   * 可订余位/标签/营业），随每次 itinerary_ready/换菜成功的 agent_narration
+   * 整体刷新——同 nodeActions 完全同一套生命周期语义（"无内容不加字段"，
+   * 缺省时保留上一版直到下一次真正刷新；重跑清空时机也与 nodeActions 一致，
+   * 见 event-handlers.ts::clearForReplanIfPending）。 */
+  nodeDetail: NodeDetailMap | null;
   /** ADR-0013 F-4：诉求台账展示投影（单人 ConstraintFeed 面板消费）。 */
   demandLedger: DemandLedgerEntry[] | null;
   /** ADR-0013 F-4：正在处理换菜请求的节点 id（ActivityNode.target_id）；

@@ -6,6 +6,21 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * 事实面板设计终稿（路演PPT/卡片主角化与事实面板设计终稿.md §3.5）两小修
+ * 之一「备选按钮去品类后缀」：mock_data 里多数实体 name 字段原始值本身就是
+ * "店名 · 分店/风味描述"复合串（如 "粤味轩 · 老字号粤菜"，
+ * mock_data/restaurants.json 51 家餐厅 50 家如此），`AlternativeOption.name`
+ * 原样透传这份复合串。备选按钮（Web ItineraryCard.tsx / 移动端
+ * MobileHomeView.tsx 各自的 AlternativeButton）只该显店名——品类/分店后缀
+ * 丢了辨识度那半截不如不显，只取"·"之前的部分；调用方仍用 alt.name 全名
+ * 兜 title。两端共用同一份判定，避免行为漂移。
+ */
+export function primaryStoreName(name: string): string {
+  const idx = name.indexOf("·");
+  return idx === -1 ? name : name.slice(0, idx).trim();
+}
+
 /** 后端基址。开发期默认 http://localhost:8000。 */
 function normalizeBaseUrl(raw?: string): string {
   const value = (raw || "http://localhost:8000").trim();

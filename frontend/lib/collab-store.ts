@@ -14,7 +14,7 @@ import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent } from "./store/event-handlers";
 import { emptyCriticReport } from "./store/types";
-import type { AdjustAction, DemandLedgerEntry, NodeActionsMap, SseEvent } from "./types";
+import type { AdjustAction, DemandLedgerEntry, NodeActionsMap, NodeDetailMap, SseEvent } from "./types";
 import { API_BASE } from "./utils";
 
 // ============================================================
@@ -303,8 +303,14 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       // agent_narration 事件）才补上。`CollabChatStateSnapshot` 的 Pick
       // 列表里也确实没有这个字段（同 demandLedger，chat_state 只是单人转
       // 房间时的一次性前端本地态迁移载体，不携带这两个房间侧字段）。
+      // 卡片主角化与事实面板设计终稿§三 / 四条路径全覆盖：node_detail 同
+      // node_actions 完全同一个数据源的口径——房间快照本身现算的顶层字段
+      // （Room.get_state_snapshot()::_snapshot_node_detail），不随 chat_state
+      // 是否存在分支。这治的是同一个体验缺口："中途加入的成员看不到事实面板"，
+      // 直到别人换一次菜（下一次 agent_narration 事件）才补上。
       useChatStore.setState({
         nodeActions: (msg.node_actions as NodeActionsMap) || null,
+        nodeDetail: (msg.node_detail as NodeDetailMap) || null,
       });
       break;
     }

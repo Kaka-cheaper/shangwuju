@@ -55,6 +55,10 @@ function clearForReplanIfPending(set: Setter, get: Getter): void {
     // 清空，等新一轮 narrate 产出前不展示指向已作废节点的按钮。demandLedger 是
     // SESSION_SCOPED（诉求跨规划事件存活），不随重跑清空。
     nodeActions: null,
+    // 卡片主角化与事实面板设计终稿§三：node_detail 同样绑定"这一版方案"（同
+    // nodeActions 完全同一套生命周期），换方案即失效，不该让新一轮时间轴节点
+    // 卡短暂展示上一版已作废实体的事实面板。
+    nodeDetail: null,
     // Step 2：criticReport 同 toolCalls/thoughts 一样是 PER-TURN 过程数据——
     // 不清会导致上一轮的违规/返工/降级记录串场到这一轮的「质检与自愈」小节里。
     criticReport: emptyCriticReport(),
@@ -273,6 +277,9 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
         // 清空为 null（没有可展开的内容），不是沿用旧值。
         narrationMessages: p.messages ?? null,
         nodeActions: p.node_actions ?? s.nodeActions,
+        // node_detail 镜像 node_actions 的"缺省保留上一版"读法（同一先例，见
+        // store/types.ts::ChatState.nodeDetail 字段注释）。
+        nodeDetail: p.node_detail ?? s.nodeDetail,
         demandLedger: p.demand_ledger ?? s.demandLedger,
         // 体感编排批 P1："从能用到精彩"——ITINERARY_READY 早已推过规则标题
         // （finalize_plan 节点），这里只在 narrate 换出更精彩的 LLM 标题时
