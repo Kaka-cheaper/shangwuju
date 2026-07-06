@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, type LucideIcon, SlidersHorizontal } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
@@ -20,7 +20,7 @@ import type {
 } from "@/lib/types";
 import { cn, primaryStoreName } from "@/lib/utils";
 
-import NodeFactPanel from "./NodeFactPanel";
+import NodeFactPanel, { NodeHeadline } from "./NodeFactPanel";
 import NumberTicker from "./NumberTicker";
 import RefinementDialog from "./RefinementDialog";
 import ShimmerStripe from "./ShimmerStripe";
@@ -56,7 +56,7 @@ export default function ItineraryCard() {
 
   // ADR-0013 F-4：节点行调整入口（右侧具名备选 / 下方定向调整 chips）
   const nodeActions = useChatStore((s) => s.nodeActions);
-  // 卡片主角化与事实面板设计终稿§三：节点右栏「安静事实面板」的数据源，
+  // 节点卡 headline（评分+人均）与事实行（距离/可订/营业至+tag）的数据源，
   // 镜像 nodeActions 的读法（同一个 agent_narration payload 兄弟字段）。
   const nodeDetail = useChatStore((s) => s.nodeDetail);
   const lockedNodeId = useChatStore((s) => s.lockedNodeId);
@@ -298,9 +298,7 @@ export default function ItineraryCard() {
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-2xl leading-none" aria-hidden>
-                📷
-              </span>
+              <Icons.camera className="h-5 w-5 shrink-0 text-[#8f4b24]" strokeWidth={1.8} aria-hidden />
               <span className="text-xl font-black tracking-tight text-[#8f4b24]">
                 今日行程安排
               </span>
@@ -384,23 +382,34 @@ export default function ItineraryCard() {
       <ol className="relative px-5 pb-5 pt-3 space-y-3.5">
         {/* 起点：从家出发（§六「家」bookend——无主活动标签/无操作层，更扁更淡；
             §一「首尾'家'=小 home 图标点，中性灰，不用 🚀/✨」——圆点本身换成
-            home 图标点，右侧文案 pill 沿用既有实现，未采用设计稿示例文案，见
-            交付报告说明） */}
+            home 图标点。节点卡+行程轨-对比.html 改版：右侧文案由"药丸框"改
+            成贴内容列左边距的纯文字（同节点卡内容行 px-4 对齐，见下方
+            timecol 布局注释），文案沿用既有实现，未采用设计稿示例"从家出发"
+            文案，见交付报告说明。timecol 列（"出发"小字）是本批新增的纯布局
+            列，复用真实 .timeline-spine-seg/.timeline-dot-home 类不变。 */}
         <li className="relative flex items-center gap-0">
+          {/* 时间/通勤列（timecol）：家 bookend 无起止时刻，只放一个极小的
+              "出发" 标签，右对齐、贴脊柱——和下方节点行/通勤行共用同一条
+              时间列，让整条时间轴左侧的"时间语义列"贯穿始终。 */}
+          <div className="w-14 shrink-0 pr-2 text-right text-[11px] font-medium text-ink-400">
+            出发
+          </div>
           {/* self-stretch：覆盖 li 的 items-center，让这一列撑满整行高度，
               脊柱段（absolute top:0/bottom:-14px）才能按"这一行的真实高度"
               桥接到下一行，而不是只按 home 点自己的小高度算；justify-center
               把点重新在撑满后的列里垂直居中，视觉效果和之前一致。 */}
-          <div className="relative flex flex-col items-center justify-center min-w-[52px] shrink-0 self-stretch">
+          <div className="relative flex flex-col items-center justify-center min-w-[16px] shrink-0 self-stretch">
             <div aria-hidden className="timeline-spine-seg" />
             <div className="timeline-dot-home relative z-10">
               <Icons.home className="w-2.5 h-2.5 text-ink-400" strokeWidth={2} />
             </div>
           </div>
           <div className="w-4 shrink-0" aria-hidden />
-          <div className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.05] bg-black/[0.02] px-3 py-1.5 text-sm font-medium text-ink-500">
-            <Icons.home className="w-3.5 h-3.5 text-ink-400" strokeWidth={2} />
-            <span>出发咯</span>
+          {/* 内容列：纯文字，pl-4 对齐节点卡的内边距（.node-card px-4），
+              让"出发咯/满载而归/自由休息"这几行过渡文字和卡内「用餐/主
+              活动」标签左边对齐（不再贴脊柱右边）。 */}
+          <div className="flex-1 min-w-0 pl-4 text-sm font-medium text-ink-500">
+            出发咯
           </div>
         </li>
 
@@ -430,6 +439,7 @@ export default function ItineraryCard() {
           // 阶段被 hidden=true 屏蔽，此处再保险一道）
           if (entry.entry_kind === "hop") {
             if (!entry.mode || entry.mode === "virtual") return gapNode;
+            const HopIcon = hopIconComponent(entry.mode);
             return (
               <Fragment key={entry.ref_id || `hop-${idx}`}>
                 {gapNode}
@@ -437,19 +447,22 @@ export default function ItineraryCard() {
                   className="relative flex items-center gap-0 animate-fade-in-up"
                   title={`${entry.start} → ${entry.end}`}
                 >
-                  <div className="relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch">
+                  {/* 通勤：图标 + 时长同一行（不竖着断行），放时间列里、右对齐
+                      贴脊柱——节点卡+行程轨-对比.html §「通勤横排」。 */}
+                  <div className="flex w-14 shrink-0 items-center justify-end gap-1 whitespace-nowrap pr-2 text-[10.5px] text-ink-400">
+                    <HopIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.7} />
+                    <span>
+                      {entry.minutes} 分钟
+                      {entry.mode === "haversine_estimated" && (
+                        <span className="text-ink-300"> · {translateHopMode(entry.mode)}</span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch">
                     <div aria-hidden className="timeline-spine-seg timeline-spine-seg--hop" />
                   </div>
                   <div className="w-4 shrink-0" aria-hidden />
-                  <div className="flex-1 min-w-0 py-1.5 text-xs text-ink-400 tracking-tight">
-                    <span aria-hidden>{hopIcon(entry.mode)}</span>{" "}
-                    {entry.minutes} 分钟
-                    {entry.mode === "haversine_estimated" && (
-                      <span className="ml-1 text-ink-300">
-                        · {translateHopMode(entry.mode)}
-                      </span>
-                    )}
-                  </div>
+                  <div className="flex-1 min-w-0" aria-hidden />
                 </li>
               </Fragment>
             );
@@ -462,15 +475,14 @@ export default function ItineraryCard() {
           const actions = targetId ? nodeActions?.[targetId] : undefined;
           const chips = actions?.chips ?? [];
           const alternatives = (actions?.alternatives ?? []).slice(0, 2);
-          // 卡片主角化与事实面板设计终稿§三：右栏「安静事实面板」的数据，
-          // 有值才占用两栏布局（无数据时退回单栏，不留空占位）。
+          // node_detail：r1 headline（评分+人均）与 r2 事实行（距离/可订/营业至+
+          // tag）的共同数据源，两处各自按字段缺失独立不渲染（NodeFactPanel.tsx）。
           const detail = targetId ? nodeDetail?.[targetId] : undefined;
           const isLocked = targetId != null && lockedNodeId === targetId;
           const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
-          // 卡片精修终稿§二两行制：内容行 = 玻璃标签 + 店名（唯一视觉焦点）；
-          // 时间已被时间轴精修终稿§二挪到脊柱上（不再在卡里重复），note 降级为
-          // 店名后缀。事实面板设计终稿§3.5 两小修之一：右栏兜住卡宽后，店名
-          // 不再硬截单行（原 truncate 已去掉，见下方渲染），title 仍兜全文。
+          // 店名：唯一视觉焦点，不再硬截单行（无 truncate），title 兜全文
+          // （含 note，换菜中悬停也能看到完整"店名 · 理由"）。时间已被时间轴
+          // 挪到左侧时间列，note 现在是 r3 独立一行（不再是店名后缀）。
           const note = nodeNote(itinerary, entry.ref_id);
           const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
 
@@ -482,32 +494,46 @@ export default function ItineraryCard() {
                   .timeline-row:has(...) 规则），双向、200ms ease、只动
                   transform/opacity/color。 */}
               <li className="relative flex items-start gap-0 animate-fade-in-up timeline-row">
-                {/* 左列：脊柱段（桥接到下一行，停留=实线）+ 时间/圆点。
-                    §三.1「对齐」：圆点用 TIMELINE_DOT_OFFSET 定位到卡片标题行的
-                    高度，时间标签绝对定位在点的上/下方，不占流内空间——这样时间
-                    的行高不会把点往下推。self-stretch：li 是 items-start，这一列
-                    默认只有 marker 自身高度（远矮于右侧卡片）；撑满整行高度后，
-                    脊柱段的 bottom:-14px 才是按"这一行的真实高度"（=卡片高度）
-                    去桥接下一行，视觉上才真的是"实线段=停留，和卡片一样高"
-                    （终稿§二 ASCII 图示的意思）。marker 自身仍用 marginTop 定位，
-                    不受列高度变化影响。 */}
-                <div className="relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch">
+                {/* 时间列（timecol）：起止时刻，挪到脊柱左侧独立一列、右对齐
+                    （节点卡+行程轨-对比.html 改版——原先时间绝对定位"压"在圆点
+                    所在列的正上/下方，现在和圆点分成左右两列，不再共享同一条
+                    视觉基线，也不会把圆点所在列的宽度撑给时间文字用）。
+                    -9px/+12px 偏移是照视觉稿手工量的相对值换算：视觉稿
+                    dot-wrap margin-top:19px 时 t-start top:10/t-end top:31，
+                    即 dot 位置 ∓9/+12，这里换算成我们自己的 TIMELINE_DOT_OFFSET
+                    （20px）基准延用同一相对关系，不是另起一套独立数字——真机
+                    未校验，见交付报告「未真机验证项」。 */}
+                <div className="relative w-14 shrink-0 self-stretch pr-2 text-right">
+                  <span
+                    className="absolute right-2 text-[13px] font-medium leading-none tabular-nums text-ink-500"
+                    style={{ top: `calc(${TIMELINE_DOT_OFFSET} - 9px)` }}
+                  >
+                    {entry.start}
+                  </span>
+                  <span
+                    className="absolute right-2 text-[13px] font-medium leading-none tabular-nums text-ink-500"
+                    style={{ top: `calc(${TIMELINE_DOT_OFFSET} + 12px)` }}
+                  >
+                    {entry.end}
+                  </span>
+                </div>
+                {/* 脊柱+点列（railcol）：桥接到下一行，停留=实线。self-stretch：
+                    li 是 items-start，这一列默认只有 marker 自身高度（远矮于
+                    右侧卡片）；撑满整行高度后，脊柱段的 bottom:-14px 才是按
+                    "这一行的真实高度"（=卡片高度）去桥接下一行，视觉上才真的是
+                    "实线段=停留，和卡片一样高"（终稿§二 ASCII 图示的意思）。
+                    timeline-marker 类沿用不新造——时间挪去左列后，这里单纯
+                    复用它触发 globals.css 既有的悬停协同规则
+                    （.timeline-row:has(.timeline-marker:hover) .node-card），
+                    命中范围从"仅点周围"扩大到"整条 railcol"，属于更宽松的
+                    hover 靶区，不是新视觉。 */}
+                <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch timeline-marker">
                   <div aria-hidden className="timeline-spine-seg" />
                   <div
-                    className="relative z-10 timeline-marker"
+                    className={cn("relative z-10 timeline-dot", isLocked && "timeline-dot--current")}
                     style={{ marginTop: TIMELINE_DOT_OFFSET }}
-                  >
-                    <span className="timeline-time timeline-time--start text-[13px] font-medium tabular-nums text-ink-500">
-                      {entry.start}
-                    </span>
-                    <div
-                      className={cn("timeline-dot", isLocked && "timeline-dot--current")}
-                      title={isLocked ? "换菜中" : undefined}
-                    />
-                    <span className="timeline-time timeline-time--end text-[13px] font-medium tabular-nums text-ink-500">
-                      {entry.end}
-                    </span>
-                  </div>
+                    title={isLocked ? "换菜中" : undefined}
+                  />
                 </div>
                 {/* 连接线：点到卡片左缘（§三.2），与点共享同一 marginTop 保证
                     落在同一水平线上；hover 时提亮（globals.css）。 */}
@@ -517,110 +543,111 @@ export default function ItineraryCard() {
                     style={{ marginTop: TIMELINE_DOT_OFFSET }}
                   />
                 </div>
-                {/* 右侧内容：节点卡（路演PPT/卡片精修设计终稿.md §二/§四/§八——两行制 +
-                    暖色化用渐变描边/柔光（.node-card，见 globals.css）+ 和信任带同族的
-                    16px 圆角/字色阶） */}
+                {/* 右侧内容：节点卡（节点卡+行程轨-对比.html ①单人卡布局 + 暖色化用
+                    渐变描边/柔光（.node-card，见 globals.css）+ 和信任带同族的 16px
+                    圆角/字色阶）。原先"左栏内容 + 右栏 140px 事实面板"两栏布局已废弃
+                    ——右栏把卡片撑高、右侧死白，被用户否掉；改成视觉稿的单栏四行制：
+                    r1 店名行（左标签+店名，右上角 headline）→ r2 事实行（距离·可订·
+                    营业至+tag）→ r3 理由行（note）→ 分隔线 → r4 操作行。 */}
                 <div className="node-card relative flex-1 min-w-0 px-4 pt-3.5 pb-2.5">
-                  {/* 事实面板设计终稿§3.2 两栏节点卡：左栏（现状不动，本例
-                      的整段内容行+分隔线+操作行）+ 右栏（新，~140px 安静事实
-                      面板，来自 node_detail）。无 detail 时不占列，退回单栏。 */}
-                  <div className={cn("flex items-start", detail && !isLocked && "gap-3")}>
-                    <div className="min-w-0 flex-1">
-                      {/* 内容行：玻璃标签 + 店名（时间已挪到脊柱上，§二——不再在卡里
-                          重复渲染 start–end/分钟，消除"卡片精修批"引入的时间两处重复）。 */}
-                      <div className="flex items-start gap-x-2">
-                        <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
-                          {nodeKindLabel(itinerary, entry.ref_id)}
-                        </span>
-                        {isLocked ? (
-                          <span
-                            className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
-                            aria-hidden
-                          />
-                        ) : (
-                          <span
-                            className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
-                            title={fullTitle}
-                          >
-                            {entry.title}
-                            {note && (
-                              <span className="ml-1.5 font-normal text-ink-500">
-                                · {note}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* 渐隐分隔线（§四第 4 条：两侧 mask-image 淡出，比实线更精致） */}
-                      {targetId && <div className="node-card-divider mt-2.5 mb-1.5" aria-hidden />}
-
-                      {/* 操作行：整行降权（更小/幽灰），三群纯视觉分组不加文字标签（§五）——
-                          ②具名备选⇄ / ③定向微调◐（幽灰，与②间一个竖点隔开）/ ④投票恒右对齐。
-                          VoteButtons 自身按 collabMode 隐藏，这一行仍渲染让协作模式下赞踩可见。 */}
-                      {targetId && (
-                        <div
-                          className={cn(
-                            "flex flex-wrap items-center gap-1.5",
-                            isLocked && "pointer-events-none opacity-40",
-                          )}
+                  {/* r1：店名行——左边玻璃标签+店名，右上角 headline（评分★+
+                      人均，NodeHeadline）。justify-between 让 headline 贴右边、
+                      店名占满剩余宽度（不再因为右栏 140px 被迫收窄）。 */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 items-start gap-x-2">
+                      <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+                        {nodeKindLabel(itinerary, entry.ref_id)}
+                      </span>
+                      {isLocked ? (
+                        <span
+                          className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
+                          aria-hidden
+                        />
+                      ) : (
+                        <span
+                          className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
+                          title={fullTitle}
                         >
-                          {alternatives.map((alt) => (
-                            <AlternativeButton
-                              key={alt.target_id}
-                              alt={alt}
-                              disabled={!canAdjust}
-                              onClick={() =>
-                                dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
-                              }
-                            />
-                          ))}
-                          {alternatives.length > 0 && chips.length > 0 && (
-                            <span className="mx-1 h-3 w-px shrink-0 bg-black/[0.08]" aria-hidden />
-                          )}
-                          {chips.map((chip) => (
-                            <AdjustChipButton
-                              key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
-                              chip={chip}
-                              disabled={!canAdjust}
-                              onClick={() =>
-                                dispatchAdjust(targetId, {
-                                  type: "adjust",
-                                  adjustment: chip.adjustment,
-                                  label: chip.label,
-                                })
-                              }
-                            />
-                          ))}
-                          <span className="ml-auto flex items-center">
-                            <VoteButtons stageIndex={stageIndex} />
-                          </span>
-                        </div>
-                      )}
-
-                      {/* 换菜中（loading）：店名位已经是 shimmer 骨架、操作行已降透明，
-                          这里只补一句幽灰小字状态提示——不整卡闪（§六「换菜中」），
-                          替掉旧版整行 ShimmerStripe（视觉响度过重，和新版"降权"不符）。 */}
-                      {isLocked && (
-                        <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
-                          <Icons.thinking className="w-3 h-3 animate-spin" strokeWidth={2} />
-                          <span>换菜中…</span>
-                        </div>
+                          {entry.title}
+                        </span>
                       )}
                     </div>
-
-                    {/* 右栏：安静事实面板（§三.4 克制参数——幽灰微字 + 中性
-                        chip + 评分星深金，唯一暖色触点）。换菜中时随左栏一起
-                        降权，避免展示指向"正在被替换掉的旧实体"的事实。极淡
-                        竖分隔线把两栏隔开，不加重边框。 */}
-                    {detail && !isLocked && (
-                      <NodeFactPanel
-                        detail={detail}
-                        variant="column"
-                        className="w-[132px] shrink-0 border-l border-black/[0.05] pl-3 pt-0.5"
-                      />
-                    )}
+                    {!isLocked && <NodeHeadline detail={detail} />}
                   </div>
+
+                  {/* r2：事实行——距离·可订·营业至 + tag，紧贴店名下方一行；
+                      评分/人均已被 r1 headline 拿走，这里不再重复（诚实红线：
+                      字段缺失就不渲染，不补占位）。 */}
+                  {!isLocked && <NodeFactPanel detail={detail} className="mt-1.5" />}
+
+                  {/* r3：理由行——选店理由（note），从"店名后缀"升级成事实行
+                      下方独立一行（照视觉稿）；理由原文一字不改，"人均50"这类
+                      和事实行数字的潜在重复是后端 blueprint prompt 的事，本批
+                      不碰。 */}
+                  {note && !isLocked && (
+                    <div className="mt-1.5 text-[12.5px] leading-relaxed text-ink-500">
+                      {note}
+                    </div>
+                  )}
+
+                  {/* 渐隐分隔线（两侧 mask-image 淡出，比实线更精致） */}
+                  {targetId && <div className="node-card-divider mt-2.5 mb-1.5" aria-hidden />}
+
+                  {/* r4：操作行——整行降权（更小/幽灰），三群纯视觉分组不加文字标签：
+                      ②具名备选⇄ / ③定向微调◐（幽灰，与②间一个竖点隔开）/ ④投票。
+                      单人态（collabMode=false）：VoteButtons 自身按 collabMode 返回
+                      null，②③左对齐、右侧自然留白；多人房间态：VoteButtons 渲染
+                      赞踩，ml-auto 把它推到行尾靠右——同一份 JSX 兼顾两态，赞踩
+                      只在 collabMode 出现，不把这个空 ml-auto span 当单人态布局锚。 */}
+                  {targetId && (
+                    <div
+                      className={cn(
+                        "flex flex-wrap items-center gap-1.5",
+                        isLocked && "pointer-events-none opacity-40",
+                      )}
+                    >
+                      {alternatives.map((alt) => (
+                        <AlternativeButton
+                          key={alt.target_id}
+                          alt={alt}
+                          disabled={!canAdjust}
+                          onClick={() =>
+                            dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                          }
+                        />
+                      ))}
+                      {alternatives.length > 0 && chips.length > 0 && (
+                        <span className="mx-1 h-3 w-px shrink-0 bg-black/[0.08]" aria-hidden />
+                      )}
+                      {chips.map((chip) => (
+                        <AdjustChipButton
+                          key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
+                          chip={chip}
+                          disabled={!canAdjust}
+                          onClick={() =>
+                            dispatchAdjust(targetId, {
+                              type: "adjust",
+                              adjustment: chip.adjustment,
+                              label: chip.label,
+                            })
+                          }
+                        />
+                      ))}
+                      <span className="ml-auto flex items-center">
+                        <VoteButtons stageIndex={stageIndex} />
+                      </span>
+                    </div>
+                  )}
+
+                  {/* 换菜中（loading）：店名位已经是 shimmer 骨架、操作行已降透明，
+                      这里只补一句幽灰小字状态提示——不整卡闪（替掉旧版整行
+                      ShimmerStripe，视觉响度过重，和新版"降权"不符）。 */}
+                  {isLocked && (
+                    <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
+                      <Icons.thinking className="w-3 h-3 animate-spin" strokeWidth={2} />
+                      <span>换菜中…</span>
+                    </div>
+                  )}
                 </div>
               </li>
             </Fragment>
@@ -632,16 +659,18 @@ export default function ItineraryCard() {
             脊柱段用 --tail 变体在自身高度处截止，不再桥接到下一行——下面已经
             没有行了） */}
         <li className="relative flex items-center gap-0">
-          <div className="relative flex flex-col items-center justify-center min-w-[52px] shrink-0 self-stretch">
+          <div className="w-14 shrink-0 pr-2 text-right text-[11px] font-medium text-ink-400">
+            到家
+          </div>
+          <div className="relative flex flex-col items-center justify-center min-w-[16px] shrink-0 self-stretch">
             <div aria-hidden className="timeline-spine-seg timeline-spine-seg--tail" />
             <div className="timeline-dot-home relative z-10">
               <Icons.home className="w-2.5 h-2.5 text-ink-400" strokeWidth={2} />
             </div>
           </div>
           <div className="w-4 shrink-0" aria-hidden />
-          <div className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.05] bg-black/[0.02] px-3 py-1.5 text-sm font-medium text-ink-500">
-            <Icons.home className="w-3.5 h-3.5 text-ink-400" strokeWidth={2} />
-            <span>满载而归</span>
+          <div className="flex-1 min-w-0 pl-4 text-sm font-medium text-ink-500">
+            满载而归
           </div>
         </li>
       </ol>
@@ -1132,13 +1161,19 @@ function renderFreeGap(
       className="relative flex items-center gap-0 animate-fade-in-up"
       title={`${prev.end} → ${curr.start}`}
     >
+      {/* 时间列留空（自由休息没有独立的起止钟点展示位，时长已经在内容里写出
+          "N 分钟"）——占位保持四列对齐，不留空白会让下面这行内容跟节点/通勤
+          行错位。 */}
+      <div className="w-14 shrink-0" aria-hidden />
       {/* 同节点/通勤行共用一套脊柱段桥接（.timeline-spine-seg），不再另用
           border-l-2——避免脊柱旁边多一条平行线，和精修终稿§一「克制」冲突。 */}
-      <div className="relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch">
+      <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch">
         <div aria-hidden className="timeline-spine-seg" />
       </div>
       <div className="w-4 shrink-0" aria-hidden />
-      <div className="flex-1 min-w-0 py-1.5 text-xs text-ink-400 tracking-tight">
+      {/* pl-4 对齐节点卡内边距（.node-card px-4），和"出发咯/满载而归"过渡
+          文字同一套左缩进口径（节点卡+行程轨-对比.html「过渡文字对齐」）。 */}
+      <div className="flex-1 min-w-0 py-1.5 pl-4 text-xs text-ink-400 tracking-tight">
         自由休息 · {gap} 分钟
       </div>
     </li>
@@ -1164,21 +1199,23 @@ function translateHopMode(mode: HopMode): string {
 }
 
 /**
- * 通勤脊柱标的图标（时间轴精修终稿§二）——按 mode 分辨，不是设计稿示例里
- * 统一的 🚶：taxi/bus 若也套一个步行图标会误导通勤方式。haversine_estimated
- * 视为"步行距离估算"，图标仍用 🚶，另在文字里追加 translateHopMode 的
- * "估算"后缀标出不确定性（承接旧版信息，不因精简丢信息）。
+ * 通勤脊柱标的图标（时间轴精修终稿§二 + 节点卡+行程轨-对比.html 改版：
+ * emoji 🚶🚕🚌 换线性 lucide 图标，去塑料感）——按 mode 分辨，不是设计稿示例里
+ * 统一的一个图标：taxi/bus 若也套一个步行图标会误导通勤方式。
+ * haversine_estimated 视为"步行距离估算"，图标仍用步行（Icons.footprints），
+ * 另在文字里追加 translateHopMode 的"估算"后缀标出不确定性（承接旧版信息，
+ * 不因换图标丢信息）。
  */
-function hopIcon(mode: HopMode): string {
+function hopIconComponent(mode: HopMode): LucideIcon {
   switch (mode) {
     case "taxi":
-      return "🚕";
+      return Icons.taxi;
     case "bus":
-      return "🚌";
+      return Icons.bus;
     case "walking":
     case "haversine_estimated":
     default:
-      return "🚶";
+      return Icons.footprints;
   }
 }
 

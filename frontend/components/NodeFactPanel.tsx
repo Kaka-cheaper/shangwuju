@@ -2,34 +2,69 @@
 
 import { Fragment, type ReactNode } from "react";
 
+import { Icons } from "@/lib/icon-map";
 import type { NodeDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
- * 安静事实面板（路演PPT/卡片主角化与事实面板设计终稿.md §三）——`node_detail`
- * 的唯一消费组件，Web（ItineraryCard.tsx 右栏两栏）与移动端
- * （MobileHomeView.tsx 店名下一行 chips）共用同一份字段渲染 / 缺省判定逻辑，
- * 只是外层排布（variant）不同：
- *   - "column"：Web 节点卡右栏（~140px），事实纵向堆叠，靠右对齐；
- *   - "row"：移动端窄屏，事实横向一行、自动换行（不强上两栏）。
+ * 节点卡事实展示（节点卡+行程轨-对比.html §① 单人卡布局）——`node_detail` 的
+ * 唯一消费组件，Web（ItineraryCard.tsx）与移动端（MobileHomeView.tsx）共用同一份
+ * 字段渲染/缺省判定逻辑。
  *
- * 诚实红线（§3.4/§4"功能内部"自检）：只显 `node_detail` 给的真实值——字段
- * 缺失（后端 `exclude_none` 已省略）时该位不渲染，绝不补占位符/绝不美化
- * "需排队"/"约满"这类如实告知的负面可用性文案。
+ * 2026-07 改版：原先的"右栏两栏面板"（NodeFactPanel variant="column"，把卡片撑高、
+ * 右侧留白）被用户否掉，改成贴权威视觉稿的两段式：
+ *   - `NodeHeadline`：评分 ★ + 人均，挂在店名行【右上角】（视觉稿 r1 .hf）；
+ *   - 默认导出 `NodeFactPanel`：距离 · 可订 · 营业至 + tag，紧贴店名下方【横向一行】
+ *     （视觉稿 r2），Web/移动端共用同一个横排 shape，不再有"column"/"row" 两个变体
+ *     ——移动端本来就是这个横排形态，Web 端现在也改成同款，两端组件签名统一。
  *
- * 克制参数（§3.4）：事实文字幽灰微字（text-ink-500，~11-12px）；评分星是
- * 全面板唯一暖色触点（深金 accent-600）；tag 是极小中性 chip
- * （bg-black/[0.03] text-ink-600）——面板整体安静是设计而非省事：不管方案卡
- * 本身的"主角化"视觉后续怎么定（本批不动卡头，§二"暖金顶冠"另案处理），
- * 事实面板都不该抢方案卡的焦点，故克制参数按§3.1原则先行落地。
+ * 诚实红线（不变）：只显 `node_detail` 给的真实值——字段缺失（后端 `exclude_none`
+ * 已省略）时该位不渲染，绝不补占位符/绝不美化"需排队"/"约满"这类如实告知的负面
+ * 可用性文案。
  */
-export default function NodeFactPanel({
+
+/**
+ * 店名行右上角 headline：评分（★ 深金 accent-600，唯一暖色触点）+ 人均（ink-700
+ * 半粗）。两者都缺时返回 null（不占位）。用的是纯文本 "★" 字符（视觉稿 r1 .star
+ * 原样是文字字符，不是 emoji ⭐——emoji 星会带来"塑料感"色块，文字字符可以用
+ * CSS 上色、和整体线性图标语言一致）。
+ */
+export function NodeHeadline({
   detail,
-  variant,
   className,
 }: {
   detail: NodeDetail | undefined | null;
-  variant: "column" | "row";
+  className?: string;
+}) {
+  if (!detail) return null;
+  const hasRating = detail.rating != null;
+  const hasPrice = !!detail.price_text;
+  if (!hasRating && !hasPrice) return null;
+
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-2 whitespace-nowrap pt-0.5 text-[13px]",
+        className,
+      )}
+    >
+      {hasRating && (
+        <span className="font-bold text-accent-600">★ {detail.rating!.toFixed(1)}</span>
+      )}
+      {hasPrice && <span className="font-semibold text-ink-700">{detail.price_text}</span>}
+    </div>
+  );
+}
+
+/**
+ * 事实行：距离 · 可订 · 营业至 + 0-2 个精选 tag，横向一行、幽灰微字（评分/人均已被
+ * `NodeHeadline` 拿走，这里不再重复）。Web/移动端共用同一个 shape。
+ */
+export default function NodeFactPanel({
+  detail,
+  className,
+}: {
+  detail: NodeDetail | undefined | null;
   className?: string;
 }) {
   if (!detail) return null;
@@ -37,27 +72,12 @@ export default function NodeFactPanel({
   const tags = detail.tags ?? [];
   const facts: { key: string; node: ReactNode }[] = [];
 
-  // 评分：唯一暖色触点（深金 ⭐），其余事实一律中性幽灰。
-  if (detail.rating != null) {
-    facts.push({
-      key: "rating",
-      node: (
-        <span className="inline-flex items-center gap-0.5 font-semibold text-accent-600">
-          <span aria-hidden>⭐</span>
-          {detail.rating.toFixed(1)}
-        </span>
-      ),
-    });
-  }
-  if (detail.price_text) {
-    facts.push({ key: "price", node: <span>{detail.price_text}</span> });
-  }
   if (detail.distance_km != null) {
     facts.push({
       key: "distance",
       node: (
-        <span className="inline-flex items-center gap-0.5">
-          <span aria-hidden>🚶</span>
+        <span className="inline-flex items-center gap-1">
+          <Icons.footprints className="h-3 w-3 shrink-0" strokeWidth={1.7} />
           {detail.distance_km.toFixed(1)}km
         </span>
       ),
@@ -72,35 +92,6 @@ export default function NodeFactPanel({
 
   if (facts.length === 0 && tags.length === 0) return null;
 
-  const tagNodes = tags.map((t) => (
-    <span
-      key={t}
-      className="rounded bg-black/[0.03] px-1.5 py-[1px] text-[10.5px] font-medium leading-[1.4] text-ink-600"
-    >
-      {t}
-    </span>
-  ));
-
-  if (variant === "column") {
-    return (
-      <div
-        className={cn(
-          "flex flex-col items-end gap-1 text-right text-[11px] leading-snug text-ink-500",
-          className,
-        )}
-      >
-        {facts.map((f) => (
-          <div key={f.key}>{f.node}</div>
-        ))}
-        {tagNodes.length > 0 && (
-          <div className="mt-0.5 flex flex-wrap justify-end gap-1">{tagNodes}</div>
-        )}
-      </div>
-    );
-  }
-
-  // "row"：移动端店名下一行 chips——数字类事实用极淡分隔点串联，tag 仍是
-  // 独立的小 chip（不强上两栏，见设计终稿§四"移动端 MobileHomeView 镜像"）。
   return (
     <div
       className={cn(
@@ -118,7 +109,14 @@ export default function NodeFactPanel({
           {f.node}
         </Fragment>
       ))}
-      {tagNodes}
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="rounded bg-black/[0.03] px-1.5 py-[1px] text-[10.5px] font-medium leading-[1.4] text-ink-600"
+        >
+          {t}
+        </span>
+      ))}
     </div>
   );
 }

@@ -256,17 +256,25 @@ export default function HomeView() {
 
         {/* 激活态：单栏全宽主区（§八：侧栏取消，方案独占全宽）。信任带
             （合并原 ToolTracePanel/ThoughtPanel/DecisionTraceCard 三面板）
-            插在 ItineraryCard 内部"叙事和时间轴之间"，不在这一层再单独挂载。 */}
+            插在 ItineraryCard 内部"叙事和时间轴之间"，不在这一层再单独挂载。
+
+            方案工具治 CLS：ItineraryUtilityBar 曾挂在 ItineraryCard 之上——
+            规划完成时它才出现（itinerary 从 null 变有值），会把下面的信任带
+            往下挤一次（布局跳动）。挪到 ItineraryCard 下方后，它和方案卡同时
+            出现/消失（itinerary null 时两者都不渲染），信任带固定挂在方案卡
+            容器上方的位置不再被工具栏出现与否影响；工具栏本身也和它操作的
+            那个方案挨在一起，语义上更顺（工具是"对这份方案"的操作，不是
+            独立于方案存在的东西）。 */}
         <div
           className={cn(
             "mt-4 space-y-3 transition-all duration-1000 ease-[cubic-bezier(0.25,0.1,0.25,1)]",
             !activated && "opacity-0 pointer-events-none h-0 overflow-hidden mt-0",
           )}
         >
+          <ItineraryCard />
           <ItineraryUtilityBar
             onOpenShareModal={() => setShareModalOpen(true)}
           />
-          <ItineraryCard />
         </div>
       </main>
 

@@ -10,6 +10,7 @@ import {
   Compass,
   ArrowRight as ArrowRightIcon,
   Loader2,
+  type LucideIcon,
   Plus,
   Route,
   ShieldAlert,
@@ -63,7 +64,7 @@ import Confetti, { type ConfettiOrigin } from "../Confetti";
 import ConstraintFeed from "../ConstraintFeed";
 import MapOverlay from "../MapOverlay";
 import MockModeBadge from "../MockModeBadge";
-import NodeFactPanel from "../NodeFactPanel";
+import NodeFactPanel, { NodeHeadline } from "../NodeFactPanel";
 import OfflineReadyBadge from "../OfflineReadyBadge";
 import PlannerModeBadge from "../PlannerModeBadge";
 import PosterGenerator from "../PosterGenerator";
@@ -803,9 +804,7 @@ function MobilePlanCard() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-2xl" aria-hidden>
-                📷
-              </span>
+              <Icons.camera className="h-[18px] w-[18px] shrink-0 text-[#8f4b24]" strokeWidth={1.8} aria-hidden />
               <span className="text-lg font-black tracking-tight text-[#8f4b24]">
                 今日行程安排
               </span>
@@ -1222,7 +1221,7 @@ const SPINE_COLOR = "#D8D2C4";
 
 /**
  * 按 visibleEntries 的绝对下标取一条真实通勤（hop）行——virtual（原地/同址
- * 复用）不算通勤，返回 null（脊柱画实线，不出现 🚶 灰字）。用于把"通勤"从
+ * 复用）不算通勤，返回 null（脊柱画实线，不出现灰字）。用于把"通勤"从
  * 独立卡挪到脊柱上（时间轴精修设计终稿.md §二）。
  */
 function hopEntryAt(entries: ScheduleEntry[], idx: number): ScheduleEntry | null {
@@ -1231,29 +1230,36 @@ function hopEntryAt(entries: ScheduleEntry[], idx: number): ScheduleEntry | null
 }
 
 /**
- * 脊柱连接线（点到下一个点/收尾 bookend）+ 通勤灰字标——单色暖灰，有通勤则
+ * 脊柱连接线（点到下一个点/收尾 bookend）+ 通勤图标标——单色暖灰，有通勤则
  * 虚线 + 小灰字，无通勤则实线（时间轴精修设计终稿.md §一/§二）。绝对定位
- * 依赖调用方的 gutter 容器是 `relative` 且作为 grid 项默认 stretch 到与右
- * 侧内容同高（同 Web ItineraryCard 既有写法）；`top` 由调用方传入——节点行
- * gutter（时间+点+时间三行文字）和 bookend gutter（只一个小图标）自身内容
- * 高度不同，共用一个硬编码 top 会在矮的 bookend 里露出一截空白。offset 按
- * "点变小之后"的新几何手工估算，未经真机/浏览器像素级校验（见交付报告）。
+ * 依赖调用方的 gutter 容器是 `relative`、固定宽度 `w-[60px]`（见 NotebookBookend/
+ * NotebookTimelineItem 左侧列，节点卡+行程轨-对比.html 改版：60px = 时间列
+ * 40px + 4px 间距 + 9px 圆点，圆点中心落在 x=49px）且作为 grid 项默认 stretch
+ * 到与右侧内容同高（同 Web ItineraryCard 既有写法）；`top` 由调用方传入——
+ * 节点行 gutter（时间+点两列）和 bookend gutter（只一个小图标）自身内容高度
+ * 不同，共用一个硬编码 top 会在矮的 bookend 里露出一截空白。offset 按"点变
+ * 小之后"的新几何手工估算，未经真机/浏览器像素级校验（见交付报告）。
+ *
+ * 通勤图标+时长横排在 x=49px 圆点【左侧】（right-4=16px，紧贴圆点左边，落在
+ * 时间列的视觉车道里）——同 Web 端"通勤挪到脊柱左列"的改版意图，不再贴在圆
+ * 点正下方。
  */
 function SpineConnector({ hop, top }: { hop: ScheduleEntry | null; top: string }) {
+  const HopIcon = hop ? getHopIconComponent(hop.mode) : null;
   return (
     <>
       <span
         aria-hidden
         className={cn(
-          "absolute left-1/2 bottom-[-28px] w-0 -translate-x-1/2 border-l-[1.5px]",
+          "absolute left-[49px] bottom-[-28px] w-0 border-l-[1.5px]",
           top,
           hop ? "border-dashed" : "border-solid",
         )}
         style={{ borderColor: SPINE_COLOR }}
       />
-      {hop && (
-        <span className="absolute left-1/2 bottom-[-16px] -translate-x-1/2 whitespace-nowrap text-[10px] font-medium text-ink-400">
-          {getHopIcon(hop.mode)}
+      {hop && HopIcon && (
+        <span className="absolute right-4 bottom-[-20px] flex items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-ink-400">
+          <HopIcon className="h-3 w-3 shrink-0" strokeWidth={1.8} />
           {hop.minutes}分钟
         </span>
       )}
@@ -1272,14 +1278,26 @@ function SpineConnector({ hop, top }: { hop: ScheduleEntry | null; top: string }
 function NotebookBookend({ kind, hop }: { kind: "start" | "end"; hop?: ScheduleEntry | null }) {
   const isStart = kind === "start";
   return (
-    <li className="relative grid grid-cols-[52px_minmax(0,1fr)] gap-3 pb-6">
-      <div className="relative flex flex-col items-center pt-1">
-        <span
-          aria-hidden
-          className="relative z-10 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-black/[0.04]"
-        >
-          <Icons.home className="h-[9px] w-[9px] text-ink-400" strokeWidth={2.5} />
-        </span>
+    <li className="relative grid grid-cols-[60px_minmax(0,1fr)] gap-3 pb-6">
+      {/* 左侧 gutter：60px 固定宽，和 NotebookTimelineItem 的节点行共用同一条
+          x=49px 圆点车道（节点卡+行程轨-对比.html「左行程轨同款」——时间/通勤
+          挪到脊柱左列这套改法，移动端和 Web 端用同一个几何基准）。家 bookend
+          没有起止钟点，时间列这里只放"出发/到家"极小标签。 */}
+      <div className="relative flex items-start gap-1 pt-1">
+        <div className="w-10 shrink-0 pt-1 text-right text-[10px] font-medium text-ink-400">
+          {isStart ? "出发" : "到家"}
+        </div>
+        {/* w-[10px] + justify-center：18px 图标比 9px 圆点宽，用固定 10px 车道
+            + 溢出居中，让图标的几何中心也落在 x=49px（40 timecol + 4 gap + 5），
+            和 SpineConnector 的竖线基准（left-[49px]）对上。 */}
+        <div className="flex w-[10px] shrink-0 justify-center">
+          <span
+            aria-hidden
+            className="relative z-10 mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-black/[0.04]"
+          >
+            <Icons.home className="h-[9px] w-[9px] text-ink-400" strokeWidth={2.5} />
+          </span>
+        </div>
         {isStart && <SpineConnector hop={hop ?? null} top="top-6" />}
       </div>
       <div className="flex min-h-[18px] items-center text-sm font-medium text-ink-500">
@@ -1328,62 +1346,77 @@ function NotebookTimelineItem({
   const hasOperationRow = alternatives.length > 0 || chips.length > 0 || collabMode;
 
   return (
-    <li className="relative grid grid-cols-[52px_minmax(0,1fr)] gap-3 pb-6">
-      {/* 左侧脊柱：时间贴脊柱（点上方=start/下方=end，时间轴精修设计终稿.md
-          §一）+ 单色暖灰扁平点（无光泽、无编号——原 36px 大号数字点删掉，
-          数字本身没有业务含义，店名本身+当前操作即可定位是哪一站）+ 到下一
-          个点（或收尾 bookend）的连接线，通勤挪到这里做虚线细段+小灰字。 */}
-      <div className="relative flex flex-col items-center gap-1 pt-1">
-        <span className="text-[13px] font-medium tabular-nums text-ink-500">{entry.start}</span>
+    <li className="relative grid grid-cols-[60px_minmax(0,1fr)] gap-3 pb-6">
+      {/* 左侧 gutter（节点卡+行程轨-对比.html 改版）：时间挪到脊柱左侧独立
+          一列（timecol，40px 右对齐），不再堆在圆点正上/正下方；圆点车道
+          （9px）紧贴其后，几何中心落在 x=49px（40 timecol + 4 gap + 4.5）——
+          单色暖灰扁平点（无光泽、无编号，时间轴精修设计终稿.md §一）+ 到下一
+          个点（或收尾 bookend）的连接线，通勤图标+时长横排在同一条 x=49px
+          圆点左侧（SpineConnector 内部实现）。 */}
+      <div className="relative flex items-start gap-1 pt-1">
+        <div className="flex w-10 shrink-0 flex-col items-end gap-1 text-right">
+          <span className="text-[12px] font-medium leading-none tabular-nums text-ink-500">
+            {entry.start}
+          </span>
+          <span className="text-[12px] font-medium leading-none tabular-nums text-ink-500">
+            {entry.end}
+          </span>
+        </div>
         <span
           aria-hidden
-          className="h-[9px] w-[9px] shrink-0 rounded-full border-2 border-white"
+          className="mt-0.5 h-[9px] w-[9px] shrink-0 rounded-full border-2 border-white"
           style={{ background: SPINE_COLOR }}
         />
         {/* 联动·连接（时间轴精修设计终稿.md §三.2）：点到卡片左缘一条极短
             极淡的连接线，把"这个点属于这张卡"钉死。悬停协同（§三.3）在触屏
             上意义不大，改用 .node-card 上既有的 active: 轻反馈顶替，此处只
-            做静态对齐 + 连接，不做双向高亮联动。 */}
+            做静态对齐 + 连接，不做双向高亮联动。top 值随"时间挪去左列"重新
+            估算（原来的点在两行时间文字之下，现在时间和点同一行、点更靠
+            上），未经真机像素校验。 */}
         <span
           aria-hidden
-          className="absolute left-full top-8 h-px w-3 -translate-y-1/2"
+          className="absolute left-full top-[11px] h-px w-3 -translate-y-1/2"
           style={{ background: `${SPINE_COLOR}b3` }}
         />
-        <span className="text-[13px] font-medium tabular-nums text-ink-500">{entry.end}</span>
-        <SpineConnector hop={hopAfter} top="top-16" />
+        <SpineConnector hop={hopAfter} top="top-8" />
       </div>
 
-      {/* 右侧：节点卡（卡片精修设计终稿.md §二/§四/§八，两行制——复用已提交
-          的 .node-card/.node-glass-label/.node-card-divider，不新增/不改
+      {/* 右侧：节点卡（卡片精修设计终稿.md §二/§四/§八——复用已提交的
+          .node-card/.node-glass-label/.node-card-divider，不新增/不改
           globals.css）。active: 轻按反馈顶替 Web 端的 hover 抬升（触屏无
           hover）。 */}
       <div className="node-card relative min-w-0 px-3.5 pt-3 pb-2.5 transition-transform active:scale-[0.99]">
-        {/* 内容行：玻璃标签 + 店名（去下划线）——时间已挪到左侧脊柱，卡内不
-            再重复（时间轴精修设计终稿.md §二：消除"出现两次"）。事实面板
-            设计终稿§3.5 两小修之一：店名不再硬截单行（原 truncate 已去掉），
-            title 仍兜全文。 */}
-        <div className="flex items-start gap-x-2">
-          <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
-            {kindLabel}
-          </span>
-          {isLocked ? (
-            <span className="h-4 w-28 shrink-0 rounded shimmer-skeleton" aria-hidden />
-          ) : (
-            <span
-              className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
-              title={fullTitle}
-            >
-              {entry.title}
-              {node?.note && <span className="ml-1.5 font-normal text-ink-500">· {node.note}</span>}
+        {/* 店名行：左标签+店名，右上角 headline（评分★+人均，NodeHeadline）
+            ——同 Web 端节点卡+行程轨-对比.html 改版，原先"店名下一行事实
+            chips 里混着评分/人均"已拆开，headline 单独挂右上角。 */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-start gap-x-2">
+            <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+              {kindLabel}
             </span>
-          )}
+            {isLocked ? (
+              <span className="h-4 w-28 shrink-0 rounded shimmer-skeleton" aria-hidden />
+            ) : (
+              <span
+                className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
+                title={fullTitle}
+              >
+                {entry.title}
+              </span>
+            )}
+          </div>
+          {!isLocked && <NodeHeadline detail={detail} />}
         </div>
 
-        {/* 事实行（设计终稿§四"移动端镜像"：右栏收窄为店名下一行事实 chips，
-            不强上两栏）——安静、幽灰，评分星是唯一暖色触点，随店名一起在
-            换菜中隐藏（isLocked 时该行不渲染，同 Web 端右栏的降权处理）。 */}
-        {detail && !isLocked && (
-          <NodeFactPanel detail={detail} variant="row" className="mt-1.5" />
+        {/* 事实行（设计终稿§四"移动端镜像"：窄屏仍是店名下一行横排，不强上
+            两栏）——距离·可订·营业至+tag，评分/人均已被上面 headline 拿走，
+            这里不再重复；随店名一起在换菜中隐藏。 */}
+        {!isLocked && <NodeFactPanel detail={detail} className="mt-1.5" />}
+
+        {/* 理由行：选店理由（note），从"店名后缀"升级成事实行下方独立一行
+            （照视觉稿）；理由原文一字不改。 */}
+        {node?.note && !isLocked && (
+          <div className="mt-1.5 text-[13px] leading-relaxed text-ink-500">{node.note}</div>
         )}
 
         {targetId && hasOperationRow && <div className="node-card-divider mt-2.5 mb-2" aria-hidden />}
@@ -1507,16 +1540,16 @@ function MobileAdjustChipButton({
   );
 }
 
-function getHopIcon(mode: HopMode | null | undefined): string {
+/** 通勤方式 → lucide 线性图标（emoji 🚶🚌🚕🚗 换掉，去塑料感，同 Web 端 ItineraryCard.tsx 的 hopIconComponent）。 */
+function getHopIconComponent(mode: HopMode | null | undefined): LucideIcon {
   switch (mode) {
-    case "walking":
-      return "🚶";
     case "bus":
-      return "🚌";
+      return Icons.bus;
     case "taxi":
-      return "🚕";
+      return Icons.taxi;
+    case "walking":
     default:
-      return "🚗";
+      return Icons.footprints;
   }
 }
 

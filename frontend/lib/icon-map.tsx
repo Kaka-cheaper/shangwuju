@@ -15,7 +15,10 @@ import {
   AlertTriangle,
   Baby,
   Briefcase,
+  Bus,
   CalendarHeart,
+  Camera,
+  CarTaxiFront,
   CheckCircle2,
   ClipboardList,
   Clock,
@@ -144,6 +147,10 @@ export const Icons = {
   footprints: Footprints,
   heart: Heart,
   users: Users,
+  // 时间轴精修二批：通勤方式 + 卡头相机——替掉 🚶🚕🚌📷 emoji（去塑料感）。
+  taxi: CarTaxiFront,
+  bus: Bus,
+  camera: Camera,
 } as const;
 
 export type IconKey = keyof typeof Icons;
