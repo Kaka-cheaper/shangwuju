@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>方案卡主角化 · 优雅方案对比</title>
+<style>
+  :root{
+    --canvas:#f6f5f1; --ink900:#1f2328; --ink700:#3f4550; --ink500:#6b7280; --ink400:#9aa0ab;
+    --caramel:#8f4b24; --brand:#ffd100; --gold:#f59e0b; --gold-deep:#d97706;
+    --hair:rgba(20,20,20,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--canvas);color:var(--ink900);line-height:1.6;padding:40px 24px 80px;}
+  .head{max-width:1120px;margin:0 auto 8px;}
+  .head h1{font-size:20px;letter-spacing:.4px;}
+  .head p{color:var(--ink500);font-size:13.5px;margin-top:6px;}
+  .grid{max-width:1120px;margin:28px auto 0;display:grid;grid-template-columns:1fr 1fr;gap:36px 40px;}
+  @media(max-width:900px){.grid{grid-template-columns:1fr;}}
+  .slot{}
+  .slot .cap{font-size:13px;color:var(--ink500);margin-bottom:14px;}
+  .slot .cap b{color:var(--ink900);font-size:14px;}
+  .slot .cap .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;}
+  .tag.bad{background:#fde2e2;color:#c0392b;}
+  .tag.good{background:#e7f5ec;color:#1e7d46;}
+
+  /* ── 卡片基座（各方案共用内容，仅"主角化处理"不同）── */
+  .card{position:relative;z-index:0;background:#fff;border-radius:24px;padding:22px 26px;}
+  .chead{display:flex;align-items:center;justify-content:space-between;gap:16px;}
+  .chead .left{display:flex;align-items:center;gap:8px;}
+  .chead .cam{font-size:20px;}
+  .chead .kicker{font-size:16px;font-weight:800;letter-spacing:.3px;color:var(--caramel);}
+  .chead .dur{font-size:13px;font-weight:700;color:var(--caramel);background:rgba(255,255,255,.7);border:1px solid rgba(255,255,255,.8);border-radius:20px;padding:5px 12px;box-shadow:0 1px 2px rgba(0,0,0,.05);}
+  .summary{font-size:24px;font-weight:800;letter-spacing:-.2px;color:var(--ink900);margin:12px 0 16px;}
+  .node{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-top:1px solid var(--hair);}
+  .node .body{flex:1;min-width:0;}
+  .node .lab{display:inline-block;font-size:11px;font-weight:600;color:var(--gold-deep);background:rgba(245,158,11,.10);border-radius:6px;padding:2px 7px;margin-right:8px;}
+  .node .nm{font-size:15px;font-weight:600;color:var(--ink900);}
+  .node .reason{font-size:12.5px;color:var(--ink500);margin-top:4px;}
+  .node .facts{width:132px;flex:none;text-align:right;font-size:12px;color:var(--ink500);line-height:1.7;}
+  .node .facts .star{color:var(--gold-deep);font-weight:700;}
+  .node .facts .chip{display:inline-block;font-size:10.5px;color:var(--ink600,#555);background:rgba(20,20,20,.035);border-radius:5px;padding:1px 6px;margin:2px 0 0 4px;}
+
+  /* ══════════ ① 色带顶冠（你嫌"捞"的基线，做对比用）══════════ */
+  .t-band{overflow:hidden;border:1px solid var(--hair);}
+  .t-band .crown{margin:-22px -26px 16px;padding:14px 26px;background:linear-gradient(90deg,var(--brand),var(--gold));border-radius:24px 24px 0 0;}
+  .t-band .crown .kicker{color:#7a3d12;}
+  .t-band .crown .dur{color:#7a3d12;background:rgba(255,255,255,.55);border-color:rgba(255,255,255,.6);}
+
+  /* ══════════ ② 抬升 + 发丝暖描边 + 顶缘微光（Stripe/Linear）══════════ */
+  .t-elev{border:1px solid var(--hair);
+    box-shadow:0 1px 1px rgba(20,20,20,.04), 0 20px 44px -22px rgba(143,75,36,.30);}
+  .t-elev::before{content:"";position:absolute;inset:0 0 auto 0;height:1.5px;border-radius:24px 24px 0 0;
+    background:linear-gradient(90deg,transparent 8%,rgba(217,119,6,.6),rgba(255,209,0,.5) 50%,rgba(217,119,6,.6),transparent 92%);}
+
+  /* ══════════ ③ 暖金渐变描边（mask-composite「银边」技法，warm）══════════ */
+  .t-sheen{border:1.5px solid transparent;background:#fff;}
+  .t-sheen::before{content:"";position:absolute;inset:0;border-radius:24px;padding:1.5px;
+    background:linear-gradient(135deg,rgba(217,119,6,.85),rgba(255,209,0,.25) 38%,rgba(245,158,11,.15) 62%,rgba(217,119,6,.8));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none;}
+
+  /* ══════════ ④ 到场柔光 + 抬升（Linear/Aceternity spotlight，静止=柔光，落定=绽放）══════════ */
+  .t-glow{border:1px solid var(--hair);box-shadow:0 1px 1px rgba(20,20,20,.04),0 16px 40px -24px rgba(143,75,36,.22);}
+  .t-glow::before{content:"";position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:66%;height:70px;z-index:-1;
+    background:radial-gradient(ellipse at center,rgba(245,158,11,.38),transparent 70%);filter:blur(20px);border-radius:50%;
+    animation:bloom 2.6s ease-out both;}
+  @keyframes bloom{0%{opacity:0;transform:translateX(-50%) scale(.6);}30%{opacity:1;transform:translateX(-50%) scale(1.05);}100%{opacity:.55;transform:translateX(-50%) scale(1);}}
+
+  /* ══════════ ⑤ 推荐：抬升+发丝暖描边+顶缘微光+到场柔光（②与④合并）══════════ */
+  .t-combo{border:1px solid var(--hair);
+    box-shadow:0 1px 1px rgba(20,20,20,.04), 0 22px 48px -22px rgba(143,75,36,.30);}
+  .t-combo::before{content:"";position:absolute;inset:0 0 auto 0;height:1.5px;border-radius:24px 24px 0 0;z-index:1;
+    background:linear-gradient(90deg,transparent 8%,rgba(217,119,6,.6),rgba(255,209,0,.5) 50%,rgba(217,119,6,.6),transparent 92%);}
+  .t-combo::after{content:"";position:absolute;left:50%;top:-14px;transform:translateX(-50%);width:66%;height:70px;z-index:-1;
+    background:radial-gradient(ellipse at center,rgba(245,158,11,.34),transparent 70%);filter:blur(20px);border-radius:50%;
+    animation:bloom 2.6s ease-out both;}
+</style>
+</head>
+<body>
+<div class="head">
+  <h1>方案卡「主角化」· 优雅方案对比</h1>
+  <p>同一张方案卡、五种主角化处理。① 是你嫌"捞"的色带基线（对比用）；②③④ 是查到的成熟高级技法；⑤ 是我推荐的合并。判据：材质/光/发丝描边显高级，色块装饰显廉价（Stripe/Linear/Vercel 共识：颜色只用于意义、克制即自信）。选一个，或告诉我往哪个方向再调。</p>
+</div>
+<div class="grid">
+
+  <div class="slot">
+    <div class="cap"><b>① 色带顶冠</b><span class="tag bad">你嫌捞的基线</span> —— 渐变色块压在标题上，banner 感、装饰性，正是高级 UI 的反面。</div>
+    <div class="card t-band" id="c1">
+      <div class="crown"><div class="chead"><div class="left"><span class="cam">📷</span><span class="kicker">今日行程安排</span></div><span class="dur">约 3.7 小时</span></div></div>
+      <div class="summary">室友夜局 · 吃饭唱歌 3.6h</div>
+      <div class="node"><div class="body"><span class="lab">用餐</span><span class="nm">炭烤大叔·路边烧烤</span><div class="reason">人均合理，大圆桌适合兄弟撸串</div></div><div class="facts"><span class="star">★ 4.6</span> ¥90/人<br>🚶 4.5km · 可订18:00<br><span class="chip">大圆桌</span></div></div>
+      <div class="node"><div class="body"><span class="lab">主活动</span><span class="nm">麦霸欢唱 KTV·旗舰店</span><div class="reason">朋友局气氛能炒起来</div></div><div class="facts"><span class="star">★ 4.7</span> ¥120/人<br>🚶 0.8km · 营业至02:00<br><span class="chip">有包间</span></div></div>
+    </div>
+  </div>
+
+  <div class="slot">
+    <div class="cap"><b>② 抬升 + 发丝暖描边 + 顶缘微光</b><span class="tag good">Stripe/Linear</span> —— 卡片靠精修投影成"悬浮交付物"，顶缘一丝金色 rim-light，暖是耳语不是喊。</div>
+    <div class="card t-elev">
+      <div class="chead"><div class="left"><span class="cam">📷</span><span class="kicker">今日行程安排</span></div><span class="dur">约 3.7 小时</span></div>
+      <div class="summary">室友夜局 · 吃饭唱歌 3.6h</div>
+      <div class="node"><div class="body"><span class="lab">用餐</span><span class="nm">炭烤大叔·路边烧烤</span><div class="reason">人均合理，大圆桌适合兄弟撸串</div></div><div class="facts"><span class="star">★ 4.6</span> ¥90/人<br>🚶 4.5km · 可订18:00<br><span class="chip">大圆桌</span></div></div>
+      <div class="node"><div class="body"><span class="lab">主活动</span><span class="nm">麦霸欢唱 KTV·旗舰店</span><div class="reason">朋友局气氛能炒起来</div></div><div class="facts"><span class="star">★ 4.7</span> ¥120/人<br>🚶 0.8km · 营业至02:00<br><span class="chip">有包间</span></div></div>
+    </div>
+  </div>
+
+  <div class="slot">
+    <div class="cap"><b>③ 暖金渐变描边</b><span class="tag good">mask-composite 银边技法</span> —— 一圈发光的金色发丝边框住整卡，是"框"不是"填"，crafted、精致。</div>
+    <div class="card t-sheen">
+      <div class="chead"><div class="left"><span class="cam">📷</span><span class="kicker">今日行程安排</span></div><span class="dur">约 3.7 小时</span></div>
+      <div class="summary">室友夜局 · 吃饭唱歌 3.6h</div>
+      <div class="node"><div class="body"><span class="lab">用餐</span><span class="nm">炭烤大叔·路边烧烤</span><div class="reason">人均合理，大圆桌适合兄弟撸串</div></div><div class="facts"><span class="star">★ 4.6</span> ¥90/人<br>🚶 4.5km · 可订18:00<br><span class="chip">大圆桌</span></div></div>
+      <div class="node"><div class="body"><span class="lab">主活动</span><span class="nm">麦霸欢唱 KTV·旗舰店</span><div class="reason">朋友局气氛能炒起来</div></div><div class="facts"><span class="star">★ 4.7</span> ¥120/人<br>🚶 0.8km · 营业至02:00<br><span class="chip">有包间</span></div></div>
+    </div>
+  </div>
+
+  <div class="slot">
+    <div class="cap"><b>④ 到场柔光 + 抬升</b><span class="tag good">Linear/Aceternity spotlight</span> —— 卡顶一团柔和暖光晕"点亮"这张卡；刷新页面看它落定时绽一下再收（=形成方案那一下）。</div>
+    <div class="card t-glow">
+      <div class="chead"><div class="left"><span class="cam">📷</span><span class="kicker">今日行程安排</span></div><span class="dur">约 3.7 小时</span></div>
+      <div class="summary">室友夜局 · 吃饭唱歌 3.6h</div>
+      <div class="node"><div class="body"><span class="lab">用餐</span><span class="nm">炭烤大叔·路边烧烤</span><div class="reason">人均合理，大圆桌适合兄弟撸串</div></div><div class="facts"><span class="star">★ 4.6</span> ¥90/人<br>🚶 4.5km · 可订18:00<br><span class="chip">大圆桌</span></div></div>
+      <div class="node"><div class="body"><span class="lab">主活动</span><span class="nm">麦霸欢唱 KTV·旗舰店</span><div class="reason">朋友局气氛能炒起来</div></div><div class="facts"><span class="star">★ 4.7</span> ¥120/人<br>🚶 0.8km · 营业至02:00<br><span class="chip">有包间</span></div></div>
+    </div>
+  </div>
+
+  <div class="slot" style="grid-column:1/-1;max-width:540px;margin:0 auto;">
+    <div class="cap"><b>⑤ 推荐：② + ④ 合并</b><span class="tag good">我的推荐</span> —— 静止时靠"抬升+发丝暖描边"成为悬浮主角，方案落定时暖光晕绽放一下（到场重音），~2 秒归静。材质+光双管，全程无一处色块装饰。</div>
+    <div class="card t-combo">
+      <div class="chead"><div class="left"><span class="cam">📷</span><span class="kicker">今日行程安排</span></div><span class="dur">约 3.7 小时</span></div>
+      <div class="summary">室友夜局 · 吃饭唱歌 3.6h</div>
+      <div class="node"><div class="body"><span class="lab">用餐</span><span class="nm">炭烤大叔·路边烧烤</span><div class="reason">人均合理，大圆桌适合兄弟撸串</div></div><div class="facts"><span class="star">★ 4.6</span> ¥90/人<br>🚶 4.5km · 可订18:00<br><span class="chip">大圆桌</span></div></div>
+      <div class="node"><div class="body"><span class="lab">主活动</span><span class="nm">麦霸欢唱 KTV·旗舰店</span><div class="reason">朋友局气氛能炒起来</div></div><div class="facts"><span class="star">★ 4.7</span> ¥120/人<br>🚶 0.8km · 营业至02:00<br><span class="chip">有包间</span></div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

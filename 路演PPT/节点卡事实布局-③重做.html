@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>节点卡 · ③ 重做（含单人/多人态）</title>
+<style>
+  :root{
+    --canvas:#f6f5f1;--ink900:#1f2328;--ink700:#3f4550;--ink600:#555b66;--ink500:#6b7280;--ink400:#9aa0ab;--ink300:#c3c8d0;
+    --amber700:#b45309;--gold-deep:#d97706;--hair:rgba(20,20,20,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--canvas);color:var(--ink900);line-height:1.55;padding:36px 24px 90px;}
+  .head{max-width:920px;margin:0 auto 6px;}
+  .head h1{font-size:19px;}
+  .head p{color:var(--ink500);font-size:13px;margin-top:6px;}
+  .wrap{max-width:920px;margin:22px auto 0;}
+  .cap{font-size:13px;color:var(--ink500);margin:0 2px 10px;}
+  .cap b{color:var(--ink900);font-size:14.5px;}
+  .cap .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:20px;margin-left:8px;vertical-align:middle;background:#e7f5ec;color:#1e7d46;}
+  .cap .tag.blue{background:#e6eefb;color:#2456b8;}
+
+  .plan{position:relative;background:#fff;border:1px solid var(--hair);border-radius:22px;padding:12px 18px;margin-bottom:26px;
+    box-shadow:0 1px 1px rgba(20,20,20,.04),0 20px 44px -24px rgba(143,75,36,.26);}
+  .plan::after{content:"";position:absolute;top:0;left:0;right:0;height:1.5px;border-radius:22px 22px 0 0;
+    background:linear-gradient(90deg,transparent 8%,rgba(217,119,6,.5),rgba(255,209,0,.4) 50%,rgba(217,119,6,.5),transparent 92%);}
+
+  .node{border-radius:14px;padding:12px 15px;background:linear-gradient(180deg,#fffdf8,#fff);border:1px solid rgba(180,140,0,.10);}
+  .lab{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;color:var(--amber700);background:rgba(245,158,11,.10);border-radius:6px;padding:2px 7px;margin-right:8px;vertical-align:middle;}
+  .nm{font-size:15px;font-weight:700;color:var(--ink900);}
+  .r1{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .r1 .head-facts{flex:none;white-space:nowrap;font-size:13px;padding-top:1px;}
+  .r1 .star{color:var(--gold-deep);font-weight:700;}
+  .r1 .price{font-weight:600;color:var(--ink700);margin-left:8px;}
+  .r2{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:7px;font-size:12px;color:var(--ink500);}
+  .r2 .sep{color:var(--ink300);}
+  .ftag{display:inline-block;font-size:10.5px;font-weight:500;color:var(--ink600);background:rgba(20,20,20,.04);border-radius:5px;padding:1px 6px;}
+  .r3{margin-top:6px;font-size:12.5px;color:var(--ink500);}
+  .divider{height:1px;margin:10px 0 9px;background:linear-gradient(90deg,transparent,rgba(0,0,0,.07) 20%,rgba(0,0,0,.07) 80%,transparent);}
+  .r4{display:flex;align-items:center;gap:8px;}
+  .btn{display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:var(--ink600);background:rgba(0,0,0,.03);border-radius:7px;padding:4px 9px;}
+  .chip2{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink400);}
+  .barsep{color:var(--ink300);margin:0 2px;}
+  .rightgroup{margin-left:auto;display:inline-flex;align-items:center;gap:8px;}
+  .votes{display:inline-flex;align-items:center;gap:10px;color:var(--ink400);font-size:15px;}
+</style>
+</head>
+<body>
+<div class="head">
+  <h1>节点卡 · ③ 重做 —— 单人态才是常态（赞踩只在多人房间出现）</h1>
+  <p>修正：点赞/点踩是多人房间（collab）才渲染的，单人态没有。所以底部"占满宽度"的锚在单人态不成立。下面①②是单人态两种处理，③是多人房间态。你挑单人底部要①还是②。</p>
+</div>
+<div class="wrap">
+
+  <div class="cap"><b>① 单人·默认</b><span class="tag">接受呼吸留白</span> —— 底部就是备选+微调，左对齐，右侧留白（呼吸）。评分/人均在右上角当锚，底部不强求锚。最克制。</div>
+  <div class="plan">
+    <div class="node">
+      <div class="r1">
+        <div style="min-width:0;"><span class="lab">用餐</span><span class="nm">老王烧烤摊·路边宵夜</span></div>
+        <div class="head-facts"><span class="star">★ 4.4</span><span class="price">¥50/人</span></div>
+      </div>
+      <div class="r2">
+        <span>🚶 3.6km</span><span class="sep">·</span><span>可订19:30</span><span class="sep">·</span><span>营业至03:00</span>
+        <span class="ftag">大圆桌</span><span class="ftag">热闹</span>
+      </div>
+      <div class="r3">便宜量大，兄弟撸串氛围正对</div>
+      <div class="divider"></div>
+      <div class="r4">
+        <span class="btn">⇄ 炭烤大叔</span><span class="btn">⇄ 夜烤场</span>
+        <span class="barsep">|</span>
+        <span class="chip2">⇄ 更便宜的</span><span class="chip2">⇄ 更安静聊天</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap"><b>② 单人·分列两端</b><span class="tag">用现有按钮当锚</span> —— 具名备选靠左、定向微调靠右，分列两端撑开宽度。不加任何装饰，单人态底部也有锚，右侧不空。</div>
+  <div class="plan">
+    <div class="node">
+      <div class="r1">
+        <div style="min-width:0;"><span class="lab">用餐</span><span class="nm">老王烧烤摊·路边宵夜</span></div>
+        <div class="head-facts"><span class="star">★ 4.4</span><span class="price">¥50/人</span></div>
+      </div>
+      <div class="r2">
+        <span>🚶 3.6km</span><span class="sep">·</span><span>可订19:30</span><span class="sep">·</span><span>营业至03:00</span>
+        <span class="ftag">大圆桌</span><span class="ftag">热闹</span>
+      </div>
+      <div class="r3">便宜量大，兄弟撸串氛围正对</div>
+      <div class="divider"></div>
+      <div class="r4">
+        <span class="btn">⇄ 炭烤大叔</span><span class="btn">⇄ 夜烤场</span>
+        <span class="rightgroup"><span class="chip2">⇄ 更便宜的</span><span class="chip2">⇄ 更安静聊天</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap"><b>③ 多人房间态</b><span class="tag blue">仅协作模式</span> —— 此时每个节点多出赞/踩，靠最右；具名备选左、定向微调随后。锚天然存在。（单人态没有这一组）</div>
+  <div class="plan">
+    <div class="node">
+      <div class="r1">
+        <div style="min-width:0;"><span class="lab">用餐</span><span class="nm">老王烧烤摊·路边宵夜</span></div>
+        <div class="head-facts"><span class="star">★ 4.4</span><span class="price">¥50/人</span></div>
+      </div>
+      <div class="r2">
+        <span>🚶 3.6km</span><span class="sep">·</span><span>可订19:30</span><span class="sep">·</span><span>营业至03:00</span>
+        <span class="ftag">大圆桌</span><span class="ftag">热闹</span>
+      </div>
+      <div class="r3">便宜量大，兄弟撸串氛围正对</div>
+      <div class="divider"></div>
+      <div class="r4">
+        <span class="btn">⇄ 炭烤大叔</span><span class="btn">⇄ 夜烤场</span>
+        <span class="barsep">|</span>
+        <span class="chip2">⇄ 更便宜的</span><span class="chip2">⇄ 更安静聊天</span>
+        <span class="rightgroup"><span class="votes"><span>👍</span><span>👎</span></span></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="cap" style="color:var(--ink400);">事实/理由/顶部布局三态一致，只有底部操作行随单人/多人变。字段缺失（可订/营业/标签可能没有）→ 该位不显、行自动收窄。你定单人底部要 ① 还是 ②，我就落地。</div>
+</div>
+</body>
+</html>
