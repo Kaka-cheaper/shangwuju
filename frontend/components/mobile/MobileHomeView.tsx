@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeftRight,
   ArrowRightLeft,
   Bot,
   ChevronDown,
@@ -12,6 +13,7 @@ import {
   Plus,
   Route,
   ShieldAlert,
+  SlidersHorizontal,
   Sparkles,
   Users,
   Wrench,
@@ -65,7 +67,6 @@ import PlannerModeBadge from "../PlannerModeBadge";
 import PosterGenerator from "../PosterGenerator";
 import RefinementDialog from "../RefinementDialog";
 import ShareModal from "../ShareModal";
-import ShimmerStripe from "../ShimmerStripe";
 import ToastStack from "../ToastStack";
 import ToolTracePanel from "../ToolTracePanel";
 import TrustBelt from "../TrustBelt";
@@ -851,24 +852,32 @@ function MobilePlanCard() {
       </div>
 
       <ol className="relative px-3 pb-5 pt-3">
+        {/* 家（首尾 bookend，卡片精修设计终稿.md §六）+ 时间轴脊柱（时间轴精修
+            设计终稿.md §一/§二）：起点 bookend 自己的"到第一站"连接线携带
+            出发通勤（若有），每个节点携带"到下一站"的连接线（最后一个节点
+            接到收尾 bookend），通勤统一挪到脊柱上,不再有独立通勤卡。 */}
+        <NotebookBookend
+          kind="start"
+          hop={
+            noteItems[0]
+              ? hopEntryAt(visibleEntries, noteItems[0].entryIndex - 1)
+              : null
+          }
+        />
         {noteItems.map(({ entry, entryIndex }, index) => {
           const node = itinerary.nodes.find((n) => n.node_id === entry.ref_id);
-          const previous = visibleEntries[entryIndex - 1];
-          const hopBefore =
-            previous?.entry_kind === "hop" && previous.mode !== "virtual"
-              ? previous
-              : null;
+          const hopAfter = hopEntryAt(visibleEntries, entryIndex + 1);
           return (
             <NotebookTimelineItem
               key={entry.ref_id}
               entry={entry}
               node={node}
-              hopBefore={hopBefore}
+              hopAfter={hopAfter}
               index={index}
-              total={noteItems.length}
             />
           );
         })}
+        <NotebookBookend kind="end" />
       </ol>
 
       {hasOrders && (
@@ -1189,62 +1198,99 @@ function MobileShareMessage({ text }: { text: string }) {
   );
 }
 
-const NOTEBOOK_TONES = [
-  {
-    dot: "bg-[#3f6fb6]",
-    line: "bg-gradient-to-b from-[#3f6fb6] to-[#d9487b]",
-    time: "text-[#3f6fb6]",
-    chip: "bg-[#eaf1ff] text-[#315a96]",
-  },
-  {
-    dot: "bg-[#d9487b]",
-    line: "bg-gradient-to-b from-[#d9487b] to-[#e59f28]",
-    time: "text-[#c23b6a]",
-    chip: "bg-[#ffeaf2] text-[#a8325d]",
-  },
-  {
-    dot: "bg-[#e59f28]",
-    line: "bg-gradient-to-b from-[#e59f28] to-[#4fa565]",
-    time: "text-[#b97818]",
-    chip: "bg-[#fff2d6] text-[#986415]",
-  },
-  {
-    dot: "bg-[#4fa565]",
-    line: "bg-gradient-to-b from-[#4fa565] to-[#7a5cc9]",
-    time: "text-[#3d8651]",
-    chip: "bg-[#e9f7ed] text-[#347046]",
-  },
-  {
-    dot: "bg-[#7a5cc9]",
-    line: "bg-gradient-to-b from-[#7a5cc9] to-[#47627f]",
-    time: "text-[#6850aa]",
-    chip: "bg-[#f0ecff] text-[#59469a]",
-  },
-  {
-    dot: "bg-[#47627f]",
-    line: "bg-gradient-to-b from-[#47627f] to-[#3f6fb6]",
-    time: "text-[#40566f]",
-    chip: "bg-[#edf2f7] text-[#384b61]",
-  },
-] as const;
+// ============================================================
+// 时间轴精修（路演PPT/时间轴精修设计终稿.md）+ 节点卡精修（路演PPT/卡片
+// 精修设计终稿.md）落地到移动端——原 NOTEBOOK_TONES 彩虹脊柱（每个节点一个
+// 色相，圆点/连线/时间/tag 全部跟着换色）整个删掉：时间轴克制要求脊柱
+// "单色暖灰、圆点扁平"，不再有"每一站一个颜色"的信息维度。节点卡的两行制
+// （内容行 = 玻璃标签 + 店名，操作行 = 具名备选/定向微调/投票三群纯视觉
+// 分组）与 Web 端 ItineraryCard.tsx 共用 .node-card/.node-glass-label/
+// .node-card-divider（globals.css 里 a2ad544 已落地、本批不碰）。
+// ============================================================
+
+/** 单色暖灰脊柱色（时间轴精修设计终稿.md §一），圆点/连接线/家 bookend 统一用它。 */
+const SPINE_COLOR = "#D8D2C4";
+
+/**
+ * 按 visibleEntries 的绝对下标取一条真实通勤（hop）行——virtual（原地/同址
+ * 复用）不算通勤，返回 null（脊柱画实线，不出现 🚶 灰字）。用于把"通勤"从
+ * 独立卡挪到脊柱上（时间轴精修设计终稿.md §二）。
+ */
+function hopEntryAt(entries: ScheduleEntry[], idx: number): ScheduleEntry | null {
+  const e = entries[idx];
+  return e && e.entry_kind === "hop" && e.mode && e.mode !== "virtual" ? e : null;
+}
+
+/**
+ * 脊柱连接线（点到下一个点/收尾 bookend）+ 通勤灰字标——单色暖灰，有通勤则
+ * 虚线 + 小灰字，无通勤则实线（时间轴精修设计终稿.md §一/§二）。绝对定位
+ * 依赖调用方的 gutter 容器是 `relative` 且作为 grid 项默认 stretch 到与右
+ * 侧内容同高（同 Web ItineraryCard 既有写法）；`top` 由调用方传入——节点行
+ * gutter（时间+点+时间三行文字）和 bookend gutter（只一个小图标）自身内容
+ * 高度不同，共用一个硬编码 top 会在矮的 bookend 里露出一截空白。offset 按
+ * "点变小之后"的新几何手工估算，未经真机/浏览器像素级校验（见交付报告）。
+ */
+function SpineConnector({ hop, top }: { hop: ScheduleEntry | null; top: string }) {
+  return (
+    <>
+      <span
+        aria-hidden
+        className={cn(
+          "absolute left-1/2 bottom-[-28px] w-0 -translate-x-1/2 border-l-[1.5px]",
+          top,
+          hop ? "border-dashed" : "border-solid",
+        )}
+        style={{ borderColor: SPINE_COLOR }}
+      />
+      {hop && (
+        <span className="absolute left-1/2 bottom-[-16px] -translate-x-1/2 whitespace-nowrap text-[10px] font-medium text-ink-400">
+          {getHopIcon(hop.mode)}
+          {hop.minutes}分钟
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * 家（首尾 bookend，卡片精修设计终稿.md §六）——无主活动标签、无操作层，只
+ * 一行文案 + 小 home 图标点；同 Web ItineraryCard 硬编码起止行为一致（文案
+ * 沿用既有"出发咯"/"满载而归"，不是数据驱动的 schedule 条目——home 节点在
+ * getVisibleEntries 里恒被过滤/隐藏，见该函数注释）。图标用中性灰（不用 Web
+ * 旧版的 emerald/red），呼应时间轴精修设计稿"美团黄只在当前节点点一下，其余
+ * 脊柱全程暖灰"的克制基调（当前 Web 尚未跟进这处，移动端直接对齐设计稿终态）。
+ */
+function NotebookBookend({ kind, hop }: { kind: "start" | "end"; hop?: ScheduleEntry | null }) {
+  const isStart = kind === "start";
+  return (
+    <li className="relative grid grid-cols-[52px_minmax(0,1fr)] gap-3 pb-6">
+      <div className="relative flex flex-col items-center pt-1">
+        <span
+          aria-hidden
+          className="relative z-10 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-black/[0.04]"
+        >
+          <Icons.home className="h-[9px] w-[9px] text-ink-400" strokeWidth={2.5} />
+        </span>
+        {isStart && <SpineConnector hop={hop ?? null} top="top-6" />}
+      </div>
+      <div className="flex min-h-[18px] items-center text-sm font-medium text-ink-500">
+        {isStart ? "出发咯" : "满载而归"}
+      </div>
+    </li>
+  );
+}
 
 function NotebookTimelineItem({
   entry,
   node,
-  hopBefore,
+  hopAfter,
   index,
-  total,
 }: {
   entry: ScheduleEntry;
   node?: Itinerary["nodes"][number];
-  hopBefore: ScheduleEntry | null;
+  hopAfter: ScheduleEntry | null;
   index: number;
-  total: number;
 }) {
-  const tone = NOTEBOOK_TONES[index % NOTEBOOK_TONES.length];
-  const icon = getNotebookIcon(node?.kind, entry.title);
-  const tags = buildNotebookTags(node, hopBefore);
-
   // A2/A3（ADR-0013 F-4/F-5）：节点行调整入口——具名备选 / 定向调整 chips /
   // 赞踩，此前 NotebookTimelineItem 完全没订阅 nodeActions/lockedNodeId/
   // sendAdjust，移动端拿到的节点是"只能看不能改"的静态卡片。照
@@ -1264,133 +1310,115 @@ function NotebookTimelineItem({
   const alternatives = (actions?.alternatives ?? []).slice(0, 2);
   const isLocked = targetId != null && lockedNodeId === targetId;
   const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
+  const kindLabel = node?.kind || "活动";
+  const fullTitle = node?.note ? `${entry.title} · ${node.note}` : entry.title;
+  const hasOperationRow = alternatives.length > 0 || chips.length > 0 || collabMode;
 
   return (
-    <li className="relative grid grid-cols-[48px_minmax(0,1fr)] gap-3 pb-6 last:pb-1">
-      <div className="relative flex justify-center">
-        {index < total - 1 && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute top-10 bottom-[-28px] w-[3px] rounded-full opacity-90",
-              tone.line,
-            )}
-          />
-        )}
+    <li className="relative grid grid-cols-[52px_minmax(0,1fr)] gap-3 pb-6">
+      {/* 左侧脊柱：时间贴脊柱（点上方=start/下方=end，时间轴精修设计终稿.md
+          §一）+ 单色暖灰扁平点（无光泽、无编号——原 36px 大号数字点删掉，
+          数字本身没有业务含义，店名本身+当前操作即可定位是哪一站）+ 到下一
+          个点（或收尾 bookend）的连接线，通勤挪到这里做虚线细段+小灰字。 */}
+      <div className="relative flex flex-col items-center gap-1 pt-1">
+        <span className="text-[13px] font-medium tabular-nums text-ink-500">{entry.start}</span>
         <span
-          className={cn(
-            "relative z-10 grid h-9 w-9 place-items-center rounded-full border-[3px] border-white text-base font-black text-white shadow-[0_8px_18px_-12px_rgba(17,24,39,0.75)]",
-            tone.dot,
-          )}
-        >
-          {index + 1}
-        </span>
+          aria-hidden
+          className="h-[9px] w-[9px] shrink-0 rounded-full border-2 border-white"
+          style={{ background: SPINE_COLOR }}
+        />
+        {/* 联动·连接（时间轴精修设计终稿.md §三.2）：点到卡片左缘一条极短
+            极淡的连接线，把"这个点属于这张卡"钉死。悬停协同（§三.3）在触屏
+            上意义不大，改用 .node-card 上既有的 active: 轻反馈顶替，此处只
+            做静态对齐 + 连接，不做双向高亮联动。 */}
+        <span
+          aria-hidden
+          className="absolute left-full top-8 h-px w-3 -translate-y-1/2"
+          style={{ background: `${SPINE_COLOR}b3` }}
+        />
+        <span className="text-[13px] font-medium tabular-nums text-ink-500">{entry.end}</span>
+        <SpineConnector hop={hopAfter} top="top-16" />
       </div>
 
-      <div
-        className="min-w-0 rounded-[22px] border border-white/80 px-3 py-3 shadow-[0_14px_34px_-26px_rgba(17,24,39,0.55),inset_0_1px_0_rgba(255,255,255,0.92)] ring-1 ring-[#FFD100]/10"
-        style={{
-          background:
-            "linear-gradient(135deg, rgba(255,255,255,0.94) 0%, rgba(255,252,237,0.88) 46%, rgba(241,250,245,0.78) 76%, rgba(239,247,255,0.68) 100%)",
-        }}
-      >
-        <div className={cn("flex items-center gap-1.5 text-sm font-black tabular-nums", tone.time)}>
-          <span aria-hidden>◷</span>
-          <span className="rounded-sm px-0.5">
-            {entry.start} - {entry.end}
+      {/* 右侧：节点卡（卡片精修设计终稿.md §二/§四/§八，两行制——复用已提交
+          的 .node-card/.node-glass-label/.node-card-divider，不新增/不改
+          globals.css）。active: 轻按反馈顶替 Web 端的 hover 抬升（触屏无
+          hover）。 */}
+      <div className="node-card relative min-w-0 px-3.5 pt-3 pb-2.5 transition-transform active:scale-[0.99]">
+        {/* 内容行：玻璃标签 + 店名（去下划线）——时间已挪到左侧脊柱，卡内不
+            再重复（时间轴精修设计终稿.md §二：消除"出现两次"）。 */}
+        <div className="flex items-center gap-x-2">
+          <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+            {kindLabel}
           </span>
+          {isLocked ? (
+            <span className="h-4 w-28 shrink-0 rounded shimmer-skeleton" aria-hidden />
+          ) : (
+            <span
+              className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-snug text-ink-900"
+              title={fullTitle}
+            >
+              {entry.title}
+              {node?.note && <span className="ml-1.5 font-normal text-ink-500">· {node.note}</span>}
+            </span>
+          )}
         </div>
 
-        {hopBefore && (
-          <div className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#eadfc9]/70 bg-white/75 px-3 py-1 text-xs font-semibold text-ink-500 shadow-sm">
-            <span aria-hidden>{getHopIcon(hopBefore.mode)}</span>
-            <span className="truncate">
-              通勤 {hopBefore.minutes} 分钟 · {hopBefore.mode ? translateHopMode(hopBefore.mode) : "路上"}
-            </span>
+        {targetId && hasOperationRow && <div className="node-card-divider mt-2.5 mb-2" aria-hidden />}
+
+        {/* 操作行：整行降权，三群纯视觉分组不加文字标签（卡片精修设计终稿.md
+            §五）——窄屏换行：②具名备选占一行、③定向微调+④投票占第二行
+            （同文档 §九）。 */}
+        {targetId && hasOperationRow && (
+          <div className={cn("flex flex-col gap-1.5", isLocked && "pointer-events-none opacity-40")}>
+            {alternatives.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {alternatives.map((alt) => (
+                  <MobileAlternativeButton
+                    key={alt.target_id}
+                    alt={alt}
+                    disabled={!canAdjust}
+                    onClick={() =>
+                      dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                    }
+                  />
+                ))}
+              </div>
+            )}
+            {(chips.length > 0 || collabMode) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {chips.map((chip) => (
+                  <MobileAdjustChipButton
+                    key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
+                    chip={chip}
+                    disabled={!canAdjust}
+                    onClick={() =>
+                      dispatchAdjust(targetId, {
+                        type: "adjust",
+                        adjustment: chip.adjustment,
+                        label: chip.label,
+                      })
+                    }
+                  />
+                ))}
+                <span className="ml-auto flex items-center">
+                  <VoteButtons stageIndex={index} />
+                </span>
+              </div>
+            )}
           </div>
         )}
 
-        <h3 className="mt-2.5 flex items-start gap-2 text-xl font-black leading-snug tracking-tight text-ink-900">
-          <span className="mt-0.5 shrink-0" aria-hidden>
-            {icon}
-          </span>
-          <span
-            className="block flex-1 rounded-sm px-0.5"
-            style={{
-              textDecorationLine: "underline",
-              textDecorationStyle: "wavy",
-              textDecorationColor: "rgba(185, 130, 42, 0.38)",
-              textDecorationThickness: "1.4px",
-              textUnderlineOffset: "6px",
-            }}
-          >
-            {entry.title}
-          </span>
-        </h3>
-
-        {node?.note && (
-          <p className="mt-2 border-t border-[#eadfc9]/60 pt-2 text-[15px] leading-relaxed text-ink-700">
-            {node.note}
-          </p>
-        )}
-
-        {tags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {tags.map((tag) => (
-              <span
-                key={`${entry.ref_id}-${tag}`}
-                className={cn(
-                  "rounded-full px-2.5 py-1 text-xs font-bold shadow-sm",
-                  tone.chip,
-                )}
-              >
-                {tag}
-              </span>
-            ))}
+        {/* 换菜中（loading）：店名位已是 shimmer 骨架、操作行已降透明，这里
+            只补一句幽灰小字状态提示——不整卡闪（卡片精修设计终稿.md §六
+            「换菜中」，替掉旧版整行 ShimmerStripe，和降权后的操作行响度
+            一致）。 */}
+        {isLocked && (
+          <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
+            <Icons.thinking className="h-3 w-3 animate-spin" strokeWidth={2} />
+            <span>换菜中…</span>
           </div>
         )}
-
-        {/* A2：具名备选（换成某个候选） + 定向调整 chips */}
-        {targetId && (alternatives.length > 0 || chips.length > 0) && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-[#eadfc9]/50 pt-2.5">
-            {alternatives.map((alt) => (
-              <MobileAlternativeButton
-                key={alt.target_id}
-                alt={alt}
-                disabled={!canAdjust}
-                onClick={() =>
-                  dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
-                }
-              />
-            ))}
-            {chips.map((chip) => (
-              <MobileAdjustChipButton
-                key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
-                chip={chip}
-                disabled={!canAdjust}
-                onClick={() =>
-                  dispatchAdjust(targetId, {
-                    type: "adjust",
-                    adjustment: chip.adjustment,
-                    label: chip.label,
-                  })
-                }
-              />
-            ))}
-          </div>
-        )}
-
-        {/* A3：赞/踩——同样是"下方一行"，即便没有 chips/alternatives 也要渲染
-            这一行，让协作模式下赞踩仍可见（VoteButtons 自身按 collabMode
-            return null，非房间态零渲染）。 */}
-        {targetId && (
-          <div className="mt-2 flex items-center">
-            <VoteButtons stageIndex={index} />
-          </div>
-        )}
-
-        {/* 换菜进行中：整行 Shimmer（同 ItineraryCard 的锁定态视觉语言）。 */}
-        {isLocked && <ShimmerStripe rows={1} className="mt-2" />}
       </div>
     </li>
   );
@@ -1398,6 +1426,11 @@ function NotebookTimelineItem({
 
 // ============================================================
 // A2：节点行调整入口——具名备选按钮 / 定向调整 chip（移动端配色）。
+// 时间轴精修设计终稿.md §四「切换活动按钮按内容自适应」：按钮宽度贴合
+// 名字（max-width + truncate），短名全显，只在真的超长时才截并 title 出
+// 全名——span 是 inline-flex 按钮的 flex 子项，会被 CSS 隐式 blockify，
+// max-width/truncate 因此在不加 display:block 的情况下就能生效。窄屏
+// 备选名截更短（卡片精修设计终稿.md §九），故 max-width 比桌面端更紧。
 // ============================================================
 
 function MobileAlternativeButton({
@@ -1416,12 +1449,12 @@ function MobileAlternativeButton({
       onClick={onClick}
       title={`换成「${alt.name}」（${alt.category} · ${alt.rating.toFixed(1)} 分 · ${alt.distance_km.toFixed(1)}km）`}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border border-[#FFD100]/40 bg-[#FFD100]/[0.10] px-2.5 py-1 text-xs font-semibold tracking-tight text-amber-800",
+        "inline-flex min-h-[40px] items-center gap-1 rounded-full bg-black/[0.03] px-2.5 py-1 text-[12.5px] font-medium tracking-tight text-ink-600",
         "transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
       )}
     >
-      <Sparkles className="h-3 w-3" strokeWidth={2} />
-      <span className="max-w-[7.5rem] truncate">换成{alt.name}</span>
+      <ArrowLeftRight className="h-3 w-3 shrink-0" strokeWidth={2} />
+      <span className="max-w-[6rem] truncate">{alt.name}</span>
     </button>
   );
 }
@@ -1442,38 +1475,14 @@ function MobileAdjustChipButton({
       onClick={onClick}
       title={chip.label}
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-medium tracking-tight text-ink-700",
+        "inline-flex min-h-[40px] items-center gap-1 rounded-full px-2 py-1 text-xs font-normal tracking-tight text-ink-400",
         "transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
       )}
     >
-      {chip.label}
+      <SlidersHorizontal className="h-3 w-3 shrink-0" strokeWidth={2} />
+      <span className="max-w-[5rem] truncate">{chip.label}</span>
     </button>
   );
-}
-
-function buildNotebookTags(
-  node: Itinerary["nodes"][number] | undefined,
-  hopBefore: ScheduleEntry | null,
-): string[] {
-  const tags = new Set<string>();
-  if (node?.kind) tags.add(node.kind);
-  if (node?.target_kind === "restaurant") tags.add("美食");
-  if (node?.target_kind === "poi") tags.add("活动");
-  if (hopBefore?.mode && hopBefore.mode !== "virtual") {
-    tags.add(translateHopMode(hopBefore.mode));
-  }
-  return Array.from(tags).slice(0, 3);
-}
-
-function getNotebookIcon(kind: string | undefined, title: string): string {
-  const text = `${kind ?? ""} ${title}`;
-  if (/餐|饭|烤|茶|食|料理|咖啡/.test(text)) return "🍜";
-  if (/音乐|演出|展|剧|看/.test(text)) return "🎵";
-  if (/书|图书|阅读/.test(text)) return "📚";
-  if (/商场|购物|店|街/.test(text)) return "🛍️";
-  if (/公园|漫步|园|湖/.test(text)) return "🌿";
-  if (/亲子|孩子|儿童/.test(text)) return "🧸";
-  return "📍";
 }
 
 function getHopIcon(mode: HopMode | null | undefined): string {
