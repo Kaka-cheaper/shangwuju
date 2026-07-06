@@ -135,7 +135,7 @@ export default function ComparisonView({
     <div
       className={cn(
         "px-4 py-3 border-b border-black/[0.06]",
-        "bg-gradient-to-r from-accent-500/5 to-brand-500/5",
+        "bg-gradient-to-r from-accent-500/8 to-accent-600/4",
       )}
     >
       <button

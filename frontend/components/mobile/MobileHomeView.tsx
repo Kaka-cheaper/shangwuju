@@ -308,7 +308,7 @@ function MobileTopBar({
           {/* B5：会话切换/历史入口——打开命令面板（场景/模式/用户/历史会话）。 */}
           <button
             type="button"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.68] text-ink-600 shadow-sm backdrop-blur transition hover:border-[#FFD100]/50 hover:bg-white/[0.88] hover:text-ink-900 active:scale-95"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.68] text-ink-600 shadow-sm backdrop-blur transition hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900 active:scale-95"
             onClick={onOpenCommandPalette}
             aria-label="打开命令面板（场景 / 历史会话 / 模式 / 用户切换）"
             title="命令面板：场景 / 历史会话 / 模式 / 用户切换"
@@ -318,7 +318,7 @@ function MobileTopBar({
           <UserSwitcher autoOpenOnMount />
           <button
             type="button"
-            className="h-9 rounded-full border border-[#FFD100]/55 bg-[#FFD100]/[0.18] px-3.5 text-sm font-bold tracking-tight text-ink-900 shadow-sm backdrop-blur transition hover:bg-[#FFD100]/[0.28] active:scale-95"
+            className="h-9 rounded-full border border-ink-300 bg-white px-3.5 text-sm font-bold tracking-tight text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-95"
             onClick={onNewSession}
             aria-label="新对话"
             title="新对话"
@@ -419,7 +419,7 @@ function MobilePreferencesCard() {
               {preferences!.top_priors.map((t) => (
                 <span
                   key={t}
-                  className="rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.08] px-2.5 py-1 text-xs font-medium text-amber-800"
+                  className="rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-medium text-ink-700"
                 >
                   {t}
                 </span>
@@ -495,7 +495,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-[#FFD100]/[0.45] bg-white/[0.78] shadow-[0_18px_45px_-34px_rgba(17,24,39,0.55)] backdrop-blur-xl",
+        "rounded-[24px] border border-black/[0.08] bg-white/[0.78] shadow-[0_18px_45px_-34px_rgba(17,24,39,0.55)] backdrop-blur-xl",
         compact ? "px-3 py-3" : "px-4 py-4",
       )}
     >
@@ -527,7 +527,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               disabled={streaming}
               onClick={() => sendScenario(scenario.input, scenario.id)}
               className={cn(
-                "snap-start rounded-2xl border border-[#FFD100]/[0.55] bg-white/[0.86] text-left shadow-sm transition active:scale-[0.98]",
+                "snap-start rounded-2xl border border-ink-300 bg-white/[0.86] text-left shadow-sm transition active:scale-[0.98]",
                 "disabled:cursor-not-allowed disabled:opacity-55",
                 compact
                   ? "flex min-w-[132px] items-center gap-2 px-3 py-2.5"
@@ -536,7 +536,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               title={scenario.input}
             >
               <ScenarioIcon
-                className={cn("text-amber-600", compact ? "h-4 w-4" : "h-5 w-5")}
+                className={cn("text-ink-600", compact ? "h-4 w-4" : "h-5 w-5")}
                 strokeWidth={2}
               />
               <span className={cn("block font-semibold tracking-tight text-ink-900", compact ? "text-sm" : "mt-2 text-base")}>
@@ -585,7 +585,7 @@ function MobileIntentStrip({ intent }: { intent: IntentExtraction }) {
     <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
-          <Sparkles className="h-4 w-4 text-amber-500" />
+          <Sparkles className="h-4 w-4 text-ink-500" />
           意图解析
         </div>
         <span className="text-xs font-medium text-ink-500">
@@ -627,10 +627,10 @@ function MobileIntentFallback({ itinerary }: { itinerary: Itinerary }) {
     <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5 text-base font-bold tracking-tight text-ink-900">
-          <Sparkles className="h-4 w-4 text-amber-500" />
+          <Sparkles className="h-4 w-4 text-ink-500" />
           意图解析
         </div>
-        <span className="shrink-0 rounded-full bg-[#FFD100]/[0.16] px-2.5 py-1 text-xs font-semibold text-ink-700">
+        <span className="shrink-0 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs font-semibold text-ink-700">
           已匹配
         </span>
       </div>
@@ -645,7 +645,7 @@ function MobileIntentFallback({ itinerary }: { itinerary: Itinerary }) {
             {activityEntries.slice(0, 4).map((entry) => (
               <span
                 key={`fallback-intent-${entry.ref_id}`}
-                className="rounded-[10px] border border-[#FFD100]/45 bg-[#FFD100]/[0.10] px-2.5 py-1 text-sm font-medium leading-tight text-ink-800"
+                className="rounded-[10px] border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-sm font-medium leading-tight text-ink-800"
               >
                 {entry.title}
               </span>
@@ -709,7 +709,7 @@ function MobileConversation({
         <MobileIntentFallback itinerary={itinerary} />
       ) : null}
       {streaming && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-[#FFD100]/[0.45] bg-white/[0.84] px-3 py-2 text-sm font-medium text-amber-700 shadow-sm backdrop-blur-xl">
+        <div className="inline-flex items-center gap-2 rounded-full border border-accent-500/40 bg-white/[0.84] px-3 py-2 text-sm font-medium text-accent-700 shadow-sm backdrop-blur-xl">
           <Loader2 className="h-4 w-4 animate-spin" />
           Agent 正在规划，稍候~
         </div>
@@ -732,7 +732,7 @@ function MobileBubble({
         className={cn(
           "max-w-[86%] rounded-3xl px-4 py-2.5 text-[15px] leading-relaxed tracking-tight shadow-sm",
           isUser
-            ? "rounded-br-lg bg-[#FFD100] text-ink-900"
+            ? "rounded-br-lg bg-ink-100 text-ink-900"
             : "rounded-bl-lg border border-black/[0.06] bg-white/[0.86] text-ink-800 backdrop-blur-xl",
         )}
       >
@@ -759,8 +759,8 @@ function MobilePlanCard() {
       <div className="mt-3 space-y-3">
         {/* 信任带（移动端同款）：规划中就该看到"它在想什么"，不必等方案落地。 */}
         <TrustBelt />
-        <section className="rounded-[24px] border border-[#FFD100]/[0.42] bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
-          <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
+        <section className="rounded-[24px] border border-accent-500/35 bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-sm font-semibold text-accent-700">
             <Loader2 className="h-4 w-4 animate-spin" />
             正在拼装行程方案~
           </div>
@@ -937,17 +937,17 @@ function MobileRefinementBanner({
   note?: string | null;
 }) {
   return (
-    <div className="rounded-2xl border border-[#FFD100]/40 bg-[#FFD100]/[0.08] px-3.5 py-2.5 text-sm text-amber-800 shadow-sm backdrop-blur-xl animate-fade-in">
-      <div className="mb-1 flex items-center gap-1.5 font-semibold text-amber-700">
+    <div className="rounded-2xl border border-accent-500/30 bg-accent-500/[0.06] px-3.5 py-2.5 text-sm text-accent-800 shadow-sm backdrop-blur-xl animate-fade-in">
+      <div className="mb-1 flex items-center gap-1.5 font-semibold text-accent-700">
         <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
         <span>已根据反馈调整</span>
       </div>
-      <ul className="ml-5 list-disc list-outside space-y-0.5 text-amber-900/90">
+      <ul className="ml-5 list-disc list-outside space-y-0.5 text-accent-900/90">
         {fields.map((f, i) => (
           <li key={i}>{f}</li>
         ))}
       </ul>
-      {note && <div className="mt-1 ml-5 text-amber-700/75">{note}</div>}
+      {note && <div className="mt-1 ml-5 text-accent-700/75">{note}</div>}
     </div>
   );
 }
@@ -982,7 +982,7 @@ function MobileNarrationBlock({
         "rounded-[22px] border px-4 py-3.5 text-[15px] leading-relaxed shadow-sm backdrop-blur-xl animate-fade-in",
         isConfirm
           ? "border-emerald-400/25 bg-emerald-500/[0.06]"
-          : "border-[#FFD100]/[0.32] bg-white/[0.84]",
+          : "border-black/[0.06] bg-white/[0.90]",
       )}
     >
       {text && (
@@ -990,7 +990,7 @@ function MobileNarrationBlock({
           <Sparkles
             className={cn(
               "mt-0.5 h-4 w-4 shrink-0",
-              isConfirm ? "text-emerald-500" : "text-amber-500",
+              isConfirm ? "text-emerald-500" : "text-ink-500",
             )}
             strokeWidth={2}
           />
@@ -1006,7 +1006,7 @@ function MobileNarrationBlock({
           )}
         >
           <span className="mr-1 inline-flex items-center gap-1 text-xs font-semibold text-ink-500">
-            <Sparkles className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.5} />
+            <Sparkles className="h-3.5 w-3.5 text-ink-500" strokeWidth={2.5} />
             为你考虑了
           </span>
           {chips.map((c, i) => {
@@ -1014,7 +1014,7 @@ function MobileNarrationBlock({
             return (
               <span
                 key={`${c.label}-${i}`}
-                className="inline-flex items-center gap-1 rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.10] px-2.5 py-1 text-xs font-semibold tracking-tight text-amber-800"
+                className="inline-flex items-center gap-1 rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-semibold tracking-tight text-ink-700"
               >
                 <Ico className="h-3.5 w-3.5" strokeWidth={2} />
                 {c.label}
@@ -1032,7 +1032,7 @@ function MobileNarrationBlock({
             onClick={() => setExpanded((v) => !v)}
             className={cn(
               "inline-flex items-center gap-1 text-sm font-medium",
-              isConfirm ? "text-emerald-600" : "text-amber-700",
+              isConfirm ? "text-emerald-600" : "text-ink-600",
             )}
             aria-expanded={expanded}
           >
@@ -1095,18 +1095,18 @@ function MobileConfirmPreview({ itinerary }: { itinerary: Itinerary }) {
     buildConfirmPreviewCopy(intent, itinerary);
 
   return (
-    <div className="rounded-2xl border border-amber-400/20 bg-amber-500/[0.05] px-3.5 py-3 text-sm leading-relaxed">
+    <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] px-3.5 py-3 text-sm leading-relaxed">
       <div className="mb-1.5 flex items-center gap-1.5">
-        <Sparkles className="h-3.5 w-3.5 text-amber-500" strokeWidth={2} />
-        <span className="font-semibold tracking-tight text-amber-700">
+        <Sparkles className="h-3.5 w-3.5 text-ink-500" strokeWidth={2} />
+        <span className="font-semibold tracking-tight text-ink-700">
           点击「确认并预约」之后
         </span>
       </div>
-      <p className="mb-2 text-amber-900/85">
+      <p className="mb-2 text-ink-800">
         {restaurantLine}
         {extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-700/80">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
         <span className="inline-flex items-center gap-1">
           <span aria-hidden>🪑</span>
           <span>锁餐厅时段</span>
@@ -1160,10 +1160,10 @@ function MobileShareMessage({ text }: { text: string }) {
   };
 
   return (
-    <div className="rounded-2xl border border-black/[0.07] bg-[#FFD100]/[0.05] px-3.5 py-3">
+    <div className="rounded-2xl border border-black/[0.07] bg-black/[0.02] px-3.5 py-3">
       <div className="mb-1.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <Icons.share className="h-3.5 w-3.5 text-amber-600" strokeWidth={2} />
+          <Icons.share className="h-3.5 w-3.5 text-ink-500" strokeWidth={2} />
           <span className="text-sm font-semibold tracking-tight text-ink-800">
             转发文案
           </span>
@@ -1503,7 +1503,7 @@ function MobileInlineMap({ itinerary }: { itinerary: Itinerary }) {
     <section className="mt-3">
       <div className="mb-2 flex items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2">
-          <Route className="h-4 w-4 text-amber-700" />
+          <Route className="h-4 w-4 text-ink-600" />
           <h2 className="text-base font-semibold tracking-tight text-ink-900">
             地图路线
           </h2>
@@ -1524,9 +1524,9 @@ function MobileInlineCompare({
   itinerary: Itinerary;
 }) {
   return (
-    <section className="mt-3 overflow-hidden rounded-[28px] border border-[#FFD100]/[0.30] bg-white/[0.88] shadow-[0_18px_46px_-36px_rgba(17,24,39,0.68)] backdrop-blur-xl">
+    <section className="mt-3 overflow-hidden rounded-[28px] border border-black/[0.08] bg-white/[0.88] shadow-[0_18px_46px_-36px_rgba(17,24,39,0.68)] backdrop-blur-xl">
       <div className="flex items-center gap-2 border-b border-black/[0.06] px-4 py-3.5">
-        <Sparkles className="h-4 w-4 text-amber-600" />
+        <Sparkles className="h-4 w-4 text-ink-600" />
         <h2 className="text-base font-semibold tracking-tight text-ink-900">
           调整对比
         </h2>
@@ -1584,14 +1584,14 @@ function MobileActionRail({
           type="button"
           onClick={onOpenTrace}
           className={cn(
-            "pointer-events-auto mx-auto block w-full max-w-[480px] rounded-[24px] border border-[#FFD100]/[0.46] px-4 py-3 text-left",
-            "bg-white/[0.70] shadow-[0_18px_48px_-30px_rgba(17,24,39,0.82),0_0_34px_-22px_rgba(255,209,0,0.80)] backdrop-blur-2xl backdrop-saturate-150",
+            "pointer-events-auto mx-auto block w-full max-w-[480px] rounded-[24px] border border-accent-500/40 px-4 py-3 text-left",
+            "bg-white/[0.70] shadow-[0_18px_48px_-30px_rgba(17,24,39,0.82),0_0_34px_-22px_rgba(245,158,11,0.55)] backdrop-blur-2xl backdrop-saturate-150",
             "transition-all duration-300 ease-out animate-drawer-slide-up active:scale-[0.99]",
           )}
         >
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#FFD100]/22 text-amber-700">
+              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-500/20 text-accent-700">
                 <Loader2 className="h-4 w-4 animate-spin" />
               </div>
               <div className="min-w-0">
@@ -1606,8 +1606,8 @@ function MobileActionRail({
             </div>
             <ChevronRight className="h-4 w-4 shrink-0 text-ink-400" />
           </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#FFD100]/18">
-            <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-[#FFD100]/40 via-[#FFD100] to-[#FFD100]/40 animate-shimmer-x" />
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-accent-500/15">
+            <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-accent-500/40 via-accent-500 to-accent-500/40 animate-shimmer-x" />
           </div>
           <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-600">
             {latestThought ?? "正在拆解需求、查找候选并拼装行程~"}
@@ -1670,7 +1670,7 @@ function MobileActionRail({
           />
           <button
             type="button"
-            className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-[#e6bc00] bg-[#FFD100] px-3 text-sm font-semibold text-ink-900 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-white/[0.74] bg-white/[0.72] px-3 text-sm font-semibold text-ink-700 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             disabled={creatingRoom || streaming || (!canCreateRoom && !showShareRoom)}
             onClick={() => void handleCreateRoom()}
           >
@@ -1742,7 +1742,7 @@ function MobileActionRail({
               className={cn(
                 "grid h-11 w-11 shrink-0 place-items-center rounded-full border text-sm font-semibold shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400",
                 expanded
-                  ? "border-[#e6bc00]/45 bg-[#FFD100] text-ink-900"
+                  ? "border-accent-600/45 bg-accent-500 text-white"
                   : "border-white/[0.74] bg-white/[0.72] text-ink-700",
               )}
               disabled={streaming}
@@ -1899,11 +1899,11 @@ function MobileComposer() {
         <div
           className={cn(
             "pointer-events-auto",
-            "group/mobile-composer flex items-end gap-2 rounded-full border border-[#FFD100]/[0.36] px-4 py-2",
-            "bg-white/[0.56] shadow-[0_20px_48px_-30px_rgba(17,24,39,0.72),0_0_28px_-18px_rgba(255,209,0,0.72),inset_0_1px_0_rgba(255,255,255,0.78)]",
+            "group/mobile-composer flex items-end gap-2 rounded-full border border-black/[0.08] px-4 py-2",
+            "bg-white/[0.56] shadow-[0_20px_48px_-30px_rgba(17,24,39,0.72),inset_0_1px_0_rgba(255,255,255,0.78)]",
             "backdrop-blur-2xl backdrop-saturate-150 transition-all duration-300 ease-out",
-            "hover:border-[#FFD100]/[0.72] hover:bg-white/[0.82] hover:shadow-[0_20px_50px_-30px_rgba(17,24,39,0.64),0_0_0_4px_rgba(255,209,0,0.10),inset_0_1px_0_rgba(255,255,255,0.92)]",
-            "focus-within:border-[#FFD100]/[0.78] focus-within:bg-white/[0.90] focus-within:shadow-[0_22px_55px_-32px_rgba(17,24,39,0.68),0_0_0_4px_rgba(255,209,0,0.14),inset_0_1px_0_rgba(255,255,255,0.96)]",
+            "hover:border-accent-400/50 hover:bg-white/[0.82] hover:shadow-[0_20px_50px_-30px_rgba(17,24,39,0.64),0_0_0_4px_rgba(245,158,11,0.08),inset_0_1px_0_rgba(255,255,255,0.92)]",
+            "focus-within:border-accent-500/55 focus-within:bg-white/[0.90] focus-within:shadow-[0_22px_55px_-32px_rgba(17,24,39,0.68),0_0_0_4px_rgba(245,158,11,0.10),inset_0_1px_0_rgba(255,255,255,0.96)]",
           )}
         >
           <textarea
@@ -1926,11 +1926,11 @@ function MobileComposer() {
             onClick={submit}
             disabled={streaming || !draft.trim()}
             className={cn(
-              "mb-0.5 mr-[-0.25rem] grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#e6bc00]/40 bg-[#FFD100] p-0 text-ink-900",
+              "mb-0.5 mr-[-0.25rem] grid h-10 w-10 shrink-0 place-items-center rounded-full border border-accent-600/40 bg-accent-500 p-0 text-white",
               "shadow-[0_10px_26px_-16px_rgba(245,158,11,0.95)] transition-all duration-300 ease-out",
-              "group-hover/mobile-composer:scale-[1.02] group-hover/mobile-composer:bg-[#ffdb2e] group-hover/mobile-composer:shadow-[0_12px_28px_-15px_rgba(245,158,11,0.98)]",
-              "group-focus-within/mobile-composer:scale-[1.02] group-focus-within/mobile-composer:bg-[#ffdb2e] group-focus-within/mobile-composer:shadow-[0_12px_28px_-15px_rgba(245,158,11,0.98)]",
-              "active:scale-95 disabled:border-[#FFD100]/[0.30] disabled:bg-[#FFD100]/[0.44] disabled:text-ink-500 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]",
+              "group-hover/mobile-composer:scale-[1.02] group-hover/mobile-composer:bg-accent-400 group-hover/mobile-composer:shadow-[0_12px_28px_-15px_rgba(245,158,11,0.98)]",
+              "group-focus-within/mobile-composer:scale-[1.02] group-focus-within/mobile-composer:bg-accent-400 group-focus-within/mobile-composer:shadow-[0_12px_28px_-15px_rgba(245,158,11,0.98)]",
+              "active:scale-95 disabled:border-accent-500/[0.30] disabled:bg-accent-500/[0.44] disabled:text-ink-500 disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.72)]",
             )}
             aria-label="发送"
           >
@@ -1991,7 +1991,7 @@ function MobileAgentInsightTabs({
                 className={cn(
                   "min-h-9 rounded-full px-1.5 text-[12px] font-semibold tracking-tight transition active:scale-[0.98]",
                   selected
-                    ? "bg-[#FFD100] text-ink-900 shadow-[0_8px_20px_-16px_rgba(245,158,11,0.95)]"
+                    ? "bg-accent-500 text-white shadow-[0_8px_20px_-16px_rgba(245,158,11,0.95)]"
                     : "text-ink-500 hover:bg-white/[0.72] hover:text-ink-800",
                 )}
                 onClick={() => setActiveTab(tab.id)}
@@ -2076,7 +2076,7 @@ function MobileThoughtTimeline() {
 
       {showThinkingPulse ? (
         <div className="flex items-center gap-2 rounded-2xl bg-black/[0.025] px-3 py-3 text-sm text-ink-500">
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500" aria-hidden />
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500" aria-hidden />
           AI 正在思考……
         </div>
       ) : items.length === 0 && streaming ? (
@@ -2090,7 +2090,7 @@ function MobileThoughtTimeline() {
             {items.map((item) => (
               <li
                 key={`${item.kind}-${item.seq}`}
-                className="rounded-2xl border border-amber-300/35 bg-[#FFD100]/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
+                className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
               >
                 <div className="mb-1 flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold text-ink-500">重规划</span>
@@ -2162,7 +2162,7 @@ function MobileViolationRoundItem({
   // "零问题"——文案不说"拦下 0 个问题"制造矛盾感（同 ThoughtPanel 注释）。
   const noBlueprintProduced = data.violations.length === 0;
   return (
-    <li className="rounded-2xl border border-amber-300/35 bg-[#FFD100]/[0.08] px-3 py-2.5">
+    <li className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.08] px-3 py-2.5">
       <div className="flex items-center gap-1.5">
         <ShieldAlert className="h-3 w-3 shrink-0 text-amber-600" strokeWidth={2} />
         <span className="text-sm font-semibold text-amber-800">
@@ -2259,7 +2259,7 @@ function MobileDecisionTrace({
           <div className="text-sm font-bold tracking-tight text-ink-900">
             决策链路
           </div>
-          <span className="rounded-full border border-[#FFD100]/45 bg-[#FFD100]/[0.16] px-2.5 py-1 text-xs font-semibold text-ink-700">
+          <span className="rounded-full border border-accent-500/40 bg-accent-500/[0.14] px-2.5 py-1 text-xs font-semibold text-ink-700">
             {formatStrategy(t.final_strategy)}
           </span>
         </div>
@@ -2400,7 +2400,7 @@ function MobileDecisionFallbackTrace() {
             <div className="text-sm font-bold tracking-tight text-ink-900">
               本轮决策依据
             </div>
-            <span className="rounded-full border border-[#FFD100]/45 bg-[#FFD100]/[0.16] px-2.5 py-1 text-xs font-semibold text-ink-700">
+            <span className="rounded-full border border-accent-500/40 bg-accent-500/[0.14] px-2.5 py-1 text-xs font-semibold text-ink-700">
               当前方案
             </span>
           </div>
@@ -2462,7 +2462,7 @@ function MobileDecisionFallbackTrace() {
           {replans.map((replan) => (
             <div
               key={`decision-replan-${replan.seq}`}
-              className="rounded-2xl border border-amber-300/35 bg-[#FFD100]/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
+              className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
             >
               {FAILURE_REASON_LABEL[replan.reason] ?? replan.reason}
               <span className="text-amber-700/70">
@@ -2566,7 +2566,7 @@ function MobileSheet({
         {showHeader && (
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.06] bg-white/[0.86] px-4 py-3 backdrop-blur-xl">
           <div className="flex items-center gap-2 text-base font-semibold tracking-tight text-ink-900">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-[#FFD100]/20 text-amber-700">
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-black/[0.05] text-ink-600">
               {icon}
             </span>
             {title}

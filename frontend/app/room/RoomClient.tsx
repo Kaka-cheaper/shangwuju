@@ -178,7 +178,7 @@ function NicknameEntryCard({
           }}
           maxLength={12}
           placeholder="1-12 字，例如「老婆」"
-          className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-600 focus:outline-none focus:ring-1 focus:ring-brand-500/50 mb-3"
+          className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-600 focus:outline-none focus:ring-1 focus:ring-accent-500/50 mb-3"
         />
         <button
           type="button"

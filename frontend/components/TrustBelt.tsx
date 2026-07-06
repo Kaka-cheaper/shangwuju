@@ -101,7 +101,7 @@ export default function TrustBelt() {
   const revealed = beats.slice(0, revealedCount);
 
   return (
-    <div className="card overflow-hidden border border-amber-400/20 bg-gradient-to-br from-amber-50/60 to-white">
+    <div className="card overflow-hidden border border-black/[0.06] bg-white">
       <TrustBeltHeader streaming={streaming} />
 
       <div className="px-3 py-2">
@@ -132,11 +132,11 @@ export default function TrustBelt() {
 function TrustBeltHeader({ streaming }: { streaming: boolean }) {
   return (
     <div className="flex h-[26px] w-full items-center gap-1.5 border-b border-black/[0.06] px-3">
-      <Bot className={cn("h-3 w-3 shrink-0", streaming ? "text-brand-600" : "text-ink-500")} strokeWidth={2} />
+      <Bot className={cn("h-3 w-3 shrink-0", streaming ? "text-accent-600" : "text-ink-500")} strokeWidth={2} />
       <span className="text-xs font-semibold tracking-tight text-ink-700">AI 幕后</span>
       {streaming && (
         <span
-          className="ml-0.5 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500"
+          className="ml-0.5 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500"
           aria-label="正在思考"
         />
       )}

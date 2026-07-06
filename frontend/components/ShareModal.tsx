@@ -88,7 +88,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
               "px-4 py-2.5 rounded-full text-sm sm:text-xs font-semibold transition-all",
               copied
                 ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                : "bg-brand-500/20 text-brand-600 border border-brand-500/30 hover:bg-brand-500/30",
+                : "bg-black/[0.04] text-ink-700 border border-black/[0.08] hover:bg-black/[0.06]",
             )}
           >
             {copied ? "已复制 ✓" : "复制链接"}

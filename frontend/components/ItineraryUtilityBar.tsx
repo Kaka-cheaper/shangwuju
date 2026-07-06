@@ -94,9 +94,9 @@ export default function ItineraryUtilityBar({
               type="button"
               className={cn(
                 "h-10 w-full rounded-full px-3",
-                "bg-[#FFD100] hover:bg-[#ffe552]",
-                "border border-[#e6bc00]",
-                "text-base font-medium text-ink-900",
+                "bg-white hover:bg-black/[0.03]",
+                "border border-ink-300",
+                "text-base font-medium text-ink-700",
                 "transition-all disabled:cursor-not-allowed disabled:opacity-50",
                 "flex items-center justify-center gap-1.5",
               )}
@@ -111,7 +111,7 @@ export default function ItineraryUtilityBar({
                 </>
               ) : (
                 <>
-                  <Icons.users className="h-3.5 w-3.5 text-ink-900" />
+                  <Icons.users className="h-3.5 w-3.5 text-ink-700" />
                   <span>开多人房间</span>
                 </>
               )}
@@ -130,7 +130,7 @@ export default function ItineraryUtilityBar({
               onClick={onOpenShareModal}
               title="分享协作房间链接"
             >
-              <Icons.share className="h-3.5 w-3.5 text-brand-600" />
+              <Icons.share className="h-3.5 w-3.5 text-ink-600" />
               <span>分享房间</span>
             </button>
           )}

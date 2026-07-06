@@ -294,7 +294,7 @@ export default function CommandPalette() {
       >
         {/* 搜索框 */}
         <div className="flex items-center gap-2 px-3.5 py-3 border-b border-black/[0.06]">
-          <Compass className="w-4 h-4 text-brand-600" strokeWidth={2} />
+          <Compass className="w-4 h-4 text-ink-500" strokeWidth={2} />
           <input
             ref={inputRef}
             type="text"
@@ -341,7 +341,7 @@ export default function CommandPalette() {
                         <Icon
                           className={cn(
                             "w-3.5 h-3.5 shrink-0",
-                            isActive ? "text-brand-600" : "text-ink-500",
+                            isActive ? "text-accent-600" : "text-ink-500",
                           )}
                           strokeWidth={2}
                         />
@@ -363,7 +363,7 @@ export default function CommandPalette() {
                           )}
                         </div>
                         {isActive && (
-                          <span className="text-xs text-brand-600 mono">
+                          <span className="text-xs text-accent-600 mono">
                             ↵
                           </span>
                         )}

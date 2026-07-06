@@ -319,7 +319,7 @@ export default function UserSwitcher({
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] py-1 pl-2.5 pr-1 text-xs font-semibold text-ink-800 shadow-sm backdrop-blur transition-colors hover:border-[#FFD100]/55 hover:bg-white/[0.86] hover:text-ink-900"
+        className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] py-1 pl-2.5 pr-1 text-xs font-semibold text-ink-800 shadow-sm backdrop-blur transition-colors hover:border-accent-400/50 hover:bg-white/[0.86] hover:text-ink-900"
         onClick={toggleOpen}
         title={currentOption ? "查看人物画像" : "选择人物画像"}
       >
@@ -331,7 +331,7 @@ export default function UserSwitcher({
             className="h-8 w-8 rounded-full border border-white/80 object-cover shadow-[0_8px_20px_-14px_rgba(17,24,39,0.75)]"
           />
         ) : (
-          <span className="grid h-8 w-8 place-items-center rounded-full border border-[#FFD100]/45 bg-[#FFD100]/20">
+          <span className="grid h-8 w-8 place-items-center rounded-full border border-caramel-300/45 bg-caramel-100">
             <CurrentIcon className="h-4 w-4 text-caramel-300" strokeWidth={2.15} />
           </span>
         )}
@@ -404,8 +404,8 @@ export default function UserSwitcher({
                             className={cn(
                               "w-full rounded-full border px-4 py-3 text-left shadow-sm backdrop-blur-xl transition active:scale-[0.99]",
                               active
-                                ? "border-[#FFD100]/70 bg-[#FFD100]/[0.16] shadow-[0_14px_34px_-26px_rgba(245,158,11,0.9)]"
-                                : "border-white/[0.78] bg-white/[0.74] hover:border-[#FFD100]/50 hover:bg-white/[0.88]",
+                                ? "border-accent-500/70 bg-accent-500/[0.16] shadow-[0_14px_34px_-26px_rgba(245,158,11,0.9)]"
+                                : "border-white/[0.78] bg-white/[0.74] hover:border-accent-400/50 hover:bg-white/[0.88]",
                             )}
                             onClick={() => chooseOption(option)}
                           >
@@ -414,7 +414,7 @@ export default function UserSwitcher({
                                 className={cn(
                                   "grid h-6 w-6 shrink-0 place-items-center rounded-full border transition-colors",
                                   active
-                                    ? "border-[#FFD100] bg-[#FFD100]"
+                                    ? "border-accent-500 bg-accent-500"
                                     : "border-black/[0.14] bg-white/[0.75]",
                                 )}
                               >
@@ -441,7 +441,7 @@ export default function UserSwitcher({
 
               {step === "refine" && (
                 <div className="space-y-3">
-                  <div className="rounded-[28px] border border-[#FFD100]/45 bg-[#FFD100]/[0.10] px-5 py-4 shadow-[0_14px_34px_-28px_rgba(245,158,11,0.9)] backdrop-blur-xl">
+                  <div className="rounded-[28px] border border-accent-500/45 bg-accent-500/[0.10] px-5 py-4 shadow-[0_14px_34px_-28px_rgba(245,158,11,0.9)] backdrop-blur-xl">
                     <div className="text-xs font-semibold text-ink-500">
                       已选择
                     </div>
@@ -466,8 +466,8 @@ export default function UserSwitcher({
                             className={cn(
                               "rounded-full border px-4 py-2 text-sm font-semibold shadow-sm backdrop-blur-xl transition active:scale-[0.98]",
                               active
-                                ? "border-[#FFD100]/70 bg-[#FFD100]/25 text-ink-900 shadow-[0_12px_26px_-22px_rgba(245,158,11,0.9)]"
-                                : "border-white/[0.78] bg-white/[0.76] text-ink-600 hover:border-[#FFD100]/50 hover:bg-white/[0.90]",
+                                ? "border-accent-500/70 bg-accent-500/25 text-ink-900 shadow-[0_12px_26px_-22px_rgba(245,158,11,0.9)]"
+                                : "border-white/[0.78] bg-white/[0.76] text-ink-600 hover:border-accent-400/50 hover:bg-white/[0.90]",
                             )}
                             onClick={() => toggleTrait(trait)}
                           >
@@ -483,7 +483,7 @@ export default function UserSwitcher({
                   <div className="grid grid-cols-[0.9fr_1.1fr] gap-2.5">
                     <button
                       type="button"
-                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-[#FFD100]/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
+                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-accent-400/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
                       onClick={() => setStep("choose")}
                     >
                       换同行对象
@@ -510,7 +510,7 @@ export default function UserSwitcher({
                           className="h-24 w-24 rounded-full border-2 border-white object-cover shadow-[0_18px_38px_-24px_rgba(17,24,39,0.75)]"
                         />
                       ) : (
-                        <span className="grid h-24 w-24 place-items-center rounded-full border border-[#FFD100]/45 bg-[#FFD100]/18">
+                        <span className="grid h-24 w-24 place-items-center rounded-full border border-caramel-300/45 bg-caramel-100">
                           <SelectedIcon
                             className="h-8 w-8 text-caramel-300"
                             strokeWidth={2.25}
@@ -533,7 +533,7 @@ export default function UserSwitcher({
                   <div className="grid grid-cols-[0.85fr_1.15fr] gap-2.5">
                     <button
                       type="button"
-                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-[#FFD100]/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
+                      className="rounded-full border border-white/[0.78] bg-white/[0.76] px-4 py-3 text-sm font-bold text-ink-600 shadow-sm backdrop-blur-xl transition hover:border-accent-400/50 hover:bg-white/[0.92] hover:text-ink-900 active:scale-[0.99]"
                       onClick={() => setStep("refine")}
                     >
                       返回调整
@@ -559,7 +559,7 @@ export default function UserSwitcher({
                         className="mx-auto h-32 w-32 rounded-full border-2 border-white object-cover shadow-[0_20px_42px_-26px_rgba(17,24,39,0.82)]"
                       />
                     ) : (
-                      <span className="mx-auto grid h-32 w-32 place-items-center rounded-full border border-[#FFD100]/45 bg-white/[0.62]">
+                      <span className="mx-auto grid h-32 w-32 place-items-center rounded-full border border-caramel-300/45 bg-white/[0.62]">
                         <SelectedIcon
                           className="h-10 w-10 text-caramel-300"
                           strokeWidth={2.25}
@@ -581,7 +581,7 @@ export default function UserSwitcher({
                       {selectedOption.traits.map((trait) => (
                         <span
                           key={trait}
-                          className="rounded-full border border-[#FFD100]/50 bg-[#FFD100]/[0.16] px-3 py-1.5 text-xs font-medium text-ink-700"
+                          className="rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 text-xs font-medium text-ink-700"
                         >
                           {trait}
                         </span>
@@ -590,7 +590,7 @@ export default function UserSwitcher({
                   </div>
                   <button
                     type="button"
-                    className="w-full rounded-xl border border-black/[0.08] bg-white/[0.76] px-3 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-[#FFD100]/50 hover:text-ink-900 active:scale-[0.99]"
+                    className="w-full rounded-xl border border-black/[0.08] bg-white/[0.76] px-3 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-accent-400/50 hover:text-ink-900 active:scale-[0.99]"
                     onClick={restartMatch}
                   >
                     更换人物画像

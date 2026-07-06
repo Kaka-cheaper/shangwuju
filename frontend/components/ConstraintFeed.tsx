@@ -48,7 +48,7 @@ export default function ConstraintFeed() {
       {showConstraints && (
         <div className="card p-3 mb-3">
           <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ink-400" />
             约束流（{constraints.length} 条）
           </h4>
           <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">
@@ -77,7 +77,7 @@ export default function ConstraintFeed() {
       {showLedger && (
         <div className="card p-3 mb-3">
           <h4 className="text-xs font-medium text-ink-500 mb-2 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            <span className="w-1.5 h-1.5 rounded-full bg-ink-400" />
             诉求台账（{demandLedger!.length} 条）
           </h4>
           <div className="max-h-[160px] overflow-y-auto space-y-1.5 scrollbar-thin">

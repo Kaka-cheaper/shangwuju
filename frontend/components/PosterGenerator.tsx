@@ -225,9 +225,9 @@ export default function PosterGenerator({
         disabled={generating}
         className={cn(
           compact ? "h-10 w-full rounded-full px-3" : "mt-2 w-full py-1.5 rounded-full",
-          "bg-[#FFD100] hover:bg-[#ffe552]",
-          "border border-[#e6bc00]",
-          "text-ink-900 text-base",
+          "bg-white hover:bg-black/[0.03]",
+          "border border-ink-300",
+          "text-ink-700 text-base",
           "transition-all flex items-center justify-center gap-1.5",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           className,
@@ -242,7 +242,7 @@ export default function PosterGenerator({
         ) : (
           <>
             <ImageIcon
-              className="w-3.5 h-3.5 text-ink-900"
+              className="w-3.5 h-3.5 text-ink-700"
               strokeWidth={2}
             />
             <span>一键生成海报</span>
@@ -376,7 +376,7 @@ function PreviewModal({
           className={cn(
             "flex-shrink-0 flex items-center justify-center",
             "p-4 pt-5 sm:p-8",
-            "bg-gradient-to-br from-brand-500/[0.06] to-accent-500/[0.04]",
+            "bg-ink-50",
             "sm:w-[320px]",
           )}
         >
@@ -397,7 +397,7 @@ function PreviewModal({
         {/* 右栏：标题 + 操作 */}
         <div className="flex-1 p-4 sm:p-6 flex flex-col gap-3 sm:gap-4 min-w-0 overflow-y-auto">
           <div>
-            <div className="text-xs tracking-wider uppercase text-brand-600 mb-1 flex items-center gap-1">
+            <div className="text-xs tracking-wider uppercase text-accent-600 mb-1 flex items-center gap-1">
               <ImageIcon className="w-3 h-3" strokeWidth={2} />
               <span>海报已生成</span>
             </div>
@@ -406,7 +406,7 @@ function PreviewModal({
             </h3>
             <p className="mt-1.5 text-xs text-ink-500 leading-relaxed">
               微信群里转发一张图，比一段文字更直观。点
-              <span className="text-brand-600 mx-0.5">保存</span>
+              <span className="text-accent-600 mx-0.5">保存</span>
               下载到本地后即可分享。
             </p>
           </div>
@@ -417,9 +417,9 @@ function PreviewModal({
             onClick={onDownload}
             className={cn(
               "w-full py-3 rounded-full font-semibold text-sm",
-              "bg-gradient-to-r from-brand-500 to-accent-500 text-ink-900",
-              "hover:from-brand-400 hover:to-accent-400",
-              "shadow-lg shadow-brand-500/20",
+              "bg-gradient-to-r from-accent-500 to-accent-600 text-white",
+              "hover:from-accent-400 hover:to-accent-500",
+              "shadow-lg shadow-accent-500/20",
               "transition-all flex items-center justify-center gap-2",
             )}
           >

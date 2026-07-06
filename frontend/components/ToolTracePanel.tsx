@@ -197,7 +197,7 @@ export default function ToolTracePanel() {
   const totalReplans = replans.length;
 
   return (
-    <div className="card relative overflow-hidden border border-amber-400/20 bg-gradient-to-br from-amber-50/60 to-white">
+    <div className="card relative overflow-hidden border border-black/[0.06] bg-white">
       {streaming && (
         <div
           aria-hidden
@@ -225,7 +225,7 @@ export default function ToolTracePanel() {
           <Sparkles
             className={cn(
               "w-3.5 h-3.5 transition-colors",
-              streaming ? "text-brand-600" : "text-ink-700",
+              streaming ? "text-accent-600" : "text-ink-700",
             )}
             strokeWidth={2}
           />
@@ -310,14 +310,16 @@ function EpicBlock({
     ? parallelGroups.map(([, n]) => n).join("+")
     : null;
 
-  // 头部状态色
+  // 头部状态色：只有"当前"（进行中）与"自愈"（重规划）两种例外状态才点金，
+  // 一切正常时是中性 ink——避免每个 epic 标题默认都顶一顶金色（每屏黄元素稀缺
+  // 才有意义）。
   const headerAccent = hasInProgress
-    ? "text-brand-600"
+    ? "text-accent-600"
     : hasFail
       ? "text-rose-400"
       : hasReplan
         ? "text-amber-400"
-        : "text-amber-700";
+        : "text-ink-700";
 
   return (
     <div className="rounded-md">
@@ -359,7 +361,7 @@ function EpicBlock({
             <span className="flex items-center gap-1.5 shrink-0 ml-auto">
               {hasInProgress && (
                 <Loader2
-                  className="w-3 h-3 text-brand-600 animate-spin"
+                  className="w-3 h-3 text-accent-600 animate-spin"
                   strokeWidth={2}
                 />
               )}
@@ -439,7 +441,7 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         : Icons.success;
 
   const iconClass = inProgress
-    ? "text-brand-600 animate-spin"
+    ? "text-accent-600 animate-spin"
     : replaced
       ? "text-ink-500"
       : isFail

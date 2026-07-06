@@ -363,7 +363,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
             {activated && showTimeline && (
               <div
                 ref={timelineScrollRef}
-                className="relative flex-1 min-h-0 max-h-[620px] overflow-y-scroll overscroll-contain pt-3 pb-2 px-4 animate-fade-in rounded-[28px] bg-[#FFD100]/28 backdrop-blur-xl border border-[#FFD100]/60 shadow-elevated mb-2"
+                className="relative flex-1 min-h-0 max-h-[620px] overflow-y-scroll overscroll-contain pt-3 pb-2 px-4 animate-fade-in rounded-[28px] bg-white/90 backdrop-blur-xl border border-black/[0.08] shadow-elevated mb-2"
               >
                 {/* streaming 时顶部流动黄光带 */}
                 {streaming && (
@@ -377,7 +377,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                   {timeline.length === 0 && !streaming && (
                     <div className="flex flex-col items-center justify-center text-center gap-2 py-8 text-ink-500">
                       <Icons.spark
-                        className="w-5 h-5 text-brand-600/60"
+                        className="w-5 h-5 text-ink-400"
                         strokeWidth={1.5}
                       />
                       <span className="text-sm">还没有对话</span>
@@ -409,7 +409,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                   {streaming && thoughts.length > 0 && (
                     <div className="flex items-center gap-1.5 px-1 text-sm text-ink-500 animate-fade-in-up">
                       <span
-                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500"
+                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500"
                         aria-hidden
                       />
                       AI 正在思考…
@@ -440,7 +440,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               >
                 <svg
                   className={cn(
-                    "w-14 h-5 text-[#FFD100] group-hover:text-[#e6bc00] transition-all duration-200",
+                    "w-14 h-5 text-ink-400 group-hover:text-ink-600 transition-all duration-200",
                     showTimeline && "rotate-180",
                   )}
                   viewBox="0 0 56 20"
@@ -463,8 +463,8 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                 className="w-full pb-2 text-left animate-fade-in group"
                 title="点击展开完整对话历史"
               >
-                <div className="flex items-center gap-2 text-sm rounded-full bg-[#FFD100]/28 backdrop-blur-xl border border-[#FFD100]/60 shadow-elevated px-3 py-2">
-                  <span className="shrink-0 inline-flex items-center gap-1 bg-[#FFD100] text-ink-900 text-[11px] font-semibold px-2.5 py-1 rounded-full">
+                <div className="flex items-center gap-2 text-sm rounded-full bg-white/90 backdrop-blur-xl border border-black/[0.08] shadow-elevated px-3 py-2">
+                  <span className="shrink-0 inline-flex items-center gap-1 bg-ink-900 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full">
                     <Icons.spark className="w-3.5 h-3.5" strokeWidth={2} />
                     {totalCount > 0 && (
                       <span className="mono tabular-nums">{totalCount}</span>
@@ -483,8 +483,8 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
             <div className={cn(
               "chat-input-breath group/chat-input flex items-end gap-2 rounded-full border border-black/[0.08] bg-black/[0.03]",
               "backdrop-blur-sm shadow-elevated transition-all duration-300 ease-out",
-              "hover:border-[#FFD100]/65 hover:bg-white hover:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] hover:backdrop-blur-xl",
-              "focus-within:border-[#FFD100]/65 focus-within:bg-white focus-within:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] focus-within:backdrop-blur-xl",
+              "hover:border-accent-400/50 hover:bg-white hover:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(245,158,11,0.10)] hover:backdrop-blur-xl",
+              "focus-within:border-accent-500/55 focus-within:bg-white focus-within:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(245,158,11,0.12)] focus-within:backdrop-blur-xl",
               "px-4 py-1.5",
             )}>
             <textarea
@@ -518,8 +518,8 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               className={cn(
                 "mr-[-0.35rem] grid h-9 w-9 min-w-0 shrink-0 place-items-center self-center rounded-full border border-black/[0.06] bg-white/75 p-0 text-[#d97706]",
                 "shadow-[0_6px_18px_-12px_rgba(17,24,39,0.35)] transition-all duration-300 ease-out",
-                "group-hover/chat-input:border-[#e6bc00]/50 group-hover/chat-input:bg-[#FFD100] group-hover/chat-input:text-ink-900 group-hover/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
-                "group-focus-within/chat-input:border-[#e6bc00]/50 group-focus-within/chat-input:bg-[#FFD100] group-focus-within/chat-input:text-ink-900 group-focus-within/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "group-hover/chat-input:border-accent-600/50 group-hover/chat-input:bg-accent-500 group-hover/chat-input:text-white group-hover/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "group-focus-within/chat-input:border-accent-600/50 group-focus-within/chat-input:bg-accent-500 group-focus-within/chat-input:text-white group-focus-within/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
                 "hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
                 streaming && "shimmer-border",
               )}
@@ -568,16 +568,9 @@ function MessageBubble({
         className={cn(
           "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed tracking-tight",
           isUser
-            ? "rounded-br-sm text-ink-900 shadow-glow"
+            ? "rounded-br-sm bg-ink-100 text-ink-900 shadow-sm"
             : "bg-white border border-black/[0.06] text-ink-800 rounded-bl-sm shadow-sm",
         )}
-        style={
-          isUser
-            ? {
-                background: "#FFD100",
-              }
-            : undefined
-        }
       >
         {text}
       </div>

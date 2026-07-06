@@ -144,7 +144,7 @@ export default function PreferencesPanel() {
           ) : (
             <div
               className="w-[150px] h-[150px] rounded-xl flex items-center justify-center"
-              style={{ background: "#FFD100" }}
+              style={{ background: PERSONA_ICON_GRADIENT }}
             >
               <PersonaIcon className="w-16 h-16 text-ink-900" strokeWidth={2} />
             </div>
@@ -205,7 +205,7 @@ export default function PreferencesPanel() {
         ) : (
           <div
             className="w-[150px] h-[150px] rounded-xl flex items-center justify-center"
-            style={{ background: "#FFD100" }}
+            style={{ background: PERSONA_ICON_GRADIENT }}
           >
             <PersonaIcon className="w-16 h-16 text-ink-900" strokeWidth={2} />
           </div>
@@ -280,7 +280,7 @@ function ContentSections({
             {top_priors.map((t) => (
               <span
                 key={t}
-                className="inline-flex items-center rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.08] px-4 py-1.5 text-sm font-medium leading-none text-amber-800 shadow-[0_6px_18px_rgba(255,209,0,0.10)] transition-colors"
+                className="inline-flex items-center rounded-full border border-black/[0.08] bg-black/[0.03] px-4 py-1.5 text-sm font-medium leading-none text-ink-700 transition-colors"
               >
                 {t}
               </span>

@@ -31,7 +31,7 @@ const MODE_TITLE: Record<PlannerMode, string> = {
 
 const MODE_DOT: Record<PlannerMode, string> = {
   rule: "bg-ink-500",
-  llm: "bg-gradient-to-br from-brand-400 to-accent-500",
+  llm: "bg-gradient-to-br from-accent-400 to-accent-600",
 };
 
 export default function PlannerModeBadge() {
@@ -55,7 +55,7 @@ export default function PlannerModeBadge() {
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
         "border border-black/[0.08] bg-white/[0.68] text-ink-700 tracking-tight shadow-sm",
-        "hover:border-[#FFD100]/50 hover:bg-white/[0.88] hover:text-ink-900",
+        "hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900",
         "transition-colors backdrop-blur",
         "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/[0.68] disabled:hover:text-ink-700 disabled:hover:border-black/[0.08]",
       )}

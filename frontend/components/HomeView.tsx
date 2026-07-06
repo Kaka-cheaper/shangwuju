@@ -188,7 +188,7 @@ export default function HomeView() {
             <button
               type="button"
               onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-[#FFD100]/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
+              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-accent-400/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
               title="打开命令面板（场景 / 模式 / 用户切换）"
             >
               <span>命令</span>
@@ -200,7 +200,7 @@ export default function HomeView() {
             <MockModeBadge />
             <OfflineReadyBadge />
             <button
-              className="inline-flex items-center rounded-full border border-[#FFD100]/45 bg-[#FFD100]/[0.16] px-3.5 py-1.5 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition hover:border-[#e6bc00]/60 hover:bg-[#FFD100]/28 active:scale-[0.98]"
+              className="inline-flex items-center rounded-full border border-ink-300 bg-white px-3.5 py-1.5 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-[0.98]"
               onClick={startNewSession}
               title="开新会话（保留之前会话历史，可在命令面板切换）"
             >

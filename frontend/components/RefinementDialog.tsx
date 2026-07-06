@@ -80,7 +80,7 @@ export default function RefinementDialog({
           <div>
             <div className="flex items-center gap-1.5 mb-0.5">
               <Icons.refine
-                className="w-3.5 h-3.5 text-brand-600"
+                className="w-3.5 h-3.5 text-ink-500"
                 strokeWidth={2}
               />
               <span className="section-title">反馈调整</span>
@@ -122,7 +122,7 @@ export default function RefinementDialog({
               "w-full resize-none rounded-md border bg-black/[0.03]",
               "border-black/[0.08] hover:border-black/[0.12]",
               "px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 tracking-tight",
-              "focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500/40",
+              "focus:outline-none focus:ring-2 focus:ring-accent-500/30 focus:border-accent-500/40",
               "transition-colors duration-150",
             )}
           />

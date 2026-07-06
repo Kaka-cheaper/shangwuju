@@ -26,9 +26,9 @@ interface ToneTheme {
 const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
   warm: {
     gradient:
-      "linear-gradient(135deg, rgba(255,209,0,0.12) 0%, rgba(245,158,11,0.08) 100%)",
-    border: "border-brand-500/30",
-    accent: "text-brand-800",
+      "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.07) 100%)",
+    border: "border-accent-500/30",
+    accent: "text-accent-800",
     Icon: Coffee,
     label: "暖心",
   },

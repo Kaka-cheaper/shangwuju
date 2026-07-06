@@ -26,7 +26,7 @@ export default function CollabBar() {
     <div
       className={cn(
         "w-full px-4 py-2 border-b border-black/[0.08]",
-        "bg-gradient-to-r from-amber-500/10 to-orange-500/10",
+        "bg-black/[0.02]",
         "flex items-center justify-between gap-3 text-sm",
       )}
     >
@@ -53,7 +53,7 @@ export default function CollabBar() {
         >
           房间内 {onlineCount} 人
           {constraints.length > 0 && (
-            <span className="ml-1 text-amber-400/80">
+            <span className="ml-1 text-ink-500">
               · {constraints.length} 个约束待合并
             </span>
           )}

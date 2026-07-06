@@ -227,7 +227,7 @@ export default function ItineraryCard() {
             "叙事"内容的规划中间态，信任带独自撑起这段等待时间的可见性。 */}
         <TrustBelt />
         <div className="card px-4 py-5 space-y-3">
-          <div className="flex items-center gap-1.5 text-xs text-brand-600">
+          <div className="flex items-center gap-1.5 text-xs text-accent-600">
             <Icons.thinking
               className="w-3.5 h-3.5 animate-spin"
               strokeWidth={2}
@@ -740,7 +740,7 @@ function RefinementSummaryBanner({
       className="rounded-md border border-accent-500/30 px-3 py-2 text-xs text-accent-700 animate-fade-in backdrop-blur-sm"
       style={{
         background:
-          "linear-gradient(135deg, rgba(255,209,0,0.10) 0%, rgba(245,158,11,0.06) 100%)",
+          "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(245,158,11,0.03) 100%)",
       }}
     >
       <div className="flex items-center gap-1.5 mb-1 font-medium text-accent-700">
@@ -785,13 +785,13 @@ function ShareMessage({ text }: { text: string }) {
       className="rounded-md border border-black/[0.08] p-3 backdrop-blur-sm"
       style={{
         background:
-          "linear-gradient(135deg, rgba(255,209,0,0.06) 0%, rgba(245,158,11,0.04) 100%)",
+          "linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.008) 100%)",
       }}
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
           <Icons.share
-            className="w-3.5 h-3.5 text-brand-600"
+            className="w-3.5 h-3.5 text-ink-500"
             strokeWidth={2}
           />
           <span className="text-xs font-medium text-ink-800 tracking-tight">
@@ -856,11 +856,11 @@ function NarrationBlock({
       className="relative overflow-hidden rounded-[18px] px-4 py-3.5 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
         background: isConfirm
-          ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(255,209,0,0.04) 100%)"
-          : "linear-gradient(135deg, rgba(255,209,0,0.08) 0%, rgba(245,158,11,0.04) 100%)",
+          ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.03) 100%)"
+          : "linear-gradient(135deg, rgba(0,0,0,0.025) 0%, rgba(0,0,0,0.01) 100%)",
         borderColor: isConfirm
           ? "rgba(16,185,129,0.24)"
-          : "rgba(255,209,0,0.22)",
+          : "rgba(0,0,0,0.06)",
         color: "rgb(31 41 55 / 0.92)",
       }}
     >
@@ -869,7 +869,7 @@ function NarrationBlock({
           <Icons.spark
             className={cn(
               "w-4 h-4 mt-1 shrink-0",
-              isConfirm ? "text-emerald-400" : "text-brand-600",
+              isConfirm ? "text-emerald-400" : "text-accent-600",
             )}
             strokeWidth={2}
           />
@@ -880,9 +880,9 @@ function NarrationBlock({
       )}
 
       {chips.length > 0 && (
-        <div className={cn("flex flex-wrap items-center gap-2", text && "mt-3 border-t border-[#FFD100]/25 pt-3")}>
+        <div className={cn("flex flex-wrap items-center gap-2", text && "mt-3 border-t border-black/[0.06] pt-3")}>
           <div className="mr-1 inline-flex items-center gap-1.5 text-base font-semibold text-ink-500">
-            <Icons.spark className="w-4 h-4 text-brand-600" strokeWidth={2.5} />
+            <Icons.spark className="w-4 h-4 text-ink-500" strokeWidth={2.5} />
             <span>为你考虑了</span>
           </div>
           {chips.map((c, i) => {
@@ -890,7 +890,7 @@ function NarrationBlock({
             return (
               <span
                 key={`${c.label}-${i}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#FFD100]/35 bg-[#FFD100]/[0.09] px-3 py-1.5 text-base font-semibold tracking-tight text-amber-800 animate-fade-in"
+                className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 text-base font-semibold tracking-tight text-ink-700 animate-fade-in"
               >
                 <Ico className="w-4 h-4" strokeWidth={2} />
                 {c.label}
@@ -908,7 +908,7 @@ function NarrationBlock({
             onClick={() => setExpanded((v) => !v)}
             className={cn(
               "inline-flex items-center gap-1 text-sm font-medium transition-colors",
-              isConfirm ? "text-emerald-600 hover:text-emerald-700" : "text-brand-600 hover:text-brand-700",
+              isConfirm ? "text-emerald-600 hover:text-emerald-700" : "text-ink-600 hover:text-ink-800",
             )}
             aria-expanded={expanded}
           >
@@ -952,23 +952,23 @@ function ConfirmPreviewCard({
 
   return (
     <div
-      className="rounded-md border border-amber-400/20 bg-amber-500/5 px-3.5 py-3 text-xs leading-relaxed"
+      className="rounded-md border border-black/[0.06] bg-black/[0.02] px-3.5 py-3 text-xs leading-relaxed"
     >
       <div className="flex items-center gap-1.5 mb-2">
         <Icons.spark
-          className="w-3.5 h-3.5 text-amber-500"
+          className="w-3.5 h-3.5 text-ink-500"
           strokeWidth={2}
         />
-        <span className="text-sm font-semibold text-amber-700 tracking-tight">
+        <span className="text-sm font-semibold text-ink-700 tracking-tight">
           点击「确认并预约」之后
         </span>
       </div>
 
-      <p className="text-sm text-amber-900/85 mb-2.5">
+      <p className="text-sm text-ink-800 mb-2.5">
         {restaurantLine}{extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-700/80">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
         <span className="inline-flex items-center gap-1">
           <span aria-hidden>🪑</span>
           <span>锁餐厅时段</span>
@@ -1285,7 +1285,7 @@ function HighlightText({ text }: { text: string }) {
         switch (part.type) {
           case "time":
             return (
-              <span key={i} className="font-bold text-brand-700 mono">
+              <span key={i} className="font-bold text-accent-700 mono">
                 {part.text}
               </span>
             );
@@ -1299,7 +1299,7 @@ function HighlightText({ text }: { text: string }) {
             return (
               <span
                 key={i}
-                className="font-semibold bg-[#FFD100]/20 px-0.5 rounded"
+                className="font-semibold bg-accent-500/20 px-0.5 rounded"
               >
                 {part.text}
               </span>
@@ -1308,7 +1308,7 @@ function HighlightText({ text }: { text: string }) {
             return (
               <span
                 key={i}
-                className="font-semibold underline decoration-[#FFD100] decoration-2 underline-offset-2"
+                className="font-semibold underline decoration-accent-500 decoration-2 underline-offset-2"
               >
                 {part.text}
               </span>
@@ -1375,7 +1375,7 @@ function HighlightSummary({ text }: { text: string }) {
           case "name":
             // 去掉前后空白后判断是否是实际地点名（长度>1才高亮）
             return p.text.trim().length > 1 ? (
-              <span key={i} className="bg-[#FFD100]/20 px-0.5 rounded">
+              <span key={i} className="bg-accent-500/20 px-0.5 rounded">
                 {p.text}
               </span>
             ) : (

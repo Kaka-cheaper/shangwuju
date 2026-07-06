@@ -149,15 +149,15 @@ export default function TtsPlayer({
         onClick={play}
         className={cn(
           compact ? "h-10 w-full rounded-full px-3" : "mt-2 w-full py-1.5 rounded-full",
-          "bg-[#FFD100] hover:bg-[#ffe552]",
-          "border border-[#e6bc00]",
-          "text-ink-900 text-base",
+          "bg-white hover:bg-black/[0.03]",
+          "border border-ink-300",
+          "text-ink-700 text-base",
           "transition-all flex items-center justify-center gap-1.5",
           className,
         )}
         title="使用浏览器内置语音朗读行程摘要"
       >
-        <Mic className="w-3.5 h-3.5 text-ink-900" strokeWidth={2} />
+        <Mic className="w-3.5 h-3.5 text-ink-700" strokeWidth={2} />
         <span>语音播报行程</span>
       </button>
     );
@@ -167,7 +167,7 @@ export default function TtsPlayer({
     return (
       <div
         className={cn(
-          "h-10 w-full rounded-full border border-[#e6bc00]/60 bg-[#FFD100]/15 px-2",
+          "h-10 w-full rounded-full border border-accent-600/50 bg-accent-500/15 px-2",
           "flex items-center gap-2 text-ink-900",
           className,
         )}
@@ -213,7 +213,7 @@ export default function TtsPlayer({
     <div
       className={cn(
         compact ? "h-9 w-full rounded-md px-2" : "mt-2 w-full py-1.5 px-3 rounded-lg",
-        "bg-brand-500/10 border border-brand-500/30",
+        "bg-accent-500/10 border border-accent-500/30",
         "flex items-center gap-2",
         className,
       )}
@@ -222,7 +222,7 @@ export default function TtsPlayer({
     >
       {/* 波形动画 */}
       <WaveformIndicator active={status === "playing"} />
-      <span className="text-xs text-brand-800 font-medium tracking-tight flex-1 truncate">
+      <span className="text-xs text-accent-800 font-medium tracking-tight flex-1 truncate">
         {status === "playing" ? "播报中…" : "已暂停"}
       </span>
       {status === "playing" ? (
@@ -267,7 +267,7 @@ function WaveformIndicator({ active }: { active: boolean }) {
         <span
           key={i}
           className={cn(
-            "w-0.5 bg-brand-400 rounded-full",
+            "w-0.5 bg-accent-400 rounded-full",
             active && "animate-pulse",
           )}
           style={{

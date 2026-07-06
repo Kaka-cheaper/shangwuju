@@ -119,7 +119,7 @@ export default function QuickScenarios({
           style={{
             opacity: pointer && !streaming ? 1 : 0,
             background: pointer
-              ? `radial-gradient(circle at ${pointer.x}px ${pointer.y}px, rgba(255,209,0,0.30) 0%, rgba(255,209,0,0.14) 18%, rgba(255,255,255,0) 48%)`
+              ? `radial-gradient(circle at ${pointer.x}px ${pointer.y}px, rgba(245,158,11,0.26) 0%, rgba(245,158,11,0.12) 18%, rgba(255,255,255,0) 48%)`
               : "transparent",
           }}
         />
@@ -138,9 +138,9 @@ export default function QuickScenarios({
               onClick={() => sendScenario(s.input, s.id)}
               className={cn(
                 "group relative z-10 flex flex-col items-center justify-center gap-2 overflow-hidden rounded-xl",
-                "border-2 border-[#FFD100] bg-white text-center",
+                "border-2 border-ink-300 bg-white text-center",
                 "transition-[background-color,border-color,box-shadow,color,transform] duration-200 ease-out",
-                "hover:border-[#e6bc00] hover:shadow-sm",
+                "hover:border-accent-400 hover:shadow-sm",
                 "active:scale-[0.98]",
                 "disabled:cursor-not-allowed disabled:opacity-50",
                 "disabled:hover:border-black/[0.08] disabled:hover:bg-white disabled:hover:shadow-none",
@@ -150,7 +150,7 @@ export default function QuickScenarios({
                 transform: `scale(${scale}) translateY(${elevated ? -4 * (scale - 1) : 0}px)`,
                 zIndex: Math.round(scale * 100),
                 boxShadow: elevated
-                  ? `0 ${10 + (scale - 1) * 80}px ${24 + (scale - 1) * 120}px -22px rgba(17,24,39,0.55), 0 0 ${18 + (scale - 1) * 90}px -14px rgba(255,209,0,0.82)`
+                  ? `0 ${10 + (scale - 1) * 80}px ${24 + (scale - 1) * 120}px -22px rgba(17,24,39,0.55), 0 0 ${18 + (scale - 1) * 90}px -14px rgba(245,158,11,0.55)`
                   : undefined,
               }}
               title={s.input}
@@ -160,12 +160,12 @@ export default function QuickScenarios({
                 className="pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                 style={{
                   background:
-                    "linear-gradient(135deg, rgba(255,255,255,0.78) 0%, rgba(255,252,237,0.86) 48%, rgba(255,209,0,0.10) 100%)",
+                    "linear-gradient(135deg, rgba(255,255,255,0.78) 0%, rgba(255,252,237,0.86) 48%, rgba(245,158,11,0.08) 100%)",
                 }}
               />
               <span
                 aria-hidden
-                className="pointer-events-none absolute bottom-0 left-1/2 h-[5px] w-10 -translate-x-1/2 rounded-full bg-[#FFD100] opacity-0 shadow-[0_0_16px_rgba(255,209,0,0.72)] transition-all duration-200 group-hover:w-14 group-hover:opacity-100"
+                className="pointer-events-none absolute bottom-0 left-1/2 h-[5px] w-10 -translate-x-1/2 rounded-full bg-accent-500 opacity-0 shadow-[0_0_16px_rgba(245,158,11,0.55)] transition-all duration-200 group-hover:w-14 group-hover:opacity-100"
               />
               <Icon
                 className={cn(
