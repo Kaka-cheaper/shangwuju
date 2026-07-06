@@ -585,6 +585,10 @@ def test_snapshot_key_shape_includes_demand_ledger():
         # 评委体验修复：有方案时现算 node_actions（见 Room.get_state_snapshot
         # 该键的 docstring 段落），中途加入者不必等下一次换菜事件才看到按钮。
         "node_actions",
+        # node_detail 联动补齐（有意变更）：有方案时现算节点真实数据详情（评分/
+        # 人均/距离/可订/标签），反查全量目录覆盖每个节点，中途加入者也能看到
+        # fact panel（见 Room._snapshot_node_detail）。_seed_room 带合法 itinerary，故含此键。
+        "node_detail",
     }
     assert set(snapshot.keys()) == expected_keys, (
         f"快照字段清单变化——请先确认是否为有意变更。实际={set(snapshot.keys())}"

@@ -221,6 +221,9 @@ class Room:
         node_actions = self._snapshot_node_actions()
         if node_actions:
             snapshot["node_actions"] = node_actions
+        node_detail = self._snapshot_node_detail()
+        if node_detail:
+            snapshot["node_detail"] = node_detail
         return snapshot
 
     def _snapshot_node_actions(self) -> dict[str, dict[str, Any]]:
@@ -271,6 +274,37 @@ class Room:
         except Exception:  # noqa: BLE001
             logger.warning(
                 "get_state_snapshot 组装 node_actions 失败，快照将省略该字段：room_id=%s",
+                self.room_id, exc_info=True,
+            )
+            return {}
+
+    def _snapshot_node_detail(self) -> dict[str, dict[str, Any]]:
+        """`get_state_snapshot()` 专用：现算 node_detail（节点真实数据详情——
+        评分/人均/距离/可订/标签/营业，见 `schemas/node_detail.py`）。
+
+        【候选池口径——与 `_snapshot_node_actions` 故意不同】node_actions（找
+        备选）跟随房间换菜路径用意图窄池（`_query_*`）；node_detail 是"方案里
+        每个节点选中店的事实"，必须覆盖全部节点的实体，窄池可能漏掉未改动
+        节点的实体 → 反查全量目录（`data.loader.load_pois/load_restaurants`，
+        同 `narrate._build_node_detail` 与单人 `graph_adjust` 的口径）。两个不同
+        关切各用各的池，不冲突。node_detail 不需要 intent（纯实体字段派生）。
+
+        【异常兜底】同 `_snapshot_node_actions`：失败返回空字典，调用方按
+        "无内容不加字段"纪律省略该键，绝不让 `get_state_snapshot()` 整体失败
+        （否则新成员 `join()` 的整条 WS 都建立不起来）。
+        """
+        if not self.current_itinerary_dict:
+            return {}
+        try:
+            from agent.graph.nodes.narrate import _build_node_detail
+            from data.loader import load_pois, load_restaurants
+            from schemas import Itinerary
+
+            itinerary = Itinerary.model_validate(self.current_itinerary_dict)
+            return _build_node_detail(itinerary, load_pois(), load_restaurants())
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "get_state_snapshot 组装 node_detail 失败，快照将省略该字段：room_id=%s",
                 self.room_id, exc_info=True,
             )
             return {}
@@ -708,10 +742,11 @@ class RoomManager:
         （依赖调用方已持有 `room.lock` 且已广播 `node_locked`）。
         """
         from agent.core.trace import Tracer
-        from agent.graph.nodes.narrate import _build_node_actions
+        from agent.graph.nodes.narrate import _build_node_actions, _build_node_detail
         from agent.intent.narrator import generate_template_node_chips
         from agent.planning.planners.ils_planner import _query_pois, _query_restaurants
         from agent.planning.planners.node_swap import resolve_node_swap
+        from data.loader import load_pois, load_restaurants
         from agent.planning.planners.node_swap_support import (
             CONFIRMED_ADJUST_BLOCKED_MESSAGE,
             find_entity,
@@ -835,6 +870,12 @@ class RoomManager:
         new_itinerary = result.new_itinerary
         node_chips = generate_template_node_chips(new_itinerary, intent, pois, restaurants)
         node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
+        # node_detail 平价补齐：房间侧 pois/restaurants 是意图窄池（_query_*），而
+        # node_detail 要覆盖方案里每个节点的选中实体，窄池可能漏掉未改动节点——故
+        # 反查全量目录（load_pois/load_restaurants），同 narrate._build_node_detail
+        # 与单人 graph_adjust 的口径。node_actions（找备选）用窄池、node_detail（选中
+        # 店的事实）用全量目录，是两个不同关切各用各的池，不冲突。
+        node_detail = _build_node_detail(new_itinerary, load_pois(), load_restaurants())
         advisory_dicts = [a.model_dump() for a in result.advisories]
 
         room.current_itinerary_dict = new_itinerary.model_dump()
@@ -876,6 +917,8 @@ class RoomManager:
             ]
         if node_actions:
             narration_payload["node_actions"] = node_actions
+        if node_detail:
+            narration_payload["node_detail"] = node_detail
         ledger_display = ledger_for_display(updated_ledger)
         if ledger_display:
             narration_payload["demand_ledger"] = ledger_display

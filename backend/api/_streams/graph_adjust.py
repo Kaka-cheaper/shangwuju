@@ -77,7 +77,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Optional, Union
 
-from agent.graph.nodes.narrate import _build_node_actions
+from agent.graph.nodes.narrate import _build_node_actions, _build_node_detail
 from agent.intent.narrator import generate_template_node_chips
 from agent.planning.planners.node_swap import SwapResult, resolve_node_swap
 from agent.planning.planners.node_swap_support import (
@@ -344,6 +344,10 @@ async def _graph_adjust(
     new_itinerary = result.new_itinerary
     node_chips = generate_template_node_chips(new_itinerary, intent, pois, restaurants)
     node_actions = _build_node_actions(new_itinerary, intent, pois, restaurants, node_chips)
+    # node_detail 平价补齐（ADR-0015 现场落地，随换菜后的新方案重算）：pois/
+    # restaurants 此处即全量目录（本文件 load_pois/load_restaurants，见上），直接
+    # 复用反查每个节点真实数据详情——不换池，同 narrate._build_node_detail 口径。
+    node_detail = _build_node_detail(new_itinerary, pois, restaurants)
     advisory_dicts = [a.model_dump() for a in result.advisories]
 
     # ---- 版本志：换菜也是新版本（E-2-a 已知留待项，c′落地后补齐）----
@@ -366,6 +370,7 @@ async def _graph_adjust(
         {
             "itinerary": new_itinerary,
             "node_actions": node_actions,
+            "node_detail": node_detail,
             "demand_ledger": [e.model_dump() for e in updated_ledger],
             "advisories": advisory_dicts,
             "plan_version_log": [version_entry],
@@ -400,6 +405,8 @@ async def _graph_adjust(
         ]
     if node_actions:
         narration_payload["node_actions"] = node_actions
+    if node_detail:
+        narration_payload["node_detail"] = node_detail
     ledger_display = ledger_for_display(updated_ledger)
     if ledger_display:
         narration_payload["demand_ledger"] = ledger_display
