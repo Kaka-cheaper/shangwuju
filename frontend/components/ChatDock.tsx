@@ -32,8 +32,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
-import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
+import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { cn } from "@/lib/utils";
 
 import ChitchatBubble from "./ChitchatBubble";
@@ -62,7 +62,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
   const intent = useChatStore((s) => s.intent);
   const thoughts = useChatStore((s) => s.thoughts);
   const chitchatReplies = useChatStore((s) => s.chitchatReplies);
-  const sendMessage = useChatStore((s) => s.sendMessage);
+  const { sendUserInput } = useCollabDispatch();
   // spec execution-quality-review M3：工具调用 badge 让评委在 dock 收起态也能看到
   // Agent 决策过程的统计（Tool 编排 25% 评分项的 demo 闭环可见性）
   const toolCallsCount = useChatStore((s) => s.toolCalls.length);
@@ -254,25 +254,9 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
   const submit = () => {
     if (!draft.trim()) return;
-    // 协作模式下走 WS 通道（所有人同步看到）
-    const { collabMode, sendConstraint } = useCollabStore.getState();
-    if (collabMode) {
-      sendConstraint(draft.trim());
-      // 本地也追加一条用户消息到 messages（WS 广播会同步给其他人）
-      useChatStore.setState((s) => ({
-        messages: [
-          ...s.messages,
-          {
-            id: `u-${Date.now()}`,
-            role: "user" as const,
-            text: draft.trim(),
-            createdAt: Date.now(),
-          },
-        ],
-      }));
-    } else {
-      sendMessage(draft);
-    }
+    // collabMode 分流（WS constraint 广播 vs 单人 HTTP sendMessage）统一在
+    // useCollabDispatch 里实现，ChitchatBubble / MobileComposer 共用同一份。
+    sendUserInput(draft);
     setDraft("");
   };
 

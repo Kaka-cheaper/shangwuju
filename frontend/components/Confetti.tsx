@@ -67,7 +67,17 @@ function makePieces(count: number, originX: number, originY: number): Piece[] {
   return pieces;
 }
 
-export default function Confetti() {
+export interface ConfettiOrigin {
+  /** 起点 x（屏宽百分比）。 */
+  ox: number;
+  /** 起点 y（屏高百分比）。 */
+  oy: number;
+}
+
+// 默认落点：桌面端两栏布局下行程卡大致在这个位置（右侧偏上）。
+const DEFAULT_ORIGIN: ConfettiOrigin = { ox: 70, oy: 38 };
+
+export default function Confetti({ origin = DEFAULT_ORIGIN }: { origin?: ConfettiOrigin }) {
   const itinerary = useChatStore((s) => s.itinerary);
   const [pieces, setPieces] = useState<Piece[]>([]);
 
@@ -76,15 +86,16 @@ export default function Confetti() {
     const orderCount = itinerary?.orders.length ?? 0;
     if (orderCount === 0) return;
 
-    // 中心略偏右上（行程卡所在位置）
-    const ox = 70; // 70% 屏宽
-    const oy = 38; // 38% 屏高
-    const newPieces = makePieces(64, ox, oy);
+    // B9：origin 可由调用方按自己的布局重定位——移动端是单栏居中布局，桌面端
+    // 默认的「70%/38%（右侧偏上，桌面两栏布局下行程卡所在位置）」在手机上
+    // 会飞到屏幕边缘外，MobileHomeView 传入居中偏上的坐标。
+    const newPieces = makePieces(64, origin.ox, origin.oy);
     setPieces(newPieces);
 
     // 1.8s 后清空（动画 1.6s + 缓冲 200ms）
     const timer = setTimeout(() => setPieces([]), 1800);
     return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itinerary?.orders.length]);
 
   if (pieces.length === 0) return null;

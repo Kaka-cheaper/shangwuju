@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useChatStore } from "@/lib/store";
 import { useCollabStore } from "@/lib/collab-store";
+import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import {
   clearUserIdCookie,
   generateSessionId,
@@ -52,6 +53,10 @@ export default function HomeView() {
   const roomId = useCollabStore((s) => s.roomId);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const decisionTrace = useChatStore((s) => s.itinerary?.decision_trace);
+
+  // A9 根治：planner 模式的 cookie/health 校准不再依赖 PlannerModeBadge 是否
+  // 挂载，根组件统一调用一次（Web/移动端共用同一份实现，见 hook docstring）。
+  useBootstrapPlannerMode();
 
   useEffect(() => {
     if (sessionId === "sess_pending") {

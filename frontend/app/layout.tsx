@@ -23,6 +23,12 @@ export const metadata: Metadata = {
     "一句话搞定下午行程：意图解析 + Tool 编排 + 异常重规划全程可见。",
 };
 
+// N2：移动端 6 处 env(safe-area-inset-*) 依赖 viewport-fit=cover 才会取到非 0
+// 值——缺省时刘海机/带 Home 条的机型上，底部输入框会被系统手势条压住。
+export const viewport = {
+  viewportFit: "cover",
+} as const;
+
 export default function RootLayout({
   children,
 }: {

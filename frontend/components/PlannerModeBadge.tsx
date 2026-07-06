@@ -8,14 +8,16 @@
  * - 单击循环 rule → llm → rule
  * - cookie 持久化（store.setPlannerMode 内）
  * - hover 展示规则范式 / LLM 范式各自的一句话说明
- * - 首屏挂载时拉 /health 校准（环境变量级 mode）
+ *
+ * 首屏校准（cookie 优先于 /health）已抽到 `useBootstrapPlannerMode()`（不依赖
+ * 本组件是否挂载，Web/移动端根组件各调一次）——本组件只负责展示 store 当前值
+ * + 点击循环切换，不再自己跑校准（移动端此前不挂这个徽章，校准从未触发过，
+ * 见该 hook 的 docstring）。
  */
 
-import { useEffect } from "react";
-
 import { useChatStore } from "@/lib/store";
-import type { HealthResponse, PlannerMode } from "@/lib/types";
-import { API_BASE, cn, getPlannerModeFromCookie } from "@/lib/utils";
+import type { PlannerMode } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const MODE_LABEL: Record<PlannerMode, string> = {
   rule: "规则",
@@ -36,36 +38,6 @@ export default function PlannerModeBadge() {
   const mode = useChatStore((s) => s.plannerMode);
   const streaming = useChatStore((s) => s.streaming);
   const setPlannerMode = useChatStore((s) => s.setPlannerMode);
-
-  // 客户端 mount：cookie（用户显式选择）> /health（后端 env）给初始值
-  // cookie 优先级最高 = 用户的 deliberate choice 永远保留；
-  // 无 cookie 时跟随后端 env，且 persist:false 不落 cookie——这样后端切了 env
-  // 后，没显式选过的浏览器每次 mount 都会重新跟随（修默认值不一致 bug）。
-  useEffect(() => {
-    const fromCookie = getPlannerModeFromCookie();
-    if (fromCookie) {
-      setPlannerMode(fromCookie, { silent: true });
-      return;
-    }
-    let cancelled = false;
-    fetch(`${API_BASE}/health`)
-      .then((r) => r.json() as Promise<HealthResponse>)
-      .then((data) => {
-        if (cancelled) return;
-        if (data.planner_mode === "llm" || data.planner_mode === "rule") {
-          // 仅在 cookie 缺省时跟随后端 env；persist:false 不写 cookie
-          setPlannerMode(data.planner_mode, { silent: true, persist: false });
-        }
-      })
-      .catch(() => {
-        // /health 拉不到时保持 default rule，不打扰
-      });
-    return () => {
-      cancelled = true;
-    };
-    // 仅在 mount 时执行一次：初始化阶段不依赖 mode 自身
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const next: PlannerMode = mode === "rule" ? "llm" : "rule";
   const handleClick = () => {

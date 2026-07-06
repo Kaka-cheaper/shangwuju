@@ -16,6 +16,10 @@
  *   - 与 MockModeBadge / PlannerModeBadge 同样的低饱和 chip 风格
  *   - 状态点用暖琥珀色（amber），区别于 mock 徽章的 emerald
  *   - hover tooltip 解释「断网验证」演示玩法
+ *
+ * C4：默认 `hidden lg:inline-flex`——移动端顶栏塞不下时天经地义隐藏。
+ * `compact` 让移动端也能挂它（无 `hidden lg:` 前缀），桌面端调用点不传这个
+ * prop，行为不变。
  */
 
 import { useEffect, useState } from "react";
@@ -24,7 +28,7 @@ import { useChatStore } from "@/lib/store";
 import { API_BASE, cn } from "@/lib/utils";
 import type { HealthResponse } from "@/lib/types";
 
-export default function OfflineReadyBadge() {
+export default function OfflineReadyBadge({ compact = false }: { compact?: boolean }) {
   const plannerMode = useChatStore((s) => s.plannerMode);
   const [backendReady, setBackendReady] = useState(false);
 
@@ -52,7 +56,8 @@ export default function OfflineReadyBadge() {
       title="演示韧性时可断网验证：当前是规则模式，意图理解之外不依赖大模型与外部网络"
       aria-label="当前规则模式可断网继续运行"
       className={cn(
-        "hidden lg:inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
+        compact ? "inline-flex" : "hidden lg:inline-flex",
+        "items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
         "border border-amber-400/28 bg-amber-500/[0.10] text-amber-700/90 tracking-tight shadow-sm",
         "backdrop-blur cursor-help animate-fade-in transition-colors hover:border-amber-400/45 hover:bg-amber-500/[0.15]",
       )}

@@ -360,7 +360,15 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
 
     case "stream_error": {
       const p = ev.payload as unknown as StreamErrorPayload;
-      set({ streamError: `${p.reason}: ${p.detail}` });
+      const message = `${p.reason}: ${p.detail}`;
+      set({ streamError: message });
+      // A8 根治：此前只 set streamError，靠各端自己订阅渲染成红色错误条——
+      // ChatDock 的错误条挂在 timeline 展开态内部（收起时完全不可见），移动端
+      // 此前干脆零订阅（完全静默）。两端共用同一个 handleEvent，这里补一条
+      // toast 是"一处修两端受益"的根治版：无论订阅面板是否展开/挂载，用户都
+      // 至少能看到一次性提示。不替代各端自己的常驻错误条（ChatDock 的横幅、
+      // MobileHomeView 新增的横幅），是双重兜底，不是二选一。
+      get().pushToast({ kind: "warn", text: `流出错：${message}` });
       break;
     }
 

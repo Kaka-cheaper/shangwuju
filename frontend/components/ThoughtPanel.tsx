@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
+import { buildCriticTimeline, criticHeadline } from "@/lib/critic-timeline";
 import { cn, FAILURE_REASON_LABEL, PLAN_FALLBACK_STAGE_LABEL } from "@/lib/utils";
 
 // ============================================================
@@ -79,45 +80,10 @@ function buildTimeline(
 // 的合并同一手法（按 seq 排序），但视觉上独立成一个小节（见组件主体），不与
 // "Agent 在想什么"的自由文本叙事混在一起——两者是不同粒度的信息（叙事 vs.
 // 结构化质检结果），分开陈列让评委一眼分清"agent 在说什么"和"质检真的挡了什么"。
+//
+// buildCriticTimeline / criticHeadline 已抽到 lib/critic-timeline.ts（移动端
+// MobileThoughtTimeline 的 A1 复用同一份判定逻辑，见该文件 docstring）。
 // ============================================================
-
-type CriticReportShape = ReturnType<typeof useChatStore.getState>["criticReport"];
-type CriticViolationRound = CriticReportShape["violationRounds"][number];
-type CriticFixAttempt = CriticReportShape["fixAttempts"][number];
-type PlanFallbackHop = CriticReportShape["fallbackHops"][number];
-
-type CriticTimelineItem =
-  | { kind: "violations"; data: CriticViolationRound }
-  | { kind: "fix_attempt"; data: CriticFixAttempt }
-  | { kind: "fallback"; data: PlanFallbackHop };
-
-function buildCriticTimeline(report: CriticReportShape): CriticTimelineItem[] {
-  const merged: CriticTimelineItem[] = [
-    ...report.violationRounds.map((d): CriticTimelineItem => ({ kind: "violations", data: d })),
-    ...report.fixAttempts.map((d): CriticTimelineItem => ({ kind: "fix_attempt", data: d })),
-    ...report.fallbackHops.map((d): CriticTimelineItem => ({ kind: "fallback", data: d })),
-  ];
-  merged.sort((a, b) => a.data.seq - b.data.seq);
-  return merged;
-}
-
-/** 折叠态摘要行文案——人话、系统能力展示口吻（不是错误道歉）。 */
-function criticHeadline(item: CriticTimelineItem): string {
-  if (item.kind === "violations") {
-    const n = item.data.violations.length;
-    // critic_node 的 itinerary=None 早返回分支（候选为空/蓝图生成失败）会推一条
-    // violations=[] 但仍 has_critical=True 的 critic_violations（读码 + 真实
-    // stub 冒烟验证核实：backend/agent/graph/nodes/critic.py 的 itinerary is None
-    // 分支）——这不是"零问题"，是"这稿压根没生成出方案"，文案分开写。
-    return n > 0
-      ? `质检拦下 ${n} 个问题（第 ${item.data.fixAttempt} 稿），已自动返工`
-      : `第 ${item.data.fixAttempt} 稿未能生成有效方案，正在重新规划`;
-  }
-  if (item.kind === "fix_attempt") {
-    return `第 ${item.data.attempt} 稿返工中……`;
-  }
-  return `换算法引擎重排：${item.data.reason}`;
-}
 
 // ============================================================
 // 相对时间戳格式化（"3 秒前 / 1 分钟前 / 刚刚"）

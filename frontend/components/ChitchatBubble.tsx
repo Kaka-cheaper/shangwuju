@@ -6,8 +6,9 @@
 
 import { Check, Coffee, Heart, MessageCircle, Sparkles } from "lucide-react";
 
-import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
+import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
+import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
 import type { ChitchatReplyPayload, ReplyTone } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -68,8 +69,6 @@ const KIND_LABELS: Record<ChitchatReplyPayload["input_kind"], string> = {
 };
 
 export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayload }) {
-  const sendMessage = useChatStore((s) => s.sendMessage);
-  const confirm = useChatStore((s) => s.confirm);
   const streaming = useChatStore((s) => s.streaming);
   // 已预约 = 当前方案已带订单（confirm 成功后写入）；用于把确认按钮置成一次性
   const booked = useChatStore((s) => (s.itinerary?.orders?.length ?? 0) > 0);
@@ -78,40 +77,19 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
 
   // ADR-0013 F-4 范围追加（协作模式缺口修复）：气泡 chip 点击原先硬连单人主
   // store，房间里点击会打到单人 /chat/turn 接口而非房间 WS 通道，全无效果。
-  // 照 ChatDock.tsx:258-260 先例判 collabMode：协作模式下普通 chip 走
-  // sendConstraint（同 ChatDock 输入框一样，本地也要乐观追加一条用户消息——
-  // 自己发的不会经 WS constraint_added 广播回显，见 collab-store.ts 对应注释）；
-  // 确认 chip 走 collab 的 sendConfirm（内部已自带"只有房间发起人可确认"守卫）。
-  const collabMode = useCollabStore((s) => s.collabMode);
-  const sendConstraint = useCollabStore((s) => s.sendConstraint);
-  const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
+  // collabMode 分流 + 房主守卫统一由 useCollabDispatch / useConfirmAction 两个
+  // 共享 hook 实现（同 ChatDock 输入框 / ItineraryCard 确认按钮共用同一份）：
+  // 确认 chip 走 handleConfirm（内部按 collabMode 分流到 WS sendConfirm，已自带
+  // "只有房间发起人可确认"守卫）；普通 chip 走 sendUserInput（同输入框判断）。
+  const { sendUserInput } = useCollabDispatch();
+  const { handleConfirm } = useConfirmAction();
 
   const handleChipClick = (chip: ChitchatReplyPayload["cta_chips"][number]) => {
-    const isConfirm = chip.action === "confirm";
-    if (collabMode) {
-      if (isConfirm) {
-        sendCollabConfirm();
-        return;
-      }
-      sendConstraint(chip.send);
-      useChatStore.setState((s) => ({
-        messages: [
-          ...s.messages,
-          {
-            id: `u-${Date.now()}`,
-            role: "user" as const,
-            text: chip.send,
-            createdAt: Date.now(),
-          },
-        ],
-      }));
+    if (chip.action === "confirm") {
+      handleConfirm();
       return;
     }
-    if (isConfirm) {
-      confirm();
-    } else {
-      sendMessage(chip.send);
-    }
+    sendUserInput(chip.send);
   };
 
   return (

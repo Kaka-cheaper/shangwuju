@@ -11,11 +11,15 @@
  * 视觉范式：
  *   - 与 PlannerModeBadge 同样的低饱和 chip 风格（ink 灰底 + 状态点）
  *   - 不抢 PlannerModeBadge 的视觉焦点；hover 才暴露完整文案
+ *
+ * C4：默认 `hidden md:inline-flex`——移动端窄容器里桌面顶栏塞不下这么多徽章
+ * 天经地义地隐藏了它。`compact` 让移动端也能挂它（无 `hidden md:` 前缀），
+ * 桌面端调用点不传这个 prop，行为不变。
  */
 
 import { cn } from "@/lib/utils";
 
-export default function MockModeBadge() {
+export default function MockModeBadge({ compact = false }: { compact?: boolean }) {
   return (
     <span
       title={
@@ -24,7 +28,8 @@ export default function MockModeBadge() {
       }
       aria-label="当前数据源：mock 模式"
       className={cn(
-        "hidden md:inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
+        compact ? "inline-flex" : "hidden md:inline-flex",
+        "items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
         "border border-black/[0.08] bg-white/[0.68] text-ink-700 tracking-tight shadow-sm",
         "backdrop-blur cursor-help transition-colors hover:border-[#FFD100]/50 hover:bg-white/[0.88] hover:text-ink-900",
       )}

@@ -6,6 +6,9 @@ import { ChevronDown } from "lucide-react";
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
 import { useChatStore } from "@/lib/store";
+import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
+import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
+import { buildIntentChips } from "@/lib/intent-chips";
 import type {
   AgentNarrationMessage,
   AlternativeOption,
@@ -41,12 +44,9 @@ export default function ItineraryCard() {
 
   // 协作模式
   const collabMode = useCollabStore((s) => s.collabMode);
-  const sendCollabConfirm = useCollabStore((s) => s.sendConfirm);
   const sendCollabAdjust = useCollabStore((s) => s.sendAdjust);
-  const myRole = useCollabStore((s) => s.myRole);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const previousItinerary = useChatStore((s) => s.previousItinerary);
-  const confirm = useChatStore((s) => s.confirm);
   const cancel = useChatStore((s) => s.cancel);
 
   const [refineOpen, setRefineOpen] = useState(false);
@@ -104,6 +104,11 @@ export default function ItineraryCard() {
 
   const [visibleCount, setVisibleCount] = useState(0);
   const [animating, setAnimating] = useState(false);
+  // R1：时间轴 stagger 动画期间也禁用确认按钮——用 extraGate 叠加到共享的
+  // useConfirmAction 判定上（房主守卫 + collabMode 分流，见 A6 hook 抽取）。
+  // 必须在任何 early return 之前调用（hooks 规则），故放在这里而不是渲染分支处。
+  const { canConfirm, handleConfirm, confirmLabel, blockedByOwnerGuard } =
+    useConfirmAction(!animating);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 跨 itinerary 持久化的「已经跑过 stagger 的总段数」
   // 用途：confirm / refine 后 itinerary 整体替换（含 orders / share_message），但
@@ -216,9 +221,8 @@ export default function ItineraryCard() {
   const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
   // R1: animating 期间也禁用按钮（避免用户在动画进行中点确认）
+  // canConfirm/handleConfirm 已由 useConfirmAction(!animating) 统一算好（见上）。
   const canAct = !streaming && !hasOrders && !cancelled && !animating;
-  const canConfirm = canAct && (!collabMode || myRole === "owner");
-  const handleConfirm = collabMode ? sendCollabConfirm : confirm;
   // ADR-0013 F-5：房间模式下节点调整走 WS "adjust"（RoomManager.adjust，归名+
   // 串行+锁定广播），单人模式维持原 HTTP `/chat/adjust` SSE（同 ChatDock 的
   // collabMode 分流先例）——两个调用点（具名备选/定向调整 chip）共用这一处分流。
@@ -587,7 +591,7 @@ export default function ItineraryCard() {
               disabled={!canConfirm}
               onClick={handleConfirm}
               title={
-                collabMode && myRole !== "owner"
+                blockedByOwnerGuard
                   ? "只有房间发起人可以确认预约"
                   : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
               }
@@ -595,12 +599,12 @@ export default function ItineraryCard() {
               {streaming ? (
                 <>
                   <Icons.thinking className="w-3.5 h-3.5 animate-spin" />
-                  <span>执行中</span>
+                  <span>{confirmLabel}</span>
                 </>
               ) : (
                 <>
                   <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
-                  <span>{collabMode && myRole !== "owner" ? "等待发起人确认" : "确认并预约"}</span>
+                  <span>{confirmLabel}</span>
                 </>
               )}
             </button>
@@ -862,39 +866,10 @@ function ConfirmPreviewCard({
   intent: IntentExtraction | null;
   itinerary: Itinerary;
 }) {
-  // 找全部用餐节点，用作"锁餐厅时段"预览——方案含多顿饭（如下午茶+晚饭）时
-  // 不能只提第一家，否则第二顿会被误读成"漏排"。
-  const restaurants = itinerary.nodes.filter(
-    (n) => n.target_kind === "restaurant",
-  );
-  const partySize =
-    intent?.companions?.reduce((acc, c) => acc + (c.count ?? 1), 0) ?? 0;
-  const partySizeText = partySize > 0 ? `${partySize + 1} 人位` : "桌位";
-  const socialCtx = intent?.social_context || "";
-  const extraServices = (intent?.extra_services ?? [])
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const extraLine =
-    extraServices.length > 0
-      ? `；并加购${extraServices.slice(0, 3).join("、")}`
-      : "";
-
-  // 三件事的简短描述（按"动词 + 名词"模式，避免 + 堆叠）
-  const restaurantLine = (() => {
-    if (restaurants.length === 0) return "Agent 会按行程方案锁定预约";
-    if (restaurants.length === 1) {
-      return `Agent 会先到 ${restaurants[0].title} 锁定 ${restaurants[0].start_time} 的 ${partySizeText}`;
-    }
-    if (restaurants.length === 2) {
-      return `Agent 会依次到 ${restaurants[0].title} 和 ${restaurants[1].title} 锁定各自时段的${partySizeText}`;
-    }
-    // 3 家及以上：只点名前两家，其余截断为"等 N 家"，避免句子被地点名堆满
-    return `Agent 会依次到 ${restaurants[0].title}、${restaurants[1].title} 等 ${restaurants.length} 家锁定各自时段的${partySizeText}`;
-  })();
-
-  const memoryLine = socialCtx
-    ? `把这次「${socialCtx}」场景的偏好写进 user_profile.json，让下次重启后还能想起来`
-    : "把这次的偏好写进长期记忆，让下次重启后还能想起来";
+  // 文案派生逻辑抽到 lib/confirm-preview.ts（B8：移动端 MobileConfirmPreview
+  // 复用同一份"多顿饭不能只提第一家 / 人均桌位数 / 加购服务截断"判定）。
+  const { restaurantLine, extraLine, memoryLine, extraServices } =
+    buildConfirmPreviewCopy(intent, itinerary);
 
   return (
     <div
@@ -979,111 +954,6 @@ function MemoryPersistedBadge({
   );
 }
 
-
-// ============================================================
-// Intent chips —— 「为你考虑了什么」可视化（方案 C）
-//   把 intent 命中的 4-6 个关键约束做成小标签，让评委一眼看到 Agent 真在为你考虑
-// ============================================================
-
-interface ChipItem {
-  icon: keyof typeof Icons;
-  label: string;
-}
-
-function buildIntentChips(intent: IntentExtraction): ChipItem[] {
-  const chips: ChipItem[] = [];
-
-  // 距离
-  if (intent.distance_max_km != null) {
-    chips.push({
-      icon: "pin",
-      label: `${intent.distance_max_km % 1 === 0 ? intent.distance_max_km : intent.distance_max_km.toFixed(1)} km 内`,
-    });
-  }
-
-  // 同行人（家庭/朋友/独处推断）
-  if (intent.companions && intent.companions.length > 0) {
-    const totalCount = intent.companions.reduce(
-      (sum, c) => sum + (c.count ?? 1),
-      0,
-    );
-    const hasChild = intent.companions.some(
-      (c) => c.age != null && c.age <= 12,
-    );
-    const hasElder = intent.companions.some(
-      (c) => c.age != null && c.age >= 60,
-    );
-    let label: string;
-    let icon: keyof typeof Icons;
-    if (hasChild) {
-      const child = intent.companions.find((c) => c.age != null && c.age <= 12);
-      label = `带 ${child?.age ?? ""} 岁孩子`;
-      icon = "baby";
-    } else if (hasElder) {
-      label = "陪长辈";
-      icon = "heart";
-    } else if (totalCount > 1) {
-      label = `${totalCount} 人同行`;
-      icon = "users";
-    } else {
-      label = intent.companions[0].role || "同行";
-      icon = "user";
-    }
-    chips.push({ icon, label });
-  } else if (intent.social_context && intent.social_context.includes("独处")) {
-    chips.push({ icon: "sun", label: "独处时间" });
-  }
-
-  // 饮食偏好（按内容匹配图标）
-  const dietary = (intent.dietary_constraints || []).slice(0, 2);
-  for (const d of dietary) {
-    const icon = matchDietaryIcon(d);
-    chips.push({ icon, label: d });
-  }
-
-  // 物理约束（按内容匹配图标）
-  const physical = (intent.physical_constraints || []).slice(0, 2);
-  for (const p of physical) {
-    const icon = matchPhysicalIcon(p);
-    chips.push({ icon, label: p });
-  }
-
-  // 时长
-  if (
-    intent.duration_hours &&
-    Array.isArray(intent.duration_hours) &&
-    intent.duration_hours.length === 2
-  ) {
-    const [lo, hi] = intent.duration_hours;
-    if (lo === hi) {
-      chips.push({ icon: "clock", label: `${lo} 小时` });
-    } else {
-      chips.push({ icon: "clock", label: `${lo}-${hi} 小时` });
-    }
-  }
-
-  return chips.slice(0, 6);
-}
-
-/** 饮食约束 → 图标匹配 */
-function matchDietaryIcon(text: string): keyof typeof Icons {
-  if (/低脂|减脂|少油/.test(text)) return "leaf";
-  if (/健康|轻食|沙拉/.test(text)) return "salad";
-  if (/素食|蔬菜/.test(text)) return "leaf";
-  if (/清淡|少盐/.test(text)) return "leaf";
-  if (/甜|糖/.test(text)) return "utensils";
-  return "utensils";
-}
-
-/** 物理约束 → 图标匹配 */
-function matchPhysicalIcon(text: string): keyof typeof Icons {
-  if (/亲子|儿童|孩子|宝宝/.test(text)) return "baby";
-  if (/无障碍|轮椅|台阶/.test(text)) return "footprints";
-  if (/低强度|不累|轻松/.test(text)) return "sun";
-  if (/室内|遮阳|空调/.test(text)) return "sun";
-  if (/步行|走路/.test(text)) return "footprints";
-  return "spark";
-}
 
 // ============================================================
 // edge_v1 schedule 渲染辅助函数
