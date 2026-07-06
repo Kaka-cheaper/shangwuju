@@ -40,6 +40,7 @@ from ._emit_handlers import (
     emit_refiner,
     emit_replan_router,
     emit_router,
+    emit_store_swap,
 )
 
 
@@ -153,6 +154,8 @@ async def _drive_graph_stream(
                     events = emit_intent(ctx, node_diff)
                 elif node_name == "refiner":
                     events = emit_refiner(ctx, node_diff)
+                elif node_name == "store_swap":
+                    events = emit_store_swap(ctx, node_diff)
                 elif node_name in _FANOUT_WORKERS:
                     events = emit_fanout_worker(ctx, node_name, node_diff)
                 elif node_name == "planner":

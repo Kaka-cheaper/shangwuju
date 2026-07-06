@@ -36,6 +36,7 @@ from agent.context.sources import GraphStateSource
 from agent.routing.brain import classify_turn
 from agent.core.llm_client import get_llm_client
 from agent.routing.route_turn import route_turn
+from agent.routing.store_swap_router import classify_store_swap
 
 # 【护栏2·消毒纪律】壳1 拦截（注入）的轮次不把攻击原文回灌会话日志——占位
 # 文本本身不含任何用户输入片段（同 route_turn._safe_refusal_decision 的
@@ -50,6 +51,29 @@ _INJECTION_LOG_PLACEHOLDER = "[该输入因安全原因被拦截]"
 # 调用方——如协作房间的消息处理器——不一定都经过那层 HTTP 校验）。
 _MAX_LOGGED_INPUT_CHARS = 500
 _TRUNCATION_MARK = "……[超长粘贴已截断]"
+
+
+# 【B2 · A2 诚实安全网材料】反馈轮的"上一版方案有哪些非 home 实体"快照——
+# 必须在 refiner_node 的 reset_for_new_episode() 清空 state["itinerary"] 之前
+# 拍下来，否则 narrate_node 跑到时旧方案早就没了，无从算"这版反馈 → 实体 diff
+# 是否为 0"（见 agent/graph/nodes/narrate.py::_feedback_entities_unchanged）。
+# router_node 排在 refiner_node 之前，是单人路径这张快照唯一来得及拍的时机。
+#
+# 房间路径独立调用点：`collab/room.py::RoomManager._replan_with_refiner` 不经
+# router_node（直调 refiner_node + 手工拼 as_node="refiner" 注入 diff，是该
+# 方法 docstring 里"图外可调"的既有做法），在其"步骤 1 先读"之后、调
+# `refiner_node` 之前同样调本函数拍同一份快照——两处独立调用同一份纯函数
+# （同输入必同输出），是"金标准对比测试"（test_room_persistent_resume.py）
+# 要求单人/房间两条路径对同一份反馈产出逐字节相同图状态的一部分，不是
+# 各自重新发明一套算法。
+def _prior_entity_ids(itinerary: Any) -> list[str]:
+    if not itinerary:
+        return []
+    return sorted(
+        f"{n.target_kind}:{n.target_id}"
+        for n in getattr(itinerary, "nodes", None) or []
+        if getattr(n, "target_kind", None) != "home"
+    )
 
 
 def _sanitize_for_log(raw_input: str) -> str:
@@ -83,6 +107,12 @@ def router_node(state: AgentState) -> dict[str, Any]:
 
     result: dict[str, Any] = {"route_kind": outcome.kind, "router_decision": outcome.decision}
 
+    # B2 · A2 诚实安全网：见上方 _prior_entity_ids 注释。TURN_SCOPED，router_node
+    # 每轮无条件重算（非 feedback 轮固定 None，与 route_kind 同一"表=代码"纪律）。
+    result["feedback_prior_entities"] = (
+        _prior_entity_ids(state.get("itinerary")) if outcome.kind == "feedback" else None
+    )
+
     # ---- 会话日志（messages 通道，SESSION_SCOPED，add_messages 现成 reducer）----
     # 是否命中壳1 直接读 `outcome.injection_blocked`（ADR-0011 E-2-c 新增字段）——
     # 不再重新调用一次 `detect_injection`。E-2-a 那批 route_turn.py 不在改动
@@ -111,11 +141,24 @@ def router_node(state: AgentState) -> dict[str, Any]:
 
 
 def route_after_router(state: AgentState) -> str:
-    """conditional edge 函数。返回下一节点名。"""
+    """conditional edge 函数。返回下一节点名。
+
+    【B2 分路】"feedback" 大类下再细分一次："换个店铺"这类聊天反馈（点名
+    或泛化换店，见 `agent.routing.store_swap_router.classify_store_swap`）
+    改走 `store_swap`（node_swap 换全店/点名换店引擎，见 `agent.graph.nodes.
+    store_swap`），不再走 `refiner`（全量重排——那条路没有按店名排除的机制，
+    见 `agent.intent.prompts.refiner_prompt` C 类既定诊断）。其余反馈
+    （太远/太贵/太赶/换场景……）行为完全不变，仍走 `refiner`。`route_kind`
+    本身不引入第三个标签——ADR-0011"六标签闭集"的路由投影语义不变，本判定
+    只是 graph 层"feedback 具体走哪个执行节点"的细化，不是新的 L0 输入分类。
+    """
     kind = state.get("route_kind")
     if kind == "planning":
         return "intent"
     if kind == "feedback":
+        itinerary = state.get("itinerary")
+        if itinerary and classify_store_swap(state.get("user_input") or "", itinerary) is not None:
+            return "store_swap"
         return "refiner"
     # chitchat / confirm / clarify / defense（ADR-0011 6 标签闭集里除
     # planning/feedback 外的其余 4 类，catch-all 送 chitchat 节点渲染气泡）

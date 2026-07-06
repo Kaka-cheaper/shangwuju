@@ -356,6 +356,18 @@ def emit_assemble(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     return out
 
 
+def emit_store_swap(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
+    """store_swap 节点（B2："换个店铺"聊天反馈换全店/点名换店）：只推一句过程
+    提示，不重推方案——`ITINERARY_READY` 仍由紧随其后的 `finalize_plan`
+    （体感编排批 P1 既定纪律，见 `emit_finalize_plan`）统一推送，本函数不
+    读 diff 里的 itinerary 也不重复组装。"""
+    if diff.get("itinerary") is None:
+        return []
+    return [
+        ctx.emit(SseEventType.AGENT_THOUGHT, {"text": "正在帮你把这几家店换掉……"})
+    ]
+
+
 def emit_finalize_plan(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     """finalize_plan 节点（体感编排批 P1："先出方案，后出文案"）：critic 通过 /
     replan give_up / ils 成功三条路径统一先到这里，再进 narrate。

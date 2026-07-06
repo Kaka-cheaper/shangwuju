@@ -5,6 +5,10 @@
 START
   → router (条件分支)
        ├── chitchat → END
+       ├── store_swap → finalize_plan → narrate → END（B2："换个店铺"类聊天
+       │     反馈，见 agent.routing.store_swap_router / agent.graph.nodes.
+       │     store_swap；不经 execute/planner/critic——node_swap 引擎自己
+       │     召回+调度+组装）
        ├── refiner → execute → planner → ...
        └── intent → execute → planner → ...
 
@@ -70,6 +74,7 @@ from agent.graph.nodes.replan import (
     route_after_replan,
 )
 from agent.graph.nodes.router import route_after_router, router_node
+from agent.graph.nodes.store_swap import store_swap_node
 from agent.graph.state import AgentState
 
 
@@ -200,6 +205,11 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
     g.add_node("chitchat", chitchat_node)
     g.add_node("intent", intent_node)
     g.add_node("refiner", refiner_node)
+    # B2："换个店铺"聊天反馈换全店/点名换店（node_swap 引擎编排，见
+    # agent.graph.nodes.store_swap docstring）。异常 → passthrough（原样
+    # 透传现有 itinerary，与 finalize_plan 同一降级策略——换店失败不该让
+    # 用户裸看 STREAM_ERROR，方案维持不变最诚实）。
+    g.add_node("store_swap", drain_on_error(store_swap_node, "passthrough"))
 
     # ---- D2 失败降级阶梯（output degradation ladder）----
     # 在「注册时」给规划主链节点挂 drain_on_error 安全网，把策略集中在此处一目了然：
@@ -251,6 +261,7 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
             "chitchat": "chitchat",
             "intent": "intent",
             "refiner": "refiner",
+            "store_swap": "store_swap",
         },
     )
 
@@ -262,6 +273,13 @@ def build_graph(*, with_checkpointer: bool = True, checkpointer: Any = None) -> 
         g.add_edge(src, "search_pois_worker")
         g.add_edge(src, "search_restaurants_worker")
         g.add_edge(src, "get_user_profile_worker")
+
+    # store_swap 不经 execute/planner/critic（node_swap 引擎自己召回+调度+
+    # 组装新方案，见 agent.graph.nodes.store_swap docstring）——直接接
+    # finalize_plan（复用既有"方案定稿收尾"节点：规则标题/pending_actions/
+    # 版本志/出口审计），与 critic 通过 / replan give_up / ils 成功三条既有
+    # 入 finalize_plan 的边并列，成为第四条。
+    g.add_edge("store_swap", "finalize_plan")
 
     # 3 个 worker 都完成后汇聚 execute_collect
     g.add_edge("search_pois_worker", "execute_collect")

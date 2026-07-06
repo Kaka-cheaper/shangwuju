@@ -825,6 +825,7 @@ def _template_narration(
     plan_recap: Optional[str] = None,
     *,
     unmet_not_scheduled: Optional[list[str]] = None,
+    feedback_no_change: bool = False,
 ) -> str:
     """规则模板拼开场白（fallback 也走这个）。
 
@@ -854,6 +855,11 @@ def _template_narration(
     版本时才传值，见该文件 `_plan_recap_clause`"首轮不硬扯"纪律）在开场之后
     插入一句确定性回顾，如"这版是照你『太远了』的反馈调过的，"。None/空串 =
     不插入（首轮/全新解析没有"上一条反馈"可回顾）。
+
+    B2 · A2 安全网（2026-07-06 新增）：`feedback_no_change=True` 时（这轮
+    反馈要求变更，但重排后方案实体一个都没变——见 `agent.graph.nodes.narrate.
+    _feedback_entities_unchanged`）追加一句确定性诚实告知，绝不宣称"已经
+    换了"，见函数体 honest_segments 拼接。False（默认）不追加。
     """
     total_h = itinerary.total_minutes / 60
     companions_phrase = _format_companions(
@@ -966,6 +972,14 @@ def _template_narration(
     provenance_clause = _provenance_honest_clause(intent)
     if provenance_clause:
         honest_segments.append(provenance_clause)
+    # B2 · A2 安全网：反馈要求变更但重排后实体一个都没变——绝不说"已经换了"，
+    # 诚实说明没能真的换掉（措辞含"跟我说"，天然命中 _FEEDBACK_INVITE_MARKERS，
+    # 与其它诚实告知同一"邀请反馈只说一次"收尾去重纪律）。
+    if feedback_no_change:
+        honest_segments.append(
+            "这次帮你重新看了一遍候选，选来选去还是眼前这些最合适，没能真的"
+            "换掉，想换成什么样可以再跟我说具体点。"
+        )
     honest_text = ("说明一下，" + "".join(honest_segments)) if honest_segments else ""
 
     # ADR-0010 边界节：活动数 ≥3 时追加"为什么选这几个、为什么这样排"一句话
@@ -1207,6 +1221,7 @@ def _call_llm_narrator(
     pois: Sequence[Poi] = (),
     restaurants: Sequence[Restaurant] = (),
     plan_recap: str = "",
+    feedback_no_change: bool = False,
 ) -> Optional[tuple[Optional[str], str, list[NodeChip]]]:
     """调 LLM 生成开场白（want_title=True 时同次产出 title + narration + node_chips）。
 
@@ -1254,6 +1269,11 @@ def _call_llm_narrator(
         # 【出处诚实告知】段），不复用模板路径 `_provenance_honest_clause` 的
         # 现成句子。
         provenance_hints=_provenance_hints(intent),
+        # B2 · A2 安全网：反馈要求变更但重排后实体 0 变，LLM 路径走 prompt
+        # 指令（narrator_prompt.py【诚实告知规则】规则 6），不复用模板路径的
+        # 现成句子（同 unmet_cuisines/advisories 一贯的"模板确定性、LLM 走
+        # 指令"分工）。
+        feedback_no_change=feedback_no_change,
     )
 
     try:
@@ -1436,6 +1456,7 @@ def generate_title_and_narration(
     pois: Sequence[Poi] = (),
     restaurants: Sequence[Restaurant] = (),
     plan_recap: str = "",
+    feedback_no_change: bool = False,
 ) -> tuple[str, str, list[NodeChip]]:
     """同次产出 (title, narration, node_chips)。
 
@@ -1462,6 +1483,11 @@ def generate_title_and_narration(
     路径插确定性回顾句（见 `_template_narration` 同名参数）。空串 = 首轮/
     非反馈轮，两条路径都不硬扯。
 
+    feedback_no_change（B2 · A2 安全网，2026-07-06 新增）：True 时是"这轮
+    反馈要求变更，但重排后方案实体一个都没变"的诚实信号——两条路径都必须
+    诚实说明没能真的换掉，绝不宣称"已经换了"（见 `_template_narration`/
+    `narrator_prompt.py`【诚实告知规则】规则 6）。False（默认）不触发。
+
     Returns:
         (title, narration, node_chips)；title/narration 永远非空，
         node_chips 可能是空列表（itinerary 没有非 home 节点这种边界情况）。
@@ -1486,6 +1512,7 @@ def generate_title_and_narration(
             pois=pois,
             restaurants=restaurants,
             plan_recap=plan_recap,
+            feedback_no_change=feedback_no_change,
         )
         if out is not None:
             llm_title, llm_narration, llm_node_chips = out
@@ -1494,6 +1521,7 @@ def generate_title_and_narration(
     narration = llm_narration or _template_narration(
         intent, itinerary, stage, quality_warnings, unmet_cuisines, advisories,
         plan_recap=plan_recap, unmet_not_scheduled=unmet_not_scheduled,
+        feedback_no_change=feedback_no_change,
     )
     # title：LLM 解析出来就用；否则规则模板兜底（信息全 = 含所有主要站点）
     title = llm_title or _template_title(intent, itinerary)

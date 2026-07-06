@@ -81,6 +81,12 @@ class AdvisoryCode(str, Enum):
     # 消息点名受累节点与新排定时刻，不承诺自动重新对齐（下单期的槽位交叉
     # 校验只做"合法才生效否则退 start_time"，没有重排能力）。
     SWAP_KEPT_TIME_SHIFTED = "swap_kept_time_shifted"
+    # B2（"换个店铺"整轮换店/点名换店，chat 反馈路径）：用户点名要换的这一站
+    # 恰好是本会话被赞锁定（`pinned_targets`）的实体——锁定语义是"必须保留"，
+    # 优先级高于这一次点名换店的请求，不静默执行也不静默跳过，如实告知用户
+    # 没有换、以及为什么。与本文件其余"绝不默默忽略"码同一分工：不 gate 任何
+    # 东西，只是如实说明。
+    SWAP_TARGET_LOCKED = "swap_target_locked"
 
     # ---- ADR-0014 决策 2（G-2）：出口满足度审计 ----
     # 方案定稿处统一比对最终 itinerary 每个节点 vs intent 全部约束产出——软约束

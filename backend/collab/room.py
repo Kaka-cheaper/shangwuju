@@ -1257,6 +1257,7 @@ class RoomManager:
 
         from agent.graph.build import get_compiled_graph
         from agent.graph.nodes.refiner import refiner_node
+        from agent.graph.nodes.router import _prior_entity_ids
         from agent.graph.sse_adapter import run_graph_resume_stream
         from schemas.intent import IntentExtraction
         from schemas.itinerary import Itinerary
@@ -1319,6 +1320,15 @@ class RoomManager:
         # 新一轮。asyncio.to_thread：refiner 内部是同步 LLM 调用（真实模式数秒），
         # 不能挂死房间事件循环（广播/其它成员消息全停）——同 graph_confirm 对
         # execute_finalize_node 的既有先例。
+        # B2 · A2 诚实安全网材料：与单人路径 router_node 同一份快照（见
+        # `agent.graph.nodes.router._prior_entity_ids` docstring）——必须在
+        # 这里（refiner_node 的 reset_for_new_episode() 清空 itinerary 之前）
+        # 拍下"被拒的这一版方案"的非 home 实体集合，供 narrate_node 判断
+        # "这轮反馈 → 实体 diff 是否为 0"。取 base["itinerary"]（上面步骤 1
+        # 已经落实成活的 Itinerary 对象，refiner 判断素材同一份）而非
+        # room.current_itinerary_dict 原始 dict，避免重复反序列化。
+        prior_entities = _prior_entity_ids(base.get("itinerary"))
+
         refiner_diff = await asyncio.to_thread(refiner_node, base)
         refined_intent = refiner_diff.get("intent")
         if refined_intent is None:
@@ -1343,6 +1353,9 @@ class RoomManager:
             "user_input": feedback,       # finalize_plan 的版本志 snippet 读它
             "route_kind": "feedback",     # 版本志 trigger 判据 + 事件生命周期语义
             "router_decision": None,      # Layer 1 强信号路径 decision 本就是 None
+            # B2 · A2 诚实安全网：与单人路径 router_node 同一份快照（见上方
+            # prior_entities 注释与 agent.graph.nodes.router._prior_entity_ids）。
+            "feedback_prior_entities": prior_entities,
             "messages": [HumanMessage(content=feedback)],  # add_messages 通道：追加会话日志
             # SESSION_SCOPED 透传（同 make_initial_state 对这两键"确认非重置"的语义）：
             # 冷启动线程上它们从未被写过，续跑链路的读者（profile worker 等）需要之。

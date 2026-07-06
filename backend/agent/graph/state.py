@@ -66,6 +66,22 @@ ReplanStrategy = Literal[
 # 主 State
 # ============================================================
 
+def _merge_swapped_out_entity_ids(old: list[str], new: list[str]) -> list[str]:
+    """swapped_out_entity_ids 通道归并器（B2 换全店累积排除，SESSION_SCOPED）。
+
+    语义与 `_merge_demand_ledger` 同款理由（空更新=保留旧值,同 messages 先例）,
+    但并入方式是**并集**而非整体替换：写手（`store_swap_node`）算好的"新增
+    排除"本就该叠加在会话累积集合之上，不是顶替它——取并集对调用方传"这次
+    新增的一批"或"已经算好的全量并集"两种写法都天然正确（幂等、不敏感于
+    调用方到底传了增量还是全量），比 demand_ledger 的"整体替换"语义更安全，
+    不需要调用方自己记得先读旧值再拼。空更新（无新排除）经此归并器是
+    no-op——防止 make_initial_state 每轮写 [] 静默清空跨轮累积的排除集。
+    """
+    if not new:
+        return list(old or [])
+    return sorted(set(old or []) | set(new))
+
+
 def _merge_demand_ledger(old: list[dict], new: list[dict]) -> list[dict]:
     """demand_ledger 通道归并器(F-2 深审修正,SESSION_SCOPED 的结构性保障)。
 
@@ -142,6 +158,15 @@ class AgentState(TypedDict, total=False):
     # payload=RefinementOutput.model_dump())。仅反馈轮由 refiner_node 写入。
     refinement_changed_fields: Optional[list[str]]
     refinement_note: Optional[str]
+    # TURN_SCOPED（B2 换全店诚实安全网 · A2）：本轮若 route_kind=="feedback"，
+    # router_node 在 reset 发生之前快照"上一版方案的非 home 实体 id 集合"
+    # （`f"{kind}:{target_id}"`，见 `agent.graph.nodes.router._prior_entity_ids`），
+    # 供 narrate_node 计算"这版反馈 → 实体 diff 是否为 0"（见 narrate.py
+    # `_feedback_entities_unchanged`）。非 feedback 轮固定 None——router_node
+    # 每轮无条件重算（同 route_kind/router_decision 一样"表=代码"的精确性，
+    # 不是防护）。放 TURN_SCOPED 而非 EPISODE_SCOPED：它只服务"这一轮"的诚实
+    # 检测，下一轮无论是否规划事件都该重新判定，不需要跨轮持久。
+    feedback_prior_entities: Optional[list[str]]
 
     # ---- 意图层 ----
     intent: Optional[IntentExtraction]  # EPISODE_SCOPED：新规划事件的意图，reset 后立即被 intent/refiner 自己的输出覆盖
@@ -251,6 +276,16 @@ class AgentState(TypedDict, total=False):
     # 非空=整体替换(record_demand 返回含顶替改写的全量列表,append 语义不适用)。
     # 写入/消费接线归 F-4/F-5,但存活性从此是结构保障,不依赖任何调用方自觉。
 
+    # ---- 换全店累积排除集（B2，"换个店铺"chat 反馈整轮换店的防 ping-pong）----
+    swapped_out_entity_ids: Annotated[list[str], _merge_swapped_out_entity_ids]  # SESSION_SCOPED：
+    # list[str]（`f"{kind}:{target_id}"`）。`agent.graph.nodes.store_swap.
+    # store_swap_node` 唯一写手——每次"换全店/点名换店"操作把**被换掉的旧
+    # 实体**并入这个会话级集合，下一次换店时的黑名单 = 当前实体 ∪ 本集合，
+    # 防止两次换店之间来回横跳（ping-pong）。归 SESSION_SCOPED（不随
+    # reset_for_new_episode 清零）——这是"这次会话已经换掉过哪些店"的历史，
+    # 语义上与 demand_ledger（诉求跨版本存活）同类，不是"这一版方案"的即时
+    # 状态。归并器见 `_merge_swapped_out_entity_ids`（并集、空更新 no-op）。
+
     # ---- 方案版本志（ADR-0011 前置核实①/决策 3：会话上下文打包器的版本
     # 摘要素材，E-2 第一块砖第二件）----
     plan_version_log: Annotated[list[dict], operator.add]  # SESSION_SCOPED：
@@ -287,6 +322,7 @@ TURN_SCOPED: frozenset[str] = frozenset({
     "chitchat_chips",
     "refinement_changed_fields",
     "refinement_note",
+    "feedback_prior_entities",
 })
 """每个 turn 开始清零：make_initial_state 显式给这批字段赋初值。
 
@@ -302,6 +338,7 @@ SESSION_SCOPED: frozenset[str] = frozenset({
     "messages",
     "demand_ledger",
     "plan_version_log",
+    "swapped_out_entity_ids",
 })
 """跨轮持久，从不被 make_initial_state 的"清零"语义覆盖：
 messages 靠 add_messages reducer 自身跨轮累积；user_id/session_id/scenario_id/
@@ -449,6 +486,7 @@ def make_initial_state(
         chitchat_chips=[],
         refinement_changed_fields=None,
         refinement_note=None,
+        feedback_prior_entities=None,
         # ---- SESSION_SCOPED：调用方透传（非"重置"）----
         user_id=user_id,
         session_id=session_id,
@@ -457,6 +495,7 @@ def make_initial_state(
         messages=[],
         demand_ledger=[],  # 经归并器 no-op,见字段注释
         plan_version_log=[],  # 经 operator.add 归并器 no-op,见字段注释
+        swapped_out_entity_ids=[],  # 经归并器 no-op,见字段注释
     )
     assert set(state.keys()) == (TURN_SCOPED | SESSION_SCOPED), (
         "make_initial_state 只应覆盖 TURN_SCOPED ∪ SESSION_SCOPED"

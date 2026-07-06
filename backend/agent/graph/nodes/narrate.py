@@ -626,6 +626,64 @@ def _build_node_detail(
     return result
 
 
+def _entity_id_set(itinerary: Any) -> set[str]:
+    """方案里全部非 home 节点的 `kind:target_id` 集合——与 `agent.graph.nodes.
+    router._prior_entity_ids` 同一口径（两处独立实现同一个小算法：router 拍
+    "旧方案"的快照、这里算"新方案"的现值，各自只依赖自己拿到的 itinerary，
+    不必为了共享 6 行代码而新增一个跨 router/narrate 的公共小模块）。"""
+    return {
+        f"{n.target_kind}:{n.target_id}"
+        for n in getattr(itinerary, "nodes", None) or []
+        if getattr(n, "target_kind", None) != "home"
+    }
+
+
+def _feedback_entities_unchanged(state: AgentState, itinerary: Any) -> bool:
+    """B2 · A2 诚实安全网：这轮反馈要求变更，但重排后方案实体一个都没变。
+
+    【这是什么问题】镜像本文件 `_detect_unmet_cuisines`/`_detect_unmet_poi`
+    的既有机制（都市"诚实告知"信号：检测出一个"用户期望 vs 实际结果"的落差，
+    传给 narrator 让它诚实说明，而不是让 narrator 凭方案表面数据自由发挥、
+    可能编出"已经换了"这种没发生过的断言）——本信号盯的落差是"反馈明摆着
+    是冲着变更来的，但方案的实体集合和上一版相比一个都没变"。
+
+    诊断背景（B2 病灶）：`agent.intent.prompts.refiner_prompt` C 类反馈（"只是
+    想换一个备选"）的 intent 字段基本不动，且系统"没有按店名排除的机制"——
+    这类反馈走全量重排后，蓝图 LLM 常常选出同一批候选，narration 却可能仍
+    宣称"这版照你说的换了"。B2 把"换店"类反馈分流到 node_swap 引擎
+    （`agent.graph.nodes.store_swap`，真排除+三级降级+自带诚实 advisory），
+    但"太远/太贵/太赶"这类**仍然**走全局重排的反馈没有对应的排除机制，
+    重排后同样可能 0 处实体变化——本函数是这条**仍在用**的全局重排路径的
+    安全网（B2 任务书"A——诚实层安全网，给仍走全局重排的其它反馈兜底"）。
+
+    材料：`state.feedback_prior_entities`——`agent.graph.nodes.router.
+    _prior_entity_ids` 在本轮判定 route_kind=="feedback" 的那一刻拍下的
+    "上一版方案非 home 实体"快照（必须在 refiner_node/store_swap_node 的
+    `reset_for_new_episode()` 清空 state["itinerary"] **之前**拍下，晚一步
+    旧方案就没了，见该函数注释）。
+
+    判定条件（任一不满足即不触发，宁缺毋误报）：
+    ① 本轮确实是反馈轮（`route_kind=="feedback"`）；
+    ② 有快照可比（`feedback_prior_entities is not None`——理论上反馈轮
+       必然有上一版方案，`None` 只会出现在这条信号还没接线的防御性缺省，
+       出现即代表数据不可信，不比较）；
+    ③ 当前方案非空（`current` 非空集合——避免"新旧都是空集合"这种平凡
+       相等误判为"没变"，即便实践中反馈轮不该出现无节点方案）。
+    满足以上三条时用**集合相等**比较（`kind:target_id`，与快照同一口径）
+    ——只看"实体这个硬事实变没变"，不关心排程时刻/节点顺序这些次要变化
+    （那些变了但实体没变，"没真的换掉"仍然是对用户最诚实的表述）。
+    """
+    if state.get("route_kind") != "feedback":
+        return False
+    prior = state.get("feedback_prior_entities")
+    if prior is None:
+        return False
+    current = _entity_id_set(itinerary)
+    if not current:
+        return False
+    return set(prior) == current
+
+
 _RECAP_QUOTE_RE = re.compile(r"『(.+?)』")
 
 
@@ -746,6 +804,10 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     routing_ctx = pack_routing_context(GraphStateSource(state))
     plan_recap = _plan_recap_clause(routing_ctx.plan_version_log)
 
+    # B2 · A2 诚实安全网：这轮反馈要求变更，但重排后方案实体一个都没变——
+    # 见 `_feedback_entities_unchanged` docstring。
+    feedback_no_change = _feedback_entities_unchanged(state, itinerary)
+
     # 同次产出：title（小红书风格大标题，LLM 成功时比 finalize_plan 的规则
     # 标题更精彩）+ narration（开场白）+ node_chips（ADR-0013 F-3：节点定向
     # 调整按钮，LLM 搭车或模板兜底）。title 必须覆盖所有主要站点（旧 bug：
@@ -763,6 +825,7 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         pois=pois,
         restaurants=restaurants,
         plan_recap=plan_recap,
+        feedback_no_change=feedback_no_change,
     )
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate

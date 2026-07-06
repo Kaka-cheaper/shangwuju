@@ -188,6 +188,12 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
   （具体原因规划器没有给出，不要替它编一个），坦白说"X 这次没安排上"，
   **绝不能**说成"附近没找到 X"——附近明明有还说找不到，用户下一轮就会发现
   你在撒谎；也不要给"没安排上"编任何因果解释（改口根治批：只陈述、不归因）。
+- 规则 6（反馈但没能真的换掉别的，B2 · A2 安全网）：收到 `【反馈未换到别的
+  候选】` 信号时，说明这次反馈本是冲着"换一个"来的，系统确实又重新试了一遍，
+  但候选翻来覆去还是原来这些，方案里的实体**一个都没变**。此时**绝不能**说
+  "已经帮你换了/换成了/按你说的换掉了"这类话——那是没发生过的事，说了就是
+  撒谎。必须诚实说明"这次重新看了一遍候选，选来选去还是眼前这些最合适，
+  没能真的换掉"，可以邀请用户说得更具体一点（想换成什么样）。
 
 【诚实告知 few-shot 示例】
 
@@ -200,6 +206,11 @@ NARRATOR_SYSTEM_PROMPT = f"""你是「晌午局」——一个本地半日出行
 输入 未满足的品类诉求：「看展」
 输出：
 你说想看个展，不过这附近合适的展馆这次没排上，先带你和女朋友去猫咖和电影院凑个完整下午，氛围也安静浪漫。想看展的话我再帮你找远一点的。
+
+示例 E · 反馈要求换一个，但重排后没换到别的（规则 6，B2 · A2 安全网）
+输入 反馈未换到别的候选：true
+输出：
+这次帮你重新看了一遍候选，选来选去还是眼前这些最合适，没能真的换掉——想换成什么样的，可以再跟我说具体点。
 
 【出处诚实告知（ADR-0014 决策 1 · G-1）】
 系统现在会记录每个需求字段"是怎么来的"（用户原话 / 从用户的话推断 / 你的历史
@@ -327,6 +338,7 @@ def build_narrator_user_message(
     node_chip_context: list[dict] | None = None,
     plan_recap: str = "",
     provenance_hints: dict | None = None,
+    feedback_no_change: bool = False,
 ) -> str:
     """构造 user message（喂给 narrator 的 context）。
 
@@ -367,6 +379,11 @@ def build_narrator_user_message(
             float, "inferred_tag": str | None, "budget_ambiguous": bool}`
             （见 `agent.intent.narrator._provenance_hints`）。
             None / 全 False+None = 不触发（不附加【出处信息】段）。
+        feedback_no_change: B2 · A2 安全网新增（2026-07-06）。True 时是"这轮
+            反馈要求变更，但重排后方案实体一个都没变"的诚实信号（见
+            `agent.graph.nodes.narrate._feedback_entities_unchanged`）——追加
+            指令要求 LLM 按【诚实告知规则】规则 6 坦白说明，不许宣称"已经
+            换了"。False（默认）= 不触发，不附加这段。
 
     Returns:
         给 LLM 的 user message 文本。
@@ -494,6 +511,14 @@ def build_narrator_user_message(
             f"→ 请在文案里自然带一句简短回顾这版是照哪条反馈调的（不要生硬照抄，"
             f"不要另起一段）。回顾只说明这版因何触发——**不要**把这条反馈说成"
             f"某个没安排项的原因（那是猜测，引擎没这么说过）。"
+        )
+    if feedback_no_change:
+        extras.append(
+            "【反馈未换到别的候选】true\n"
+            "→ 必须按【诚实告知规则】规则 6 坦白：这次反馈是冲着换一个来的，"
+            "重新试过后方案里的实体一个都没变。**绝不能**说"
+            "已经换了/换成了/按你说的换掉了"
+            "——那是没发生过的事；只能诚实说明没能真的换掉，欢迎说得更具体一点。"
         )
     if provenance_hints:
         prov_lines: list[str] = []

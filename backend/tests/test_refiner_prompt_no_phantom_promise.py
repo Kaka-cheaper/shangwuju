@@ -81,3 +81,51 @@ def test_budget_clarify_signal_usage_survives():
         "budget_per_person" in payload["refined_intent"].get("ambiguous_fields", [])
         for payload in _few_shot_payloads()
     ), "ambiguous_fields 的本职示范（字段名信号）不应随空头支票一起被剪掉"
+
+
+# ============================================================
+# B2 · A1：refiner understanding 护栏（C 类不许承诺 swap 结果）
+# ============================================================
+#
+# 【病灶】refiner 的 understanding 字段在方案重新跑之前生成——此刻还不知道
+# 最后到底换没换、换成了谁。若它写"把原来的点换掉了/已经换成 X"这类结果性
+# 断言，而实际重排后 0 处变化（node_swap.py 明写"系统没有按店名排除的机制"，
+# C 类反馈走全局重排大概率选出同一批候选——真实 bug 场景），这句 understanding
+# 本身就是一句空话/假话，与 refiner_note/changed_fields 此前"不承诺避开某家"
+# 的整改是同一根因的另一处症状，理应同一批治掉。
+
+_RESULT_CLAIM_PHRASES: tuple[str, ...] = (
+    "换掉了", "已经换成", "已经换掉", "帮你换了", "已换成", "换成了",
+)
+
+
+def test_system_prompt_forbids_result_claims_in_understanding():
+    """system prompt 必须明确禁止 understanding 写结果性断言（"换掉了"类）。"""
+    assert "结果性断言" in REFINER_SYSTEM_PROMPT, (
+        "system prompt 应新增 understanding 的 C 类专属红线说明（结果性断言）"
+    )
+    assert any(p in REFINER_SYSTEM_PROMPT for p in _RESULT_CLAIM_PHRASES), (
+        "system prompt 应点名举例禁止的结果性断言短语，供 LLM 对照"
+    )
+
+
+def test_few_shot_understanding_never_claims_swap_already_happened():
+    """全部 few-shot 的 understanding 字段都不得出现"已经换/换掉了"类结果性
+    断言——即使是 C 类（换备选）示范，也只能预告"打算重新配一版"，不能宣布
+    "已经换了"这个此刻并不存在、也不保证的结果。"""
+    for payload in _few_shot_payloads():
+        understanding = payload["refined_intent"].get("understanding", "")
+        for phrase in _RESULT_CLAIM_PHRASES:
+            assert phrase not in understanding, (
+                f"understanding 仍在承诺 swap 结果：{understanding!r}（命中短语 {phrase!r}）"
+            )
+
+
+def test_few_shot_c_class_understanding_predicts_intent_not_outcome():
+    """C 类换备选（few-shot 5）的 understanding 应是"预告打算怎么处理"的句式
+    （如"重新配一版备选"），不是宣布已完成的动作。"""
+    payloads = _few_shot_payloads()
+    c_class = payloads[4]["refined_intent"]["understanding"]
+    assert "备选" in c_class or "重新" in c_class, (
+        f"C 类 understanding 应预告处理方式而非宣布结果：{c_class!r}"
+    )
