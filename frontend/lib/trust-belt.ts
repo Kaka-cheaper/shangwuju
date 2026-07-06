@@ -295,13 +295,8 @@ export function buildTrustBeltBeats(input: TrustBeltInput): TrustBeltBeat[] {
   return beats;
 }
 
-// 供组件层展示"这一拍属于第几拍"的圆圈序号（①-⑦），非数据判定，纯展示辅助。
-export const BEAT_ORDINAL: Record<TrustBeltBeatKind, string> = {
-  understanding: "①",
-  search: "②",
-  planning: "③",
-  discover: "④",
-  fix: "⑤",
-  fallback: "⑥",
-  done: "⑦",
-};
+// 修订（真机反馈后）：展示序号不再用固定角色号（原 BEAT_ORDINAL 的
+// ①..⑦ 已废弃并移除）——①..⑦ 只是本文件 docstring 里的角色代号，不是
+// 展示号。组件层（components/TrustBelt.tsx）改按 revealed 数组的实际
+// index+1 现算展示序号，同一 kind 在不同局里可能显示不同数字（例如一次过
+// 局里没有④⑤⑥，⑦就显示"4"而不是固定的"7"）。

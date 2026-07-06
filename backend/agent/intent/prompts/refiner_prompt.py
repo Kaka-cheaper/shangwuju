@@ -77,10 +77,23 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
 
 【输出格式（必须严格 JSON，禁止围栏）】
 {{
-  "refined_intent": {{ ...同 IntentExtraction §5.7 schema 完整结构... }},
+  "refined_intent": {{
+    ...同 IntentExtraction §5.7 schema 完整结构...,
+    "understanding": str   // 信任带反馈轮①拍专用一句话，每轮**必须重新生成**
+                            // （不是"未被触及字段照搬原值"——见下方【understanding 风格】）
+  }},
   "changed_fields": ["距离上限：5km → 3km", "加忌口：不辣"],
   "refiner_note": "已按你的反馈把范围缩到 3 公里以内，并避开辣菜。"
 }}
+
+【understanding 风格（信任带反馈轮①拍，关键 · 每轮必须重新生成）】
+和首轮 intent 解析的 understanding 对称，但这轮是"回应反馈"，不是"从零理解"：
+- 句式："用户说……，我理解成……"（先点这次反馈的原话关键词，再说你据此判断了什么）
+- 反馈为空时改用："用户没再多说，我理解成……"
+- 必须暴露一次推断，不是复述反馈原话
+- 一句、≤40 字、自然口语、不分点
+- 禁词：为您/精心/智能/贴心/一站式/量身
+- 例："用户说太远了，我理解成要拉近距离"
 
 【硬性约束】
 1. refined_intent.raw_input **必须**与原 raw_input 完全一致（保留首次输入语义）
@@ -91,7 +104,8 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
    experience: {_format_set(EXPERIENCE_TAGS)}
    social_context（9 选 1）: {_format_set(SOCIAL_CONTEXTS)}
 4. 按上面 A/B/C 决定改动范围：局部不满只改命中字段；换场景覆盖所有冲突字段；换备选基本不动。
-   未被这次输入触及的字段，一律从原 intent 原样复制（包括 ambiguous_fields / parse_confidence）
+   未被这次输入触及的字段，一律从原 intent 原样复制（包括 ambiguous_fields / parse_confidence）；
+   **例外：understanding 不适用"照搬"——它是叙事字段而非需求字段，每轮必须按【understanding 风格】重新生成**
 5. changed_fields 是面向用户的中文短句列表，每条形如「字段：旧 → 新」或「加 X / 去 X」
 6. 输出**纯 JSON**，**不要**用 ```json 围栏
 
@@ -152,7 +166,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
         '"social_context":"家庭日常","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
-        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[]},'
+        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[],'
+        '"understanding":"用户说太远了，我理解成要拉近距离"},'
         '"changed_fields":["距离上限：5km → 3km"],'
         '"refiner_note":"已把活动范围缩到 3 公里以内，更适合带孩子。"}',
     ),
@@ -172,7 +187,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":["有包间","健康轻食"],'
         '"experience_tags":["礼仪感"],"social_context":"商务接待",'
         '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
-        '"raw_input":"接客户","parse_confidence":0.82,"ambiguous_fields":[]},'
+        '"raw_input":"接客户","parse_confidence":0.82,"ambiguous_fields":[],'
+        '"understanding":"用户说预算紧、便宜点，我理解成要降档但留住包间"},'
         '"changed_fields":["去掉：高人均","加：健康轻食","去掉体验：商务体面"],'
         '"refiner_note":"已调到中等档位，仍保留包间与礼仪感。"}',
     ),
@@ -192,7 +208,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
         '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":[],'
-        '"raw_input":"和朋友 4 人","parse_confidence":0.88,"ambiguous_fields":[]},'
+        '"raw_input":"和朋友 4 人","parse_confidence":0.88,"ambiguous_fields":[],'
+        '"understanding":"用户没再多说，我理解成先紧凑范围重新试一版"},'
         '"changed_fields":["距离上限：5km → 4km"],'
         '"refiner_note":"已把搜索范围稍微收紧，重新打散候选试试。"}',
     ),
@@ -214,7 +231,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"dietary_constraints":["健康轻食","软烂"],"experience_tags":["安静聊天"],'
         '"social_context":"老人伴助","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
-        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[]},'
+        '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[],'
+        '"understanding":"用户说改成陪爸妈吃饭要安静，我理解成这次场景整个换了"},'
         '"changed_fields":["同行：妻子+孩子 → 父母","场景：家庭日常 → 老人伴助",'
         '"物理：去亲子友好/适合5-10岁，加适合老人/可休息","忌口加软烂；体验加安静聊天"],'
         '"refiner_note":"明白，这次是陪爸妈吃饭——去掉了亲子相关，换成适合老人的安静安排。"}',
@@ -245,7 +263,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"social_context":"家庭日常","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
         '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,'
-        '"ambiguous_fields":[]},'
+        '"ambiguous_fields":[],'
+        '"understanding":"用户说不要那家餐厅，我理解成换一版备选就行"},'
         '"changed_fields":[],'
         '"refiner_note":"知道了，这家不合心意——需求字段不动，重新给你配一版备选。"}',
     ),
@@ -268,7 +287,8 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"experience_tags":["热闹"],"social_context":"朋友热闹",'
         '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":["KTV"],'
         '"raw_input":"周五晚上和室友 4 个人想去 K 歌，预算别太贵","parse_confidence":0.82,'
-        '"ambiguous_fields":["budget_per_person"],"budget_per_person":200},'
+        '"ambiguous_fields":["budget_per_person"],"budget_per_person":200,'
+        '"understanding":"用户说预算给到200，我理解成按这个数重新配"},'
         '"changed_fields":["预算：未设定 → 200 元/人"],'
         '"refiner_note":"明白，预算按 200 元/人给你安排。"}',
     ),

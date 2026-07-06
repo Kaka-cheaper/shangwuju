@@ -608,6 +608,48 @@ def _extract_budget_from_feedback(feedback: str) -> float | None:
     return None
 
 
+# ============================================================
+# 信任带修订5：反馈轮 understanding——LLM 路径靠 prompt 现生成（见
+# refiner_prompt.py 的【understanding 风格】），但 `LLM_PROVIDER=stub` 下
+# refiner 实际走的是本文件的 _rule_fallback（StubLLMClient 返回的扁平
+# IntentExtraction JSON 没有 refined_intent 外层包装，校验必炸，见
+# test_refiner.py::test_refine_intent_with_stub_falls_back_to_rule 钉住的
+# 既有行为）——"stub 兜"必须落在这里，否则 --stub 冒烟下反馈轮①拍永远空白。
+# ============================================================
+
+_UNDERSTANDING_MAX_QUOTE_LEN = 12
+
+
+def _rule_understanding(feedback: str, is_scenario: bool, changed: list[str]) -> str:
+    """规则化兜底版 understanding——同 §四①风格红线（句式"用户说……，我理解成……"、
+    ≤40 字、同款禁词），但没有 LLM 可用，只能按已经算过的关键词分支归纳一句，
+    不是自由生成。反馈为空时改用"用户没再多说，我理解成……"（同 prompt 风格
+    红线里的空反馈变体）。
+    """
+    fb = feedback.strip()
+    if not fb:
+        return "用户没再多说，我理解成先重新打散候选试试"
+
+    quoted = fb if len(fb) <= _UNDERSTANDING_MAX_QUOTE_LEN else fb[:_UNDERSTANDING_MAX_QUOTE_LEN] + "…"
+    prefix = f"用户说{quoted}，我理解成"
+
+    if is_scenario:
+        return f"{prefix}这次要换个新场景"
+    if any(k in fb for k in _KEYWORDS_DISTANCE_NEAR):
+        return f"{prefix}要拉近距离"
+    if any(k in fb for k in _KEYWORDS_DISTANCE_FAR):
+        return f"{prefix}范围可以再放宽点"
+    if any(k in fb for k in _KEYWORDS_CHEAPER) or _extract_budget_from_feedback(fb) is not None:
+        return f"{prefix}预算要收紧"
+    if any(k in fb for k in _KEYWORDS_TIME_TIGHT):
+        return f"{prefix}时间得压缩一下"
+    if any(k in fb for k in _KEYWORDS_TIME_LOOSE) or any(k in fb for k in _KEYWORDS_SESSION_TOO_LONG):
+        return f"{prefix}时长要调整一下"
+    if changed:
+        return f"{prefix}要按这个调整一下"
+    return f"{prefix}先重新配一版试试"
+
+
 def _rule_fallback(
     original: IntentExtraction, feedback_text: str
 ) -> RefinementOutput:
@@ -707,6 +749,10 @@ def _rule_fallback(
     # raw_input：局部反馈→原句在前；换场景→新句在前(见 _compose_raw_input)
     if feedback:
         updates["raw_input"] = _compose_raw_input(original.raw_input, feedback)
+
+    # 信任带修订5（stub 兜）：understanding 每轮必须重新生成，不继承 original
+    # 的旧值（那是上一轮的叙事，会让评委看到"文不对题"的①拍）。
+    updates["understanding"] = _rule_understanding(feedback, is_scenario, changed)
 
     refined = original.model_copy(update=updates)
     # ADR-0014 决策 1（G-1）："_rule_fallback 路径同样维护"——它改

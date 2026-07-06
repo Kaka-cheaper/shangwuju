@@ -2044,20 +2044,15 @@ function MobileThoughtTimeline() {
   const itinerary = useChatStore((s) => s.itinerary);
   const criticTimeline = useMemo(() => buildCriticTimeline(criticReport), [criticReport]);
 
-  const items = [
-    ...thoughts.map((thought) => ({
-      kind: "thought" as const,
-      seq: thought.seq,
-      text: thought.text,
-      timestampMs: thought.timestamp_ms,
-    })),
-    ...replans.map((replan) => ({
-      kind: "replan" as const,
-      seq: replan.seq,
-      text: `${FAILURE_REASON_LABEL[replan.reason] ?? replan.reason} · ${replan.fromTool}`,
-      timestampMs: null,
-    })),
-  ].sort((a, b) => a.seq - b.seq);
+  // 单思考面（信任带设计终稿 §修订4）：AI 幕后（TrustBelt）是唯一思考面，
+  // 这里不再铺原始 thought.text 列表（那是带权重/冗长 rationale 的未加工
+  // 重复面）——重规划事件是结构化的自愈信号（非自由文本 rationale），保留。
+  const items = replans.map((replan) => ({
+    kind: "replan" as const,
+    seq: replan.seq,
+    text: `${FAILURE_REASON_LABEL[replan.reason] ?? replan.reason} · ${replan.fromTool}`,
+  }));
+  const showThinkingPulse = streaming && thoughts.length > 0;
 
   return (
     <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.82] px-3 py-3 shadow-sm">
@@ -2066,42 +2061,36 @@ function MobileThoughtTimeline() {
           Agent 在想什么
         </div>
         <div className="text-xs font-semibold text-ink-500">
-          {thoughts.length} 条思考
-          {replans.length > 0 ? ` · ${replans.length} 次重规划` : ""}
+          {replans.length > 0 ? `${replans.length} 次重规划` : ""}
         </div>
       </div>
 
-      {items.length === 0 && streaming ? (
+      {showThinkingPulse ? (
+        <div className="flex items-center gap-2 rounded-2xl bg-black/[0.025] px-3 py-3 text-sm text-ink-500">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500" aria-hidden />
+          AI 正在思考……
+        </div>
+      ) : items.length === 0 && streaming ? (
         <div className="flex items-center gap-2 rounded-2xl bg-black/[0.025] px-3 py-3 text-sm text-ink-500">
           <Loader2 className="h-4 w-4 animate-spin" />
           等待 Agent 开始思考……
         </div>
       ) : (
-        <ol className="space-y-2">
-          {items.map((item) => (
-            <li
-              key={`${item.kind}-${item.seq}`}
-              className={cn(
-                "rounded-2xl border px-3 py-2.5 text-sm leading-relaxed",
-                item.kind === "replan"
-                  ? "border-amber-300/35 bg-[#FFD100]/[0.10] text-amber-800"
-                  : "border-black/[0.05] bg-black/[0.025] text-ink-700",
-              )}
-            >
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-ink-500">
-                  {item.kind === "replan" ? "重规划" : `思考 ${item.seq}`}
-                </span>
-                {item.timestampMs != null && (
-                  <span className="text-[11px] font-medium text-ink-400">
-                    {formatThoughtTime(item.timestampMs)}
-                  </span>
-                )}
-              </div>
-              {item.text}
-            </li>
-          ))}
-        </ol>
+        items.length > 0 && (
+          <ol className="space-y-2">
+            {items.map((item) => (
+              <li
+                key={`${item.kind}-${item.seq}`}
+                className="rounded-2xl border border-amber-300/35 bg-[#FFD100]/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-ink-500">重规划</span>
+                </div>
+                {item.text}
+              </li>
+            ))}
+          </ol>
+        )
       )}
 
       {/* A1：质检与自愈——独立小节，不与上面的自由文本思考叙事混排（同
@@ -2371,20 +2360,21 @@ function MobileDecisionFallbackTrace() {
   const itinerary = useChatStore((s) => s.itinerary);
   const toolCalls = useChatStore((s) => s.toolCalls);
   const replans = useChatStore((s) => s.replans);
-  const thoughts = useChatStore((s) => s.thoughts);
 
   const visibleEntries = itinerary ? getVisibleEntries(itinerary) : [];
   const activityEntries = visibleEntries.filter(
     (entry) => entry.entry_kind === "node" && entry.title,
   );
-  const latestThoughts = thoughts.slice(-4);
+  // 单思考面（信任带设计终稿 §修订4）：不再在此铺原始 thought.text
+  // （"关键判断"曾直读 thoughts.slice(-4) 逐条展示自由文本 rationale，
+  // 与 AI 幕后信任带重复）——AI 幕后是唯一思考面，这里只留结构化的工具证据
+  // 与修正链路。
   const finishedTools = toolCalls
     .filter((tool) => tool.endedAtSeq != null || tool.success != null)
     .slice(-6);
 
   if (
     !itinerary &&
-    latestThoughts.length === 0 &&
     finishedTools.length === 0 &&
     replans.length === 0
   ) {
@@ -2424,19 +2414,6 @@ function MobileDecisionFallbackTrace() {
             </div>
           )}
         </div>
-      )}
-
-      {latestThoughts.length > 0 && (
-        <TraceSection title="关键判断">
-          {latestThoughts.map((thought) => (
-            <div
-              key={`decision-thought-${thought.seq}`}
-              className="rounded-2xl border border-black/[0.05] bg-white/[0.72] px-3 py-2.5 text-sm leading-relaxed text-ink-650"
-            >
-              {thought.text}
-            </div>
-          ))}
-        </TraceSection>
       )}
 
       {finishedTools.length > 0 && (
@@ -2528,14 +2505,6 @@ function formatStrategy(strategy: string): string {
     give_up: "保留方案",
   };
   return labels[strategy] ?? strategy;
-}
-
-function formatThoughtTime(timestampMs: number): string {
-  return new Date(timestampMs).toLocaleTimeString("zh-CN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function MobileSheet({

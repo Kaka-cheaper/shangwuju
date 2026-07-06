@@ -403,34 +403,16 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                   {/* intent 摘要 */}
                   {showIntent && intent && <IntentSummary intent={intent} />}
 
-                  {/* agent_thought 打字流 */}
-                  {thoughts.length > 0 && (
-                    <div className="space-y-1.5">
-                      {thoughts.slice(-5).map((t, idx, arr) => {
-                        const isLatest = idx === arr.length - 1;
-                        const inProgress = streaming && isLatest;
-                        return (
-                          <div
-                            key={t.seq}
-                            className="flex items-start gap-1.5 text-sm text-ink-500 px-1 animate-fade-in-up"
-                          >
-                            {inProgress ? (
-                              <Icons.thinking
-                                className="w-3 h-3 mt-0.5 text-brand-600 shrink-0 animate-spin"
-                                strokeWidth={2}
-                              />
-                            ) : (
-                              <span
-                                className="w-3 h-3 mt-0.5 shrink-0 flex items-center justify-center"
-                                aria-hidden
-                              >
-                                <span className="w-1 h-1 rounded-full bg-ink-500/60" />
-                              </span>
-                            )}
-                            <span>{t.text}</span>
-                          </div>
-                        );
-                      })}
+                  {/* 单思考面（信任带设计终稿 §修订4）：AI 幕后（TrustBelt）是唯一
+                      思考面，这里不再铺 agent_thought 原始 rationale 列表，只留
+                      一行"正在思考"脉冲，告诉用户 Agent 仍在工作。 */}
+                  {streaming && thoughts.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-1 text-sm text-ink-500 animate-fade-in-up">
+                      <span
+                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-brand-500"
+                        aria-hidden
+                      />
+                      AI 正在思考…
                     </div>
                   )}
 
