@@ -24,6 +24,7 @@ import {
   Copy,
   Footprints,
   Heart,
+  Home,
   Leaf,
   Loader2,
   type LucideIcon,
@@ -135,6 +136,7 @@ export const Icons = {
   clipboard: ClipboardList,
   // 标签语义图标
   clock: Clock,
+  home: Home,
   baby: Baby,
   leaf: Leaf,
   salad: Salad,

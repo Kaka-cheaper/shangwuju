@@ -505,6 +505,92 @@
     opacity: 0.6;
   }
 
+  /* ============================================================
+     节点卡片精修（路演PPT/卡片精修设计终稿.md §四「化用技法→暖色参数」+ §八
+     「和信任带同族」）—— 仅 Web 时间轴节点卡（ItineraryCard.tsx）使用。
+     ============================================================ */
+  /* 卡片本体：暖金极淡渐变描边（mask-composite: xor，化用 Silver Border 卡的
+     渐变描边技法，翻成暖色）+ 暖调超柔投影 + 16px 圆角（同信任带）。 */
+  .node-card {
+    position: relative;
+    border-radius: 16px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.95) 0%,
+      rgba(255, 252, 237, 0.88) 42%,
+      rgba(241, 250, 245, 0.78) 72%,
+      rgba(239, 247, 255, 0.68) 100%
+    );
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.03),
+      0 6px 20px rgba(180, 140, 0, 0.05);
+  }
+  .node-card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 201, 0, 0.22),
+      transparent 40%,
+      transparent 60%,
+      rgba(255, 201, 0, 0.14)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* 主活动玻璃标签：底色 + 内高光 + ::before 暖金渐变边（mask xor）——化用技法里
+     "最值钱"的一条，和信任带里任意 chip 同款玻璃质感。 */
+  .node-glass-label {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 8px;
+    background: rgba(255, 201, 0, 0.1);
+  }
+  .node-glass-label::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 201, 0, 0.55),
+      rgba(255, 201, 0, 0.08) 60%,
+      rgba(255, 201, 0, 0.4)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+  .node-glass-label::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(120% 120% at 30% 0%, rgba(255, 255, 255, 0.55), transparent 60%);
+    pointer-events: none;
+  }
+
+  /* 内容行/操作行之间的渐隐分隔线（两端 mask-image 淡出，比实线更精致）。 */
+  .node-card-divider {
+    height: 1px;
+    background: rgba(0, 0, 0, 0.06);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+    mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+
   .mobile-soft-button {
     @apply inline-flex min-h-[40px] items-center justify-center rounded-full border border-black/[0.06]
            bg-black/[0.025] px-3 py-2 text-sm font-semibold tracking-tight text-ink-700

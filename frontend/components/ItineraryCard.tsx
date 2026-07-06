@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, SlidersHorizontal } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
@@ -356,18 +356,22 @@ export default function ItineraryCard() {
           }}
         />
 
-        {/* 起点绿点：从家出发 */}
+        {/* 起点绿点：从家出发（§六「家」bookend——无主活动标签/无操作层，更扁更淡，
+            home 图标替 emoji；文案沿用既有"出发咯"，未采用设计稿示例文案，见交付报告说明） */}
         <li className="flex items-center gap-3">
           <div className="flex flex-col items-center min-w-[52px] z-10">
             <div
-              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
+              className="w-3 h-3 rounded-full ring-[3px] ring-white"
               style={{
                 background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                boxShadow: "0 0 0 1px rgba(16,185,129,0.3), 0 0 6px rgba(16,185,129,0.4)",
+                boxShadow: "0 0 0 1px rgba(16,185,129,0.25)",
               }}
             />
           </div>
-          <span className="text-base font-semibold text-emerald-600">出发咯 🚀</span>
+          <div className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.05] bg-black/[0.02] px-3 py-1.5 text-sm font-medium text-ink-500">
+            <Icons.home className="w-3.5 h-3.5 text-emerald-500/70" strokeWidth={2} />
+            <span>出发咯</span>
+          </div>
         </li>
 
         {(() => {
@@ -401,8 +405,8 @@ export default function ItineraryCard() {
                   <div className="min-w-[44px]" aria-hidden />
                   <div
                     className={cn(
-                      "flex-1 ml-2 rounded-full border border-[#eadfc9]/70 bg-white/75 px-3 py-1.5 shadow-sm",
-                      "text-sm font-semibold text-ink-500 tracking-tight leading-tight",
+                      "flex-1 ml-2 rounded-full border border-[#eadfc9]/50 bg-white/60 px-3 py-1.5",
+                      "text-sm font-medium text-ink-400 tracking-tight leading-tight",
                     )}
                     title={`${entry.start} → ${entry.end}`}
                   >
@@ -422,6 +426,10 @@ export default function ItineraryCard() {
           const alternatives = (actions?.alternatives ?? []).slice(0, 2);
           const isLocked = targetId != null && lockedNodeId === targetId;
           const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
+          // §二两行制：内容行 = 玻璃标签 + 店名（唯一视觉焦点）+ 时间；
+          // note 降级为店名后缀，随店名一起 truncate（长名 + title 兜底全文，见 §七.1）。
+          const note = nodeNote(itinerary, entry.ref_id);
+          const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
 
           return (
             <Fragment key={entry.ref_id || `node-${idx}`}>
@@ -442,64 +450,69 @@ export default function ItineraryCard() {
                   />
                   <div className="text-sm font-semibold text-ink-600 mono">{entry.end}</div>
                 </div>
-                {/* 右侧内容：用 pt 让标题行对准黄点 */}
-                <div
-                  className="flex-1 min-w-0 rounded-[26px] border border-white/80 px-5 py-4 shadow-[0_18px_44px_-34px_rgba(17,24,39,0.58),inset_0_1px_0_rgba(255,255,255,0.94)] ring-1 ring-[#FFD100]/10"
-                  style={{
-                    background:
-                      "linear-gradient(135deg, rgba(255,255,255,0.95) 0%, rgba(255,252,237,0.88) 42%, rgba(241,250,245,0.78) 72%, rgba(239,247,255,0.68) 100%)",
-                  }}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
-                    {/* 左：kind chip + 标题 + note */}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                      <span className="chip px-2.5 py-1 text-sm font-bold">
-                        {nodeKindLabel(itinerary, entry.ref_id)}
-                      </span>
+                {/* 右侧内容：节点卡（路演PPT/卡片精修设计终稿.md §二/§四/§八——两行制 +
+                    暖色化用渐变描边/柔光（.node-card，见 globals.css）+ 和信任带同族的
+                    16px 圆角/字色阶） */}
+                <div className="node-card relative flex-1 min-w-0 px-4 pt-3.5 pb-2.5">
+                  {/* 内容行：玻璃标签 + 店名 + 时间（右对齐，tabular-nums，次要） */}
+                  <div className="flex items-center gap-x-2">
+                    <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+                      {nodeKindLabel(itinerary, entry.ref_id)}
+                    </span>
+                    {isLocked ? (
                       <span
-                        className="text-2xl font-black leading-snug tracking-tight text-ink-900 rounded-sm px-0.5"
-                        style={{
-                          textDecorationLine: "underline",
-                          textDecorationStyle: "wavy",
-                          textDecorationColor: "rgba(185, 130, 42, 0.36)",
-                          textDecorationThickness: "1.5px",
-                          textUnderlineOffset: "7px",
-                        }}
+                        className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
+                        aria-hidden
+                      />
+                    ) : (
+                      <span
+                        className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-snug text-ink-900"
+                        title={fullTitle}
                       >
                         {entry.title}
-                      </span>
-                      {(() => {
-                        const note = nodeNote(itinerary, entry.ref_id);
-                        return note ? (
-                          <span className="ml-2 text-base leading-relaxed text-ink-700">
-                            {note}
+                        {note && (
+                          <span className="ml-1.5 font-normal text-ink-500">
+                            · {note}
                           </span>
-                        ) : null;
-                      })()}
-                    </div>
-
-                    {/* 右：具名备选（ADR-0013 决策 4「右侧=具名备选」，≤2 个） */}
-                    {alternatives.length > 0 && targetId && (
-                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                        {alternatives.map((alt) => (
-                          <AlternativeButton
-                            key={alt.target_id}
-                            alt={alt}
-                            disabled={!canAdjust}
-                            onClick={() =>
-                              dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
-                            }
-                          />
-                        ))}
-                      </div>
+                        )}
+                      </span>
                     )}
+                    <span className="ml-auto shrink-0 text-[13px] font-medium tabular-nums text-ink-500">
+                      {entry.start}–{entry.end}
+                      {entry.minutes > 0 && (
+                        <span className="ml-1 text-[12px] font-normal text-ink-400">
+                          · {entry.minutes} 分钟
+                        </span>
+                      )}
+                    </span>
                   </div>
 
-                  {/* 下方：定向调整 chips + 赞/踩并排（ADR-0013 决策 4「下方=定向
-                      调整按钮 + 赞踩并排」；VoteButtons 自身按 collabMode 隐藏，
-                      故这一行即便没有 chips 也要渲染，让协作模式下赞踩仍可见） */}
+                  {/* 渐隐分隔线（§四第 4 条：两侧 mask-image 淡出，比实线更精致） */}
+                  {targetId && <div className="node-card-divider mt-2.5 mb-1.5" aria-hidden />}
+
+                  {/* 操作行：整行降权（更小/幽灰），三群纯视觉分组不加文字标签（§五）——
+                      ②具名备选⇄ / ③定向微调◐（幽灰，与②间一个竖点隔开）/ ④投票恒右对齐。
+                      VoteButtons 自身按 collabMode 隐藏，这一行仍渲染让协作模式下赞踩可见。 */}
                   {targetId && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <div
+                      className={cn(
+                        "flex flex-wrap items-center gap-1.5",
+                        isLocked && "pointer-events-none opacity-40",
+                      )}
+                    >
+                      {alternatives.map((alt) => (
+                        <AlternativeButton
+                          key={alt.target_id}
+                          alt={alt}
+                          disabled={!canAdjust}
+                          onClick={() =>
+                            dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                          }
+                        />
+                      ))}
+                      {alternatives.length > 0 && chips.length > 0 && (
+                        <span className="mx-1 h-3 w-px shrink-0 bg-black/[0.08]" aria-hidden />
+                      )}
                       {chips.map((chip) => (
                         <AdjustChipButton
                           key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
@@ -514,12 +527,21 @@ export default function ItineraryCard() {
                           }
                         />
                       ))}
-                      <VoteButtons stageIndex={stageIndex} />
+                      <span className="ml-auto flex items-center">
+                        <VoteButtons stageIndex={stageIndex} />
+                      </span>
                     </div>
                   )}
 
-                  {/* 换菜进行中：整行 Shimmer（ADR-0013 决策 6 锁定态视觉语言复用） */}
-                  {isLocked && <ShimmerStripe rows={1} className="mt-2" />}
+                  {/* 换菜中（loading）：店名位已经是 shimmer 骨架、操作行已降透明，
+                      这里只补一句幽灰小字状态提示——不整卡闪（§六「换菜中」），
+                      替掉旧版整行 ShimmerStripe（视觉响度过重，和新版"降权"不符）。 */}
+                  {isLocked && (
+                    <div className="mt-1.5 flex items-center gap-1 text-xs text-ink-400">
+                      <Icons.thinking className="w-3 h-3 animate-spin" strokeWidth={2} />
+                      <span>换菜中…</span>
+                    </div>
+                  )}
                 </div>
               </li>
             </Fragment>
@@ -527,18 +549,21 @@ export default function ItineraryCard() {
           });
         })()}
 
-        {/* 终点红点：结束行程 */}
+        {/* 终点红点：结束行程（同上，家 bookend 同款更淡样式） */}
         <li className="flex items-center gap-3">
           <div className="flex flex-col items-center min-w-[52px] z-10">
             <div
-              className="w-3.5 h-3.5 rounded-full ring-[3px] ring-white"
+              className="w-3 h-3 rounded-full ring-[3px] ring-white"
               style={{
                 background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
-                boxShadow: "0 0 0 1px rgba(239,68,68,0.3), 0 0 6px rgba(239,68,68,0.4)",
+                boxShadow: "0 0 0 1px rgba(239,68,68,0.25)",
               }}
             />
           </div>
-          <span className="text-base font-semibold text-red-600">满载而归 ✨</span>
+          <div className="inline-flex items-center gap-1.5 rounded-xl border border-black/[0.05] bg-black/[0.02] px-3 py-1.5 text-sm font-medium text-ink-500">
+            <Icons.home className="w-3.5 h-3.5 text-red-500/70" strokeWidth={2} />
+            <span>满载而归</span>
+          </div>
         </li>
       </ol>
 
@@ -1086,6 +1111,12 @@ function nodeTargetId(itinerary: Itinerary, ref_id: string): string | null {
 // 药丸视觉语言沿用 intent chips（同一套 pill 配色，见本文件 NarrationBlock）。
 // ============================================================
 
+/** §七.1：备选名截到约 6 个字 + "…"，全名靠 title tooltip hover 出（不是按钮正文）。 */
+const ALT_NAME_MAX_CHARS = 6;
+function truncateAltName(name: string): string {
+  return name.length > ALT_NAME_MAX_CHARS ? `${name.slice(0, ALT_NAME_MAX_CHARS)}…` : name;
+}
+
 function AlternativeButton({
   alt,
   disabled,
@@ -1102,18 +1133,13 @@ function AlternativeButton({
       onClick={onClick}
       title={`换成「${alt.name}」（${alt.category} · ${alt.rating.toFixed(1)} 分 · ${alt.distance_km.toFixed(1)}km）`}
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border transition-colors",
+        "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12.5px] font-medium tracking-tight transition-colors",
+        "bg-black/[0.03] text-ink-600 hover:bg-black/[0.06] hover:text-ink-800",
         "disabled:opacity-40 disabled:cursor-not-allowed",
-        "hover:bg-[#FFD100]/16",
       )}
-      style={{
-        background: "rgba(255, 209, 0, 0.08)",
-        borderColor: "rgba(255, 209, 0, 0.22)",
-        color: "rgb(146 64 14)",
-      }}
     >
-      <Icons.spark className="w-3 h-3" strokeWidth={2} />
-      <span className="max-w-[9rem] truncate">换成{alt.name}</span>
+      <ArrowLeftRight className="w-3 h-3 shrink-0" strokeWidth={2} />
+      <span className="truncate">{truncateAltName(alt.name)}</span>
     </button>
   );
 }
@@ -1134,12 +1160,13 @@ function AdjustChipButton({
       onClick={onClick}
       title={chip.label}
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-sm font-medium tracking-tight border transition-colors",
+        "inline-flex items-center gap-1 px-1.5 py-1 rounded-md text-xs font-normal tracking-tight text-ink-400 transition-colors",
+        "hover:bg-black/[0.03] hover:text-ink-600",
         "disabled:opacity-40 disabled:cursor-not-allowed",
-        "bg-black/[0.03] border-black/[0.08] text-ink-700 hover:bg-black/[0.06] hover:text-ink-900",
       )}
     >
-      {chip.label}
+      <SlidersHorizontal className="w-3 h-3 shrink-0" strokeWidth={2} />
+      <span>{chip.label}</span>
     </button>
   );
 }

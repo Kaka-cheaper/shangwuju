@@ -5,6 +5,8 @@
  * 协作模式下嵌入 ItineraryCard 的每个 stage 右侧。
  */
 
+import { ThumbsDown, ThumbsUp } from "lucide-react";
+
 import { useCollabStore, type VoteAction } from "@/lib/collab-store";
 import { cn } from "@/lib/utils";
 
@@ -51,8 +53,8 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
         )}
         title={likeCount > 0 ? `赞：${getVoterNames("like")}` : "赞（保留这段）"}
       >
-        👍
-        {likeCount > 0 && <span>{likeCount}</span>}
+        <ThumbsUp className="w-3 h-3" strokeWidth={2} />
+        {likeCount > 0 && <span className="font-medium">{likeCount}</span>}
       </button>
 
       {/* 踩 */}
@@ -67,8 +69,8 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
         )}
         title={dislikeCount > 0 ? `踩：${getVoterNames("dislike")}` : "踩（换掉这段）"}
       >
-        👎
-        {dislikeCount > 0 && <span>{dislikeCount}</span>}
+        <ThumbsDown className="w-3 h-3" strokeWidth={2} />
+        {dislikeCount > 0 && <span className="font-medium">{dislikeCount}</span>}
       </button>
     </div>
   );
