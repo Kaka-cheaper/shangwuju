@@ -524,6 +524,15 @@
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.03),
       0 6px 20px rgba(180, 140, 0, 0.05);
+    /* 时间轴精修终稿§三.3 悬停协同：卡片自身轻抬 + shadow 微增，只动
+       transform/box-shadow（不触发 layout），200ms ease，双向对称。 */
+    transition: transform 200ms ease, box-shadow 200ms ease;
+  }
+  .node-card:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 2px 4px rgba(0, 0, 0, 0.04),
+      0 10px 26px rgba(180, 140, 0, 0.08);
   }
   .node-card::before {
     content: "";
@@ -589,6 +598,120 @@
     background: rgba(0, 0, 0, 0.06);
     -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
     mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  }
+
+  /* ============================================================
+     时间轴精修（路演PPT/时间轴精修设计终稿.md）—— 脊柱/圆点/连接线/悬停协同
+     仅 ItineraryCard.tsx 的时间轴使用；和 .node-card / 信任带同一套暖色语言，
+     脊柱线比卡片描边更淡（它是背景骨架，不抢卡，见终稿§五）。
+     ============================================================ */
+
+  /* 脊柱段：每一行自带一小段（不再是整条 <ol> 绝对定位的通栏渐变线），
+     bottom:-14px 桥接 <ol> 的 space-y-3.5（14px）间隙，让相邻行的段首尾相接
+     看起来仍是一条连续的线；--tail 用在时间轴最后一行（下面没有行可桥接）。
+     颜色单色暖灰 #D8D2C4、宽 1.5px——决策已锁：杀掉彩虹渐变（终稿§一）。 */
+  .timeline-spine-seg {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: 0;
+    bottom: -14px;
+    width: 1.5px;
+    background: #d8d2c4;
+    z-index: 0;
+  }
+  .timeline-spine-seg--tail {
+    bottom: 0;
+  }
+  /* 通勤段：脊柱在这一段变虚线（终稿§二），不再是独立卡。 */
+  .timeline-spine-seg--hop {
+    background: none;
+    border-left: 1.5px dashed #d8d2c4;
+    width: 0;
+  }
+
+  /* 圆点：9px 扁平无光泽单色相（终稿§一，杀掉大号高饱和发光球）。白色 ring
+     把点从脊柱线里"摘"出来，同现有其它圆点的白描边语言。 */
+  .timeline-dot {
+    position: relative;
+    z-index: 10;
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    background: #b7ad95;
+    box-shadow: 0 0 0 2px #ffffff;
+    transition: transform 200ms ease, box-shadow 200ms ease;
+  }
+  /* 当前节点（本批映射为"换菜中"节点，见 ItineraryCard.tsx isLocked 用法与
+     交付报告的前提说明）：一圈极淡 amber ring——全时间轴唯一允许出现美团黄的
+     地方（终稿§一/§五："克制"的关键）。 */
+  .timeline-dot--current {
+    box-shadow: 0 0 0 2px #ffffff, 0 0 0 5px rgba(245, 158, 11, 0.16);
+  }
+
+  /* 首尾"家"：小 home 图标点，中性灰，不用 🚀/✨ emoji（终稿§一）。比中段圆点
+     大一圈（16px）才容得下图标，同样用白色 ring 语言。 */
+  .timeline-dot-home {
+    position: relative;
+    z-index: 10;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background: rgba(0, 0, 0, 0.04);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 0 0 2px #ffffff;
+  }
+
+  /* 时间标签：贴脊柱、和点垂直居中对齐，绝对定位在点的上/下方——不占用文档流
+     高度，避免把点向下推（终稿§一："13px tabular-nums ink-500，贴脊柱、和点
+     垂直对齐"；字号/字重/字色由 JSX 里的 Tailwind 类给，这里只负责定位）。 */
+  .timeline-marker {
+    position: relative;
+  }
+  .timeline-time {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    line-height: 1;
+  }
+  .timeline-time--start {
+    bottom: calc(100% + 4px);
+  }
+  .timeline-time--end {
+    top: calc(100% + 4px);
+  }
+
+  /* 连接线：点到卡片左缘一条极短极淡的 tick（终稿§三.2），把"这个点属于这张
+     卡"钉死；hover 时提亮（见下方 :has() 规则）。 */
+  .timeline-connector {
+    width: 12px;
+    height: 1px;
+    background: rgba(0, 0, 0, 0.08);
+    transition: opacity 200ms ease, background-color 200ms ease;
+  }
+
+  /* 悬停协同（终稿§三.3）：双向、200ms ease、只动 transform/opacity/color——
+     用 :has() 让"卡片"和"点/时间"这两个视觉上分离的兄弟节点互相感知对方的
+     hover 状态，不需要额外 JS state（React 组件零改动，纯 CSS）。
+     - 悬停卡片 → 它的点微放大 + 相邻脊柱段（这一行自己桥接的那一段）染
+       amber/8% + 连接线提亮；
+     - 悬停点/时间 → 对应卡片轻抬（卡片自身的 hover 轻抬见 .node-card:hover）。 */
+  .timeline-row:has(.node-card:hover) .timeline-dot {
+    transform: scale(1.28);
+  }
+  .timeline-row:has(.node-card:hover) .timeline-spine-seg:not(.timeline-spine-seg--hop) {
+    background: rgba(245, 158, 11, 0.08);
+  }
+  .timeline-row:has(.node-card:hover) .timeline-connector {
+    opacity: 0.9;
+    background: rgba(245, 158, 11, 0.4);
+  }
+  .timeline-row:has(.timeline-marker:hover) .node-card {
+    transform: translateY(-1px);
   }
 
   .mobile-soft-button {
