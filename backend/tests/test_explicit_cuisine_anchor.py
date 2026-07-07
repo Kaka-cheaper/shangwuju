@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 from agent.core.itinerary_qa import answer_itinerary_question
 from agent.core.llm_client_stub import StubLLMClient
 from agent.planning.blueprint.assemble_blueprint import assemble_from_blueprint
@@ -28,26 +26,10 @@ from agent.planning.blueprint.blueprint import (
     BlueprintTargetKind,
     PlanBlueprint,
 )
-from agent.planning.planners import ils_planner
 from agent.planning.planners.ils_planner import plan_hybrid
-from data.loader import load_pois, load_restaurants, load_user_profile
+from agent.runtime.tools.search_adapter import search_restaurants_for_intent
+from data.loader import load_user_profile
 from schemas.intent import IntentExtraction
-from schemas.tools import SearchPoisOutput, SearchRestaurantsOutput
-
-
-def _patch_tool(monkeypatch, *, pois, restaurants):
-    """mock 工具层返回固定候选，让 _query_pois/_query_restaurants 走完整真实路径。"""
-
-    def fake(name, args):
-        if name == "search_pois":
-            output = SearchPoisOutput(success=True, candidates=list(pois)).model_dump()
-        elif name == "search_restaurants":
-            output = SearchRestaurantsOutput(success=True, candidates=list(restaurants)).model_dump()
-        else:
-            return SimpleNamespace(success=False, output=None, reason=None, duration_ms=1)
-        return SimpleNamespace(success=True, output=output, reason=None, duration_ms=1)
-
-    monkeypatch.setattr(ils_planner, "invoke_tool", fake)
 
 
 def _intent_bbq() -> IntentExtraction:
@@ -66,32 +48,44 @@ def _intent_bbq() -> IntentExtraction:
     )
 
 
-def test_explicit_cuisine_anchor_survives_inferred_scene(monkeypatch):
-    """3a：候选池同时有可排的烧烤(R033)与场景匹配的安静咖啡(R013)时，显式点名的
-    烧烤必须进方案——不被推断的独处/安静场景在选点或 critic 阶段换掉。"""
-    rests = {r.id: r for r in load_restaurants()}
-    pois = load_pois()
-    bbq = rests["R033"]   # 烧烤·热闹，营业 11:30-23:00（下午饭点开着，排除营业时间混淆）
-    cafe = rests["R013"]  # 晨与暮·独处书房咖啡（独处舒缓/安静，rating 4.6 略高、场景匹配）
-    quiet_poi = next(
-        (p for p in pois if any(k in (p.name + p.type + "".join(p.tags)) for k in ("书", "图书", "独处", "安静"))),
-        pois[0],
+def _bbq_ids(rests) -> list[str]:
+    return [r.id for r in rests if "烧烤" in (r.cuisine or "")]
+
+
+def test_explicit_cuisine_anchor_recalled_and_planned():
+    """3a 真跑（**不 mock invoke_tool**，走真 search_restaurants + 真 mock 数据）：
+    显式点名『烧烤』+ 独处放空推断场景 → L1 anchor-escape 让热闹烧烤真召回（不被
+    推断场景在工具层硬删）→ plan_hybrid 方案含烧烤（L3 锚 bonus 选中 + L4 豁免不被换）。
+
+    这是"把搜索工具层 mock 成池子里已有烧烤"那个方法论错误的修正：病灶正在工具
+    那两行硬过滤，测试必须真穿过它。"""
+    intent = _intent_bbq()
+    rests, _ = search_restaurants_for_intent(intent)
+    bbq = _bbq_ids(rests)
+    assert bbq, (
+        "L1 anchor-escape 应让显式点名的烧烤真召回；"
+        f"实际召回={[(r.id, r.cuisine) for r in rests]}"
     )
 
-    # 工具按 rating 序返回 [cafe, bbq]；没有本次修复时 build_route 选安静咖啡、
-    # 或 critic 把热闹烧烤判 social 硬违规换成咖啡。修复后烧烤靠 _utility 锚 bonus
-    # 被选中、且 check_social_context 对显式锚豁免不被换掉。
-    _patch_tool(monkeypatch, pois=[quiet_poi], restaurants=[cafe, bbq])
-
-    result = plan_hybrid(_intent_bbq(), client=StubLLMClient())
+    result = plan_hybrid(intent, client=StubLLMClient())
     assert result.success, f"应成功建程；失败={result.failure_detail}"
     itin = result.itinerary
+    rest_ids = {n.target_id for n in itin.nodes if n.target_kind == "restaurant"}
     nodes_dbg = [(n.kind, n.target_kind, n.target_id) for n in itin.nodes]
-    rest_node = next((n for n in itin.nodes if n.target_kind == "restaurant"), None)
-    assert rest_node is not None, f"应有餐厅节点；nodes={nodes_dbg}"
-    assert rest_node.target_id == "R033", (
-        f"显式点名『烧烤』应进方案（锚 bonus + social 豁免），实际选了 "
-        f"{rest_node.target_id}（R013=安静咖啡）；nodes={nodes_dbg}"
+    assert rest_ids & set(bbq), (
+        f"方案应含烧烤节点（锚 bonus + social 豁免）；餐厅节点={rest_ids}，"
+        f"召回烧烤={bbq}；nodes={nodes_dbg}"
+    )
+
+
+def test_case_b_no_explicit_desire_keeps_scene_filter():
+    """case(b) 反断言（守不放松）：无显式诉求（preferred=[]）时，独处放空推断场景
+    仍硬过滤热闹烧烤——证明 L1 只放松了**显式锚**、没砸 case(b) 的场景硬闸。"""
+    intent = _intent_bbq().model_copy(update={"preferred_poi_types": []})
+    rests, _ = search_restaurants_for_intent(intent)
+    assert not _bbq_ids(rests), (
+        "case(b) 无显式诉求不应召回热闹烧烤（场景硬闸保留）；"
+        f"实际召回={[(r.id, r.cuisine) for r in rests]}"
     )
 
 

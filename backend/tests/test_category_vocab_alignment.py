@@ -28,7 +28,7 @@ import pytest
 
 from agent.intent.narrator import detect_unmet_poi_preference
 from agent.intent.prompts.intent_parser_prompt import INTENT_PARSER_SYSTEM_PROMPT
-from agent.runtime.tools.search_adapter import poi_desire_match
+from schemas.category_vocab import poi_desire_match
 from schemas.category_vocab import all_canonical_terms, canonical_equivalent
 from schemas.tags import DIETARY_TAGS, EXPERIENCE_TAGS, PHYSICAL_TAGS
 

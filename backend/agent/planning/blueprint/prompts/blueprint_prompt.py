@@ -120,6 +120,7 @@ def build_user_message(
     candidates_json: str,
     critic_feedback: list[str] | None = None,
     pinned: list[dict] | None = None,
+    single_consumption: bool = False,
 ) -> str:
     """组装单轮 user 消息（edge_v1：candidates_json 不含 commute_matrix）。
 
@@ -169,6 +170,16 @@ def build_user_message(
         feedback_text = "\n".join(f"- {f}" for f in critic_feedback)
         parts.append(
             f"\n【上次蓝图违规（你必须规避）】：\n{feedback_text}"
+        )
+    # Bug B·B4 firm 块（追加在 critic_feedback 之后——决策④）：单一消费诉求
+    # （只点了一个"吃的"、没点活动、没明说长时长）时把「向 duration 靠拢 / 凑
+    # 2-4 活动」的软话覆盖成硬约束；正常局不出现本块 → 逐字节零变化。
+    if single_consumption:
+        parts.append(
+            "\n【单一消费诉求·硬约束（本轮）】用户只点了一个「吃的」、没点任何活动。"
+            "输出**恰好 1 个用餐节点**（选命中用户点名品类的那家）**+ 至多 1 个相邻"
+            "轻活动**。大窗口里排短方案是对的：**别向 duration_hours 靠拢、别凑 "
+            "2-4 活动、别加第二顿正餐**。"
         )
     parts.append(
         "\n请按系统提示输出蓝图 JSON（仅 nodes / preferred_start_time / "

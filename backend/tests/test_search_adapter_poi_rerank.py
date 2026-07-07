@@ -10,10 +10,8 @@ blueprint top-k 预览。
 
 from __future__ import annotations
 
-from agent.runtime.tools.search_adapter import (
-    _rerank_by_preferred_poi_types,
-    poi_desire_match,
-)
+from agent.runtime.tools.search_adapter import _rerank_by_preferred_poi_types
+from schemas.category_vocab import poi_desire_match
 from schemas.domain import Location, Poi
 
 

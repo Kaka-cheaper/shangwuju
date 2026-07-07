@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from schemas.category_vocab import canonical_equivalent
+from schemas.category_vocab import poi_desire_match, restaurant_desire_match
 from schemas.domain import Poi, Restaurant
 from schemas.intent import IntentExtraction, extract_tag_provenance
 from schemas.tools import (
@@ -125,6 +125,10 @@ def search_pois_for_intent(
             intent, "physical_constraints", intent.physical_constraints
         ),
         social_context=intent.social_context,
+        # L1 anchor-escape：显式点名的活动品类（preferred_poi_types）作为 anchor_terms
+        # 传入——命中的候选在工具内跳过 experience_tags / social_context 两道推断场景
+        # 硬过滤（显式诉求压过推断调性），非锚候选照旧硬过滤（case(b) 零回归）。
+        anchor_terms=list(intent.preferred_poi_types) or None,
         age_in_party=list(age_in_party),
         user_lat=user_lat,
         user_lng=user_lng,
@@ -164,50 +168,18 @@ def search_pois_for_intent(
 # ============================================================
 
 
-def poi_desire_match(
-    desire: str, poi_type: str, poi_name: str, poi_tags: list[str]
-) -> bool:
-    """判断单个明示诉求词是否与 POI 词法相关（R3 重排 + R4 检测共用 SoT）。
-
-    匹配规则（先查词汇表 canonical 等价，再退回双向 substring）：
-    1. desire 与 poi.type / poi.name / 任一 poi.tags 若属于
-       `schemas.category_vocab` 同一 canonical 等价类（如 desire="K歌"
-       与 poi.type="KTV"）→ 直接判相关。
-    2. 否则退回宽松双向 substring：desire 与字段互相包含即算相关。
-       例：desire="看展" 命中 P002（tags 含「看展」）；desire="展览" 命中
-       type="展览"；desire="攀岩" 命中 name="Vertical 攀岩馆"。
-
-    **设计变更说明**（原声明"不维护任何映射字典/白名单"已废弃）：纯双向
-    substring 曾是刻意的极简设计，但真 LLM 冒烟测试证明它撑不住——LLM
-    抽取诉求词时会用同义表达（把「KTV」说成「K歌」/「唱K」），与 mock
-    数据字面值没有公共子串，靠子串永远修不完这类失配（一个 bug 只堵一个
-    词，下一个同义词换个说法又破）。canonical 等价表把"哪些词说的是同一件
-    事"钉成单一真相源（`schemas/category_vocab.py`），子串匹配仍保留作为
-    宽松兜底——本次改动只增不减命中面，不影响任何已通过的既有匹配。
-
-    desire 为空或所有字段为空 → False。
-    """
-    d = (desire or "").strip()
-    if not d:
-        return False
-    fields = [poi_type or "", poi_name or "", *(poi_tags or [])]
-    for f in fields:
-        if not f:
-            continue
-        if canonical_equivalent(d, f):
-            return True
-        if (d in f) or (f in d):
-            return True
-    return False
-
-
 def _rerank_by_preferred_poi_types(
     pois: list[Poi], preferred_poi_types: list[str]
 ) -> list[Poi]:
     """把 type/name/tags 与 preferred_poi_types 任一词词法命中的 POI 稳定前置。
 
     无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序，零回归）。
-    与餐厅侧 _rerank_by_preferred_cuisine 同源；判定走 poi_desire_match（R3/R4 共用）。
+    与餐厅侧 _rerank_by_preferred_cuisine 同源；判定走 poi_desire_match（谓词 SoT 已
+    下沉 `schemas.category_vocab`）。
+
+    【L1 anchor-escape 上线后（兜底）】工具侧 `search_pois` 已在截断前保护命中
+    anchor_terms 的候选出 top-k，本重排对该目的冗余，保留做兜底（见
+    `_rerank_by_preferred_cuisine` 同款注记）。
 
     PUBLIC SEAM（改口根治批）：`agent.planning.planners.ils_planner._query_pois`
     顶层 import 本函数做 ILS 召回的品类感知重排——虽带下划线，事实上是跨模块
@@ -275,6 +247,10 @@ def search_restaurants_for_intent(
             intent, "dietary_constraints", intent.dietary_constraints
         ),
         social_context=intent.social_context,
+        # L1 anchor-escape：显式点名的餐饮品类（如「烧烤」）作为 anchor_terms——命中
+        # 的候选在工具内跳过 experience_tags / social_context 硬过滤（治「独处放空推断
+        # 场景把显式烧烤删光」），非锚候选照旧硬过滤（case(b) 零回归）。
+        anchor_terms=list(intent.preferred_poi_types) or None,
         capacity_requirement=party_size,
         user_lat=user_lat,
         user_lng=user_lng,
@@ -307,20 +283,6 @@ def search_restaurants_for_intent(
     return result[:limit], list(relaxed)
 
 
-def restaurant_desire_match(prefs: list[str], r: Restaurant) -> bool:
-    """cuisine 与任一明示诉求词双向 substring 命中（宽松）。
-
-    例：prefs=["烧烤"] 命中 cuisine="烧烤"；prefs=["串"] 命中 "串串"。
-    SoT：cuisine 感知重排（_rerank_by_preferred_cuisine）与 ILS 的「锚品类硬占槽」
-    （ils_planner._query_restaurants）共用这同一把尺子——"重排说命中、硬占说没命中"
-    这种双真源漂移在此消除。空 prefs / 空 cuisine → False。
-    """
-    cuisine = r.cuisine or ""
-    if not cuisine:
-        return False
-    return any((p in cuisine) or (cuisine in p) for p in prefs if p)
-
-
 def _rerank_by_preferred_cuisine(
     restaurants: list[Restaurant], preferred_poi_types: list[str]
 ) -> list[Restaurant]:
@@ -331,9 +293,11 @@ def _rerank_by_preferred_cuisine(
     cuisine="烧烤"；preferred=["串"] 命中 "串串"。
     无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序）。
 
-    PUBLIC SEAM（改口根治批）：`agent.planning.planners.ils_planner.
-    _query_restaurants` 顶层 import 本函数做 ILS 餐厅召回的 cuisine 感知重排
-    （对称缺陷同修）——删除/改签名前先迁移那处 import。
+    【L1 anchor-escape 上线后的定位（兜底）】工具侧 `search_restaurants` 现已在
+    截断前把命中 anchor_terms 的候选稳定前置、保护出 top-k，本编排层重排因此对
+    「保护出 top-k」这一目的已冗余；保留它做**兜底排序**（工具无锚保护时、或
+    ils/rule 其它路径复用时仍前置命中品类），不删（删要动 ils 顶层 import，牵连
+    面大）。谓词 SoT 见 `schemas.category_vocab.restaurant_desire_match`。
     """
     if not preferred_poi_types:
         return restaurants
@@ -341,8 +305,8 @@ def _rerank_by_preferred_cuisine(
     if not prefs:
         return restaurants
 
-    matched = [r for r in restaurants if restaurant_desire_match(prefs, r)]
-    rest = [r for r in restaurants if not restaurant_desire_match(prefs, r)]
+    matched = [r for r in restaurants if restaurant_desire_match(prefs, r.cuisine)]
+    rest = [r for r in restaurants if not restaurant_desire_match(prefs, r.cuisine)]
     return matched + rest
 
 

@@ -21,13 +21,18 @@ Step 6：tag relaxation（ADR-0014 决策 2 · G-2 改造）
 
 from __future__ import annotations
 
+import logging
+
 from data.loader import load_restaurants
+from schemas.category_vocab import restaurant_desire_match
 from schemas.domain import RestaurantCapacity
 from schemas.errors import FailureReason
 from schemas.tools import SearchRestaurantsInput, SearchRestaurantsOutput
 
 from .registry import register_tool
 from ._helpers import has_any_tag, relax_tag_search
+
+logger = logging.getLogger(__name__)
 
 
 _DESC = (
@@ -70,17 +75,29 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
     # 第一道：与 dietary tag 无关的硬过滤
     excluded = set(inp.exclude_visited_ids or [])
 
+    # L1 anchor-escape：显式点名餐饮品类命中的候选，跳过 experience_tags /
+    # social_context 两道推断场景硬过滤（显式诉求压过推断调性）。谓词走
+    # `schemas.category_vocab.restaurant_desire_match`（比 cuisine）——工具/编排/
+    # ils/critic 同一把尺子 SoT。默认无 anchor_terms → 逐字节零回归。
+    _anchor_terms = [t for t in (inp.anchor_terms or []) if t and t.strip()]
+
+    def _is_anchor(r) -> bool:
+        return bool(_anchor_terms) and restaurant_desire_match(_anchor_terms, r.cuisine)
+
     def _non_tag_filter(r):
         if r.id in excluded:
             return False
         if r.distance_km > inp.distance_max_km:
             return False
-        # 体验偏好：命中任一即可
-        if inp.experience_tags and not has_any_tag(r.tags, inp.experience_tags):
-            return False
-        if inp.social_context and inp.social_context not in r.suitable_for:
-            return False
-        # 桌型
+        is_anchor = _is_anchor(r)
+        # 体验偏好 / 社交语境：**推断场景**硬过滤——命中显式锚则豁免（跳过）。
+        if not is_anchor:
+            # 体验偏好：命中任一即可
+            if inp.experience_tags and not has_any_tag(r.tags, inp.experience_tags):
+                return False
+            if inp.social_context and inp.social_context not in r.suitable_for:
+                return False
+        # 桌型（安全类约束，锚也不豁免）
         if inp.capacity_requirement and not _capacity_ok(
             r.capacity, inp.capacity_requirement
         ):
@@ -100,6 +117,18 @@ def search_restaurants(inp: SearchRestaurantsInput) -> SearchRestaurantsOutput:
     )
 
     candidates.sort(key=lambda x: x.rating, reverse=True)
+    # L1 anchor-escape：截断前把命中锚的候选**稳定前置**保护出 top-k——否则去掉
+    # 场景过滤后按 rating 排序，锚（如烧烤 4.4-4.6）可能被更高分泛候选挤出 limit。
+    if _anchor_terms:
+        anchors = [r for r in candidates if _is_anchor(r)]
+        rest = [r for r in candidates if not _is_anchor(r)]
+        if anchors:
+            logger.info(
+                "[search_restaurants] anchor-escape 前置保护 %d 家（anchor_terms=%s）",
+                len(anchors),
+                _anchor_terms,
+            )
+        candidates = anchors + rest
     candidates = candidates[: inp.limit]
 
     if not candidates:

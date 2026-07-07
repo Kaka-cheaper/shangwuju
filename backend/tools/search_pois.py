@@ -19,12 +19,17 @@ Step 6：tag relaxation（ADR-0014 决策 2 · G-2 改造）
 
 from __future__ import annotations
 
+import logging
+
 from data.loader import load_pois
+from schemas.category_vocab import poi_desire_match
 from schemas.errors import FailureReason
 from schemas.tools import SearchPoisInput, SearchPoisOutput
 
 from .registry import register_tool
 from ._helpers import has_any_tag, relax_tag_search
+
+logger = logging.getLogger(__name__)
 
 
 _DESC = (
@@ -56,18 +61,32 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
     # 第一道：与 tag 无关的硬过滤（距离 / experience_tag / social_context / type / age / 已访问）
     excluded = set(inp.exclude_visited_ids or [])
 
+    # L1 anchor-escape：显式点名活动品类命中的候选（走 `schemas.category_vocab.
+    # poi_desire_match`，比 type/name/tags），跳过 experience_tags / social_context
+    # 两道推断场景硬过滤（显式诉求压过推断调性）。preferred_types（精确 type）/
+    # age / 距离 / exclude 不在豁免范围内。默认无 anchor_terms → 零回归。
+    _anchor_terms = [t for t in (inp.anchor_terms or []) if t and t.strip()]
+
+    def _is_anchor(poi) -> bool:
+        return bool(_anchor_terms) and any(
+            poi_desire_match(t, poi.type, poi.name, list(poi.tags or []))
+            for t in _anchor_terms
+        )
+
     def _non_tag_filter(poi):
         if poi.id in excluded:
             return False
         if poi.distance_km > inp.distance_max_km:
             return False
-        # 体验偏好：命中任意一个即可（"网红打卡"或"安静聊天"任一即过）
-        if inp.experience_tags and not has_any_tag(poi.tags, inp.experience_tags):
-            return False
-        # social_context：若指定，POI 必须在 suitable_for 中声明可适配
-        if inp.social_context and inp.social_context not in poi.suitable_for:
-            return False
-        # 偏好类型：若指定，POI.type 必须命中其一
+        is_anchor = _is_anchor(poi)
+        if not is_anchor:
+            # 体验偏好：命中任意一个即可（"网红打卡"或"安静聊天"任一即过）
+            if inp.experience_tags and not has_any_tag(poi.tags, inp.experience_tags):
+                return False
+            # social_context：若指定，POI 必须在 suitable_for 中声明可适配
+            if inp.social_context and inp.social_context not in poi.suitable_for:
+                return False
+        # 偏好类型：若指定，POI.type 必须命中其一（精确类型，安全类，锚也不豁免）
         if inp.preferred_types and poi.type not in inp.preferred_types:
             return False
         # 同行年龄：若指定且 POI 给了 age_range，则全员必须落在区间
@@ -89,6 +108,17 @@ def search_pois(inp: SearchPoisInput) -> SearchPoisOutput:
 
     # 按 rating 倒序，取 limit
     candidates.sort(key=lambda p: p.rating, reverse=True)
+    # L1 anchor-escape：截断前把命中锚的候选稳定前置保护出 top-k（同 search_restaurants）。
+    if _anchor_terms:
+        anchors = [p for p in candidates if _is_anchor(p)]
+        rest = [p for p in candidates if not _is_anchor(p)]
+        if anchors:
+            logger.info(
+                "[search_pois] anchor-escape 前置保护 %d 个（anchor_terms=%s）",
+                len(anchors),
+                _anchor_terms,
+            )
+        candidates = anchors + rest
     candidates = candidates[: inp.limit]
 
     if not candidates:

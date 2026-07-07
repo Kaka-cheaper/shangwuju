@@ -36,9 +36,11 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from agent.planning.blueprint.blueprint_llm import generate_blueprint, BlueprintGenError
+from agent.planning.blueprint.demand_scope import is_single_consumption
 from agent.graph.state import AgentState
 from agent.core.llm_client import get_llm_client
 from agent.planning.weights_llm import get_planning_weights
+from schemas.category_vocab import poi_desire_match, restaurant_desire_match
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,10 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     feedback = state.get("critic_feedback_text")
     feedback_list = [feedback] if feedback else None
     user_id = state.get("user_id") or "demo_user"
+    # Bug B·B4：单一消费诉求（只点了一个"吃的"、没点活动、没明说长时长）→
+    # 蓝图 firm 块 + 事后确定性 trim，把「吃个烧烤」收紧到「1 顿 + 至多 1 轻活动」，
+    # 不被默认 duration_hours=[4,6] 撑成半日多站。正常局判 False → 零变化。
+    single_consumption = is_single_consumption(intent)
     # 赞锁定根治批：锁定清单透传给蓝图生成（用户消息「必须保留」段先验 +
     # 预览强制收录；critic 侧 check_pinned_presence 是硬闸兜底）。单人路径
     # 该键恒为空 → None → generate_blueprint 行为与本批之前完全一致。
@@ -91,6 +97,7 @@ def planner_node(state: AgentState) -> dict[str, Any]:
                 critic_feedback=feedback_list,
                 user_id=user_id,
                 pinned=pinned,
+                single_consumption=single_consumption,
             )
         except BlueprintGenError as e:
             # 真因修复批 item 5：这条分支曾经完全静默——蓝图生成失败（JSON 非法/
@@ -113,6 +120,12 @@ def planner_node(state: AgentState) -> dict[str, Any]:
         blueprint_future = pool.submit(_get_blueprint)
         weights = weights_future.result()
         blueprint = blueprint_future.result()
+
+    # Bug B·B4 确定性 trim（放在 _build_alternatives 之前，否则被裁节点会被当"选中"）：
+    # 单一消费诉求时，若蓝图排多了，裁到「锚用餐 + 输出序首个非锚活动」。remove-only
+    # 安全网——LLM 听 firm 块时本就 ≤2 节点、trim 无操作；不听时兜底收紧。
+    if single_consumption and blueprint is not None:
+        blueprint = _trim_single_consumption(blueprint, intent, pois, restaurants)
 
     # Step 8：写候选「考虑过的备选」到 alternatives（top-2 ~ top-5）
     alternatives = _build_alternatives(blueprint, pois, restaurants)
@@ -181,6 +194,48 @@ def _reason_rejected(candidate, selected_same_kind) -> str:
         if all(candidate.distance_km > s.distance_km for s in selected_same_kind):
             return f"距离更远（{candidate.distance_km:.1f}km）"
     return "综合排序略后"
+
+
+def _trim_single_consumption(blueprint, intent, pois, restaurants):
+    """单一消费诉求的确定性 trim（Bug B·B4 安全网）。
+
+    保留：所有**锚节点**（命中 preferred_poi_types 的用餐/活动）+ **输出序里第一个
+    非锚节点**（决策 C）；删其余。remove-only——不合成缺失的饭，只把排多的裁回。
+
+    锚判定按 target_id 回查 state 里的候选实体拿 cuisine/type/name/tags，走
+    `schemas.category_vocab` 谓词（与 L1/L3/L4 同一把尺子）。裁后仍 ≥1 节点
+    （`PlanBlueprint.nodes` min_length=1 天然满足：锚或首个非锚至少留一个）。
+    无可裁（本就 ≤「锚 + 1」）→ 原样返回。
+    """
+    prefs = [p for p in (intent.preferred_poi_types or []) if p and p.strip()]
+    if not prefs or blueprint is None or not blueprint.nodes:
+        return blueprint
+
+    rests_by_id = {r.id: r for r in (restaurants or [])}
+    pois_by_id = {p.id: p for p in (pois or [])}
+
+    def _is_anchor(node) -> bool:
+        tk = getattr(node.target_kind, "value", node.target_kind)
+        if tk == "restaurant":
+            r = rests_by_id.get(node.target_id)
+            return r is not None and restaurant_desire_match(prefs, r.cuisine)
+        p = pois_by_id.get(node.target_id)
+        return p is not None and any(
+            poi_desire_match(t, p.type, p.name, list(p.tags or [])) for t in prefs
+        )
+
+    kept = []
+    first_non_anchor_taken = False
+    for node in blueprint.nodes:
+        if _is_anchor(node):
+            kept.append(node)
+        elif not first_non_anchor_taken:
+            kept.append(node)
+            first_non_anchor_taken = True
+        # 其余非锚节点丢弃
+    if len(kept) == len(blueprint.nodes):
+        return blueprint  # 无可裁
+    return blueprint.model_copy(update={"nodes": kept})
 
 
 def _build_alternatives(blueprint, pois, restaurants):

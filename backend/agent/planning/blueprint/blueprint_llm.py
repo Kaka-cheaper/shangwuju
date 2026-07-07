@@ -232,6 +232,7 @@ def generate_blueprint(
     top_k_preview: int = 5,
     user_id: str = "demo_user",
     pinned: list[dict] | None = None,
+    single_consumption: bool = False,
 ) -> PlanBlueprint:
     """让 LLM 看候选数据后出蓝图（edge_v1：仅 nodes + preferred_start_time + rationale）。
 
@@ -290,11 +291,12 @@ def generate_blueprint(
     intent_json = intent.model_dump_json()
     candidates_json = json.dumps(preview, ensure_ascii=False, indent=2)
 
-    user_msg = build_user_message(
+    user_msg = build_user_message(  # single_consumption 见 Bug B·B4 firm 块
         intent_json=intent_json,
         candidates_json=candidates_json,
         critic_feedback=critic_feedback,
         pinned=list(pinned) if pinned else None,
+        single_consumption=single_consumption,
     )
     messages = [
         LLMMessage(role="system", content=BLUEPRINT_SYSTEM_PROMPT),

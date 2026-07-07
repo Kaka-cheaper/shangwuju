@@ -146,6 +146,7 @@ from schemas.domain import Poi, Restaurant, UserProfile
 from schemas.intent import IntentExtraction
 
 from ..blueprint.blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
+from ..blueprint.demand_scope import is_main_meal_cuisine
 from ..blueprint.node_decider import KIND_DINING, KIND_MAIN, _DINING_FOCUSED_CONTEXTS
 from ..commute.lookup_hop import lookup_hop
 from ..critic._rules.helpers import fmt_hhmm, parse_hhmm
@@ -327,6 +328,29 @@ def _try_insert_best_by_key(
     return best
 
 
+def _is_main_meal_visit(v: Visit) -> bool:
+    """visit 是否是一个「正餐」餐厅节点（茶点/咖啡不算；供 B3 用餐上限计数）。"""
+    return v.kind == "restaurant" and is_main_meal_cuisine(
+        getattr(getattr(v, "entity", None), "cuisine", None)
+    )
+
+
+def _meal_window_cap(depart_min: int, budget_min: int) -> int:
+    """出行窗 [depart_min, depart_min+budget_min] 跨过几个饭点惯例窗 → 正餐节点上限。
+
+    Bug B·B3：跨午+晚才允许 2 顿正餐；只跨 1 个（或介于两窗之间）→ 1 顿。**下限恒
+    为 1**——「点了一个吃的」永远该拿到那一顿；上限只用来挡「第二顿正餐」。茶点
+    （咖啡/下午茶/甜品）不受本上限约束（`_is_main_meal_visit` 不计它们）。
+    """
+    window_start, window_end = depart_min, depart_min + budget_min
+    overlap = sum(
+        1
+        for w_start, w_end in _MEAL_CONVENTION_WINDOWS_MIN
+        if window_start < w_end and window_end > w_start
+    )
+    return max(1, overlap)
+
+
 def _greedy_fill_emergent(
     selected: list[Visit],
     schedule: RouteSchedule,
@@ -344,7 +368,18 @@ def _greedy_fill_emergent(
     停止条件实现顺序与 ADR 任务原文编号顺序的差异、为何不影响最终结果，
     见模块 docstring 判断点 2。本函数原地修改 `selected`/`pool`，返回最新
     `RouteSchedule`。
+
+    Bug B 两处根治（都只作用本 ILS 路径，rule_planner 不调本函数）：
+    - **B2**：④号停止条件去掉 `and lo_reached`——不再为凑 `lo_min` 硬塞负收益
+      活动（`lo_min` 退化为非绑定 aspiration）。真·多站方案的好候选边际分为正、
+      照插不误，只砍「没好候选还硬凑」的 padding。
+    - **B3**：正餐（`_is_main_meal_visit`）节点数封顶 `_meal_window_cap`；已达上限
+      时本轮候选里排除正餐餐厅（茶点/POI 不受限）。`main_meal_count` **从
+      `selected` 已选中的正餐数初始化**（含锚点段的 pinned / 软锚饭），不从 0 起，
+      否则「软锚正餐 + 涌现正餐」会漏封成两顿。
     """
+    meal_cap = _meal_window_cap(depart_min, budget_min)
+    main_meal_count = sum(1 for v in selected if _is_main_meal_visit(v))
     while True:
         # ② 活动数上限（不依赖候选搜索，最先短路）
         if len(selected) >= MAX_ACTIVITIES:
@@ -362,13 +397,20 @@ def _greedy_fill_emergent(
         if lo_reached and (current_total - schedule.total_slack_min) > targets.activity_budget_min:
             break
 
+        # B3：正餐已达上限 → 本轮候选排除正餐餐厅（茶点/POI 仍可进）
+        eligible = pool
+        if main_meal_count >= meal_cap:
+            eligible = [v for v in pool if not _is_main_meal_visit(v)]
+            if not eligible:
+                break
+
         # 基准分每轮只算一次（code-review finding #7：它是轮内循环不变量），
         # 且按**当前排程的时间序**算（finding #2：打分对象=真实产出的路线）。
         base_route_score = route_score(
             [sv.visit for sv in schedule.scheduled], weights, money_budget
         )
         found = _try_insert_best_by_key(
-            pool,
+            eligible,
             selected,
             depart_min=depart_min,
             budget_min=budget_min,
@@ -383,14 +425,15 @@ def _greedy_fill_emergent(
             break
 
         visit, candidate_schedule, margin = found
-        # ④ 负收益且下限已满足 —— 下限未满足时即便边际分低也继续插（不硬凑
-        # 只体现在"塞不进就停"的①，不体现在这里的分数高低）
-        if margin <= 0 and lo_reached:
+        # ④ B2：负收益即停（不再 `and lo_reached`；见函数 docstring）
+        if margin <= 0:
             break
 
         selected.append(visit)
         schedule = candidate_schedule
         pool.remove(visit)
+        if _is_main_meal_visit(visit):
+            main_meal_count += 1
 
     return schedule
 

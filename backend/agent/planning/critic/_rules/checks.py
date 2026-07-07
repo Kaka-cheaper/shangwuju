@@ -1232,7 +1232,8 @@ def check_social_context(
     _r_match = _p_match = None
     if _anchor_prefs:
         try:
-            from agent.runtime.tools.search_adapter import (
+            # 谓词已下沉中立底座（见 schemas.category_vocab docstring）。
+            from schemas.category_vocab import (
                 poi_desire_match as _p_match,
                 restaurant_desire_match as _r_match,
             )
@@ -1280,7 +1281,7 @@ def check_social_context(
                 )
         elif node.target_kind == "restaurant" and node.target_id in restaurants_by_id:
             rest = restaurants_by_id[node.target_id]
-            if _r_match is not None and _r_match(_anchor_prefs, rest):
+            if _r_match is not None and _r_match(_anchor_prefs, rest.cuisine):
                 continue  # 显式点名的餐厅（如烧烤）豁免推断场景的社交调性否决
             level, reason = evaluate_restaurant(intent, rest)
             if level == CompatLevel.BLOCKING:

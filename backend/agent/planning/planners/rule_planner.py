@@ -547,6 +547,10 @@ def _query_pois(
                 preferred_types=preferred_types
                 if preferred_types is not None
                 else list(intent.preferred_poi_types),
+                # L1 anchor-escape（六处构造点之一）：显式活动锚命中的 POI 跳过
+                # experience/social 硬过滤。注意本 rule 路径另传了 preferred_types
+                # （精确 type 匹配，是既有 rule 行为），它不在 escape 豁免范围内。
+                anchor_terms=list(intent.preferred_poi_types) or None,
             ).model_dump(),
         )
         return SearchPoisOutput.model_validate(result.output) if result.success else SearchPoisOutput(
@@ -693,6 +697,9 @@ def _query_restaurants(
                 capacity_requirement=capacity
                 if capacity is not None
                 else intent.capacity_requirement,
+                # L1 anchor-escape（六处构造点之一）：显式餐饮锚（烧烤）命中的餐厅
+                # 跳过 experience/social 硬过滤。
+                anchor_terms=list(intent.preferred_poi_types) or None,
             ).model_dump(),
         )
         return SearchRestaurantsOutput.model_validate(result.output) if result.success else SearchRestaurantsOutput(

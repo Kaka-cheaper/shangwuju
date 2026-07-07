@@ -196,7 +196,7 @@ def detect_unmet_poi_preference(
     if not preferred_poi_types:
         return []
     try:
-        from agent.runtime.tools.search_adapter import poi_desire_match
+        from schemas.category_vocab import poi_desire_match
     except Exception:  # noqa: BLE001
         return []
 
@@ -260,7 +260,7 @@ def split_unmet_by_nearby_availability(
         return [], []
     try:
         try:
-            from agent.runtime.tools.search_adapter import poi_desire_match
+            from schemas.category_vocab import poi_desire_match
         except Exception:  # noqa: BLE001
             poi_desire_match = None  # 只剩餐厅口径可用，POI 诉求会落入"没安排"组
 

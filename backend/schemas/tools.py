@@ -81,6 +81,17 @@ class SearchPoisInput(BaseModel):
     preferred_types: list[str] = Field(
         default_factory=list, description="如 [展览, 美术馆]"
     )
+    anchor_terms: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "L1 anchor-escape：用户**显式点名**的活动品类（intent.preferred_poi_types，"
+            "如「看展」）。命中 anchor_terms 的候选（走 `schemas.category_vocab."
+            "poi_desire_match`）在 `_non_tag_filter` 里**跳过 experience_tags + "
+            "social_context 两道推断场景硬过滤**——显式诉求压过推断调性；非锚候选"
+            "照旧硬过滤。距离/年龄/preferred_types/exclude 不在豁免范围内。默认 None "
+            "= 无锚 = 逐字节零回归。"
+        ),
+    )
     user_lat: Optional[float] = Field(
         default=None,
         description=(
@@ -148,6 +159,17 @@ class SearchRestaurantsInput(BaseModel):
         ),
     )
     social_context: Optional[SocialContext] = None
+    anchor_terms: Optional[list[str]] = Field(
+        default=None,
+        description=(
+            "L1 anchor-escape：用户**显式点名**的餐饮品类（intent.preferred_poi_types，"
+            "如「烧烤」）。命中 anchor_terms 的餐厅（走 `schemas.category_vocab."
+            "restaurant_desire_match`，比对 cuisine）在 `_non_tag_filter` 里**跳过 "
+            "experience_tags + social_context 两道推断场景硬过滤**；非锚候选照旧硬"
+            "过滤。dietary（走 relax_tag_search）/距离/桌型/exclude 不在豁免范围内。"
+            "默认 None = 无锚 = 逐字节零回归。"
+        ),
+    )
     capacity_requirement: Optional[NonNegativeInt] = Field(
         default=None,
         description="同行 ≥4 人时按桌型过滤",

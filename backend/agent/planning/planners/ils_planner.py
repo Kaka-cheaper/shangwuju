@@ -185,9 +185,10 @@ from ...core.trace import Tracer
 from ...runtime.tools.search_adapter import (
     _rerank_by_preferred_cuisine,
     _rerank_by_preferred_poi_types,
-    poi_desire_match,
-    restaurant_desire_match,
 )
+# 词法谓词已下沉中立底座 `schemas.category_vocab`（工具侧 L1 anchor-escape 需要
+# 无环 import；见该模块 docstring「明示诉求·词法命中谓词」节）。
+from schemas.category_vocab import poi_desire_match, restaurant_desire_match
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
 from utils.duration_helpers import get_duration_for_companions
@@ -1009,6 +1010,9 @@ def _query_pois(intent: IntentExtraction, tracer: Tracer) -> list[Poi]:
             intent, "physical_constraints", intent.physical_constraints
         ),
         social_context=intent.social_context,
+        # L1 anchor-escape：显式活动锚命中的 POI 跳过 experience/social 硬过滤
+        # （六处构造点之一；见 search_adapter 同款注释）。
+        anchor_terms=list(intent.preferred_poi_types) or None,
         age_in_party=[c.age for c in intent.companions if c.age is not None] or None,
         user_lat=home.lat,
         user_lng=home.lng,
@@ -1068,6 +1072,9 @@ def _query_restaurants(intent: IntentExtraction, tracer: Tracer) -> list[Restaur
             intent, "dietary_constraints", intent.dietary_constraints
         ),
         social_context=intent.social_context,
+        # L1 anchor-escape：显式餐饮锚（如烧烤）命中的餐厅跳过 experience/social
+        # 硬过滤（六处构造点之一）——这是「独处放空推断场景删光烧烤」病灶的 ILS 侧根修。
+        anchor_terms=list(intent.preferred_poi_types) or None,
         capacity_requirement=intent.capacity_requirement,
         user_lat=home.lat,
         user_lng=home.lng,
@@ -1280,7 +1287,7 @@ def _utility(
     # 重排 / 未满足检测同一把尺子 SoT）；每候选独立加分，多活动方案不会被逼同品类。
     prefs = [p for p in (intent.preferred_poi_types or []) if p]
     if prefs:
-        if rest is not None and restaurant_desire_match(prefs, rest):
+        if rest is not None and restaurant_desire_match(prefs, rest.cuisine):
             score += _PREFERRED_ANCHOR_BONUS
         if poi is not None and any(
             poi_desire_match(p, poi.type, poi.name, list(poi.tags or [])) for p in prefs

@@ -121,4 +121,71 @@ def canonical_keys() -> frozenset[str]:
     return frozenset(_CATEGORY_ALIASES.keys())
 
 
-__all__ = ["canonical_equivalent", "all_canonical_terms", "canonical_keys"]
+# ============================================================
+# 明示诉求·词法命中谓词（品类感知匹配单一真相源）
+# ============================================================
+#
+# 【为什么住在这里（中立底座）】原先这两个谓词住在
+# `agent.runtime.tools.search_adapter`（编排层），但 L1「工具侧 anchor_terms
+# 豁免」需要 `tools/search_*.py` 也调它们判断候选是否命中显式锚——工具
+# import 编排层 = 层级倒置（AGENTS.md §4.1），且离循环 import 只差一步。
+# 下沉到 `schemas.category_vocab`（本模块只依赖标准库，是全仓最纯底座）后，
+# 工具 / adapter / ils / critic / narrator 全部可无环 import，且与它们已经
+# 依赖的 `canonical_equivalent` 同屋——「哪些词说的是同一件事」这个判定的
+# 单一真相源就此收敛在一处。
+
+
+def poi_desire_match(
+    desire: str, poi_type: str, poi_name: str, poi_tags: list[str]
+) -> bool:
+    """判断单个明示诉求词是否与 POI 词法相关（R3 重排 + R4 检测 + L1 锚豁免共用 SoT）。
+
+    匹配规则（先查词汇表 canonical 等价，再退回双向 substring）：
+    1. desire 与 poi.type / poi.name / 任一 poi.tags 若属于同一 canonical
+       等价类（如 desire="K歌" 与 poi.type="KTV"）→ 直接判相关。
+    2. 否则退回宽松双向 substring：desire 与字段互相包含即算相关。
+       例：desire="看展" 命中 tags 含「看展」；desire="展览" 命中 type="展览"；
+       desire="攀岩" 命中 name="Vertical 攀岩馆"。
+
+    desire 为空或所有字段为空 → False。
+    """
+    d = (desire or "").strip()
+    if not d:
+        return False
+    fields = [poi_type or "", poi_name or "", *(poi_tags or [])]
+    for f in fields:
+        if not f:
+            continue
+        if canonical_equivalent(d, f):
+            return True
+        if (d in f) or (f in d):
+            return True
+    return False
+
+
+def restaurant_desire_match(prefs: list[str], cuisine: str) -> bool:
+    """cuisine 与任一明示诉求词双向 substring 命中（宽松）。
+
+    例：prefs=["烧烤"] 命中 cuisine="烧烤"；prefs=["串"] 命中 "串串"。
+    SoT：cuisine 感知重排（`_rerank_by_preferred_cuisine`）、ILS 的「锚品类硬占
+    槽」（`ils_planner._utility`）、critic 锚豁免（`check_social_context`）、
+    以及 L1 工具侧 anchor_terms 豁免共用这同一把尺子——避免多处各抄一份词法逻辑
+    的双真源漂移。
+
+    **签名吃 `cuisine: str` 基元**（不吃 `Restaurant` 对象）：让本谓词留在纯底座
+    `schemas.category_vocab`、不引入对 `schemas.domain` 的依赖，工具/编排层各自
+    传 `r.cuisine` 进来。空 prefs / 空 cuisine → False。
+    """
+    cuisine = cuisine or ""
+    if not cuisine:
+        return False
+    return any((p in cuisine) or (cuisine in p) for p in prefs if p)
+
+
+__all__ = [
+    "canonical_equivalent",
+    "all_canonical_terms",
+    "canonical_keys",
+    "poi_desire_match",
+    "restaurant_desire_match",
+]
