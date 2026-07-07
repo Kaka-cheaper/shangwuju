@@ -307,13 +307,28 @@ def search_restaurants_for_intent(
     return result[:limit], list(relaxed)
 
 
+def restaurant_desire_match(prefs: list[str], r: Restaurant) -> bool:
+    """cuisine 与任一明示诉求词双向 substring 命中（宽松）。
+
+    例：prefs=["烧烤"] 命中 cuisine="烧烤"；prefs=["串"] 命中 "串串"。
+    SoT：cuisine 感知重排（_rerank_by_preferred_cuisine）与 ILS 的「锚品类硬占槽」
+    （ils_planner._query_restaurants）共用这同一把尺子——"重排说命中、硬占说没命中"
+    这种双真源漂移在此消除。空 prefs / 空 cuisine → False。
+    """
+    cuisine = r.cuisine or ""
+    if not cuisine:
+        return False
+    return any((p in cuisine) or (cuisine in p) for p in prefs if p)
+
+
 def _rerank_by_preferred_cuisine(
     restaurants: list[Restaurant], preferred_poi_types: list[str]
 ) -> list[Restaurant]:
     """把 cuisine 与 preferred_poi_types 任一词互相包含的候选稳定前置。
 
-    匹配规则（宽松双向 substring）：preferred 词 in cuisine 或 cuisine in preferred 词，
-    例如 preferred=["烧烤"] 命中 cuisine="烧烤"；preferred=["串"] 命中 "串串"。
+    匹配规则（宽松双向 substring，走 restaurant_desire_match 同一把尺子）：
+    preferred 词 in cuisine 或 cuisine in preferred 词，例如 preferred=["烧烤"] 命中
+    cuisine="烧烤"；preferred=["串"] 命中 "串串"。
     无 preferred_poi_types 或无命中 → 原序返回（稳定排序不打乱原 rating 序）。
 
     PUBLIC SEAM（改口根治批）：`agent.planning.planners.ils_planner.
@@ -326,12 +341,8 @@ def _rerank_by_preferred_cuisine(
     if not prefs:
         return restaurants
 
-    def _match(r: Restaurant) -> bool:
-        cuisine = r.cuisine or ""
-        return any((p in cuisine) or (cuisine and cuisine in p) for p in prefs)
-
-    matched = [r for r in restaurants if _match(r)]
-    rest = [r for r in restaurants if not _match(r)]
+    matched = [r for r in restaurants if restaurant_desire_match(prefs, r)]
+    rest = [r for r in restaurants if not restaurant_desire_match(prefs, r)]
     return matched + rest
 
 

@@ -1223,6 +1223,22 @@ def check_social_context(
     except ImportError:
         return out
 
+    # 显式点名品类·硬锚豁免（3a 根治，见 tests/test_bbq_anchor_repro）：用户在
+    # preferred_poi_types 显式点名的品类（如「烧烤」=热闹）是 hard anchor——不能拿
+    # **推断**出的场景（独处/安静，本身合理）的社交调性把它判成 HARD 违规、让 repair
+    # 换掉它（用户明说要烧烤，显式请求压过推断的调性偏好）。命中显式锚的节点跳过本
+    # check。谓词与检索重排 / 选点 bonus 同一把尺子（SoT）；import 失败则退化为不豁免。
+    _anchor_prefs = [p for p in (intent.preferred_poi_types or []) if p] if intent is not None else []
+    _r_match = _p_match = None
+    if _anchor_prefs:
+        try:
+            from agent.runtime.tools.search_adapter import (
+                poi_desire_match as _p_match,
+                restaurant_desire_match as _r_match,
+            )
+        except ImportError:
+            _r_match = _p_match = None
+
     pois_by_id = ctx.pois_by_id if ctx is not None else {p.id: p for p in safe_load_pois()}
     restaurants_by_id = (
         ctx.restaurants_by_id
@@ -1233,6 +1249,10 @@ def check_social_context(
     for idx, node in enumerate(itinerary.nodes):
         if node.target_kind == "poi" and node.target_id in pois_by_id:
             poi = pois_by_id[node.target_id]
+            if _p_match is not None and any(
+                _p_match(p, poi.type, poi.name, list(poi.tags or [])) for p in _anchor_prefs
+            ):
+                continue  # 显式点名的活动豁免推断场景的社交调性否决
             level, reason = evaluate_poi(intent, poi)
             if level == CompatLevel.BLOCKING:
                 out.append(
@@ -1260,6 +1280,8 @@ def check_social_context(
                 )
         elif node.target_kind == "restaurant" and node.target_id in restaurants_by_id:
             rest = restaurants_by_id[node.target_id]
+            if _r_match is not None and _r_match(_anchor_prefs, rest):
+                continue  # 显式点名的餐厅（如烧烤）豁免推断场景的社交调性否决
             level, reason = evaluate_restaurant(intent, rest)
             if level == CompatLevel.BLOCKING:
                 out.append(

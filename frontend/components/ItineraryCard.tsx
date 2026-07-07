@@ -1,6 +1,14 @@
 ﻿"use client";
 
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ArrowLeftRight, type LucideIcon, SlidersHorizontal } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
@@ -43,6 +51,29 @@ import VoteButtons from "./VoteButtons";
  */
 const TIMELINE_DOT_OFFSET = "1.25rem"; // 20px
 
+/**
+ * 揭幕入场要在浏览器 paint 之前就把 .reveal-* 类挂上（否则会先闪一帧"静止态卡片"
+ * 再从 opacity:0 掀起，出现弹跳/闪烁）。useLayoutEffect 在 DOM 变更后、paint 前
+ * 同步执行 → 无闪帧。SSR 不跑布局，退回 useEffect 避免服务端告警（本组件的方案卡
+ * 只在用户交互后出现，SSR 首屏 showCard 恒为 false，不会命中揭幕分支）。
+ */
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/** prefers-reduced-motion：整段揭幕降级为即时静止态（同 TrustBelt 的读法）。 */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return reduced;
+}
+
 /** 行程卡片：聚焦方案摘要、时间轴、地图、预订结果和主执行动作。 */
 export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
@@ -67,22 +98,34 @@ export default function ItineraryCard() {
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const cancel = useChatStore((s) => s.cancel);
 
-  // 聚光灯：itinerary 从 null/无 → 有时触发一次性脉冲
-  // confirm 阶段是接续不重置，spotlight 不应触发（保留 demo UX 连续）
+  // ============================================================
+  // 压住 → 就绪后揭幕（本批核心，见交付报告「压住→就绪后揭幕」）
+  //
+  // 真实流式链路：itinerary_ready 先到（规则标题占位）→ agent_narration 最后
+  // 才把 LLM 标题原地换进 itinerary.summary + 推出口播 narration.text → done
+  // 令 streaming 翻 false。若一边流一边揭，标题会先露"规则套话"再被换掉、口播
+  // 也会中途冒出——凌乱。正解：AI 幕后思考流（TrustBelt）照常直播当观赏性等待，
+  // 把方案卡整张压住不上屏，直到 streaming 翻 false（= 总结/narration 已就绪、
+  // 整条流结束这个干净信号）再统一放这套自上而下的揭幕。
+  //
+  // showCard：是否把方案卡上屏（vs. 压住时的"正在拼装"骨架）。
+  //   - itinerary 且 !streaming：流已结束 → 上屏（首轮 done / 稳定态 / 换菜态）
+  //   - itinerary 且 streaming 但已上过屏（planVisible 锁存）：确认预约进行中
+  //     接续展示，不重新压住、不重放揭幕
+  //   - itinerary 且 streaming 且没上过屏：首轮/反馈重规划进行中 → 压住
   const [spotlight, setSpotlight] = useState(false);
-  const prevHadItinerary = useRef(false);
-  const streamPhase = useChatStore((s) => s.streamPhase);
+  const [planVisible, setPlanVisible] = useState(false);
+  const [revealing, setRevealing] = useState(false);
+  const [landed, setLanded] = useState(false);
+  const reducedMotion = useReducedMotion();
+  const showCard = !!itinerary && (planVisible || !streaming);
+
+  // planVisible 锁存：一旦上过屏就记住（confirm 期间 streaming 又变 true 也不再
+  // 压住）；itinerary 被清空（新一轮 / 反馈重规划）时复位，等下一次 done 再揭。
   useEffect(() => {
-    const has = !!itinerary;
-    if (has && !prevHadItinerary.current && streamPhase !== "confirm") {
-      setSpotlight(true);
-      const timer = setTimeout(() => setSpotlight(false), 2400);
-      prevHadItinerary.current = true;
-      return () => clearTimeout(timer);
-    }
-    if (!has) prevHadItinerary.current = false;
-    if (has && !prevHadItinerary.current) prevHadItinerary.current = true;
-  }, [itinerary, streamPhase]);
+    if (showCard) setPlanVisible(true);
+    else if (!itinerary) setPlanVisible(false);
+  }, [showCard, itinerary]);
 
   // ============================================================
   // 时间轴 stagger 动画（R1）：schedule 逐条"长出来"
@@ -124,7 +167,7 @@ export default function ItineraryCard() {
   // useConfirmAction 判定上（房主守卫 + collabMode 分流，见 A6 hook 抽取）。
   // 必须在任何 early return 之前调用（hooks 规则），故放在这里而不是渲染分支处。
   const { canConfirm, handleConfirm, confirmLabel, blockedByOwnerGuard } =
-    useConfirmAction(!animating);
+    useConfirmAction(!animating && !revealing);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 跨 itinerary 持久化的「已经跑过 stagger 的总段数」
   // 用途：confirm / refine 后 itinerary 整体替换（含 orders / share_message），但
@@ -181,7 +224,7 @@ export default function ItineraryCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itinerary]);
 
-  // 跳过动画：清 timer + 立即全显
+  // 跳过动画：清 timer + 立即全显 + 收束揭幕（把三幕直接落到静止态）
   const skipAnimation = () => {
     if (animTimerRef.current) {
       clearTimeout(animTimerRef.current);
@@ -189,7 +232,68 @@ export default function ItineraryCard() {
     }
     setVisibleCount(visibleEntries.length);
     setAnimating(false);
+    setRevealing(false);
+    setLanded(false);
+    setSpotlight(false);
   };
+
+  // ============================================================
+  // 揭幕编排：showCard 首次 false→true（首轮 done / 反馈重规划 done）时，
+  // 自上而下放三幕（幕①标题掀开 + 幕③节点弹性过冲 + 幕④投影落定），落定后归静。
+  //   - confirm 期间 showCard 恒 true（planVisible 锁存），不会触发（不重放）
+  //   - useLayoutEffect：paint 前挂类，避免"先闪静止态再掀起"
+  //   - reducedMotion：只上屏、不放动画（即时静止态）
+  // 时序（照原型 v4 的 playReveal 节奏，去掉未落地的脊柱画出幕②后压缩）：
+  //   t0 纸抬升(0.7s)+标题掀开(0.12→0.9s)+节点逐行弹起 → t1.8s 投影落桌 →
+  //   t2.6s 撤动画类归静。到场柔光(spotlight)≈2.4s 一次性。
+  // ============================================================
+  const prevShowCardRef = useRef(false);
+  useIsoLayoutEffect(() => {
+    const wasShown = prevShowCardRef.current;
+    prevShowCardRef.current = showCard;
+
+    if (!showCard) {
+      // 压回骨架态：清净揭幕态，等下一次 done 重新揭
+      setRevealing(false);
+      setLanded(false);
+      setSpotlight(false);
+      return;
+    }
+    if (wasShown) return; // 已在屏上（confirm / 换菜接续）→ 不重放揭幕
+
+    // 首次上屏：先把时间轴强制全显（越过旧的逐条 stagger）再叠三幕
+    if (animTimerRef.current) {
+      clearTimeout(animTimerRef.current);
+      animTimerRef.current = null;
+    }
+    setVisibleCount(visibleEntries.length);
+    setAnimating(false);
+    lastAnimatedTotalRef.current = visibleEntries.length;
+
+    if (reducedMotion) {
+      setRevealing(false);
+      setLanded(false);
+      setSpotlight(false);
+      return;
+    }
+
+    setSpotlight(true);
+    setRevealing(true);
+    setLanded(false);
+    const tLand = setTimeout(() => setLanded(true), 1800); // ④ 投影落桌
+    const tEnd = setTimeout(() => {
+      setRevealing(false); // 归静：撤动画类（落桌深影 = 静止态，无跳变）
+      setLanded(false);
+    }, 2600);
+    const tGlow = setTimeout(() => setSpotlight(false), 2400);
+    return () => {
+      clearTimeout(tLand);
+      clearTimeout(tEnd);
+      clearTimeout(tGlow);
+    };
+    // reducedMotion / visibleEntries 有意不入依赖：只在 showCard 翻转时编排一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCard]);
 
   // streaming 变 false 时兜底（abort 等异常场景下防止 animating 卡住）
   useEffect(() => {
@@ -227,7 +331,10 @@ export default function ItineraryCard() {
     );
   }
 
-  if (!itinerary) {
+  // 压住态（!showCard）：itinerary 可能已到（itinerary_ready），但总结/narration
+  // 还没就绪、流没结束 → 整张方案卡压住不上屏，只让 AI 幕后思考流（TrustBelt）
+  // 直播 + "正在拼装"骨架顶着，直到 done 才统一揭幕（见上方 showCard 说明）。
+  if (!showCard) {
     return (
       <div className="space-y-3">
         {/* 信任带：规划中就该看到"它在想什么"，不必等方案落地。同一个
@@ -251,13 +358,31 @@ export default function ItineraryCard() {
 
   const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
-  // R1: animating 期间也禁用按钮（避免用户在动画进行中点确认）
-  // canConfirm/handleConfirm 已由 useConfirmAction(!animating) 统一算好（见上）。
-  const canAct = !streaming && !hasOrders && !cancelled && !animating;
+  // R1: animating / 揭幕(revealing) 期间禁用按钮（避免用户在动画进行中点确认）。
+  // canConfirm/handleConfirm 已由 useConfirmAction(!animating && !revealing) 统一算好。
+  const canAct =
+    !streaming && !hasOrders && !cancelled && !animating && !revealing;
   // ADR-0013 F-5：房间模式下节点调整走 WS "adjust"（RoomManager.adjust，归名+
   // 串行+锁定广播），单人模式维持原 HTTP `/chat/adjust` SSE（同 ChatDock 的
   // collabMode 分流先例）——两个调用点（具名备选/定向调整 chip）共用这一处分流。
   const dispatchAdjust = collabMode ? sendCollabAdjust : sendAdjust;
+
+  // 幕③ 逐行 stagger：给时间轴每一 <li>（含首尾"家" + 节点/通勤/自由休息行）
+  // 按自上而下的 DOM 顺序注入递增 animationDelay，配 .reveal-row 的 back.out
+  // 弹性过冲。计数器每次 render 归零、随 JSX 构建顺序自增（纯本地、确定性）；
+  // 非 revealing 态返回空 props（静止态无入场动画，避免归静/换菜时误触发闪动）。
+  let revealRowSeq = 0;
+  const rowRevealProps = (): {
+    className: string;
+    style: CSSProperties | undefined;
+  } => {
+    if (!revealing) return { className: "", style: undefined };
+    const style: CSSProperties = {
+      animationDelay: `${(0.42 + revealRowSeq * 0.08).toFixed(3)}s`,
+    };
+    revealRowSeq += 1;
+    return { className: "reveal-row", style };
+  };
 
   return (
     <div className="space-y-3">
@@ -277,7 +402,16 @@ export default function ItineraryCard() {
           光、不来自铺黄。 */}
       <div className="relative">
         {spotlight && <div className="itinerary-arrival-glow" aria-hidden />}
-        <div className="itinerary-hero relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white animate-fade-in">
+        {/* 揭幕（幕④投影落定）：revealing 时挂 .reveal-card（抬升浅软影 + sheetLift），
+            landed 时叠 .reveal-card--land 过渡到落桌深影；归静后撤类回到 .itinerary-hero
+            静止态（深影一致，无跳变）。不再用 animate-fade-in——入场由三幕接管。 */}
+        <div
+          className={cn(
+            "itinerary-hero relative overflow-hidden rounded-[30px] border border-black/[0.06] bg-white",
+            revealing && "reveal-card",
+            revealing && landed && "reveal-card--land",
+          )}
+        >
       {/* streaming 时顶部流动黄光带 */}
       {streaming && (
         <div
@@ -299,8 +433,15 @@ export default function ItineraryCard() {
                 今日行程安排
               </span>
             </div>
+            {/* 幕① 标题遮罩掀开：.reveal-title 是 overflow:hidden 的裁剪框，
+                .reveal-title-inner 从框下方掀上来露出（文字全程锐利，不模糊/淡入）。
+                只在 revealing 时裁剪+动画，静止态是普通 block，不改多行标题排版。 */}
             <div className="mt-2 text-3xl font-black leading-tight tracking-tight text-ink-900">
-              <HighlightSummary text={itinerary.summary} />
+              <span className={cn("reveal-title", revealing && "reveal-title--anim")}>
+                <span className="reveal-title-inner">
+                  <HighlightSummary text={itinerary.summary} />
+                </span>
+              </span>
             </div>
           </div>
           <span className="shrink-0 rounded-full border border-white/[0.78] bg-white/75 px-3.5 py-1.5 text-sm font-bold text-[#8f4b24] shadow-sm backdrop-blur-xl">
@@ -352,8 +493,8 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* R1: 时间轴 stagger 动画期间显示跳过按钮 */}
-      {animating && (
+      {/* R1: 时间轴 stagger / 揭幕三幕进行中显示跳过按钮 */}
+      {(animating || revealing) && (
         <div className="px-4 pt-2 flex justify-end">
           <button
             type="button"
@@ -380,7 +521,10 @@ export default function ItineraryCard() {
             timecol 布局注释），文案沿用既有实现，未采用设计稿示例"从家出发"
             文案，见交付报告说明。timecol 列（"出发"小字）是本批新增的纯布局
             列，复用真实 .timeline-spine-seg/.timeline-dot-home 类不变。 */}
-        <li className="relative flex items-center gap-0">
+        {(() => {
+          const rr = rowRevealProps();
+          return (
+        <li className={cn("relative flex items-center gap-0", rr.className)} style={rr.style}>
           {/* 时间/通勤列（timecol）：家 bookend 无起止时刻，只放一个极小的
               "出发" 标签，右对齐、贴脊柱——和下方节点行/通勤行共用同一条
               时间列，让整条时间轴左侧的"时间语义列"贯穿始终。 */}
@@ -405,6 +549,8 @@ export default function ItineraryCard() {
             出发咯
           </div>
         </li>
+          );
+        })()}
 
         {(() => {
           // ADR-0013 F-4：room.py 的 vote 协议 stage_index = "mid nodes 顺序"
@@ -424,7 +570,9 @@ export default function ItineraryCard() {
           // 计算——通勤段自己的分钟数已经被通勤行自己的 [start, end] 吃掉，
           // 这里天然不会把通勤时间重复计入休息时长（不是 "下一站 start − 上一站 start"）。
           const prevEntry = idx > 0 ? visibleEntries[idx - 1] : null;
-          const gapNode = renderFreeGap(prevEntry, entry, idx);
+          // 幕③：gap（自由休息）行也走同一套逐行 stagger（在它关联的通勤/节点行
+          // 之前渲染，计数器顺序天然正确）。
+          const gapNode = renderFreeGap(prevEntry, entry, idx, rowRevealProps);
 
           // hop 行：时间轴精修终稿§二「通勤挪到脊柱上」——不再是一张独立卡
           // （旧版 rounded-full pill），改成脊柱在这一段变虚线 + 旁边极小灰字。
@@ -433,11 +581,13 @@ export default function ItineraryCard() {
           if (entry.entry_kind === "hop") {
             if (!entry.mode || entry.mode === "virtual") return gapNode;
             const HopIcon = hopIconComponent(entry.mode);
+            const hopReveal = rowRevealProps();
             return (
               <Fragment key={entry.ref_id || `hop-${idx}`}>
                 {gapNode}
                 <li
-                  className="relative flex items-center gap-0 animate-fade-in-up"
+                  className={cn("relative flex items-center gap-0", hopReveal.className)}
+                  style={hopReveal.style}
                   title={`${entry.start} → ${entry.end}`}
                 >
                   {/* 通勤：图标 + 时长同一行（不竖着断行），放时间列里、右对齐
@@ -478,6 +628,7 @@ export default function ItineraryCard() {
           // 挪到左侧时间列，note 现在是 r3 独立一行（不再是店名后缀）。
           const note = nodeNote(itinerary, entry.ref_id);
           const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
+          const nodeReveal = rowRevealProps();
 
           return (
             <Fragment key={entry.ref_id || `node-${idx}`}>
@@ -485,8 +636,12 @@ export default function ItineraryCard() {
               {/* timeline-row：hover 协同的作用域根（§三.3）——CSS :has() 在这一层
                   判定"卡片被 hover"或"点/时间被 hover"，零 JS 状态（见 globals.css
                   .timeline-row:has(...) 规则），双向、200ms ease、只动
-                  transform/opacity/color。 */}
-              <li className="relative flex items-start gap-0 animate-fade-in-up timeline-row">
+                  transform/opacity/color。幕③ 揭幕时 .reveal-row 弹性入场（入场由三幕
+                  接管，不再用 animate-fade-in-up，避免归静时误触发二次淡入）。 */}
+              <li
+                className={cn("relative flex items-start gap-0 timeline-row", nodeReveal.className)}
+                style={nodeReveal.style}
+              >
                 {/* 时间列（timecol）：起止时刻，挪到脊柱左侧独立一列、右对齐
                     （节点卡+行程轨-对比.html 改版——原先时间绝对定位"压"在圆点
                     所在列的正上/下方，现在和圆点分成左右两列，不再共享同一条
@@ -650,8 +805,11 @@ export default function ItineraryCard() {
 
         {/* 终点：结束行程（同上，家 bookend 同款更淡样式；这是全时间轴最后一行，
             脊柱段用 --tail 变体在自身高度处截止，不再桥接到下一行——下面已经
-            没有行了） */}
-        <li className="relative flex items-center gap-0">
+            没有行了）。幕③ 最后一行，收在整段 stagger 末尾。 */}
+        {(() => {
+          const rr = rowRevealProps();
+          return (
+        <li className={cn("relative flex items-center gap-0", rr.className)} style={rr.style}>
           <div className="w-14 shrink-0 pr-2 text-right text-[11px] font-medium text-ink-400">
             到家
           </div>
@@ -666,6 +824,8 @@ export default function ItineraryCard() {
             满载而归
           </div>
         </li>
+          );
+        })()}
       </ol>
 
       {/* T8/R2: 高德地图标注（配合 R1 stagger 逐段亮起） */}
@@ -1097,14 +1257,19 @@ function renderFreeGap(
   prev: ScheduleEntry | null,
   curr: ScheduleEntry,
   idx: number,
+  // 幕③ 逐行 stagger 的 props 生成器（自上而下递增 delay）；只有真的渲染 gap 行
+  // 时才调用它消费一个计数槽，返回 null 时不消费（保持与相邻行的顺序一致）。
+  rowReveal: () => { className: string; style: CSSProperties | undefined },
 ): ReactNode {
   if (!prev) return null;
   const gap = parseHHMM(curr.start) - parseHHMM(prev.end);
   if (!Number.isFinite(gap) || gap < FREE_GAP_THRESHOLD_MIN) return null;
+  const rr = rowReveal();
   return (
     <li
       key={`gap-${idx}`}
-      className="relative flex items-center gap-0 animate-fade-in-up"
+      className={cn("relative flex items-center gap-0", rr.className)}
+      style={rr.style}
       title={`${prev.end} → ${curr.start}`}
     >
       {/* 时间列留空（自由休息没有独立的起止钟点展示位，时长已经在内容里写出

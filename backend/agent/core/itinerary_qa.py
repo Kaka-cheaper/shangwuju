@@ -34,6 +34,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from schemas.router import InputKind, RouterDecision
@@ -63,6 +64,31 @@ _QUESTION_CUES = (
 ) + _WHY_CUES
 # 比较级改请求线索（"近一点 / 再便宜"是要改，不是问）
 _CHANGE_REQUEST_HINTS = ("一点", "点儿", "再近", "再远", "再便宜", "再贵", "近点", "远点")
+
+# ── 否定辖域护栏（对话行为分类的 negation scope）──────────────────────────
+# 「为什么没安排上烧烤 / 为啥没有烧烤」问的是**缺席**——一个用户点名要、却没进
+# 方案的诉求，是"未满足诉求的追问 / 申诉"，语义上更接近 feedback（我还是要烧烤）
+# 或"未满足约束的解释"，**不是**对某个**在场实体**的数据提问（"这家贵不贵"）。
+# _answer_why 的既定假设是"为什么=解释在场的推荐/排序/定价"，对"为什么**没**X"
+# 会抓个在场实体（离得最近的那家）背它的评分/距离——答非所问。故在 QA 入口把这类
+# 剥出去（返 None → 落穿到脑子按 feedback/解释处理），与上面「疑问式改请求」
+# （_CHANGE_REQUEST_HINTS / looks_like_explicit_revise 同样返 None 落穿）同一纪律。
+# 精度优先（规则层无兜底）：只认 why-cue **紧跟**否定，或明确的排程否定短语——
+# "为什么这么贵""为什么把餐厅排后面""为什么这家没wifi"都不命中（保持既有 QA）。
+_WHY_NOT_RE = re.compile(r"(为什么|为啥|凭什么)(没|不给|不安排|不选|没能|没给)")
+_UNMET_SCHEDULING_NEG = (
+    "没安排", "没排上", "没排进", "没选上", "没给我安排", "没帮我安排", "没安排上",
+)
+
+
+def _looks_like_unmet_complaint(text: str) -> bool:
+    """「为什么没安排上X / 为啥没有X」——对未满足诉求的追问/申诉，不是接地问答。"""
+    t = (text or "").strip()
+    if not t or not any(c in t for c in _WHY_CUES):
+        return False
+    if _WHY_NOT_RE.search(t):
+        return True
+    return any(neg in t for neg in _UNMET_SCHEDULING_NEG)
 
 
 def looks_like_question(text: str) -> bool:
@@ -536,6 +562,8 @@ def answer_itinerary_question(
         return None  # "帮我换成…吗" 是改请求
     if any(h in user_input for h in _CHANGE_REQUEST_HINTS):
         return None  # "近一点吗" 是改请求
+    if _looks_like_unmet_complaint(user_input):
+        return None  # "为什么没安排上X" 是对缺席/未满足诉求的追问 → 落穿到脑子（feedback/解释），不背在场实体数据
     places = _resolve_places(itinerary)
     if not places:
         return None  # 没方案数据可对照，交回兜底

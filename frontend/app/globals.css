@@ -502,6 +502,61 @@
   }
 
   /* ============================================================
+     方案落定揭幕（照 路演PPT/整页原型-晌午的纸-v4.html 定版 A）
+     —— 震撼只在"方案落定那一下"集中爆发，落定后归静。仅在揭幕窗口内由 JS
+     临时挂上 .reveal-* 类，结束即撤类回到 .itinerary-hero 的静止态。
+     三个特征（照原型的幕①③④，脊柱段随节点行自带、不另造一条 spine-draw）：
+       · 幕① 标题遮罩掀开(mask)：headline 从裁剪框下方掀起，文字全程锐利
+       · 幕③ 节点弹性过冲(spring, back.out)：行快速到位→略过冲→坐实
+       · 幕④ 投影落定(shadow bloom)：抬升浅软影 → 落桌深影，纯景深、零光
+     缓动值照原型：--e-hero/.2,.9,.3,1；--e-mask/.5,.02,.16,1；
+     --e-back/.34,1.56,.64,1；--e-land/.2,.84,.24,1。
+     ============================================================ */
+
+  /* 幕④ 纸抬升 + 投影从"抬升态浅软影"过渡；.reveal-card--land 时收敛成落桌深影
+     （深影值 = .itinerary-hero 静止态，撤类后无跳变）。 */
+  .itinerary-hero.reveal-card {
+    box-shadow:
+      0 3px 8px rgba(20, 20, 20, 0.03),
+      0 20px 44px -22px rgba(20, 20, 20, 0.05),
+      0 54px 96px -42px rgba(143, 75, 36, 0.3);
+    transition: box-shadow 0.62s cubic-bezier(0.2, 0.84, 0.24, 1);
+    animation: revealSheetLift 0.7s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    will-change: transform;
+  }
+  .itinerary-hero.reveal-card.reveal-card--land {
+    box-shadow:
+      0 1px 1px rgba(20, 20, 20, 0.04),
+      0 22px 48px -22px rgba(143, 75, 36, 0.3);
+  }
+
+  /* 幕① 标题遮罩掀开：.reveal-title 是 overflow:hidden 的裁剪框，
+     .reveal-title-inner 从框下方 translateY(115%)→0 掀上来露出（文字全程清晰）。
+     只在 --anim 态裁剪/动画，静止态是普通 block，不改变多行标题的排版。 */
+  .reveal-title {
+    display: block;
+  }
+  .reveal-title--anim {
+    overflow: hidden;
+    /* 掀开时给一点下缘余量，避免裁剪框切掉笔画（掀开过程），margin 抵消不占位 */
+    padding-bottom: 0.08em;
+    margin-bottom: -0.08em;
+  }
+  .reveal-title-inner {
+    display: block;
+  }
+  .reveal-title--anim .reveal-title-inner {
+    animation: revealTitleMask 0.78s cubic-bezier(0.5, 0.02, 0.16, 1) 0.12s both;
+    will-change: transform;
+  }
+
+  /* 幕③ 节点行弹性过冲（back.out）：delay 由 JS 逐行注入 stagger（自上而下）。 */
+  .reveal-row {
+    animation: revealRowSpring 0.58s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    will-change: transform;
+  }
+
+  /* ============================================================
      烟花容器
      ============================================================ */
   .confetti-stage {
@@ -874,10 +929,55 @@
   }
 }
 
+/* 方案落定揭幕关键帧（照原型 sheetLift / maskUp / rowSpring） */
+@keyframes revealSheetLift {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.988);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes revealTitleMask {
+  0% {
+    transform: translateY(115%);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+@keyframes revealRowSpring {
+  0% {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .itinerary-arrival-glow {
     animation: none;
     opacity: 0;
+  }
+  /* 减动效：整段揭幕塌成即时静止态（照原型 v4 兜底） */
+  .itinerary-hero.reveal-card,
+  .reveal-title--anim .reveal-title-inner,
+  .reveal-row {
+    animation: none !important;
+  }
+  .itinerary-hero.reveal-card {
+    transition: none !important;
+  }
+  .reveal-title--anim {
+    overflow: visible !important;
   }
 }
 

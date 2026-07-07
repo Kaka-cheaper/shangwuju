@@ -185,6 +185,8 @@ from ...core.trace import Tracer
 from ...runtime.tools.search_adapter import (
     _rerank_by_preferred_cuisine,
     _rerank_by_preferred_poi_types,
+    poi_desire_match,
+    restaurant_desire_match,
 )
 from ..weights_llm import PlanningWeights, get_planning_weights
 from tools.registry import invoke_tool
@@ -1168,6 +1170,13 @@ def _overload_penalty(poi: Optional[Poi], intent: IntentExtraction) -> float:
     return 0.3 if suggested > cap else 0.0
 
 
+# 显式点名品类·硬锚 bonus（3a 根治，见 tests/test_bbq_anchor_repro）。压倒性加分
+# （远大于四维 utility 的 [0,1] 量级差 + 语义中心化项 ±0.15），保证"命中显式锚"的
+# 候选在**它那一槽**内胜出；build_route 只在**可排**组合里用 _utility 排序，故无可排
+# 锚候选时非锚候选自然赢（不搁浅）。对所有锚候选同一加分 → 锚内相对序由基础 utility 决定。
+_PREFERRED_ANCHOR_BONUS = 1.0
+
+
 def _utility(
     poi: Optional[Poi],
     rest: Optional[Restaurant],
@@ -1261,6 +1270,22 @@ def _utility(
     # ADR-0010 D-5：LLM 语义打分项改中心化（见函数 docstring）。
     if poi is not None and semantic_scores is not None:
         score += 0.3 * (semantic_scores.get(poi.id, 0.5) - 0.5)
+
+    # 显式点名品类·硬锚 bonus（3a 根治）：用户在 preferred_poi_types 显式点名的品类
+    # （如「烧烤」）是 hard anchor——但 _utility 四维里 rest_ctx_match/tag_hit 只会给
+    # 场景匹配的安静店隐性加分，把热闹的烧烤压下去（实测 stub 下选安静咖啡弃可排烧烤），
+    # cuisine/type 词法命中显式锚这件事此前**零效用信用**。这里补上压倒性加分：可排的
+    # 锚候选在场即在它那一槽胜出；无可排锚候选时非锚候选自然赢（不搁浅，narrator 诚实
+    # 告知"没排上"）。餐厅走 restaurant_desire_match、POI 走 poi_desire_match（与检索
+    # 重排 / 未满足检测同一把尺子 SoT）；每候选独立加分，多活动方案不会被逼同品类。
+    prefs = [p for p in (intent.preferred_poi_types or []) if p]
+    if prefs:
+        if rest is not None and restaurant_desire_match(prefs, rest):
+            score += _PREFERRED_ANCHOR_BONUS
+        if poi is not None and any(
+            poi_desire_match(p, poi.type, poi.name, list(poi.tags or [])) for p in prefs
+        ):
+            score += _PREFERRED_ANCHOR_BONUS
 
     # 物理可行性快检（历史遗留，见 docstring；下游不再消费 fail_detail）
     fail = None
