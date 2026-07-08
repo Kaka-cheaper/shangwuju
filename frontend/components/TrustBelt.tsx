@@ -108,29 +108,41 @@ export default function TrustBelt() {
   if (beats.length === 0 && !streaming) return null;
 
   const revealed = beats.slice(0, revealedCount);
+  const showPending = !reducedMotion && streaming && revealedCount < beats.length;
+  const hasRows = revealed.length > 0 || showPending;
 
   return (
-    <div className="card overflow-hidden border border-black/[0.06] bg-white">
+    <div className="card overflow-hidden rounded-[30px] border border-black/[0.06] bg-white">
       <TrustBeltHeader streaming={streaming} />
 
-      <div className="px-3 py-2">
-        {revealed.length === 0 ? (
-          <div className="flex h-7 items-center text-xs italic text-ink-400">
+      <div className="py-2.5 pl-5 pr-3.5">
+        {!hasRows ? (
+          <div className="flex h-8 items-center text-base italic text-ink-400">
             等待 Agent 开始思考……
           </div>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {revealed.map((beat, index) => (
               <div
                 key={beat.id}
                 className={cn(
-                  "flex items-start",
+                  "relative flex items-stretch gap-2.5",
                   !reducedMotion && "animate-trust-belt-enter",
                 )}
               >
-                <BeatLine beat={beat} ordinal={ordinalFor(index)} />
+                <SequenceMarker
+                  accent={beat.amber}
+                  isLast={index === revealed.length - 1 && !showPending}
+                />
+                <BeatLine beat={beat} />
               </div>
             ))}
+            {showPending && (
+              <div className="relative flex min-h-6 items-center gap-2.5">
+                <PendingMarker />
+                <span className="h-2.5 w-24 rounded-full bg-ink-100/80 animate-pulse" />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -140,9 +152,9 @@ export default function TrustBelt() {
 
 function TrustBeltHeader({ streaming }: { streaming: boolean }) {
   return (
-    <div className="flex h-[26px] w-full items-center gap-1.5 border-b border-black/[0.06] px-3">
-      <Bot className={cn("h-3 w-3 shrink-0", streaming ? "text-accent-600" : "text-ink-500")} strokeWidth={2} />
-      <span className="text-xs font-semibold tracking-tight text-ink-700">AI 幕后</span>
+    <div className="flex h-11 w-full items-center gap-2 border-b border-black/[0.06] px-4">
+      <Bot className={cn("h-5 w-5 shrink-0", streaming ? "text-accent-600" : "text-ink-600")} strokeWidth={2} />
+      <span className="text-lg font-black tracking-tight text-ink-900">AI 幕后</span>
       {streaming && (
         <span
           className="ml-0.5 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500"
@@ -153,17 +165,46 @@ function TrustBeltHeader({ streaming }: { streaming: boolean }) {
   );
 }
 
-function BeatLine({ beat, ordinal }: { beat: TrustBeltBeat; ordinal: string }) {
+function SequenceMarker({ accent, isLast }: { accent: boolean; isLast: boolean }) {
+  const background = accent
+    ? "radial-gradient(circle, rgba(180,83,9,0.98) 0%, rgba(217,119,6,0.84) 38%, rgba(217,119,6,0.34) 70%, rgba(217,119,6,0.08) 100%)"
+    : "radial-gradient(circle, rgba(15,23,42,0.96) 0%, rgba(15,23,42,0.82) 34%, rgba(15,23,42,0.34) 68%, rgba(15,23,42,0.08) 100%)";
+
+  return (
+    <span
+      aria-hidden
+      className="relative flex w-4 shrink-0 justify-center self-stretch pt-[0.48rem]"
+    >
+      {!isLast && (
+        <span className="absolute bottom-[-0.25rem] top-[1rem] w-px bg-gradient-to-b from-ink-300/70 via-ink-200/55 to-transparent" />
+      )}
+      <span
+        className="relative z-10 h-2.5 w-2.5 rounded-full border border-white shadow-[0_0_0_3px_rgba(15,23,42,0.05)]"
+        style={{ background }}
+      />
+    </span>
+  );
+}
+
+function PendingMarker() {
+  return (
+    <span
+      aria-hidden
+      className="relative flex w-4 shrink-0 justify-center"
+    >
+      <span className="h-3 w-3 animate-spin rounded-full border border-ink-300/70 border-t-ink-900" />
+    </span>
+  );
+}
+
+function BeatLine({ beat }: { beat: TrustBeltBeat }) {
   return (
     <p
       className={cn(
-        "text-xs leading-relaxed tracking-tight",
-        beat.amber ? "font-semibold text-amber-700" : "text-ink-700",
+        "min-w-0 flex-1 pb-0.5 text-base leading-snug tracking-tight",
+        beat.amber ? "font-bold text-[#b45309]" : "text-ink-700",
       )}
     >
-      <span className="mr-1 text-ink-400" aria-hidden>
-        {ordinal}
-      </span>
       {beat.text}
     </p>
   );

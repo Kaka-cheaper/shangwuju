@@ -29,13 +29,13 @@ export default function MockModeBadge({ compact = false }: { compact?: boolean }
       aria-label="当前数据源：mock 模式"
       className={cn(
         compact ? "inline-flex" : "hidden md:inline-flex",
-        "items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
-        "border border-black/[0.08] bg-white/[0.68] text-ink-700 tracking-tight shadow-sm",
+        "items-center gap-1.5 rounded-full px-3 py-1.5 text-sm",
+        "border border-black/[0.08] bg-white/[0.68] text-ink-900 tracking-tight shadow-sm",
         "backdrop-blur cursor-help transition-colors hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900",
       )}
     >
       <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-emerald-400/70" />
-      <span className="font-medium">mock 数据源</span>
+      <span className="font-bold">mock 数据源</span>
     </span>
   );
 }

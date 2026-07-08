@@ -9,12 +9,24 @@
   "transport_preference": "taxi",
   "dietary_preference": "喜欢健康轻食、避免油腻、对辣度敏感；偶尔尝试日式料理；不爱重口味川菜。家有 5 岁孩，餐厅最好有儿童餐和不那么吵的环境。",
   "social_context_history": [
-    "家庭日常",
     "朋友热闹",
+    "家庭日常",
     "情侣亲密",
     "独处放空"
   ],
   "recent_trips": [
+    {
+      "timestamp": "2026-07-03T13:47:37Z",
+      "social_context": "朋友热闹",
+      "summary": "这次行程是与成年朋友们的热闹聚会，整体节奏轻松适中。主要进行了约两个多小时的社交娱乐活动，随后享用了一个半小时的聚餐，氛围愉快融洽。",
+      "success": true
+    },
+    {
+      "timestamp": "2026-06-21T14:27:00Z",
+      "social_context": "朋友热闹",
+      "summary": "这是一次成年朋友间的热闹社交聚会，总时长约4小时。参与者先进行了约90分钟的休闲娱乐互动，之后在餐厅享用了105分钟的美食，整体节奏轻松愉快，适合朋友们的欢聚时光。",
+      "success": true
+    },
     {
       "timestamp": "2026-06-20T06:04:26Z",
       "social_context": "家庭日常",
@@ -29,18 +41,6 @@
     },
     {
       "timestamp": "2026-06-20T05:02:06Z",
-      "social_context": "家庭日常",
-      "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
-      "success": true
-    },
-    {
-      "timestamp": "2026-06-20T04:39:41Z",
-      "social_context": "家庭日常",
-      "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
-      "success": true
-    },
-    {
-      "timestamp": "2026-06-19T16:23:24Z",
       "social_context": "家庭日常",
       "summary": "家庭日常场景行程：用餐(60min)；总时长约 3小时。",
       "success": true

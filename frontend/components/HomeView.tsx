@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 
 import ChatDock from "./ChatDock";
 import CollabBar from "./CollabBar";
-import CommandPalette from "./CommandPalette";
 import Confetti from "./Confetti";
 import ConstraintFeed from "./ConstraintFeed";
 import ItineraryCard from "./ItineraryCard";
@@ -38,7 +37,6 @@ export default function HomeView() {
   const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const startNewSession = useChatStore((s) => s.startNewSession);
   const sessionId = useChatStore((s) => s.sessionId);
-  const openCommandPalette = useChatStore((s) => s.openCommandPalette);
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
 
@@ -123,18 +121,6 @@ export default function HomeView() {
     loadPersonas();
     refreshPreferences();
   }, [loadScenarios, loadPersonas, refreshPreferences, sessionId]);
-
-  // 全局键盘：Cmd+K / Ctrl+K 打开命令面板
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        openCommandPalette();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [openCommandPalette]);
 
   // 滚动下沉：用 rAF 节流，过 12px 阈值切换
   useEffect(() => {
@@ -235,16 +221,6 @@ export default function HomeView() {
 
           {/* 右侧 */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={openCommandPalette}
-              className="hidden sm:inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-accent-400/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur"
-              title="打开命令面板（场景 / 模式 / 用户切换）"
-            >
-              <span>命令</span>
-              <span className="kbd">⌘</span>
-              <span className="kbd">K</span>
-            </button>
             <UserSwitcher autoOpenOnMount />
             <PlannerModeBadge />
             <MockModeBadge />
@@ -255,7 +231,7 @@ export default function HomeView() {
                 挂在方案卡上——方案还没出来时也能先开房叫人一起规划。 */}
             <button
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-accent-400/50 px-3 py-1.5 text-sm font-medium text-ink-500 hover:text-ink-800 transition-colors backdrop-blur disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white/[0.68] hover:bg-white/[0.88] hover:border-accent-400/50 px-3 py-1.5 text-sm font-bold text-ink-900 transition-colors backdrop-blur disabled:cursor-not-allowed disabled:opacity-50"
               onClick={() => void handleRoomAction()}
               disabled={creatingRoom || streaming}
               title={showShareRoom ? "分享协作房间链接" : "创建多人协作房间：可先开房再一起规划"}
@@ -270,7 +246,7 @@ export default function HomeView() {
             <button
               className="inline-flex items-center rounded-full border border-ink-300 bg-white px-3.5 py-1.5 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-[0.98]"
               onClick={startNewSession}
-              title="开新会话（保留之前会话历史，可在命令面板切换）"
+              title="开新会话"
             >
               新会话
             </button>
@@ -353,7 +329,6 @@ export default function HomeView() {
       </footer>
 
       <ToastStack />
-      <CommandPalette />
       <Confetti />
       {/* 激活态：ChatDock fixed 贴底 */}
       {activated && <ChatDock activated={true} />}

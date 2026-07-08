@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Icons, scenarioIcon } from "@/lib/icon-map";
+import { scenarioIcon } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -80,25 +80,19 @@ export default function QuickScenarios({
 
   if (!scenarios.length) {
     return (
-      <div className="card px-4 py-3 text-sm text-ink-500">
+      <div className="card rounded-[30px] px-4 py-3 text-sm text-ink-500">
         正在拉取演示场景...
       </div>
     );
   }
 
   return (
-    <div className="card overflow-visible px-4 py-3">
+    <div className="card overflow-visible rounded-[30px] px-4 py-3">
       <div className="mb-2.5 flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className="text-sm font-semibold tracking-tight text-ink-900">
+          <span className="text-lg font-black tracking-tight text-ink-900">
             演示场景
           </span>
-        </div>
-        <div className="hidden items-center gap-1 text-sm text-ink-400 sm:flex">
-          <span>或按</span>
-          <span className="kbd">⌘</span>
-          <span className="kbd">K</span>
-          <span>打开命令面板</span>
         </div>
       </div>
       <div
@@ -137,13 +131,13 @@ export default function QuickScenarios({
               disabled={streaming}
               onClick={() => sendScenario(s.input, s.id)}
               className={cn(
-                "group relative z-10 flex flex-col items-center justify-center gap-2 overflow-hidden rounded-xl",
-                "border-2 border-ink-300 bg-white text-center",
+                "group relative z-10 flex flex-col items-center justify-center gap-2 overflow-hidden rounded-[24px]",
+                "border-2 border-[#FFD100]/70 bg-white text-center",
                 "transition-[background-color,border-color,box-shadow,color,transform] duration-200 ease-out",
-                "hover:border-accent-400 hover:shadow-sm",
+                "hover:border-[#e6bc00] hover:shadow-sm",
                 "active:scale-[0.98]",
                 "disabled:cursor-not-allowed disabled:opacity-50",
-                "disabled:hover:border-black/[0.08] disabled:hover:bg-white disabled:hover:shadow-none",
+                "disabled:hover:border-[#FFD100]/40 disabled:hover:bg-white disabled:hover:shadow-none",
                 enlarged ? "min-h-[100px] px-4 py-5" : "min-h-[80px] px-3 py-4",
               )}
               style={{
@@ -157,7 +151,7 @@ export default function QuickScenarios({
             >
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-0 rounded-xl opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                className="pointer-events-none absolute inset-0 rounded-[24px] opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                 style={{
                   background:
                     "linear-gradient(135deg, rgba(255,255,255,0.78) 0%, rgba(255,252,237,0.86) 48%, rgba(245,158,11,0.08) 100%)",
@@ -176,13 +170,10 @@ export default function QuickScenarios({
               />
               <span
                 className={cn(
-                  "relative text-center font-medium tracking-tight text-ink-700 group-hover:text-ink-900",
-                  enlarged ? "text-base" : "text-sm",
+                  "relative text-center font-semibold tracking-tight text-ink-700 group-hover:text-ink-900",
+                  enlarged ? "text-lg" : "text-base",
                 )}
               >
-                <span className="mono mr-1 text-[10px] text-ink-500">
-                  {s.id}
-                </span>
                 {s.title}
               </span>
             </button>

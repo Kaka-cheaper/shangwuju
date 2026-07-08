@@ -283,6 +283,8 @@ export interface NodeDetail {
   tags: string[];
   /** 营业时段派生文案，如 "营业至21:30"；可选展示位。 */
   open_until_text?: string | null;
+  /** ActivityNode.note 缺失时的推荐/评论说明兜底文案。 */
+  recommendation_reason?: string | null;
 }
 
 /** `{ActivityNode.target_id: NodeDetail}`——挂 agent_narration payload 兄弟字段，

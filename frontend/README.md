@@ -191,7 +191,6 @@ OfflineReadyBadge     离线就绪标记
 UserSwitcher          多用户（persona）切换
 PreferencesPanel      偏好画像 + 清空记忆
 ChitchatBubble        闲聊 / 共情气泡 + 引导按钮
-CommandPalette        命令面板（Cmd/Ctrl+K）
 ToastStack            右下角浮层提示
 Confetti              成功庆祝动效
 ShimmerStripe         流式加载微光条

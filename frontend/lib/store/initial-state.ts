@@ -32,7 +32,6 @@ export const initialState: InitialChatState = {
   lastRefinement: null,
   chitchatReplies: [],
   toasts: [],
-  commandPaletteOpen: false,
   narration: null,
   narrationMessages: null,
   memoryPersisted: null,

@@ -527,6 +527,7 @@ def _restaurant_node_detail(rest: Any, anchor_min: Optional[int]) -> NodeDetail:
         availability_text=_nearest_available_slot_text(list(rest.reservation_slots or []), anchor_min),
         tags=tags,
         open_until_text=_opening_close_text(rest.opening_hours),
+        recommendation_reason=_clean_recommendation_reason(getattr(rest, "recommendation_reason", None)),
     )
 
 
@@ -574,7 +575,28 @@ def _poi_node_detail(poi: Any) -> NodeDetail:
         availability_text=_poi_availability_text(poi.capacity),
         tags=tags,
         open_until_text=_opening_close_text(poi.opening_hours),
+        recommendation_reason=_poi_recommendation_reason(poi, tags),
     )
+
+
+def _clean_recommendation_reason(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _poi_recommendation_reason(poi: Any, tags: list[str]) -> Optional[str]:
+    explicit = _clean_recommendation_reason(getattr(poi, "recommendation_reason", None))
+    if explicit:
+        return explicit
+    poi_type = str(getattr(poi, "type", "") or "").strip()
+    tag = next((str(t).strip() for t in tags if str(t).strip()), "")
+    if poi_type and tag:
+        return f"{poi_type}，{tag}"
+    if tag:
+        return tag
+    if poi_type:
+        return poi_type
+    return None
 
 
 def _build_node_detail(

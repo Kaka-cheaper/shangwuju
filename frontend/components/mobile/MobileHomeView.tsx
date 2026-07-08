@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowLeftRight,
   ArrowRightLeft,
   Bot,
   ChevronDown,
   ChevronRight,
-  Compass,
+  Ellipsis,
   ArrowRight as ArrowRightIcon,
   Loader2,
   type LucideIcon,
@@ -41,7 +41,9 @@ import type {
   IntentExtraction,
   Itinerary,
   NodeChip,
+  NodeDetail,
   ScheduleEntry,
+  ChitchatReplyPayload,
 } from "@/lib/types";
 import {
   clearUserIdCookie,
@@ -54,9 +56,7 @@ import {
   upsertSession,
 } from "@/lib/utils";
 
-import ChitchatBubble from "../ChitchatBubble";
 import CollabBar from "../CollabBar";
-import CommandPalette from "../CommandPalette";
 import ComparisonView from "../ComparisonView";
 import Confetti, { type ConfettiOrigin } from "../Confetti";
 import ConstraintFeed from "../ConstraintFeed";
@@ -94,7 +94,6 @@ export default function MobileHomeView() {
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const startNewSession = useChatStore((s) => s.startNewSession);
-  const openCommandPalette = useChatStore((s) => s.openCommandPalette);
   const roomId = useCollabStore((s) => s.roomId);
 
   const [sheet, setSheet] = useState<SheetKind>(null);
@@ -145,7 +144,6 @@ export default function MobileHomeView() {
 
       <MobileTopBar
         onNewSession={startNewSession}
-        onOpenCommandPalette={openCommandPalette}
         onOpenShareModal={() => setShareModalOpen(true)}
       />
 
@@ -170,21 +168,9 @@ export default function MobileHomeView() {
         <MobileStreamErrorBanner />
 
         {/* B3：偏好画像面板——紧凑折叠卡，默认收起，不占初始态视觉焦点。 */}
-        <div className="mb-3">
-          <MobilePreferencesCard />
-        </div>
-
         {/* C4：评委证据徽章——桌面端默认 hidden md:/lg: 在移动端窄容器里天经
             地义不可见，用 compact prop 摘掉这层限制。flex-wrap 而非固定高度
             一行，窄屏（iPhone SE 等）挤不下时自然换行，不会裁切。 */}
-        {!activated && (
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <PlannerModeBadge />
-            <MockModeBadge compact />
-            <OfflineReadyBadge compact />
-          </div>
-        )}
-
         <MobileScenarioRail compact={activated} />
 
         <MobileConversation
@@ -215,10 +201,6 @@ export default function MobileHomeView() {
       <MobileComposer />
       <ToastStack />
       <Confetti origin={MOBILE_CONFETTI_ORIGIN} />
-      {/* B5：会话切换/历史入口——移动端此前开新对话后回不去旧的。CommandPalette
-          本身已是响应式居中弹层（fixed inset-0 + max-w-xl w-full px-4），
-          直接复用而不是另起一份组件；顶栏的"命令"图标按钮触发它。 */}
-      <CommandPalette />
 
       <MobileSheet
         open={sheet === "trace"}
@@ -247,11 +229,9 @@ export default function MobileHomeView() {
 
 function MobileTopBar({
   onNewSession,
-  onOpenCommandPalette,
   onOpenShareModal,
 }: {
   onNewSession: () => void;
-  onOpenCommandPalette: () => void;
   onOpenShareModal: () => void;
 }) {
   // 2026-07-06 收口：「开多人房间」从「方案工具」抽屉摘到顶栏持久位置——
@@ -268,12 +248,14 @@ function MobileTopBar({
   const createRoom = useCollabStore((s) => s.createRoom);
   const joinRoom = useCollabStore((s) => s.joinRoom);
   const [creatingRoom, setCreatingRoom] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const showShareRoom = collabMode && !!roomId;
 
   const handleRoomAction = async () => {
     if (creatingRoom || streaming) return;
     if (showShareRoom) {
       onOpenShareModal();
+      setMenuOpen(false);
       return;
     }
     setCreatingRoom(true);
@@ -296,9 +278,15 @@ function MobileTopBar({
       }
       joinRoom(newRoomId, userId, "发起人");
       onOpenShareModal();
+      setMenuOpen(false);
     } finally {
       setCreatingRoom(false);
     }
+  };
+
+  const handleNewSession = () => {
+    setMenuOpen(false);
+    onNewSession();
   };
 
   return (
@@ -342,41 +330,51 @@ function MobileTopBar({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-1.5">
-          {/* B5：会话切换/历史入口——打开命令面板（场景/模式/用户/历史会话）。 */}
-          <button
-            type="button"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.68] text-ink-600 shadow-sm backdrop-blur transition hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900 active:scale-95"
-            onClick={onOpenCommandPalette}
-            aria-label="打开命令面板（场景 / 历史会话 / 模式 / 用户切换）"
-            title="命令面板：场景 / 历史会话 / 模式 / 用户切换"
-          >
-            <Compass className="h-4 w-4" strokeWidth={2} />
-          </button>
+        <div className="relative flex shrink-0 items-center gap-1.5">
           <UserSwitcher autoOpenOnMount />
           <button
             type="button"
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.08] bg-white/[0.68] text-ink-600 shadow-sm backdrop-blur transition hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={() => void handleRoomAction()}
-            disabled={creatingRoom || streaming}
-            aria-label={showShareRoom ? "分享协作房间链接" : "创建多人协作房间"}
-            title={showShareRoom ? "分享协作房间链接" : "创建多人协作房间：可先开房再一起规划"}
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-label={menuOpen ? "收起更多操作" : "展开更多操作"}
+            aria-expanded={menuOpen}
+            title="更多操作"
           >
-            {creatingRoom ? (
-              <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
-            ) : (
-              <Users className="h-4 w-4" strokeWidth={2} />
-            )}
+            <Ellipsis className="h-5 w-5" strokeWidth={2.3} />
           </button>
-          <button
-            type="button"
-            className="h-9 rounded-full border border-ink-300 bg-white px-3.5 text-sm font-bold tracking-tight text-ink-900 shadow-sm backdrop-blur transition hover:bg-black/[0.03] active:scale-95"
-            onClick={onNewSession}
-            aria-label="新对话"
-            title="新对话"
-          >
-            新对话
-          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-[calc(100%+10px)] z-50 w-[218px] rounded-[26px] border border-black/[0.07] bg-white/[0.92] p-2.5 shadow-[0_24px_70px_-42px_rgba(17,24,39,0.68)] backdrop-blur-2xl animate-fade-in">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-full border border-[#FFD100]/45 bg-[#FFD100]/90 px-4 text-sm font-black tracking-tight text-ink-950 shadow-sm shadow-[#FFD100]/20 transition hover:bg-[#FFD100] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55"
+                  onClick={() => void handleRoomAction()}
+                  disabled={creatingRoom || streaming}
+                >
+                  {creatingRoom ? (
+                    <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} />
+                  ) : (
+                    <Users className="h-4 w-4" strokeWidth={2.2} />
+                  )}
+                  <span>{showShareRoom ? "分享多人房间" : "建多人房间"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-full border border-black/[0.08] bg-white px-4 text-sm font-black tracking-tight text-ink-900 shadow-sm transition hover:bg-black/[0.03] active:scale-[0.98]"
+                  onClick={handleNewSession}
+                >
+                  <ArrowRightIcon className="h-4 w-4" strokeWidth={2.2} />
+                  <span>开启新对话</span>
+                </button>
+                <div className="h-px bg-black/[0.06]" />
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <PlannerModeBadge />
+                  <MockModeBadge compact />
+                  <OfflineReadyBadge compact />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>
@@ -547,7 +545,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-black/[0.08] bg-white/[0.78] shadow-[0_18px_45px_-34px_rgba(17,24,39,0.55)] backdrop-blur-xl",
+        "rounded-[24px] border border-[#FFD100]/[0.45] bg-white/[0.78] shadow-[0_18px_45px_-34px_rgba(17,24,39,0.55)] backdrop-blur-xl",
         compact ? "px-3 py-3" : "px-4 py-4",
       )}
     >
@@ -579,7 +577,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               disabled={streaming}
               onClick={() => sendScenario(scenario.input, scenario.id)}
               className={cn(
-                "snap-start rounded-2xl border border-ink-300 bg-white/[0.86] text-left shadow-sm transition active:scale-[0.98]",
+                "snap-start rounded-2xl border border-[#FFD100]/[0.55] bg-white/[0.86] text-left shadow-sm transition active:scale-[0.98]",
                 "disabled:cursor-not-allowed disabled:opacity-55",
                 compact
                   ? "flex min-w-[132px] items-center gap-2 px-3 py-2.5"
@@ -588,7 +586,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               title={scenario.input}
             >
               <ScenarioIcon
-                className={cn("text-ink-600", compact ? "h-4 w-4" : "h-5 w-5")}
+                className={cn("text-amber-600", compact ? "h-4 w-4" : "h-5 w-5")}
                 strokeWidth={2}
               />
               <span className={cn("block font-semibold tracking-tight text-ink-900", compact ? "text-sm" : "mt-2 text-base")}>
@@ -637,7 +635,7 @@ function MobileIntentStrip({ intent }: { intent: IntentExtraction }) {
     <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
-          <Sparkles className="h-4 w-4 text-ink-500" />
+          <Sparkles className="h-4 w-4 text-amber-500" />
           意图解析
         </div>
         <span className="text-xs font-medium text-ink-500">
@@ -679,10 +677,10 @@ function MobileIntentFallback({ itinerary }: { itinerary: Itinerary }) {
     <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-1.5 text-base font-bold tracking-tight text-ink-900">
-          <Sparkles className="h-4 w-4 text-ink-500" />
+          <Sparkles className="h-4 w-4 text-amber-500" />
           意图解析
         </div>
-        <span className="shrink-0 rounded-full bg-black/[0.05] px-2.5 py-1 text-xs font-semibold text-ink-700">
+        <span className="shrink-0 rounded-full bg-[#FFD100]/[0.16] px-2.5 py-1 text-xs font-semibold text-ink-700">
           已匹配
         </span>
       </div>
@@ -697,7 +695,7 @@ function MobileIntentFallback({ itinerary }: { itinerary: Itinerary }) {
             {activityEntries.slice(0, 4).map((entry) => (
               <span
                 key={`fallback-intent-${entry.ref_id}`}
-                className="rounded-[10px] border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-sm font-medium leading-tight text-ink-800"
+                className="rounded-[10px] border border-[#FFD100]/45 bg-[#FFD100]/[0.10] px-2.5 py-1 text-sm font-medium leading-tight text-ink-800"
               >
                 {entry.title}
               </span>
@@ -752,7 +750,7 @@ function MobileConversation({
         item.kind === "message" ? (
           <MobileBubble key={item.id} role={item.role} text={item.text} />
         ) : (
-          <ChitchatBubble key={item.id} payload={item.payload} />
+          <MobileChitchatBubble key={item.id} payload={item.payload} />
         ),
       )}
       {visibleIntent ? (
@@ -761,12 +759,76 @@ function MobileConversation({
         <MobileIntentFallback itinerary={itinerary} />
       ) : null}
       {streaming && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-accent-500/40 bg-white/[0.84] px-3 py-2 text-sm font-medium text-accent-700 shadow-sm backdrop-blur-xl">
+        <div className="inline-flex items-center gap-2 rounded-full border border-[#FFD100]/[0.45] bg-white/[0.84] px-3 py-2 text-sm font-medium text-amber-700 shadow-sm backdrop-blur-xl">
           <Loader2 className="h-4 w-4 animate-spin" />
           Agent 正在规划，稍候~
         </div>
       )}
     </section>
+  );
+}
+
+const MOBILE_KIND_LABELS: Record<ChitchatReplyPayload["input_kind"], string> = {
+  planning: "规划",
+  chitchat: "闲聊",
+  confirm: "确认",
+  clarify: "澄清",
+  defense: "婉拒",
+};
+
+function MobileChitchatBubble({ payload }: { payload: ChitchatReplyPayload }) {
+  const streaming = useChatStore((s) => s.streaming);
+  const booked = useChatStore((s) => (s.itinerary?.orders?.length ?? 0) > 0);
+  const { sendUserInput } = useCollabDispatch();
+  const { handleConfirm } = useConfirmAction();
+
+  const handleChipClick = (chip: ChitchatReplyPayload["cta_chips"][number]) => {
+    if (chip.action === "confirm") {
+      handleConfirm();
+      return;
+    }
+    sendUserInput(chip.send);
+  };
+
+  return (
+    <div className="flex justify-start animate-fade-in-up">
+      <div className="max-w-[86%] rounded-3xl rounded-bl-lg border border-black/[0.06] bg-white/[0.86] px-4 py-2.5 text-[15px] leading-relaxed tracking-tight text-ink-800 shadow-sm backdrop-blur-xl">
+        <div className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-ink-500">
+          <Sparkles className="h-3.5 w-3.5 text-amber-500" strokeWidth={2.2} />
+          <span>{MOBILE_KIND_LABELS[payload.input_kind] ?? payload.input_kind}</span>
+        </div>
+        <div className="whitespace-pre-wrap text-ink-900">{payload.reply_text}</div>
+        {payload.cta_chips.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {payload.cta_chips.map((chip, idx) => {
+              const isConfirm = chip.action === "confirm";
+              const isBooked = isConfirm && booked;
+              return (
+                <button
+                  key={`${chip.send}-${idx}`}
+                  disabled={streaming || isBooked}
+                  onClick={() => handleChipClick(chip)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold tracking-tight transition duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55",
+                    isBooked
+                      ? "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 active:scale-100"
+                      : isConfirm
+                        ? "border-[#F6C400] bg-[#FFD100] text-ink-950 shadow-sm shadow-[#FFD100]/20 hover:bg-[#FFE15A]"
+                        : "border-black/[0.08] bg-black/[0.035] text-ink-700 hover:border-black/[0.14] hover:bg-black/[0.055] hover:text-ink-900",
+                  )}
+                  title={isBooked ? "已完成预约" : chip.send}
+                >
+                  {!isConfirm && chip.icon ? (
+                    <span className="text-xs leading-none opacity-70">{chip.icon}</span>
+                  ) : null}
+                  <span>{isBooked ? "已预约" : chip.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -784,7 +846,7 @@ function MobileBubble({
         className={cn(
           "max-w-[86%] rounded-3xl px-4 py-2.5 text-[15px] leading-relaxed tracking-tight shadow-sm",
           isUser
-            ? "rounded-br-lg bg-ink-100 text-ink-900"
+            ? "rounded-br-lg bg-[#FFD100] text-ink-900"
             : "rounded-bl-lg border border-black/[0.06] bg-white/[0.86] text-ink-800 backdrop-blur-xl",
         )}
       >
@@ -809,8 +871,8 @@ function MobilePlanCard() {
       <div className="mt-3 space-y-3">
         {/* 信任带（移动端同款）：规划中就该看到"它在想什么"，不必等方案落地。 */}
         <TrustBelt />
-        <section className="rounded-[24px] border border-accent-500/35 bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
-          <div className="flex items-center gap-2 text-sm font-semibold text-accent-700">
+        <section className="rounded-[24px] border border-[#FFD100]/[0.42] bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
             <Loader2 className="h-4 w-4 animate-spin" />
             正在拼装行程方案~
           </div>
@@ -906,8 +968,9 @@ function MobilePlanCard() {
             设计终稿.md §一/§二）：起点 bookend 自己的"到第一站"连接线携带
             出发通勤（若有），每个节点携带"到下一站"的连接线（最后一个节点
             接到收尾 bookend），通勤统一挪到脊柱上,不再有独立通勤卡。 */}
-        <NotebookBookend
+        <MobileWebBookend
           kind="start"
+          nodeCount={noteItems.length}
           hop={
             noteItems[0]
               ? hopEntryAt(visibleEntries, noteItems[0].entryIndex - 1)
@@ -918,16 +981,17 @@ function MobilePlanCard() {
           const node = itinerary.nodes.find((n) => n.node_id === entry.ref_id);
           const hopAfter = hopEntryAt(visibleEntries, entryIndex + 1);
           return (
-            <NotebookTimelineItem
+            <MobileWebTimelineItem
               key={entry.ref_id}
               entry={entry}
               node={node}
               hopAfter={hopAfter}
               index={index}
+              total={noteItems.length}
             />
           );
         })}
-        <NotebookBookend kind="end" />
+        <MobileWebBookend kind="end" nodeCount={noteItems.length} />
       </ol>
 
       {hasOrders && (
@@ -1195,6 +1259,63 @@ function MobileShareMessage({ text }: { text: string }) {
 // ============================================================
 
 /** 单色暖灰脊柱色（时间轴精修设计终稿.md §一），圆点/连接线/家 bookend 统一用它。 */
+type MobileStageTone = {
+  gradient: string;
+  color: string;
+  softBg: string;
+  border: string;
+};
+
+const MOBILE_HOME_STAGE_TONE: MobileStageTone = {
+  gradient: "linear-gradient(135deg, #ffd100 0%, #eab308 100%)",
+  color: "#eab308",
+  softBg: "rgba(255, 209, 0, 0.14)",
+  border: "rgba(234, 179, 8, 0.3)",
+};
+
+function mobileStageTone(index: number): MobileStageTone {
+  const tones: MobileStageTone[] = [
+    {
+      gradient: "linear-gradient(135deg, #3f6fb7 0%, #2f5f9f 100%)",
+      color: "#3f6fb7",
+      softBg: "rgba(63, 111, 183, 0.11)",
+      border: "rgba(63, 111, 183, 0.28)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #d93b76 0%, #bd2d66 100%)",
+      color: "#bd2d66",
+      softBg: "rgba(217, 59, 118, 0.11)",
+      border: "rgba(189, 45, 102, 0.27)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #e49a2f 0%, #d97706 100%)",
+      color: "#c46705",
+      softBg: "rgba(228, 154, 47, 0.13)",
+      border: "rgba(217, 119, 6, 0.28)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #37a46f 0%, #23835b 100%)",
+      color: "#23835b",
+      softBg: "rgba(55, 164, 111, 0.11)",
+      border: "rgba(35, 131, 91, 0.26)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #7c5cc7 0%, #5f45a8 100%)",
+      color: "#5f45a8",
+      softBg: "rgba(124, 92, 199, 0.11)",
+      border: "rgba(95, 69, 168, 0.26)",
+    },
+  ];
+  return tones[index % tones.length];
+}
+
+function mobileStageLineGradient(current: MobileStageTone, next: MobileStageTone | null): string {
+  if (!next) {
+    return `linear-gradient(to bottom, ${current.color} 0%, ${current.color} 72%, rgba(216, 210, 196, 0) 100%)`;
+  }
+  return `linear-gradient(to bottom, ${current.color} 0%, ${next.color} 100%)`;
+}
+
 const SPINE_COLOR = "#D8D2C4";
 
 /**
@@ -1253,6 +1374,232 @@ function SpineConnector({ hop, top }: { hop: ScheduleEntry | null; top: string }
  * 旧版的 emerald/red），呼应时间轴精修设计稿"美团黄只在当前节点点一下，其余
  * 脊柱全程暖灰"的克制基调（当前 Web 尚未跟进这处，移动端直接对齐设计稿终态）。
  */
+function MobileWebHopPill({ hop }: { hop: ScheduleEntry | null }) {
+  if (!hop || !hop.mode || hop.mode === "virtual") return null;
+  const HopIcon = getHopIconComponent(hop.mode);
+  return (
+    <div className="mt-3">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#d89a00]/25 bg-[#fff5bf]/70 px-3 py-1.5 text-[13px] font-bold text-[#9a5b00] shadow-sm backdrop-blur">
+        <HopIcon className="h-3.5 w-3.5 shrink-0 text-[#9a5b00]" strokeWidth={1.9} />
+        <span>通勤 {hop.minutes} 分钟 · {translateHopMode(hop.mode)}</span>
+      </span>
+    </div>
+  );
+}
+
+function MobileWebBookend({
+  kind,
+  hop,
+  nodeCount,
+}: {
+  kind: "start" | "end";
+  hop?: ScheduleEntry | null;
+  nodeCount: number;
+}) {
+  const isStart = kind === "start";
+  const firstTone = nodeCount > 0 ? mobileStageTone(0) : MOBILE_HOME_STAGE_TONE;
+
+  return (
+    <li className="relative grid grid-cols-[54px_minmax(0,1fr)] gap-2 pb-6">
+      <div
+        className="relative flex min-h-[48px] items-start justify-center self-stretch pt-1"
+        style={
+          isStart && nodeCount > 0
+            ? ({
+                "--timeline-line": mobileStageLineGradient(MOBILE_HOME_STAGE_TONE, firstTone),
+                "--timeline-line-top": "42px",
+              } as CSSProperties)
+            : undefined
+        }
+      >
+        {isStart && nodeCount > 0 && <div aria-hidden className="timeline-spine-seg" />}
+        <div className="timeline-dot-home relative z-10">
+          <Icons.home className="h-5 w-5 text-white" strokeWidth={2.35} />
+        </div>
+      </div>
+      <div className="min-w-0 pt-2">
+        <div className="text-base font-black tracking-tight text-ink-700">
+          {isStart ? "从望京出发" : "结束行程，返回望京"}
+        </div>
+        {isStart && <MobileWebHopPill hop={hop ?? null} />}
+      </div>
+    </li>
+  );
+}
+
+function mobileNodeDisplayNote(
+  node: Itinerary["nodes"][number] | undefined,
+  detail?: NodeDetail | null,
+): string | null {
+  const note = node?.note?.trim();
+  if (note) return note;
+  const fallback = detail?.recommendation_reason?.trim();
+  return fallback ? fallback : null;
+}
+
+function MobileWebTimelineItem({
+  entry,
+  node,
+  hopAfter,
+  index,
+  total,
+}: {
+  entry: ScheduleEntry;
+  node?: Itinerary["nodes"][number];
+  hopAfter: ScheduleEntry | null;
+  index: number;
+  total: number;
+}) {
+  const streaming = useChatStore((s) => s.streaming);
+  const nodeActions = useChatStore((s) => s.nodeActions);
+  const nodeDetail = useChatStore((s) => s.nodeDetail);
+  const lockedNodeId = useChatStore((s) => s.lockedNodeId);
+  const sendAdjust = useChatStore((s) => s.sendAdjust);
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const sendCollabAdjust = useCollabStore((s) => s.sendAdjust);
+  const dispatchAdjust = collabMode ? sendCollabAdjust : sendAdjust;
+
+  const targetId = node?.target_id ?? null;
+  const actions = targetId ? nodeActions?.[targetId] : undefined;
+  const chips = actions?.chips ?? [];
+  const alternatives = (actions?.alternatives ?? []).slice(0, 2);
+  const detail = targetId ? nodeDetail?.[targetId] : undefined;
+  const isLocked = targetId != null && lockedNodeId === targetId;
+  const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
+  const kindLabel = node?.kind || "活动";
+  const note = mobileNodeDisplayNote(node, detail);
+  const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
+  const hasOperationRow = alternatives.length > 0 || chips.length > 0 || collabMode;
+  const tone = mobileStageTone(index);
+  const nextTone = index + 1 < total ? mobileStageTone(index + 1) : MOBILE_HOME_STAGE_TONE;
+
+  return (
+    <li className="relative grid grid-cols-[54px_minmax(0,1fr)] gap-2 pb-7">
+      <div
+        className="relative flex min-h-full items-start justify-center self-stretch pt-5"
+        style={
+          {
+            "--timeline-line": mobileStageLineGradient(tone, nextTone),
+            "--timeline-line-top": "62px",
+          } as CSSProperties
+        }
+      >
+        <div aria-hidden className="timeline-spine-seg" />
+        <div
+          className={cn("timeline-dot timeline-dot--indexed relative z-10", isLocked && "timeline-dot--current")}
+          style={{ background: tone.gradient }}
+          title={isLocked ? "换菜中" : undefined}
+        >
+          <span>{index + 1}</span>
+        </div>
+      </div>
+
+      <div className="min-w-0">
+        <div className="node-card relative min-w-0 px-4 py-3.5 transition-transform active:scale-[0.99]">
+          <div className="mb-2 flex items-start justify-between gap-2">
+            <span
+              className="inline-flex min-w-0 items-center gap-1.5 text-[19px] font-black leading-none tabular-nums"
+              style={{ color: tone.color }}
+            >
+              <Icons.clock className="h-[18px] w-[18px] shrink-0" strokeWidth={2} />
+              <span>{entry.start} - {entry.end}</span>
+            </span>
+            {!isLocked && <NodeHeadline detail={detail} className="pt-0" />}
+          </div>
+
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+            <span
+              className="node-glass-label shrink-0 border px-2.5 py-1 text-sm font-bold tracking-tight"
+              style={{
+                color: tone.color,
+                backgroundColor: tone.softBg,
+                borderColor: tone.border,
+              }}
+            >
+              {kindLabel}
+            </span>
+            {isLocked ? (
+              <span className="h-6 w-36 shrink-0 rounded shimmer-skeleton" aria-hidden />
+            ) : (
+              <span
+                className="node-title-wavy min-w-0 max-w-full text-[22px] font-black leading-tight text-ink-900"
+                title={fullTitle}
+              >
+                {entry.title}
+              </span>
+            )}
+          </div>
+
+          {!isLocked && (
+            <NodeFactPanel
+              detail={detail}
+              className="mt-2"
+              tone={tone}
+              size="large"
+            />
+          )}
+
+          {note && !isLocked && (
+            <div className="mt-2 text-[15px] font-medium leading-relaxed text-ink-500">
+              {note}
+            </div>
+          )}
+
+          {targetId && hasOperationRow && <div className="node-card-divider mt-3 mb-2.5" aria-hidden />}
+
+          {targetId && hasOperationRow && (
+            <div className={cn("flex flex-col gap-2", isLocked && "pointer-events-none opacity-40")}>
+              {alternatives.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {alternatives.map((alt) => (
+                    <MobileAlternativeButton
+                      key={alt.target_id}
+                      alt={alt}
+                      disabled={!canAdjust}
+                      onClick={() =>
+                        dispatchAdjust(targetId, { type: "alternative", target_id: alt.target_id })
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              {(chips.length > 0 || collabMode) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {chips.map((chip) => (
+                    <MobileAdjustChipButton
+                      key={`${chip.node_id}-${chip.adjustment.dimension}-${chip.adjustment.value}`}
+                      chip={chip}
+                      disabled={!canAdjust}
+                      onClick={() =>
+                        dispatchAdjust(targetId, {
+                          type: "adjust",
+                          adjustment: chip.adjustment,
+                          label: chip.label,
+                        })
+                      }
+                    />
+                  ))}
+                  <span className="ml-auto flex items-center">
+                    <VoteButtons stageIndex={index} />
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {isLocked && (
+            <div className="mt-2 flex items-center gap-1 text-xs text-ink-400">
+              <Icons.thinking className="h-3 w-3 animate-spin" strokeWidth={2} />
+              <span>换菜中…</span>
+            </div>
+          )}
+        </div>
+        <MobileWebHopPill hop={hopAfter} />
+      </div>
+    </li>
+  );
+}
+
 function NotebookBookend({ kind, hop }: { kind: "start" | "end"; hop?: ScheduleEntry | null }) {
   const isStart = kind === "start";
   return (
@@ -1320,7 +1667,8 @@ function NotebookTimelineItem({
   const isLocked = targetId != null && lockedNodeId === targetId;
   const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
   const kindLabel = node?.kind || "活动";
-  const fullTitle = node?.note ? `${entry.title} · ${node.note}` : entry.title;
+  const note = mobileNodeDisplayNote(node, detail);
+  const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
   const hasOperationRow = alternatives.length > 0 || chips.length > 0 || collabMode;
 
   return (
@@ -1393,8 +1741,8 @@ function NotebookTimelineItem({
 
         {/* 理由行：选店理由（note），从"店名后缀"升级成事实行下方独立一行
             （照视觉稿）；理由原文一字不改。 */}
-        {node?.note && !isLocked && (
-          <div className="mt-1.5 text-[13px] leading-relaxed text-ink-500">{node.note}</div>
+        {note && !isLocked && (
+          <div className="mt-1.5 text-[13px] leading-relaxed text-ink-500">{note}</div>
         )}
 
         {targetId && hasOperationRow && <div className="node-card-divider mt-2.5 mb-2" aria-hidden />}

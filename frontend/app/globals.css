@@ -619,17 +619,18 @@
      渐变描边技法，翻成暖色）+ 暖调超柔投影 + 16px 圆角（同信任带）。 */
   .node-card {
     position: relative;
-    border-radius: 16px;
+    overflow: hidden;
+    border-radius: 28px;
     background: linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.95) 0%,
-      rgba(255, 252, 237, 0.88) 42%,
-      rgba(241, 250, 245, 0.78) 72%,
-      rgba(239, 247, 255, 0.68) 100%
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(255, 252, 235, 0.9) 44%,
+      rgba(241, 250, 246, 0.82) 72%,
+      rgba(240, 248, 255, 0.78) 100%
     );
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.03),
-      0 6px 20px rgba(180, 140, 0, 0.05);
+      0 1px 2px rgba(0, 0, 0, 0.025),
+      0 18px 42px -30px rgba(143, 75, 36, 0.36);
     /* 时间轴精修终稿§三.3 悬停协同：卡片自身轻抬 + shadow 微增，只动
        transform/box-shadow（不触发 layout），200ms ease，双向对称。 */
     transition: transform 200ms ease, box-shadow 200ms ease;
@@ -638,7 +639,7 @@
     transform: translateY(-1px);
     box-shadow:
       0 2px 4px rgba(0, 0, 0, 0.04),
-      0 10px 26px rgba(180, 140, 0, 0.08);
+      0 22px 48px -30px rgba(143, 75, 36, 0.42);
   }
   .node-card::before {
     content: "";
@@ -651,7 +652,7 @@
       rgba(255, 201, 0, 0.22),
       transparent 40%,
       transparent 60%,
-      rgba(255, 201, 0, 0.14)
+      rgba(47, 95, 159, 0.12)
     );
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
@@ -667,8 +668,9 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    border-radius: 8px;
-    background: rgba(255, 201, 0, 0.1);
+    border-radius: 9999px;
+    background: rgba(219, 234, 254, 0.78);
+    box-shadow: 0 8px 18px -16px rgba(47, 95, 159, 0.55);
   }
   .node-glass-label::before {
     content: "";
@@ -678,9 +680,9 @@
     padding: 1px;
     background: linear-gradient(
       135deg,
-      rgba(255, 201, 0, 0.55),
-      rgba(255, 201, 0, 0.08) 60%,
-      rgba(255, 201, 0, 0.4)
+      rgba(96, 165, 250, 0.38),
+      rgba(96, 165, 250, 0.08) 60%,
+      rgba(47, 95, 159, 0.28)
     );
     -webkit-mask:
       linear-gradient(#000 0 0) content-box,
@@ -706,6 +708,14 @@
     mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
   }
 
+  .node-title-wavy {
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: rgba(198, 157, 91, 0.52);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.24em;
+  }
+
   /* ============================================================
      时间轴精修（路演PPT/时间轴精修设计终稿.md）—— 脊柱/圆点/连接线/悬停协同
      仅 ItineraryCard.tsx 的时间轴使用；和 .node-card / 信任带同一套暖色语言，
@@ -720,20 +730,47 @@
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
-    top: 0;
-    bottom: -14px;
-    width: 1.5px;
-    background: #d8d2c4;
+    top: var(--timeline-line-top, 0);
+    bottom: -34px;
+    width: 4px;
+    border-radius: 9999px;
+    background: var(--timeline-line, #d8d2c4);
+    box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.45);
     z-index: 0;
   }
   .timeline-spine-seg--tail {
-    bottom: 0;
+    bottom: 50%;
+  }
+  .timeline-spine-seg--bookend {
+    background: transparent;
+    box-shadow: none;
   }
   /* 通勤段：脊柱在这一段变虚线（终稿§二），不再是独立卡。 */
   .timeline-spine-seg--hop {
     background: none;
-    border-left: 1.5px dashed #d8d2c4;
+    border-left: 2px dashed #d8d2c4;
     width: 0;
+  }
+
+  .timeline-rail::before {
+    content: "";
+    position: absolute;
+    left: 70px;
+    top: 33px;
+    bottom: 41px;
+    z-index: 0;
+    width: 4px;
+    border-radius: 9999px;
+    background: var(--timeline-rail, linear-gradient(to bottom, #ffd100, #eab308));
+    box-shadow: 0 10px 24px -18px rgba(15, 23, 42, 0.45);
+    pointer-events: none;
+  }
+  .timeline-rail > li {
+    position: relative;
+    z-index: 1;
+  }
+  .timeline-rail .timeline-spine-seg {
+    display: none;
   }
 
   /* 圆点：9px 扁平无光泽单色相（终稿§一，杀掉大号高饱和发光球）。白色 ring
@@ -747,6 +784,23 @@
     background: #b7ad95;
     box-shadow: 0 0 0 2px #ffffff;
     transition: transform 200ms ease, box-shadow 200ms ease;
+  }
+  .timeline-dot--indexed {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 900;
+    line-height: 1;
+    box-shadow:
+      0 0 0 4px #ffffff,
+      0 18px 30px -22px rgba(15, 23, 42, 0.65);
+  }
+  .timeline-dot--indexed span {
+    transform: translateY(-0.02em);
   }
   /* 当前节点（本批映射为"换菜中"节点，见 ItineraryCard.tsx isLocked 用法与
      交付报告的前提说明）：一圈极淡 amber ring——全时间轴唯一允许出现美团黄的
@@ -763,12 +817,14 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
+    width: 42px;
+    height: 42px;
     border-radius: 9999px;
-    background: rgba(0, 0, 0, 0.04);
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    box-shadow: 0 0 0 2px #ffffff;
+    background: linear-gradient(135deg, #ffd100 0%, #eab308 100%);
+    border: 0;
+    box-shadow:
+      0 0 0 4px #ffffff,
+      0 18px 30px -22px rgba(146, 101, 0, 0.7);
   }
 
   /* 时间标签：贴脊柱、和点垂直居中对齐，绝对定位在点的上/下方——不占用文档流
@@ -796,7 +852,7 @@
   .timeline-connector {
     width: 12px;
     height: 1px;
-    background: rgba(0, 0, 0, 0.08);
+    background: transparent;
     transition: opacity 200ms ease, background-color 200ms ease;
   }
 
@@ -810,7 +866,7 @@
     transform: scale(1.28);
   }
   .timeline-row:has(.node-card:hover) .timeline-spine-seg:not(.timeline-spine-seg--hop) {
-    background: rgba(245, 158, 11, 0.08);
+    filter: saturate(1.08) brightness(1.04);
   }
   .timeline-row:has(.node-card:hover) .timeline-connector {
     opacity: 0.9;

@@ -153,7 +153,7 @@ export interface ChatState {
   /**
    * 当前流式阶段：让 UI 知道这是首次规划 / 用户确认 / 反馈重规划。
    * - "idle"     : 没有进行中的流
-   * - "stream"   : 首次规划（点 S1-S8 / 输入框 / Cmd+K 触发的 /chat/turn）
+   * - "stream"   : 首次规划（点 S1-S8 / 输入框触发的 /chat/turn）
    * - "confirm"  : 用户点「确认并预约」触发的 /chat/confirm（接续之前的链路，
    *               不应让 ToolTracePanel / ItineraryCard 重置成「从头流式显示」状态）
    * - "refine"   : 用户点「说说哪不对」——反馈同样发 /chat/turn，由后端统一
@@ -235,9 +235,6 @@ export interface ChatState {
   // UI 通知
   toasts: ToastItem[];
 
-  // Cmd+K 命令面板
-  commandPaletteOpen: boolean;
-
   // actions
   loadScenarios: () => Promise<void>;
   sendMessage: (input: string, scenarioId?: string) => Promise<void>;
@@ -257,8 +254,6 @@ export interface ChatState {
   resetUserMemory: () => Promise<void>;
   pushToast: (toast: Omit<ToastItem, "id">) => void;
   dismissToast: (id: string) => void;
-  openCommandPalette: () => void;
-  closeCommandPalette: () => void;
 }
 
 /** initialState 类型：剔除所有 action（保留纯数据字段）。 */
@@ -281,8 +276,6 @@ export type InitialChatState = Omit<
   | "resetUserMemory"
   | "pushToast"
   | "dismissToast"
-  | "openCommandPalette"
-  | "closeCommandPalette"
 >;
 
 export type Setter = (

@@ -97,5 +97,10 @@ class NodeDetail(BaseModel):
         default=None, description='营业时段派生文案，如 "营业至21:30"；可选展示位'
     )
 
+    recommendation_reason: Optional[str] = Field(
+        default=None,
+        description="Fallback recommendation/comment copy for itinerary cards.",
+    )
+
 
 __all__ = ["NodeDetail"]

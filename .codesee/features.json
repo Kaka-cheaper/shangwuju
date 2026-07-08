@@ -50,7 +50,7 @@
     {
       "id": "interface",
       "name": "前端体验与多模态",
-      "summary": "行程卡片 + 时间轴动画 + 高德地图 + Tool 链路 + 海报 / 语音 / 命令面板等可视化与多模态出口",
+      "summary": "行程卡片 + 时间轴动画 + 高德地图 + Tool 链路 + 海报 / 语音等可视化与多模态出口",
       "order": 5,
       "importance": "core",
       "tags": []
@@ -711,7 +711,7 @@
     {
       "id": "f-quick-input",
       "name": "快捷场景按钮",
-      "summary": "首屏 8 个演示场景一键提交；首屏拉 GET /scenarios；命令面板共用同一份配置",
+      "summary": "首屏 8 个演示场景一键提交；首屏拉 GET /scenarios；场景按钮直接复用同一份配置",
       "epicId": "input",
       "triggers": [
         {
@@ -3985,7 +3985,7 @@
     {
       "id": "f-itinerary-card",
       "name": "行程卡片渲染",
-      "summary": "行程卡片聚焦方案摘要、时间轴、地图、预留清单、转发文案和三按钮；多模态工具与决策链路移到页面级区域",
+      "summary": "行程卡片聚焦方案摘要、时间轴、地图、预留清单和转发文案；语音、海报、取消和确认预约作为行程模块下方的独立操作条展示。",
       "epicId": "interface",
       "triggers": [
         {
@@ -4039,6 +4039,29 @@
           ]
         },
         {
+          "id": "node_comment_line",
+          "name": "渲染节点评论",
+          "role": "output",
+          "note": "ActivityNode.note 优先；规则路径缺 note 时用 node_detail.recommendation_reason 兜底，桌面端和移动端都显示活动说明行",
+          "refs": [
+            {
+              "file": "backend/schemas/node_detail.py"
+            },
+            {
+              "file": "backend/agent/graph/nodes/narrate.py"
+            },
+            {
+              "file": "frontend/lib/types.ts"
+            },
+            {
+              "file": "frontend/components/ItineraryCard.tsx"
+            },
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            }
+          ]
+        },
+        {
           "id": "refinement_banner",
           "name": "渲染调整摘要",
           "role": "output",
@@ -4077,9 +4100,26 @@
         },
         {
           "id": "action_buttons",
-          "name": "三按钮分发",
+          "name": "渲染模块操作按钮",
           "role": "output",
-          "note": "确认 / 反馈 / 取消；动画期间禁用；hasOrders/cancelled 切态"
+          "note": "语音播报、一键生成海报、取消方案、确认并预约与行程卡等宽对齐，但位于卡片外的模块下方；确认按钮右侧 i 按钮展开预约说明卡；确认仍走 useConfirmAction，取消仍走 store.cancel。",
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx"
+            },
+            {
+              "file": "frontend/components/HomeView.tsx"
+            },
+            {
+              "file": "frontend/components/TtsPlayer.tsx"
+            },
+            {
+              "file": "frontend/components/PosterGenerator.tsx"
+            },
+            {
+              "file": "frontend/lib/hooks/useConfirmAction.ts"
+            }
+          ]
         },
         {
           "id": "empty_state",
@@ -4134,6 +4174,12 @@
           "to": "action_buttons",
           "kind": "conditional",
           "condition": "尚未下单且未取消"
+        },
+        {
+          "from": "stagger_anim",
+          "to": "node_comment_line",
+          "kind": "conditional",
+          "condition": "节点存在 note 或 recommendation_reason"
         }
       ],
       "refs": [
@@ -4733,114 +4779,80 @@
     },
     {
       "id": "f-command-palette",
-      "name": "命令面板",
-      "summary": "Cmd+K 打开：演示场景 / 切 Planner Mode / 切 user / 切会话 / 重置；fuzzy 搜索 + 上下键导航",
+      "name": "命令面板（已移除）",
+      "summary": "桌面端右上角「命令」、演示场景快捷提示、移动端入口、Cmd/Ctrl+K 监听和前端状态已移除；保留历史记录用于说明该功能退役。",
       "epicId": "interface",
-      "triggers": [
-        {
-          "kind": "ui",
-          "detail": "Cmd+K / Ctrl+K 全局快捷键"
-        },
-        {
-          "kind": "ui",
-          "detail": "顶栏「命令」按钮"
-        }
-      ],
+      "triggers": [],
       "steps": [
         {
-          "id": "register_shortcut",
-          "name": "注册全局快捷键",
+          "id": "remove_desktop_entry",
+          "name": "移除桌面入口",
           "role": "side-effect",
           "refs": [
             {
-              "file": "frontend/components/HomeView.tsx",
-              "lines": [
-                70,
-                85
-              ]
+              "file": "frontend/components/HomeView.tsx"
+            },
+            {
+              "file": "frontend/components/QuickScenarios.tsx"
             }
           ]
         },
         {
-          "id": "load_sessions",
-          "name": "加载历史会话",
-          "role": "data-read",
+          "id": "remove_mobile_entry",
+          "name": "移除移动入口",
+          "role": "side-effect",
           "refs": [
             {
-              "file": "frontend/lib/utils.ts"
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
             }
           ]
         },
         {
-          "id": "build_commands",
-          "name": "构造命令清单",
-          "role": "compute",
-          "note": "场景 + 切 user + 切会话 + 切 mode + 重置 + 取消方案",
+          "id": "remove_state",
+          "name": "移除前端状态",
+          "role": "side-effect",
           "refs": [
             {
-              "file": "frontend/components/CommandPalette.tsx",
-              "lines": [
-                60,
-                200
-              ]
+              "file": "frontend/lib/store.ts"
+            },
+            {
+              "file": "frontend/lib/store/types.ts"
+            },
+            {
+              "file": "frontend/lib/store/initial-state.ts"
             }
           ]
-        },
-        {
-          "id": "fuzzy_match",
-          "name": "模糊匹配",
-          "role": "compute"
-        },
-        {
-          "id": "navigate",
-          "name": "上下键导航",
-          "role": "input"
-        },
-        {
-          "id": "perform",
-          "name": "执行命令",
-          "role": "side-effect"
         }
       ],
       "flow": [
         {
-          "from": "register_shortcut",
-          "to": "load_sessions",
-          "kind": "conditional",
-          "condition": "面板打开"
-        },
-        {
-          "from": "load_sessions",
-          "to": "build_commands",
+          "from": "remove_desktop_entry",
+          "to": "remove_mobile_entry",
           "kind": "next"
         },
         {
-          "from": "build_commands",
-          "to": "fuzzy_match",
-          "kind": "loop",
-          "condition": "用户输入 query"
-        },
-        {
-          "from": "fuzzy_match",
-          "to": "navigate",
+          "from": "remove_mobile_entry",
+          "to": "remove_state",
           "kind": "next"
-        },
-        {
-          "from": "navigate",
-          "to": "perform",
-          "kind": "conditional",
-          "condition": "用户按 Enter"
         }
       ],
       "refs": [
         {
-          "file": "frontend/components/CommandPalette.tsx"
+          "file": "frontend/components/HomeView.tsx"
+        },
+        {
+          "file": "frontend/components/mobile/MobileHomeView.tsx"
+        },
+        {
+          "file": "frontend/lib/store.ts"
         }
       ],
-      "confidence": 0.88,
+      "confidence": 0.95,
       "provenance": "ai",
-      "tags": [],
-      "updated_at": "2026-05-23T00:00:00Z"
+      "tags": [
+        "deprecated"
+      ],
+      "updated_at": "2026-07-07T00:00:00Z"
     },
     {
       "id": "f-planner-mode-toggle",
@@ -4988,6 +5000,26 @@
           ]
         },
         {
+          "id": "collapse_top_actions",
+          "name": "收纳顶栏操作",
+          "role": "output",
+          "note": "移动端右上角三点圆按钮展开建多人房间、新对话、Planner 模式、mock 数据源和断网状态；动作仍复用原 store / collab 逻辑。",
+          "refs": [
+            {
+              "file": "frontend/components/mobile/MobileHomeView.tsx"
+            },
+            {
+              "file": "frontend/components/PlannerModeBadge.tsx"
+            },
+            {
+              "file": "frontend/components/MockModeBadge.tsx"
+            },
+            {
+              "file": "frontend/components/OfflineReadyBadge.tsx"
+            }
+          ]
+        },
+        {
           "id": "render_scenarios",
           "name": "展示演示场景",
           "role": "output",
@@ -5062,6 +5094,11 @@
         },
         {
           "from": "bootstrap_state",
+          "to": "collapse_top_actions",
+          "kind": "next"
+        },
+        {
+          "from": "collapse_top_actions",
           "to": "render_scenarios",
           "kind": "next"
         },

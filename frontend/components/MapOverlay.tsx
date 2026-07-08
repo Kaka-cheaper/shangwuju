@@ -55,6 +55,29 @@ const AMAP_PLUGINS = [
 // 杭州市中心兜底（map 无标注点时的中心位置）
 const FALLBACK_CENTER: [number, number] = [120.155, 30.255]; // [lng, lat]
 
+const MAP_MARKER_TONES = [
+  {
+    gradient: "linear-gradient(135deg, #3f6fb7 0%, #2f5f9f 100%)",
+    glow: "rgba(63,111,183,0.24)",
+  },
+  {
+    gradient: "linear-gradient(135deg, #d93b76 0%, #bd2d66 100%)",
+    glow: "rgba(217,59,118,0.24)",
+  },
+  {
+    gradient: "linear-gradient(135deg, #e49a2f 0%, #d97706 100%)",
+    glow: "rgba(228,154,47,0.24)",
+  },
+  {
+    gradient: "linear-gradient(135deg, #37a46f 0%, #23835b 100%)",
+    glow: "rgba(55,164,111,0.22)",
+  },
+  {
+    gradient: "linear-gradient(135deg, #7c5cc7 0%, #5f45a8 100%)",
+    glow: "rgba(124,92,199,0.23)",
+  },
+];
+
 // ============================================================
 // 类型与工具
 // ============================================================
@@ -316,8 +339,8 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       const marker = new AMap.Marker({
         position: [nc.lng, nc.lat],
         // marker 编号用 visibleIdx（1-based，对齐 ItineraryCard 时间轴的可见节点序号）
-        content: buildMarkerHtml(nc.visibleIdx, nc.type),
-        offset: new AMap.Pixel(-14, -14),
+        content: buildMarkerHtml(nc.visibleIdx),
+        offset: new AMap.Pixel(-20, -20),
         title: nc.displayName,
       });
       marker.setMap(map);
@@ -400,13 +423,35 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   }
 
   return (
-    <div className="card mt-3 overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
-        <MapPin className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
-        <span className="text-sm font-semibold text-ink-900 tracking-tight">
+    <div className="card amap-map-shell relative isolate z-0 mt-3 overflow-hidden rounded-[28px]">
+      <style>{`
+        .amap-map-shell .amap-container,
+        .amap-map-shell .amap-layers,
+        .amap-map-shell .amap-maps {
+          z-index: 0 !important;
+        }
+        .amap-map-shell .amap-logo {
+          left: auto !important;
+          right: 18px !important;
+          bottom: 18px !important;
+          z-index: 1 !important;
+          pointer-events: none !important;
+        }
+        .amap-map-shell .amap-copyright {
+          left: auto !important;
+          right: 18px !important;
+          bottom: 2px !important;
+          text-align: right !important;
+          z-index: 1 !important;
+          pointer-events: none !important;
+        }
+      `}</style>
+      <div className="px-5 py-3 border-b border-black/[0.06] flex items-center gap-2">
+        <MapPin className="w-4 h-4 text-ink-500" strokeWidth={2} />
+        <span className="text-base font-semibold text-ink-900 tracking-tight">
           行程地图
         </span>
-        <span className="text-xs text-ink-500">
+        <span className="text-sm text-ink-500">
           高德地图 · 实时路径规划
         </span>
       </div>
@@ -498,28 +543,26 @@ function drawFallbackPolyline(
 // 自定义标注 HTML（高德 Marker 用 content 字符串）
 // ============================================================
 
-function buildMarkerHtml(index: number, type: "poi" | "restaurant"): string {
-  const bg =
-    type === "poi"
-      ? "linear-gradient(135deg, #60a5fa, #3b82f6)" // 蓝色 POI
-      : "linear-gradient(135deg, #fb923c, #ec4899)"; // 橙粉 餐厅
-  const ring =
-    type === "poi" ? "rgba(96,165,250,0.35)" : "rgba(251,146,60,0.35)";
+function buildMarkerHtml(index: number): string {
+  const tone = MAP_MARKER_TONES[(Math.max(1, index) - 1) % MAP_MARKER_TONES.length];
   return `
     <div style="
       position: relative;
-      width: 28px;
-      height: 28px;
+      width: 40px;
+      height: 40px;
       border-radius: 50%;
-      background: ${bg};
-      box-shadow: 0 0 0 4px ${ring}, 0 4px 12px rgba(0,0,0,0.35);
+      background: ${tone.gradient};
+      border: 3px solid rgba(255,255,255,0.96);
+      box-shadow: 0 12px 24px -16px rgba(15,23,42,0.58), 0 0 0 8px ${tone.glow};
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-family: ui-monospace, SFMono-Regular, monospace;
-      font-size: 12px;
-      font-weight: 700;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 18px;
+      line-height: 1;
+      font-weight: 800;
+      letter-spacing: 0;
       cursor: pointer;
       animation: amap-marker-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
     ">
@@ -634,13 +677,13 @@ function FallbackList({
     .length;
 
   return (
-    <div className="card mt-3">
-      <div className="px-4 py-2.5 border-b border-black/[0.06] flex items-center gap-1.5">
-        <MapPin className="w-3.5 h-3.5 text-ink-500" strokeWidth={2} />
-        <span className="text-xs font-medium text-ink-900 tracking-tight">
+    <div className="card mt-3 overflow-hidden rounded-[28px]">
+      <div className="px-5 py-3 border-b border-black/[0.06] flex items-center gap-2">
+        <MapPin className="w-4 h-4 text-ink-500" strokeWidth={2} />
+        <span className="text-base font-semibold text-ink-900 tracking-tight">
           行程地点
         </span>
-        <span className="text-xs text-ink-500">
+        <span className="text-sm text-ink-500">
           {reason}，仅显示列表
           {hopCount > 0 ? ` · 共 ${hopCount} 段通勤` : ""}
         </span>

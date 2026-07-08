@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowLeftRight, type LucideIcon, SlidersHorizontal } from "lucide-react";
+import { ArrowLeftRight, Clock, Info, type LucideIcon, SlidersHorizontal } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useCollabStore } from "@/lib/collab-store";
@@ -22,6 +22,7 @@ import type {
   IntentExtraction,
   Itinerary,
   NodeChip,
+  NodeDetail,
   ScheduleEntry,
 } from "@/lib/types";
 import { cn, primaryStoreName } from "@/lib/utils";
@@ -358,6 +359,7 @@ export default function ItineraryCard() {
 
   const totalH = itinerary.total_minutes / 60;
   const hasOrders = itinerary.orders.length > 0;
+  const timelineNodeCount = visibleEntries.filter((entry) => entry.entry_kind === "node").length;
   // R1: animating / 揭幕(revealing) 期间禁用按钮（避免用户在动画进行中点确认）。
   // canConfirm/handleConfirm 已由 useConfirmAction(!animating && !revealing) 统一算好。
   const canAct =
@@ -429,7 +431,7 @@ export default function ItineraryCard() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Icons.camera className="h-5 w-5 shrink-0 text-[#8f4b24]" strokeWidth={1.8} aria-hidden />
-              <span className="text-xl font-black tracking-tight text-[#8f4b24]">
+              <span className="text-lg font-black tracking-tight text-[#8f4b24]">
                 今日行程安排
               </span>
             </div>
@@ -513,7 +515,14 @@ export default function ItineraryCard() {
           行之间用 bottom:-14px 桥接 <ol> 的 space-y-3.5 间隙——这样才能让「停留」
           （实线）和「通勤」（虚线，见下方 hop 分支）分段染色，也让 §三.3 悬停协同
           能只点亮"这一段"而不是整条线。 */}
-      <ol className="relative px-5 pb-5 pt-3 space-y-3.5">
+      <ol
+        className="timeline-rail relative px-5 pb-5 pt-3 space-y-3.5"
+        style={
+          {
+            "--timeline-rail": timelineRailGradient(timelineNodeCount),
+          } as CSSProperties
+        }
+      >
         {/* 起点：从家出发（§六「家」bookend——无主活动标签/无操作层，更扁更淡；
             §一「首尾'家'=小 home 图标点，中性灰，不用 🚀/✨」——圆点本身换成
             home 图标点。节点卡+行程轨-对比.html 改版：右侧文案由"药丸框"改
@@ -523,30 +532,39 @@ export default function ItineraryCard() {
             列，复用真实 .timeline-spine-seg/.timeline-dot-home 类不变。 */}
         {(() => {
           const rr = rowRevealProps();
+          const firstNodeTone = visibleEntries.some((item) => item.entry_kind === "node")
+            ? stageTone(0)
+            : HOME_STAGE_TONE;
           return (
         <li className={cn("relative flex items-center gap-0", rr.className)} style={rr.style}>
           {/* 时间/通勤列（timecol）：家 bookend 无起止时刻，只放一个极小的
               "出发" 标签，右对齐、贴脊柱——和下方节点行/通勤行共用同一条
               时间列，让整条时间轴左侧的"时间语义列"贯穿始终。 */}
-          <div className="w-14 shrink-0 pr-2 text-right text-[11px] font-medium text-ink-400">
-            出发
-          </div>
+          <div className="w-6 shrink-0" aria-hidden />
           {/* self-stretch：覆盖 li 的 items-center，让这一列撑满整行高度，
               脊柱段（absolute top:0/bottom:-14px）才能按"这一行的真实高度"
               桥接到下一行，而不是只按 home 点自己的小高度算；justify-center
               把点重新在撑满后的列里垂直居中，视觉效果和之前一致。 */}
-          <div className="relative flex flex-col items-center justify-center min-w-[16px] shrink-0 self-stretch">
+          <div
+            className="relative flex flex-col items-center justify-center min-w-[52px] shrink-0 self-stretch"
+            style={
+              {
+                "--timeline-line": stageLineGradient(HOME_STAGE_TONE, firstNodeTone),
+                "--timeline-line-top": "42px",
+              } as CSSProperties
+            }
+          >
             <div aria-hidden className="timeline-spine-seg" />
             <div className="timeline-dot-home relative z-10">
-              <Icons.home className="w-2.5 h-2.5 text-ink-400" strokeWidth={2} />
+              <Icons.home className="h-5 w-5 text-white" strokeWidth={2.35} />
             </div>
           </div>
           <div className="w-4 shrink-0" aria-hidden />
           {/* 内容列：纯文字，pl-4 对齐节点卡的内边距（.node-card px-4），
-              让"出发咯/满载而归/自由休息"这几行过渡文字和卡内「用餐/主
+              让起终点/自由休息这些过渡文字和卡内「用餐/主
               活动」标签左边对齐（不再贴脊柱右边）。 */}
-          <div className="flex-1 min-w-0 pl-4 text-sm font-medium text-ink-500">
-            出发咯
+          <div className="flex-1 min-w-0 pl-4 text-base font-semibold text-ink-600">
+            从望京出发
           </div>
         </li>
           );
@@ -561,6 +579,7 @@ export default function ItineraryCard() {
           // 天然就是 mid nodes、且顺序一致，用一个跨 map 迭代的计数器即可还原
           // stage_index，不需要另建一套节点定位。
           let midNodeIndex = -1;
+          const midNodeTotal = visibleEntries.filter((item) => item.entry_kind === "node").length;
           return visibleEntries.map((entry, idx) => {
           // R1: stagger 控制——idx 超出 visibleCount 时不渲染
           if (idx >= visibleCount) return null;
@@ -570,18 +589,19 @@ export default function ItineraryCard() {
           // 计算——通勤段自己的分钟数已经被通勤行自己的 [start, end] 吃掉，
           // 这里天然不会把通勤时间重复计入休息时长（不是 "下一站 start − 上一站 start"）。
           const prevEntry = idx > 0 ? visibleEntries[idx - 1] : null;
-          // 幕③：gap（自由休息）行也走同一套逐行 stagger（在它关联的通勤/节点行
-          // 之前渲染，计数器顺序天然正确）。
-          const gapNode = renderFreeGap(prevEntry, entry, idx, rowRevealProps);
-
-          // hop 行：时间轴精修终稿§二「通勤挪到脊柱上」——不再是一张独立卡
-          // （旧版 rounded-full pill），改成脊柱在这一段变虚线 + 旁边极小灰字。
-          // mode!=="virtual" 才渲染（virtual=in_place 已在 visibleEntries 过滤
-          // 阶段被 hidden=true 屏蔽，此处再保险一道）
+          // hop 行：通勤是两段行程之间的关系，不再吸附到下一张行程卡顶部。
+          // 统一渲染为独立胶囊行：从起点/上一站出发 → 通勤 → 下一站/回家。
           if (entry.entry_kind === "hop") {
+            const gapNode = renderFreeGap(prevEntry, entry, idx, rowRevealProps);
             if (!entry.mode || entry.mode === "virtual") return gapNode;
+            const nextEntry = visibleEntries[idx + 1] ?? null;
             const HopIcon = hopIconComponent(entry.mode);
             const hopReveal = rowRevealProps();
+            const fromTone = midNodeIndex >= 0 ? stageTone(midNodeIndex) : HOME_STAGE_TONE;
+            const toTone =
+              nextEntry?.entry_kind === "node"
+                ? stageTone(midNodeIndex + 1)
+                : HOME_STAGE_TONE;
             return (
               <Fragment key={entry.ref_id || `hop-${idx}`}>
                 {gapNode}
@@ -589,23 +609,27 @@ export default function ItineraryCard() {
                   className={cn("relative flex items-center gap-0", hopReveal.className)}
                   style={hopReveal.style}
                   title={`${entry.start} → ${entry.end}`}
-                >
-                  {/* 通勤：图标 + 时长同一行（不竖着断行），放时间列里、右对齐
-                      贴脊柱——节点卡+行程轨-对比.html §「通勤横排」。 */}
-                  <div className="flex w-14 shrink-0 items-center justify-end gap-1 whitespace-nowrap pr-2 text-[10.5px] text-ink-400">
-                    <HopIcon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.7} />
-                    <span>
-                      {entry.minutes} 分钟
-                      {entry.mode === "haversine_estimated" && (
-                        <span className="text-ink-300"> · {translateHopMode(entry.mode)}</span>
-                      )}
-                    </span>
-                  </div>
-                  <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch">
-                    <div aria-hidden className="timeline-spine-seg timeline-spine-seg--hop" />
+                  >
+                  <div className="w-6 shrink-0" aria-hidden />
+                  <div
+                    className="relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch"
+                    style={
+                      {
+                        "--timeline-line": stageLineGradient(fromTone, toTone),
+                      } as CSSProperties
+                    }
+                  >
+                    <div aria-hidden className="timeline-spine-seg" />
                   </div>
                   <div className="w-4 shrink-0" aria-hidden />
-                  <div className="flex-1 min-w-0" aria-hidden />
+                  <div className="flex-1 min-w-0 py-1.5">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-[#d89a00]/25 bg-[#fff5bf]/55 px-3.5 py-1.5 text-sm font-bold text-[#9a5b00] shadow-sm backdrop-blur">
+                      <HopIcon className="h-3.5 w-3.5 shrink-0 text-[#9a5b00]" strokeWidth={1.9} />
+                      <span>
+                        通勤 {entry.minutes} 分钟 · {translateHopMode(entry.mode)}
+                      </span>
+                    </span>
+                  </div>
                 </li>
               </Fragment>
             );
@@ -624,11 +648,24 @@ export default function ItineraryCard() {
           const isLocked = targetId != null && lockedNodeId === targetId;
           const canAdjust = targetId != null && !isLocked && lockedNodeId == null && !streaming;
           // 店名：唯一视觉焦点，不再硬截单行（无 truncate），title 兜全文
-          // （含 note，换菜中悬停也能看到完整"店名 · 理由"）。时间已被时间轴
-          // 挪到左侧时间列，note 现在是 r3 独立一行（不再是店名后缀）。
-          const note = nodeNote(itinerary, entry.ref_id);
+          // （含 note，换菜中悬停也能看到完整"店名 · 理由"）。note 是后端
+          // ActivityNode.note 透传的选点/预约说明，必须作为独立第三行展示。
+          const note = nodeDisplayNote(itinerary, entry.ref_id, detail);
           const fullTitle = note ? `${entry.title} · ${note}` : entry.title;
           const nodeReveal = rowRevealProps();
+          const tone = stageTone(stageIndex);
+          const nextTone = stageIndex + 1 < midNodeTotal ? stageTone(stageIndex + 1) : HOME_STAGE_TONE;
+          const prevTone = stageIndex > 0 ? stageTone(stageIndex - 1) : HOME_STAGE_TONE;
+          // 幕③：gap（自由休息）行也走同一套逐行 stagger（在它关联的通勤/节点行
+          // 之前渲染，计数器顺序天然正确）。这里顺手把 gap 的脊柱染成"上一节点→当前
+          // 节点"的同族渐变，避免自由休息行把时间轴切成灰色断层。
+          const gapNode = renderFreeGap(
+            prevEntry,
+            entry,
+            idx,
+            rowRevealProps,
+            stageLineGradient(prevTone, tone),
+          );
 
           return (
             <Fragment key={entry.ref_id || `node-${idx}`}>
@@ -651,20 +688,7 @@ export default function ItineraryCard() {
                     即 dot 位置 ∓9/+12，这里换算成我们自己的 TIMELINE_DOT_OFFSET
                     （20px）基准延用同一相对关系，不是另起一套独立数字——真机
                     未校验，见交付报告「未真机验证项」。 */}
-                <div className="relative w-14 shrink-0 self-stretch pr-2 text-right">
-                  <span
-                    className="absolute right-2 text-[13px] font-medium leading-none tabular-nums text-ink-500"
-                    style={{ top: `calc(${TIMELINE_DOT_OFFSET} - 9px)` }}
-                  >
-                    {entry.start}
-                  </span>
-                  <span
-                    className="absolute right-2 text-[13px] font-medium leading-none tabular-nums text-ink-500"
-                    style={{ top: `calc(${TIMELINE_DOT_OFFSET} + 12px)` }}
-                  >
-                    {entry.end}
-                  </span>
-                </div>
+                <div className="w-6 shrink-0" aria-hidden />
                 {/* 脊柱+点列（railcol）：桥接到下一行，停留=实线。self-stretch：
                     li 是 items-start，这一列默认只有 marker 自身高度（远矮于
                     右侧卡片）；撑满整行高度后，脊柱段的 bottom:-14px 才是按
@@ -675,13 +699,29 @@ export default function ItineraryCard() {
                     （.timeline-row:has(.timeline-marker:hover) .node-card），
                     命中范围从"仅点周围"扩大到"整条 railcol"，属于更宽松的
                     hover 靶区，不是新视觉。 */}
-                <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch timeline-marker">
+                <div
+                  className={cn(
+                    "relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch timeline-marker timeline-marker--node",
+                    stageIndex === 0 && "timeline-marker--first",
+                  )}
+                  style={
+                    {
+                      "--timeline-line": stageLineGradient(tone, nextTone),
+                      "--timeline-line-top": `${TIMELINE_DOT_OFFSET + 42}px`,
+                    } as CSSProperties
+                  }
+                >
                   <div aria-hidden className="timeline-spine-seg" />
                   <div
-                    className={cn("relative z-10 timeline-dot", isLocked && "timeline-dot--current")}
-                    style={{ marginTop: TIMELINE_DOT_OFFSET }}
+                    className={cn("relative z-10 timeline-dot timeline-dot--indexed", isLocked && "timeline-dot--current")}
+                    style={{
+                      marginTop: TIMELINE_DOT_OFFSET,
+                      background: tone.gradient,
+                    }}
                     title={isLocked ? "换菜中" : undefined}
-                  />
+                  >
+                    <span>{stageIndex + 1}</span>
+                  </div>
                 </div>
                 {/* 连接线：点到卡片左缘（§三.2），与点共享同一 marginTop 保证
                     落在同一水平线上；hover 时提亮（globals.css）。 */}
@@ -697,43 +737,65 @@ export default function ItineraryCard() {
                     ——右栏把卡片撑高、右侧死白，被用户否掉；改成视觉稿的单栏四行制：
                     r1 店名行（左标签+店名，右上角 headline）→ r2 事实行（距离·可订·
                     营业至+tag）→ r3 理由行（note）→ 分隔线 → r4 操作行。 */}
-                <div className="node-card relative flex-1 min-w-0 px-4 pt-3.5 pb-2.5">
-                  {/* r1：店名行——左边玻璃标签+店名，右上角 headline（评分★+
-                      人均，NodeHeadline）。justify-between 让 headline 贴右边、
-                      店名占满剩余宽度（不再因为右栏 140px 被迫收窄）。 */}
+                <div className="node-card relative flex-1 min-w-0 px-5 pt-4 pb-3.5">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <span
+                      className="inline-flex items-center gap-2 text-lg font-black tabular-nums"
+                      style={{ color: tone.color }}
+                    >
+                      <Clock className="h-5 w-5 shrink-0" strokeWidth={2} />
+                      <span>{entry.start} - {entry.end}</span>
+                    </span>
+                  </div>
+                  {/* r1：类型标签 + 店名 + 事实信息同排，右上角 headline（评分★+
+                      人均，NodeHeadline）。利用桌面端横向空间，把距离/余位/
+                      营业和标签收到名称后面，不再让中间大面积留白。 */}
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 flex-1 items-start gap-x-2">
-                      <span className="node-glass-label shrink-0 px-2 py-[3px] text-[11px] font-semibold tracking-[0.05em] text-amber-700">
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-2">
+                      <span
+                        className="node-glass-label shrink-0 border px-3 py-1 text-sm font-bold tracking-tight"
+                        style={{
+                          color: tone.color,
+                          backgroundColor: tone.softBg,
+                          borderColor: tone.border,
+                        }}
+                      >
                         {nodeKindLabel(itinerary, entry.ref_id)}
                       </span>
                       {isLocked ? (
                         <span
-                          className="h-4 w-32 shrink-0 rounded shimmer-skeleton"
+                          className="h-7 w-48 shrink-0 rounded shimmer-skeleton"
                           aria-hidden
                         />
                       ) : (
                         <span
-                          className="min-w-0 flex-1 text-[15px] font-semibold leading-snug text-ink-900"
+                          className="node-title-wavy min-w-0 max-w-full text-2xl font-black leading-snug text-ink-900"
                           title={fullTitle}
                         >
                           {entry.title}
                         </span>
                       )}
+                      {!isLocked && (
+                        <NodeFactPanel
+                          detail={detail}
+                          className="mt-0 max-w-full"
+                          tone={tone}
+                          size="large"
+                        />
+                      )}
                     </div>
-                    {!isLocked && <NodeHeadline detail={detail} />}
+                    {!isLocked && <NodeHeadline detail={detail} size="large" />}
                   </div>
 
                   {/* r2：事实行——距离·可订·营业至 + tag，紧贴店名下方一行；
                       评分/人均已被 r1 headline 拿走，这里不再重复（诚实红线：
                       字段缺失就不渲染，不补占位）。 */}
-                  {!isLocked && <NodeFactPanel detail={detail} className="mt-1.5" />}
 
-                  {/* r3：理由行——选店理由（note），从"店名后缀"升级成事实行
-                      下方独立一行（照视觉稿）；理由原文一字不改，"人均50"这类
-                      和事实行数字的潜在重复是后端 blueprint prompt 的事，本批
-                      不碰。 */}
+                  {/* r3：评论/理由行——优先用后端 ActivityNode.note；若规则规划
+                      路径没有 note，则退到 node_detail.recommendation_reason，
+                      保证每个活动的推荐说明不因布局重构丢失。 */}
                   {note && !isLocked && (
-                    <div className="mt-1.5 text-[12.5px] leading-relaxed text-ink-500">
+                    <div className="mt-2 max-w-4xl text-base font-medium leading-relaxed text-ink-500">
                       {note}
                     </div>
                   )}
@@ -808,20 +870,27 @@ export default function ItineraryCard() {
             没有行了）。幕③ 最后一行，收在整段 stagger 末尾。 */}
         {(() => {
           const rr = rowRevealProps();
+          const midNodeTotal = visibleEntries.filter((item) => item.entry_kind === "node").length;
+          const lastNodeTone = midNodeTotal > 0 ? stageTone(midNodeTotal - 1) : HOME_STAGE_TONE;
           return (
         <li className={cn("relative flex items-center gap-0", rr.className)} style={rr.style}>
-          <div className="w-14 shrink-0 pr-2 text-right text-[11px] font-medium text-ink-400">
-            到家
-          </div>
-          <div className="relative flex flex-col items-center justify-center min-w-[16px] shrink-0 self-stretch">
+          <div className="w-6 shrink-0" aria-hidden />
+          <div
+            className="relative flex flex-col items-center justify-center min-w-[52px] shrink-0 self-stretch"
+            style={
+              {
+                "--timeline-line": stageLineGradient(lastNodeTone, HOME_STAGE_TONE),
+              } as CSSProperties
+            }
+          >
             <div aria-hidden className="timeline-spine-seg timeline-spine-seg--tail" />
             <div className="timeline-dot-home relative z-10">
-              <Icons.home className="w-2.5 h-2.5 text-ink-400" strokeWidth={2} />
+              <Icons.home className="h-5 w-5 text-white" strokeWidth={2.35} />
             </div>
           </div>
           <div className="w-4 shrink-0" aria-hidden />
-          <div className="flex-1 min-w-0 pl-4 text-sm font-medium text-ink-500">
-            满载而归
+          <div className="flex-1 min-w-0 pl-4 text-base font-semibold text-ink-600">
+            结束行程，返回望京
           </div>
         </li>
           );
@@ -829,7 +898,7 @@ export default function ItineraryCard() {
       </ol>
 
       {/* T8/R2: 高德地图标注（配合 R1 stagger 逐段亮起） */}
-      <div className="px-4 pb-3">
+      <div className="px-6 pb-4 md:px-8">
         <MapOverlay visibleCount={visibleCount} />
       </div>
 
@@ -875,86 +944,22 @@ export default function ItineraryCard() {
         </div>
       )}
 
-      {/* M4：方案就绪后预告「点确认会发生什么」——把评委永远看不到的「确认后一键顺滑执行」
-            从「需点击触发」变成「默认可见」。下单前显示，下单后由「已为你预留」订单卡接力 */}
+      <div className="h-4" aria-hidden />
+        </div>
+      </div>
       {!hasOrders && !cancelled && (
-        <div className="px-4 pb-3">
-          <ConfirmPreviewCard intent={intent} itinerary={itinerary} />
-        </div>
+        <PlanActionBar
+          intent={intent}
+          itinerary={itinerary}
+          canAct={canAct}
+          canConfirm={canConfirm}
+          confirmLabel={confirmLabel}
+          streaming={streaming}
+          blockedByOwnerGuard={blockedByOwnerGuard}
+          onCancel={cancel}
+          onConfirm={handleConfirm}
+        />
       )}
-
-      {/* Action buttons：一主 + 一条安静工具行（2026-07-06 收口）——
-          删掉「说说哪不对」（反馈走下方聊天框即可，聊天框本就能打「太远了」，
-          上方叙事正文也写着"不合适跟我说"，不需要重复一个专门弹窗入口）；
-          播报/海报从「方案工具」ItineraryUtilityBar 摘过来，与「取消方案」
-          合并成次级工具行——一屏只留一个 primary（确认并预约，亮黄实底
-          不变），其余全部降权成小号 ghost，不与主按钮抢视线。 */}
-      <div className="px-4 pb-4 space-y-2">
-        {!hasOrders && !cancelled && (
-          <>
-            <button
-              className={cn("btn-primary w-full font-bold", streaming && "shimmer-border")}
-              disabled={!canConfirm}
-              onClick={handleConfirm}
-              title={
-                blockedByOwnerGuard
-                  ? "只有房间发起人可以确认预约"
-                  : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
-              }
-            >
-              {streaming ? (
-                <>
-                  <Icons.thinking className="w-3.5 h-3.5 animate-spin" />
-                  <span>{confirmLabel}</span>
-                </>
-              ) : (
-                <>
-                  <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
-                  <span>{confirmLabel}</span>
-                </>
-              )}
-            </button>
-
-            {/* 安静工具行：语音播报 / 一键生成海报 / 取消方案——三者同级次级。
-                TtsPlayer/PosterGenerator 只压小尺寸（h-9/text-sm），不动它们
-                自身的白底/描边配色——播报中会切到 accent 高亮的「播报中」状态
-                指示，那是有意义的进行时信号，不该被压成灰底盖掉。取消方案
-                （destructive）单独控制样式，放最右、色弱，仅 hover 时才露红。 */}
-            <div className="flex flex-wrap items-center gap-2">
-              <TtsPlayer compact className="h-9 w-auto flex-1 text-sm" />
-              <PosterGenerator compact className="h-9 w-auto flex-1 text-sm" />
-              <button
-                type="button"
-                className={cn(
-                  "inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-medium tracking-tight transition-colors",
-                  "border-black/[0.08] bg-transparent text-ink-400",
-                  "hover:border-red-500/25 hover:bg-red-500/[0.05] hover:text-red-600",
-                  "disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-black/[0.08] disabled:hover:bg-transparent disabled:hover:text-ink-400",
-                )}
-                disabled={!canAct}
-                onClick={cancel}
-                title="放弃当前方案 · 不写入长期记忆"
-              >
-                <Icons.close className="w-3.5 h-3.5" strokeWidth={2.25} />
-                <span>取消方案</span>
-              </button>
-            </div>
-          </>
-        )}
-        {hasOrders && (
-          <div className="flex items-center justify-center gap-1.5 text-xs text-emerald-400">
-            <Icons.success className="w-3.5 h-3.5" strokeWidth={2.25} />
-            <span>已完成下单与转发文案生成</span>
-          </div>
-        )}
-        {cancelled && !hasOrders && (
-          <div className="text-center text-xs text-ink-500">
-            已取消方案，可重新输入或点击场景按钮
-          </div>
-        )}
-      </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -1102,7 +1107,7 @@ function NarrationBlock({
           )}
           strokeWidth={2}
         />
-        <p className="whitespace-pre-wrap text-xl leading-relaxed">
+        <p className="whitespace-pre-wrap text-lg leading-relaxed">
           <HighlightText text={text} />
         </p>
       </div>
@@ -1129,41 +1134,150 @@ function ConfirmPreviewCard({
 
   return (
     <div
-      className="rounded-md border border-black/[0.06] bg-black/[0.02] px-3.5 py-3 text-xs leading-relaxed"
+      className="rounded-[24px] border border-white/[0.76] bg-white px-5 py-4 text-sm leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.88)]"
     >
-      <div className="flex items-center gap-1.5 mb-2">
-        <Icons.spark
-          className="w-3.5 h-3.5 text-ink-500"
-          strokeWidth={2}
-        />
-        <span className="text-sm font-semibold text-ink-700 tracking-tight">
-          点击「确认并预约」之后
-        </span>
-      </div>
-
-      <p className="text-sm text-ink-800 mb-2.5">
+      <p className="mb-3 text-base leading-relaxed text-ink-800">
         {restaurantLine}{extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
-        <span className="inline-flex items-center gap-1">
+      <div
+        className={cn(
+          "grid gap-3 text-sm font-semibold text-ink-600",
+          extraServices.length > 0 ? "grid-cols-4" : "grid-cols-3",
+        )}
+      >
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>🪑</span>
           <span>锁餐厅时段</span>
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>📝</span>
           <span>备转发文案</span>
         </span>
         {extraServices.length > 0 && (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center justify-center gap-1 text-center">
             <span aria-hidden>+</span>
             <span>加购{extraServices[0]}</span>
           </span>
         )}
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>🧠</span>
           <span>记本次偏好</span>
         </span>
+      </div>
+    </div>
+  );
+}
+
+function PlanActionBar({
+  intent,
+  itinerary,
+  canAct,
+  canConfirm,
+  confirmLabel,
+  streaming,
+  blockedByOwnerGuard,
+  onCancel,
+  onConfirm,
+}: {
+  intent: IntentExtraction | null;
+  itinerary: Itinerary;
+  canAct: boolean;
+  canConfirm: boolean;
+  confirmLabel: string;
+  streaming: boolean;
+  blockedByOwnerGuard: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  return (
+    <div className="relative z-[120] mt-3 w-full isolate">
+      <div className="w-full">
+        <div className="relative pointer-events-auto">
+          {previewOpen && (
+            <div className="absolute bottom-[calc(100%+14px)] right-0 z-[140] w-full max-w-[560px] overflow-hidden rounded-[30px] border border-white/[0.86] bg-white p-2 shadow-[0_28px_80px_-44px_rgba(17,24,39,0.78)] ring-1 ring-black/[0.035] animate-fade-in-up">
+              <div className="flex items-center justify-between gap-3 px-3 py-2">
+                <div className="flex items-center gap-2 text-base font-black tracking-tight text-ink-900">
+                  <Info className="h-5 w-5 text-[#9a5b00]" strokeWidth={2.5} />
+                  点击「确认并预约」之后
+                </div>
+                <button
+                  type="button"
+                  className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-black/[0.06] bg-white/[0.72] text-ink-500 transition hover:bg-white hover:text-ink-900 active:scale-95"
+                  onClick={() => setPreviewOpen(false)}
+                  aria-label="关闭预约说明"
+                >
+                  <Icons.close className="h-4 w-4" strokeWidth={2.2} />
+                </button>
+              </div>
+              <ConfirmPreviewCard intent={intent} itinerary={itinerary} />
+            </div>
+          )}
+
+          <div className="grid grid-cols-[1fr_1fr_1fr_1.28fr] items-center gap-3">
+            <TtsPlayer
+              compact
+              className="h-12 rounded-full border-2 border-[#FFD100]/75 bg-white/[0.84] px-4 text-lg font-bold text-ink-800 shadow-[0_18px_42px_-30px_rgba(17,24,39,0.72)] backdrop-blur-2xl hover:border-[#e6bc00] hover:bg-white"
+            />
+            <PosterGenerator
+              compact
+              className="h-12 rounded-full border-2 border-[#FFD100]/75 bg-white/[0.84] px-4 text-lg font-bold text-ink-800 shadow-[0_18px_42px_-30px_rgba(17,24,39,0.72)] backdrop-blur-2xl hover:border-[#e6bc00] hover:bg-white"
+            />
+            <button
+              type="button"
+              className={cn(
+                "inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border-2 px-4 text-lg font-bold tracking-tight shadow-[0_18px_42px_-30px_rgba(17,24,39,0.72)] backdrop-blur-2xl transition",
+                "border-red-400/75 bg-white/[0.82] text-ink-600",
+                "hover:border-red-500 hover:bg-white hover:text-red-600",
+                "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-red-400/75 disabled:hover:bg-white/[0.82] disabled:hover:text-ink-600",
+              )}
+              disabled={!canAct}
+              onClick={onCancel}
+              title="放弃当前方案 · 不写入长期记忆"
+            >
+              <Icons.close className="h-4 w-4" strokeWidth={2.4} />
+              <span>取消方案</span>
+            </button>
+            <div
+              className={cn(
+                "flex h-12 w-full items-center overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-950 shadow-[0_18px_42px_-28px_rgba(245,158,11,0.9)] transition",
+                streaming && "shimmer-border",
+                !canConfirm && "opacity-60",
+              )}
+            >
+              <button
+                type="button"
+                className="flex h-full min-w-0 flex-1 items-center justify-center gap-2 px-4 text-lg font-black tracking-tight disabled:cursor-not-allowed"
+                disabled={!canConfirm}
+                onClick={onConfirm}
+                title={
+                  blockedByOwnerGuard
+                    ? "只有房间发起人可以确认预约"
+                    : "确认后 Agent 会锁定餐厅时段、整理转发文案、写入本次偏好"
+                }
+              >
+                {streaming ? (
+                  <Icons.thinking className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Icons.success className="h-4 w-4" strokeWidth={2.4} />
+                )}
+                <span className="truncate">{confirmLabel}</span>
+              </button>
+              <button
+                type="button"
+                className="mr-3 grid h-9 w-9 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition hover:scale-105 hover:text-ink-950 active:scale-95"
+                onClick={() => setPreviewOpen((open) => !open)}
+                aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
+                aria-expanded={previewOpen}
+                title="查看确认后会发生什么"
+              >
+                <Info className="h-6 w-6" strokeWidth={2.5} />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1236,6 +1350,76 @@ function parseHHMM(t: string): number {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
+type StageTone = {
+  gradient: string;
+  color: string;
+  softBg: string;
+  border: string;
+};
+
+const HOME_STAGE_TONE: StageTone = {
+  gradient: "linear-gradient(135deg, #ffd100 0%, #eab308 100%)",
+  color: "#eab308",
+  softBg: "rgba(255, 209, 0, 0.14)",
+  border: "rgba(234, 179, 8, 0.3)",
+};
+
+function stageTone(index: number): StageTone {
+  const tones: StageTone[] = [
+    {
+      gradient: "linear-gradient(135deg, #3f6fb7 0%, #2f5f9f 100%)",
+      color: "#3f6fb7",
+      softBg: "rgba(63, 111, 183, 0.11)",
+      border: "rgba(63, 111, 183, 0.28)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #d93b76 0%, #bd2d66 100%)",
+      color: "#bd2d66",
+      softBg: "rgba(217, 59, 118, 0.11)",
+      border: "rgba(189, 45, 102, 0.27)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #e49a2f 0%, #d97706 100%)",
+      color: "#c46705",
+      softBg: "rgba(228, 154, 47, 0.13)",
+      border: "rgba(217, 119, 6, 0.28)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #37a46f 0%, #23835b 100%)",
+      color: "#23835b",
+      softBg: "rgba(55, 164, 111, 0.11)",
+      border: "rgba(35, 131, 91, 0.26)",
+    },
+    {
+      gradient: "linear-gradient(135deg, #7c5cc7 0%, #5f45a8 100%)",
+      color: "#5f45a8",
+      softBg: "rgba(124, 92, 199, 0.11)",
+      border: "rgba(95, 69, 168, 0.26)",
+    },
+  ];
+  return tones[index % tones.length];
+}
+
+function stageLineGradient(current: StageTone, next: StageTone | null): string {
+  if (!next) {
+    return `linear-gradient(to bottom, ${current.color} 0%, ${current.color} 68%, rgba(216, 210, 196, 0) 100%)`;
+  }
+  return `linear-gradient(to bottom, ${current.color} 0%, ${next.color} 100%)`;
+}
+
+function timelineRailGradient(nodeCount: number): string {
+  const tones = [
+    HOME_STAGE_TONE,
+    ...Array.from({ length: Math.max(0, nodeCount) }, (_, index) => stageTone(index)),
+    HOME_STAGE_TONE,
+  ];
+  const last = tones.length - 1;
+  const stops = tones
+    .map((tone, index) => `${tone.color} ${(index / last) * 100}%`)
+    .join(", ");
+  return `linear-gradient(to bottom, ${stops})`;
+}
+
 /**
  * 空档阈值：assemble_blueprint.py 里非首跳 hop 固定留 5 分钟 buffer_min（结构性
  * 过渡，不算"等待"）；真正的等待（如 not_before_start 把餐厅节点开始时刻顶到
@@ -1260,6 +1444,7 @@ function renderFreeGap(
   // 幕③ 逐行 stagger 的 props 生成器（自上而下递增 delay）；只有真的渲染 gap 行
   // 时才调用它消费一个计数槽，返回 null 时不消费（保持与相邻行的顺序一致）。
   rowReveal: () => { className: string; style: CSSProperties | undefined },
+  lineGradient?: string,
 ): ReactNode {
   if (!prev) return null;
   const gap = parseHHMM(curr.start) - parseHHMM(prev.end);
@@ -1275,14 +1460,21 @@ function renderFreeGap(
       {/* 时间列留空（自由休息没有独立的起止钟点展示位，时长已经在内容里写出
           "N 分钟"）——占位保持四列对齐，不留空白会让下面这行内容跟节点/通勤
           行错位。 */}
-      <div className="w-14 shrink-0" aria-hidden />
+      <div className="w-6 shrink-0" aria-hidden />
       {/* 同节点/通勤行共用一套脊柱段桥接（.timeline-spine-seg），不再另用
           border-l-2——避免脊柱旁边多一条平行线，和精修终稿§一「克制」冲突。 */}
-      <div className="relative flex flex-col items-center min-w-[16px] shrink-0 self-stretch">
+      <div
+        className="relative flex flex-col items-center min-w-[52px] shrink-0 self-stretch"
+        style={
+          lineGradient
+            ? ({ "--timeline-line": lineGradient } as CSSProperties)
+            : undefined
+        }
+      >
         <div aria-hidden className="timeline-spine-seg" />
       </div>
       <div className="w-4 shrink-0" aria-hidden />
-      {/* pl-4 对齐节点卡内边距（.node-card px-4），和"出发咯/满载而归"过渡
+      {/* pl-4 对齐节点卡内边距（.node-card px-4），和起终点过渡
           文字同一套左缩进口径（节点卡+行程轨-对比.html「过渡文字对齐」）。 */}
       <div className="flex-1 min-w-0 py-1.5 pl-4 text-xs text-ink-400 tracking-tight">
         自由休息 · {gap} 分钟
@@ -1336,10 +1528,24 @@ function nodeKindLabel(itinerary: Itinerary, ref_id: string): string {
   return n?.kind ?? "活动";
 }
 
-/** node ref_id → ActivityNode.note（schedule 没存 note，从 nodes 反查）。 */
-function nodeNote(itinerary: Itinerary, ref_id: string): string | null {
-  const n = itinerary.nodes?.find((x) => x.node_id === ref_id);
-  return n?.note ?? null;
+/**
+ * node ref_id → ActivityNode.note（schedule 没存 note，从 nodes 反查）。
+ *
+ * 主口径是 ScheduleEntry.ref_id === ActivityNode.node_id；同时兼容历史/异常数据
+ * 把 target_id 塞进 ref_id 的情况，避免行程卡第三行说明被静默丢掉。
+ */
+function nodeDisplayNote(
+  itinerary: Itinerary,
+  ref_id: string,
+  detail?: NodeDetail | null,
+): string | null {
+  const n = itinerary.nodes?.find(
+    (x) => x.node_id === ref_id || x.target_id === ref_id,
+  );
+  const note = n?.note?.trim();
+  if (note) return note;
+  const fallback = detail?.recommendation_reason?.trim();
+  return fallback ? fallback : null;
 }
 
 /**
@@ -1385,13 +1591,15 @@ function AlternativeButton({
       onClick={onClick}
       title={`换成「${alt.name}」（${alt.category} · ${alt.rating.toFixed(1)} 分 · ${alt.distance_km.toFixed(1)}km）`}
       className={cn(
-        "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12.5px] font-medium tracking-tight transition-colors",
-        "bg-black/[0.03] text-ink-600 hover:bg-black/[0.06] hover:text-ink-800",
-        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold tracking-tight",
+        "border-black/[0.06] bg-white/[0.72] text-ink-700 shadow-[0_8px_18px_-16px_rgba(15,23,42,0.45)] backdrop-blur",
+        "transition-[background-color,border-color,box-shadow,color,transform] duration-200",
+        "hover:-translate-y-0.5 hover:border-accent-400/35 hover:bg-white/[0.92] hover:text-ink-900 hover:shadow-[0_14px_24px_-18px_rgba(146,101,0,0.45)]",
+        "active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:border-black/[0.06] disabled:hover:bg-white/[0.72]",
       )}
     >
-      <ArrowLeftRight className="w-3 h-3 shrink-0" strokeWidth={2} />
-      <span className="max-w-[9em] truncate">{primaryStoreName(alt.name)}</span>
+      <ArrowLeftRight className="h-4 w-4 shrink-0 text-ink-500" strokeWidth={2} />
+      <span className="max-w-[12em] truncate">{primaryStoreName(alt.name)}</span>
     </button>
   );
 }
@@ -1412,15 +1620,17 @@ function AdjustChipButton({
       onClick={onClick}
       title={chip.label}
       className={cn(
-        "inline-flex items-center gap-1 px-1.5 py-1 rounded-md text-xs font-normal tracking-tight text-ink-400 transition-colors",
-        "hover:bg-black/[0.03] hover:text-ink-600",
-        "disabled:opacity-40 disabled:cursor-not-allowed",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-semibold tracking-tight",
+        "border-transparent bg-white/[0.42] text-ink-500 backdrop-blur",
+        "transition-[background-color,border-color,color,transform] duration-200",
+        "hover:-translate-y-0.5 hover:border-black/[0.06] hover:bg-white/[0.78] hover:text-ink-800",
+        "active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:border-transparent disabled:hover:bg-white/[0.42]",
       )}
     >
-      <SlidersHorizontal className="w-3 h-3 shrink-0" strokeWidth={2} />
+      <SlidersHorizontal className="h-4 w-4 shrink-0 text-ink-400" strokeWidth={2} />
       {/* 定向微调 label 一般较短（"更近"/"更热闹"），同样给 max-width + truncate
           兜底（时间轴精修终稿§四"定向微调同理"），避免极端长 label 撑爆整行。 */}
-      <span className="max-w-[7em] truncate">{chip.label}</span>
+      <span className="max-w-[8em] truncate">{chip.label}</span>
     </button>
   );
 }

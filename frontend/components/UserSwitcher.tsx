@@ -19,7 +19,6 @@
  *
  *   层级表（含本次更新）：
  *     z-60 UserSwitcher 下拉（Portal） + Confetti（fixed inset z-60）
- *     z-50 CommandPalette
  *     z-40 ToastStack
  *     z-30 ChatDock
  *     z-20 Header
@@ -124,6 +123,8 @@ export default function UserSwitcher({
   const currentUserId = useChatStore((s) => s.currentUserId);
   const setCurrentUserId = useChatStore((s) => s.setCurrentUserId);
   const loadPersonas = useChatStore((s) => s.loadPersonas);
+  const preferences = useChatStore((s) => s.preferences);
+  const resetUserMemory = useChatStore((s) => s.resetUserMemory);
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -224,6 +225,26 @@ export default function UserSwitcher({
     ? personaIconFromEmoji(selectedPersona.icon, selectedPersona.label)
     : Icons.user;
   const selectedLabel = selectedPersona?.label ?? selectedOption.title;
+  const isCurrentDetail = step === "detail" && selectedOption.userId === currentUserId;
+  const detailPersona = isCurrentDetail ? preferences?.persona : null;
+  const detailNotes = detailPersona?.notes ?? selectedOption.summary;
+  const detailPriors =
+    isCurrentDetail && (preferences?.top_priors ?? []).length > 0
+      ? preferences!.top_priors
+      : selectedOption.traits;
+  const detailMemory = isCurrentDetail ? preferences?.memory : null;
+  const acceptedCount = detailMemory
+    ? Object.values(detailMemory.accepted_tags.counts).reduce((a, b) => a + b, 0)
+    : 0;
+  const acceptedTop = detailMemory
+    ? Object.entries(detailMemory.accepted_tags.counts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    : [];
+  const rejectedTop = detailMemory
+    ? Object.entries(detailMemory.rejected_tags.counts)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+    : [];
   const panelTitle =
     step === "detail"
       ? selectedLabel
@@ -319,7 +340,7 @@ export default function UserSwitcher({
       <button
         ref={buttonRef}
         type="button"
-        className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] py-1 pl-2.5 pr-1 text-xs font-semibold text-ink-800 shadow-sm backdrop-blur transition-colors hover:border-accent-400/50 hover:bg-white/[0.86] hover:text-ink-900"
+        className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-white/[0.68] py-1 pl-3 pr-1 text-sm font-bold text-ink-900 shadow-sm backdrop-blur transition-colors hover:border-accent-400/50 hover:bg-white/[0.86]"
         onClick={toggleOpen}
         title={currentOption ? "查看人物画像" : "选择人物画像"}
       >
@@ -570,7 +591,7 @@ export default function UserSwitcher({
                       {selectedLabel}
                     </div>
                     <div className="mt-1 text-xs leading-relaxed text-ink-600">
-                      {selectedOption.summary}
+                      {detailNotes}
                     </div>
                   </div>
                   <div>
@@ -578,7 +599,7 @@ export default function UserSwitcher({
                       常用偏好标签
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {selectedOption.traits.map((trait) => (
+                      {detailPriors.map((trait) => (
                         <span
                           key={trait}
                           className="rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1.5 text-xs font-medium text-ink-700"
@@ -588,6 +609,42 @@ export default function UserSwitcher({
                       ))}
                     </div>
                   </div>
+                  {isCurrentDetail && preferences?.suggested_distance_max_km != null && (
+                    <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] px-3 py-2 text-xs font-medium text-ink-600">
+                      建议距离{" "}
+                      <span className="font-bold text-ink-900">
+                        {preferences.suggested_distance_max_km} km
+                      </span>
+                    </div>
+                  )}
+                  {isCurrentDetail && (acceptedTop.length > 0 || rejectedTop.length > 0) && (
+                    <div className="rounded-2xl border border-black/[0.06] bg-white/[0.78] px-3 py-2.5 text-xs leading-relaxed text-ink-600">
+                      {acceptedTop.length > 0 && (
+                        <div>
+                          <span className="font-semibold text-ink-900">已学到 </span>
+                          {acceptedTop.map(([t, n], i) => (
+                            <span key={t}>
+                              {i > 0 && "、"}
+                              {t}
+                              <span className="text-ink-400">×{n}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {rejectedTop.length > 0 && (
+                        <div className="mt-1">
+                          <span className="font-semibold text-ink-900">少安排 </span>
+                          {rejectedTop.map(([t, n], i) => (
+                            <span key={t}>
+                              {i > 0 && "、"}
+                              {t}
+                              <span className="text-ink-400">×{n}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="w-full rounded-xl border border-black/[0.08] bg-white/[0.76] px-3 py-2.5 text-sm font-semibold text-ink-700 transition hover:border-accent-400/50 hover:text-ink-900 active:scale-[0.99]"
@@ -595,6 +652,15 @@ export default function UserSwitcher({
                   >
                     更换人物画像
                   </button>
+                  {isCurrentDetail && acceptedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void resetUserMemory()}
+                      className="w-full text-xs font-medium text-ink-500 underline decoration-dotted underline-offset-4 transition-colors hover:text-rose-500"
+                    >
+                      清空记忆
+                    </button>
+                  )}
                 </div>
               )}
             </div>

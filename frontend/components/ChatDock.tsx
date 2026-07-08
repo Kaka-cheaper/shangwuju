@@ -43,7 +43,6 @@ type DockMode = "collapsed" | "peek";
 
 // 高度档位（贴底紧凑，无空白 padding）
 const HEIGHT_COLLAPSED_BASE = 76; // 仅输入框（无 agent 预览）
-const HEIGHT_COLLAPSED_WITH_PREVIEW = 140; // 含箭头 + agent 单行预览 + 输入框
 const HEIGHT_PEEK = 760; // 展开态最高高度：历史内容在面板内滚动
 const HEIGHT_EXPANDED_MAX = 760;
 // snap 与 timeline 阈值同点 → 消除中间空白态：< 阈值吸到 collapsed，>= 阈值展开 timeline
@@ -70,15 +69,15 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
 
   const [draft, setDraft] = useState("");
   const [mode, setMode] = useState<DockMode>("collapsed");
+  const inputShellRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
 
   // ============================================================
-  // spec algorithm-redesign R6：localStorage 持久化 + Cmd+K 召唤
+  // spec algorithm-redesign R6：localStorage 持久化
   // ============================================================
   // 默认 collapsed（避免 SSR hydration mismatch）；初次挂载后从 localStorage 读取
   // 用户在前一次 session 里手动展开过 → 本次启动直接展开
-  // 评委教学：Cmd+K（Mac）/ Ctrl+K（Win）随时召唤 ChatDock 大尺寸
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -91,31 +90,6 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     } catch {
       // localStorage 不可用（隐私模式 / SSR）→ 静默忽略
     }
-  }, []);
-
-  // Cmd+K / Ctrl+K 召唤大尺寸 ChatDock
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const fullH = getExpandedDockHeight();
-        setManualHeight(fullH);
-        setMode("peek");
-        try {
-          window.localStorage.setItem(
-            "shangwuju.chatdock.expanded",
-            "true",
-          );
-        } catch {
-          // 静默忽略
-        }
-        // 自动 focus 输入框
-        setTimeout(() => textareaRef.current?.focus(), 50);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // ============================================================
@@ -136,11 +110,9 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
   const userMsgCount = messages.filter((m) => m.role === "user").length;
   const totalCount = messages.length + chitchatReplies.length;
 
-  // collapsed 态目标高度：有预览 → 104，无预览 → 76
+  // collapsed 态目标高度：历史入口已收进输入框左侧，折叠态只保留输入框高度。
   const hasCollapsedPreview = latestChitchat != null || latestAgent != null;
-  const collapsedHeight = hasCollapsedPreview
-    ? HEIGHT_COLLAPSED_WITH_PREVIEW
-    : HEIGHT_COLLAPSED_BASE;
+  const collapsedHeight = HEIGHT_COLLAPSED_BASE;
 
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -187,6 +159,25 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     setManualHeight(null);
   };
 
+  const openTimeline = () => {
+    if (!activated || !hasCollapsedPreview) return;
+    const fullH = getExpandedDockHeight();
+    setManualHeight(fullH);
+    setMode("peek");
+  };
+
+  const closeTimeline = () => {
+    setManualHeight(null);
+    setMode("collapsed");
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("shangwuju.chatdock.expanded", "false");
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   // 实际渲染高度
   const renderHeight =
     manualHeight != null
@@ -199,6 +190,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
   const showTimeline =
     mode === "peek" ||
     (manualHeight != null && manualHeight >= SNAP_AND_TIMELINE_THRESHOLD);
+  const showHistoryLauncher = activated && !showTimeline && hasCollapsedPreview;
   const cappedRenderHeight = showTimeline
     ? Math.min(renderHeight, getExpandedDockHeight())
     : renderHeight;
@@ -233,24 +225,26 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     if (!showTimeline) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        setManualHeight(null);
-        setMode("collapsed");
-        // spec algorithm-redesign R6：同步清除 localStorage 标记
-        try {
-          if (typeof window !== "undefined") {
-            window.localStorage.setItem(
-              "shangwuju.chatdock.expanded",
-              "false",
-            );
-          }
-        } catch {
-          // 静默忽略
-        }
+        closeTimeline();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [showTimeline]);
+
+  useEffect(() => {
+    if (!activated || !showTimeline) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      const clickedTimeline = timelineScrollRef.current?.contains(target);
+      const clickedInput = inputShellRef.current?.contains(target);
+      if (clickedTimeline || clickedInput) return;
+      closeTimeline();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [activated, showTimeline]);
 
   const submit = () => {
     if (!draft.trim()) return;
@@ -302,40 +296,6 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
     });
   }, [showTimeline, timeline.length, thoughts.length, streaming]);
 
-  // 「展开 N」按钮：toggle 70vh ↔ collapsed
-  const onTogglePeek = () => {
-    if (showTimeline) {
-      // 已经在大尺寸 → 收回 collapsed
-      setManualHeight(null);
-      setMode("collapsed");
-      try {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            "shangwuju.chatdock.expanded",
-            "false",
-          );
-        }
-      } catch {
-        // 静默
-      }
-    } else {
-      // 拉到固定最高高度，超出的对话历史在面板内滚动
-      const fullH = getExpandedDockHeight();
-      setManualHeight(fullH);
-      setMode("peek");
-      try {
-        if (typeof window !== "undefined") {
-          window.localStorage.setItem(
-            "shangwuju.chatdock.expanded",
-            "true",
-          );
-        }
-      } catch {
-        // 静默
-      }
-    }
-  };
-
   return (
     <div
       className={cn(
@@ -357,13 +317,37 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
           "flex items-end gap-3 h-full",
           activated ? "pt-1.5 pb-2" : "pt-0",
         )}>
+          {showHistoryLauncher && (
+            <button
+              type="button"
+              onClick={openTimeline}
+              className={cn(
+                "mb-1 grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#FFD100]",
+                "relative overflow-hidden",
+                "text-ink-950 shadow-[0_18px_38px_-24px_rgba(245,158,11,0.9)] transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)]",
+                "hover:-translate-y-0.5 hover:scale-[1.03] hover:bg-[#ffdc22] active:translate-y-0 active:scale-95",
+              )}
+              aria-label="展开历史消息"
+              title="展开历史消息"
+            >
+              <Icons.spark
+                className="absolute left-2 top-2 h-[21px] w-[21px]"
+                strokeWidth={2.7}
+              />
+              {totalCount > 0 && (
+                <span className="mono absolute bottom-1.5 right-2 text-[13px] font-black leading-none tabular-nums">
+                  {totalCount > 99 ? "99+" : totalCount}
+                </span>
+              )}
+            </button>
+          )}
           {/* 右侧列：timeline/collapsed + 输入框，全宽 */}
           <div className="flex-1 flex flex-col min-w-0 min-h-0">
             {/* Timeline / peek 区：仅激活态显示 —— 毛玻璃容器 */}
             {activated && showTimeline && (
               <div
                 ref={timelineScrollRef}
-                className="relative flex-1 min-h-0 max-h-[620px] overflow-y-scroll overscroll-contain pt-3 pb-2 px-4 animate-fade-in rounded-[28px] bg-white/90 backdrop-blur-xl border border-black/[0.08] shadow-elevated mb-2"
+                className="relative flex-1 min-h-0 max-h-[620px] overflow-y-scroll overscroll-contain pt-3 pb-2 px-4 animate-fade-in rounded-[28px] bg-[#FFD100]/28 backdrop-blur-xl border border-[#FFD100]/60 shadow-elevated mb-2"
               >
                 {/* streaming 时顶部流动黄光带 */}
                 {streaming && (
@@ -377,7 +361,7 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
                   {timeline.length === 0 && !streaming && (
                     <div className="flex flex-col items-center justify-center text-center gap-2 py-8 text-ink-500">
                       <Icons.spark
-                        className="w-5 h-5 text-ink-400"
+                        className="w-5 h-5 text-brand-600/60"
                         strokeWidth={1.5}
                       />
                       <span className="text-sm">还没有对话</span>
@@ -429,68 +413,19 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               </div>
             )}
 
-            {/* 展开/折叠箭头指示器（黄色、加宽） */}
-            {activated && (latestChitchat || latestAgent || showTimeline || streaming) && (
-              <button
-                type="button"
-                onClick={onTogglePeek}
-                className="w-full flex items-center justify-center py-1 group"
-                title={showTimeline ? "收起对话历史" : "展开对话历史"}
-                aria-label={showTimeline ? "收起" : "展开"}
-              >
-                <svg
-                  className={cn(
-                    "w-14 h-5 text-ink-400 group-hover:text-ink-600 transition-all duration-200",
-                    showTimeline && "rotate-180",
-                  )}
-                  viewBox="0 0 56 20"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M10 14L28 6L46 14" />
-                </svg>
-              </button>
-            )}
-
-            {/* collapsed 态：最新 agent 消息单行预览 —— 毛玻璃胶囊 */}
-            {activated && !showTimeline && (latestChitchat || latestAgent) && (
-              <button
-                type="button"
-                onClick={onTogglePeek}
-                className="w-full pb-2 text-left animate-fade-in group"
-                title="点击展开完整对话历史"
-              >
-                <div className="flex items-center gap-2 text-sm rounded-full bg-white/90 backdrop-blur-xl border border-black/[0.08] shadow-elevated px-3 py-2">
-                  <span className="shrink-0 inline-flex items-center gap-1 bg-ink-900 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full">
-                    <Icons.spark className="w-3.5 h-3.5" strokeWidth={2} />
-                    {totalCount > 0 && (
-                      <span className="mono tabular-nums">{totalCount}</span>
-                    )}
-                  </span>
-                  <span className="flex-1 text-ink-700 group-hover:text-ink-900 transition-colors line-clamp-1 tracking-tight">
-                    {latestChitchat
-                      ? latestChitchat.payload.reply_text
-                      : latestAgent?.text}
-                  </span>
-                </div>
-              </button>
-            )}
-
             {/* 输入框：独立悬浮卡片 */}
-            <div className={cn(
-              "chat-input-breath group/chat-input flex items-end gap-2 rounded-full border border-black/[0.08] bg-black/[0.03]",
-              "backdrop-blur-sm shadow-elevated transition-all duration-300 ease-out",
-              "hover:border-accent-400/50 hover:bg-white hover:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(245,158,11,0.10)] hover:backdrop-blur-xl",
-              "focus-within:border-accent-500/55 focus-within:bg-white focus-within:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(245,158,11,0.12)] focus-within:backdrop-blur-xl",
+            <div ref={inputShellRef} className={cn(
+              "chat-input-breath group/chat-input flex items-end gap-2 rounded-full border border-[#FFD100]/60 bg-[#FFD100]/28",
+              "backdrop-blur-xl shadow-elevated transition-all duration-300 ease-out",
+              "hover:border-[#FFD100]/65 hover:bg-white hover:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] hover:backdrop-blur-xl",
+              "focus-within:border-[#FFD100]/65 focus-within:bg-white focus-within:shadow-[0_14px_38px_-22px_rgba(17,24,39,0.45),0_0_0_4px_rgba(255,209,0,0.12)] focus-within:backdrop-blur-xl",
               "px-4 py-1.5",
             )}>
             <textarea
               ref={textareaRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              onFocus={openTimeline}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -518,8 +453,8 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               className={cn(
                 "mr-[-0.35rem] grid h-9 w-9 min-w-0 shrink-0 place-items-center self-center rounded-full border border-black/[0.06] bg-white/75 p-0 text-[#d97706]",
                 "shadow-[0_6px_18px_-12px_rgba(17,24,39,0.35)] transition-all duration-300 ease-out",
-                "group-hover/chat-input:border-accent-600/50 group-hover/chat-input:bg-accent-500 group-hover/chat-input:text-white group-hover/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
-                "group-focus-within/chat-input:border-accent-600/50 group-focus-within/chat-input:bg-accent-500 group-focus-within/chat-input:text-white group-focus-within/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "group-hover/chat-input:border-[#e6bc00]/50 group-hover/chat-input:bg-[#FFD100] group-hover/chat-input:text-ink-900 group-hover/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
+                "group-focus-within/chat-input:border-[#e6bc00]/50 group-focus-within/chat-input:bg-[#FFD100] group-focus-within/chat-input:text-ink-900 group-focus-within/chat-input:shadow-[0_10px_24px_-14px_rgba(245,158,11,0.85)]",
                 "hover:scale-[1.03] active:scale-95 disabled:cursor-not-allowed disabled:opacity-70",
                 streaming && "shimmer-border",
               )}
@@ -568,9 +503,16 @@ function MessageBubble({
         className={cn(
           "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed tracking-tight",
           isUser
-            ? "rounded-br-sm bg-ink-100 text-ink-900 shadow-sm"
+            ? "rounded-br-sm text-ink-900 shadow-glow"
             : "bg-white border border-black/[0.06] text-ink-800 rounded-bl-sm shadow-sm",
         )}
+        style={
+          isUser
+            ? {
+                background: "#FFD100",
+              }
+            : undefined
+        }
       >
         {text}
       </div>

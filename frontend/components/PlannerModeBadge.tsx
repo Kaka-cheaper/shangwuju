@@ -53,18 +53,18 @@ export default function PlannerModeBadge() {
       title={MODE_TITLE[mode] + `（点击切换为 ${MODE_LABEL[next]}）`}
       aria-label={`当前 planner 模式：${MODE_LABEL[mode]}，点击切换为 ${MODE_LABEL[next]}`}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
-        "border border-black/[0.08] bg-white/[0.68] text-ink-700 tracking-tight shadow-sm",
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm",
+        "border border-black/[0.08] bg-white/[0.68] text-ink-900 tracking-tight shadow-sm",
         "hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900",
         "transition-colors backdrop-blur",
-        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/[0.68] disabled:hover:text-ink-700 disabled:hover:border-black/[0.08]",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white/[0.68] disabled:hover:text-ink-900 disabled:hover:border-black/[0.08]",
       )}
     >
       <span
         aria-hidden
         className={cn("w-1.5 h-1.5 rounded-full", MODE_DOT[mode])}
       />
-      <span className="font-medium">{MODE_LABEL[mode]}</span>
+      <span className="font-bold">{MODE_LABEL[mode]}</span>
     </button>
   );
 }

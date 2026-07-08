@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 
 import { Icons } from "@/lib/icon-map";
 import type { NodeDetail } from "@/lib/types";
@@ -32,9 +32,11 @@ import { cn } from "@/lib/utils";
 export function NodeHeadline({
   detail,
   className,
+  size = "default",
 }: {
   detail: NodeDetail | undefined | null;
   className?: string;
+  size?: "default" | "large";
 }) {
   if (!detail) return null;
   const hasRating = detail.rating != null;
@@ -44,7 +46,8 @@ export function NodeHeadline({
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center gap-2 whitespace-nowrap pt-0.5 text-[13px]",
+        "flex shrink-0 items-center gap-2 whitespace-nowrap pt-0.5",
+        size === "large" ? "text-base" : "text-[13px]",
         className,
       )}
     >
@@ -63,9 +66,17 @@ export function NodeHeadline({
 export default function NodeFactPanel({
   detail,
   className,
+  tone,
+  size = "default",
 }: {
   detail: NodeDetail | undefined | null;
   className?: string;
+  tone?: {
+    color: string;
+    softBg: string;
+    border: string;
+  };
+  size?: "default" | "large";
 }) {
   if (!detail) return null;
 
@@ -95,14 +106,20 @@ export default function NodeFactPanel({
   return (
     <div
       className={cn(
-        "flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] leading-snug text-ink-500",
+        "flex flex-wrap items-center leading-snug text-ink-500",
+        size === "large" ? "gap-x-2 gap-y-1 text-sm font-semibold" : "gap-x-1.5 gap-y-1 text-[12px]",
         className,
       )}
+      style={tone ? ({ color: tone.color } satisfies CSSProperties) : undefined}
     >
       {facts.map((f, i) => (
         <Fragment key={f.key}>
           {i > 0 && (
-            <span className="text-ink-300" aria-hidden>
+            <span
+              className="text-ink-300"
+              style={tone ? ({ color: tone.border } satisfies CSSProperties) : undefined}
+              aria-hidden
+            >
               ·
             </span>
           )}
@@ -112,7 +129,19 @@ export default function NodeFactPanel({
       {tags.map((t) => (
         <span
           key={t}
-          className="rounded bg-black/[0.03] px-1.5 py-[1px] text-[10.5px] font-medium leading-[1.4] text-ink-600"
+          className={cn(
+            "rounded border border-transparent bg-black/[0.03] font-medium leading-[1.4] text-ink-600",
+            size === "large" ? "px-2 py-0.5 text-xs" : "px-1.5 py-[1px] text-[10.5px]",
+          )}
+          style={
+            tone
+              ? ({
+                  color: tone.color,
+                  backgroundColor: tone.softBg,
+                  borderColor: tone.border,
+                } satisfies CSSProperties)
+              : undefined
+          }
         >
           {t}
         </span>

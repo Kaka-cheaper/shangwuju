@@ -57,13 +57,13 @@ export default function OfflineReadyBadge({ compact = false }: { compact?: boole
       aria-label="当前规则模式可断网继续运行"
       className={cn(
         compact ? "inline-flex" : "hidden lg:inline-flex",
-        "items-center gap-1.5 rounded-full px-3 py-1.5 text-xs",
-        "border border-amber-400/28 bg-amber-500/[0.10] text-amber-700/90 tracking-tight shadow-sm",
+        "items-center gap-1.5 rounded-full px-3 py-1.5 text-sm",
+        "border border-amber-400/28 bg-amber-500/[0.10] text-ink-900 tracking-tight shadow-sm",
         "backdrop-blur cursor-help animate-fade-in transition-colors hover:border-amber-400/45 hover:bg-amber-500/[0.15]",
       )}
     >
       <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-      <span className="font-medium">断网继续运行</span>
+      <span className="font-bold">断网继续运行</span>
     </span>
   );
 }
