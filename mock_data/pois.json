@@ -3069,5 +3069,2497 @@
         "helpful_count": 17
       }
     ]
+  },
+  {
+    "id": "WJP001",
+    "name": "UCCA尤伦斯当代艺术中心",
+    "type": "非餐饮",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.5,
+    "age_range": null,
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "entertainment",
+      "art",
+      "798",
+      "quiet",
+      "体验优先",
+      "饭后活动",
+      "适合聊天",
+      "约会",
+      "当代艺术",
+      "展览",
+      "非餐饮",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "UCCA官方信息显示其位于798艺术区，是北京代表性的当代艺术机构，适合作为饭后活动候选。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "entertainment",
+          "art",
+          "798",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“推荐不止餐厅，还能规划下一步”：吃饭方案后自动补一个附近活动点，增强完整体验。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "非餐饮",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP002",
+    "name": "798艺术区",
+    "type": "非餐饮",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.4,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "entertainment",
+      "art",
+      "798",
+      "walk",
+      "photo",
+      "体验优先",
+      "饭后活动",
+      "低预算",
+      "艺术街区",
+      "拍照",
+      "散步",
+      "免费活动",
+      "非餐饮",
+      "开放活动",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "公开旅游资料将798艺术区作为北京代表性艺术街区，地址位于酒仙桥路一带，适合望京周边活动扩展。",
+        "rating": 4.4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "entertainment",
+          "art",
+          "798",
+          "walk"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“预算低但体验丰富”的第二站：不花餐厅预算，也能让聚会更完整。",
+        "rating": 4.4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "开放活动",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP003",
+    "name": "Wanda Cinema (Wangjing Xinhui City)",
+    "type": "Cinema",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      48,
+      72
+    ],
+    "tags": [
+      "cinema",
+      "entertainment",
+      "mall",
+      "Cinema",
+      "After-dinner",
+      "movie",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Wanda Cinema (Wangjing Xinhui City) as a Cinema option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "cinema",
+          "entertainment",
+          "mall",
+          "Cinema"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"After-dinner movie\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "movie",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP004",
+    "name": "Xinhui City Shopping Center",
+    "type": "Mall / meeting point",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "mall",
+      "meeting point",
+      "near transit",
+      "Mall",
+      "meeting",
+      "point",
+      "Meet-up",
+      "hub",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Xinhui City Shopping Center as a Mall / meeting point option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mall",
+          "meeting point",
+          "near transit",
+          "Mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Meet-up hub\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "hub",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP005",
+    "name": "Block 21 (Hopson Qilin Xintiandi)",
+    "type": "Food street / nightlife",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "mall",
+      "entertainment",
+      "night life",
+      "restaurant street",
+      "Food",
+      "street",
+      "nightlife",
+      "Night",
+      "social",
+      "block",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Block 21 (Hopson Qilin Xintiandi) as a Food street / nightlife option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mall",
+          "entertainment",
+          "night life",
+          "restaurant street"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Night social block\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "block",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP006",
+    "name": "Hopson Qilin Xintiandi Craft Beer Sample",
+    "type": "Craft beer / snacks",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "bar",
+      "drink",
+      "night life",
+      "friends",
+      "Craft",
+      "beer",
+      "snacks",
+      "After-dinner",
+      "drinks",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hopson Qilin Xintiandi Craft Beer Sample as a Craft beer / snacks option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bar",
+          "drink",
+          "night life",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"After-dinner drinks\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "drinks",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP007",
+    "name": "Hopson Qilin Xintiandi Billiards Sample",
+    "type": "Billiards / sports",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      56,
+      84
+    ],
+    "tags": [
+      "billiards",
+      "sports",
+      "entertainment",
+      "night life",
+      "Billiards",
+      "Light",
+      "activity",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hopson Qilin Xintiandi Billiards Sample as a Billiards / sports option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "billiards",
+          "sports",
+          "entertainment",
+          "night life"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Light sports activity\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "activity",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP008",
+    "name": "Hopson Qilin Xintiandi Board Game Sample",
+    "type": "Board game / social",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      48,
+      72
+    ],
+    "tags": [
+      "board game",
+      "entertainment",
+      "friends",
+      "quiet",
+      "Board",
+      "game",
+      "social",
+      "Long-chat",
+      "activity",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hopson Qilin Xintiandi Board Game Sample as a Board game / social option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "board game",
+          "entertainment",
+          "friends",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Long-chat activity\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "activity",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP009",
+    "name": "CapitaMall Wangjing Cinema Sample",
+    "type": "Cinema",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      48,
+      72
+    ],
+    "tags": [
+      "cinema",
+      "entertainment",
+      "mall",
+      "Cinema",
+      "After-dinner",
+      "movie",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists CapitaMall Wangjing Cinema Sample as a Cinema option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "cinema",
+          "entertainment",
+          "mall",
+          "Cinema"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"After-dinner movie\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "movie",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP010",
+    "name": "CapitaMall Wangjing Kids Play Sample",
+    "type": "Kids entertainment",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": [
+      3,
+      80
+    ],
+    "price_range": [
+      64,
+      96
+    ],
+    "tags": [
+      "kids",
+      "family",
+      "entertainment",
+      "mall",
+      "Kids",
+      "Family-friendly",
+      "activity",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 90,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists CapitaMall Wangjing Kids Play Sample as a Kids entertainment option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "kids",
+          "family",
+          "entertainment",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Family-friendly activity\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "activity",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP011",
+    "name": "CapitaMall Wangjing Supermarket Sample",
+    "type": "Supermarket / supply",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      24,
+      36
+    ],
+    "tags": [
+      "shopping",
+      "supermarket",
+      "mall",
+      "budget",
+      "Supermarket",
+      "supply",
+      "Temporary",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists CapitaMall Wangjing Supermarket Sample as a Supermarket / supply option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "shopping",
+          "supermarket",
+          "mall",
+          "budget"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Temporary supply\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Temporary",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP012",
+    "name": "XIAN Bar (EAST Beijing)",
+    "type": "Bar / live music",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      128,
+      192
+    ],
+    "tags": [
+      "bar",
+      "live music",
+      "night life",
+      "entertainment",
+      "Bar",
+      "live",
+      "music",
+      "Night",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists XIAN Bar (EAST Beijing) as a Bar / live music option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bar",
+          "live music",
+          "night life",
+          "entertainment"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Night entertainment\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Night",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP013",
+    "name": "Indigo Cinema Sample",
+    "type": "Cinema",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      56,
+      84
+    ],
+    "tags": [
+      "cinema",
+      "entertainment",
+      "mall",
+      "Cinema",
+      "After-dinner",
+      "movie",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Indigo Cinema Sample as a Cinema option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "cinema",
+          "entertainment",
+          "mall",
+          "Cinema"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"After-dinner movie\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "movie",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP014",
+    "name": "Indigo Indoor Winter Garden",
+    "type": "Indoor public space",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "walk",
+      "indoor",
+      "free",
+      "mall",
+      "Indoor",
+      "public",
+      "space",
+      "Free",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Indigo Indoor Winter Garden as a Indoor public space option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "walk",
+          "indoor",
+          "free",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Free indoor walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Free",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP015",
+    "name": "Indigo Kids Playground Sample",
+    "type": "Kids entertainment",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": [
+      3,
+      80
+    ],
+    "price_range": [
+      48,
+      72
+    ],
+    "tags": [
+      "kids",
+      "family",
+      "mall",
+      "entertainment",
+      "Kids",
+      "Family-friendly",
+      "activity",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 90,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Indigo Kids Playground Sample as a Kids entertainment option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "kids",
+          "family",
+          "mall",
+          "entertainment"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Family-friendly activity\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "activity",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP016",
+    "name": "Indigo Shopping Meet-up Point",
+    "type": "Mall / meeting point",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "mall",
+      "shopping",
+      "meeting point",
+      "near transit",
+      "Mall",
+      "meeting",
+      "point",
+      "Shopping",
+      "meet-up",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Indigo Shopping Meet-up Point as a Mall / meeting point option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mall",
+          "shopping",
+          "meeting point",
+          "near transit"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Shopping meet-up\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meet-up",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP017",
+    "name": "Supermonkey Fitness (Wangjing SOHO area)",
+    "type": "Fitness class",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      64,
+      96
+    ],
+    "tags": [
+      "fitness",
+      "sports",
+      "entertainment",
+      "business",
+      "Fitness",
+      "class",
+      "Sports",
+      "social",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Supermonkey Fitness (Wangjing SOHO area) as a Fitness class option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "fitness",
+          "sports",
+          "entertainment",
+          "business"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Sports social\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "social",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP018",
+    "name": "Escape Room / Script Game (Wangjing SOHO area)",
+    "type": "Escape room / script game",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      96,
+      144
+    ],
+    "tags": [
+      "escape room",
+      "script game",
+      "entertainment",
+      "friends",
+      "Escape",
+      "room",
+      "script",
+      "game",
+      "Immersive",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Escape Room / Script Game (Wangjing SOHO area) as a Escape room / script game option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "escape room",
+          "script game",
+          "entertainment",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Immersive entertainment\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Immersive",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP019",
+    "name": "KTV (Wangjing SOHO area)",
+    "type": "KTV",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      96,
+      144
+    ],
+    "tags": [
+      "ktv",
+      "entertainment",
+      "night life",
+      "friends",
+      "KTV",
+      "Night",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists KTV (Wangjing SOHO area) as a KTV option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "ktv",
+          "entertainment",
+          "night life",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Night entertainment\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Night",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP020",
+    "name": "Billiards (Wangjing SOHO area)",
+    "type": "Billiards",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      56,
+      84
+    ],
+    "tags": [
+      "billiards",
+      "sports",
+      "entertainment",
+      "friends",
+      "Billiards",
+      "Light",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Billiards (Wangjing SOHO area) as a Billiards option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "billiards",
+          "sports",
+          "entertainment",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Light sports\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Light",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP021",
+    "name": "Pace Gallery (798 Art Zone)",
+    "type": "Gallery / exhibition",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "art",
+      "gallery",
+      "798",
+      "quiet",
+      "Gallery",
+      "exhibition",
+      "Art",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Pace Gallery (798 Art Zone) as a Gallery / exhibition option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "art",
+          "gallery",
+          "798",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Art exhibition\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Art",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP022",
+    "name": "Tang Contemporary Art (798 Art Zone)",
+    "type": "Gallery / exhibition",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.3,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "art",
+      "gallery",
+      "798",
+      "quiet",
+      "Gallery",
+      "exhibition",
+      "Contemporary",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Tang Contemporary Art (798 Art Zone) as a Gallery / exhibition option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "art",
+          "gallery",
+          "798",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Contemporary art\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Contemporary",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP023",
+    "name": "M WOODS 798 Sample",
+    "type": "Museum / exhibition",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.4,
+    "age_range": null,
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "art",
+      "museum",
+      "798",
+      "photo",
+      "Museum",
+      "exhibition",
+      "Exhibition",
+      "experience",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists M WOODS 798 Sample as a Museum / exhibition option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "art",
+          "museum",
+          "798",
+          "photo"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Exhibition experience\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "experience",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP024",
+    "name": "798 Locomotive Square Sample",
+    "type": "Photo spot / street block",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "walk",
+      "photo",
+      "798",
+      "free",
+      "Photo",
+      "spot",
+      "street",
+      "block",
+      "Free",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists 798 Locomotive Square Sample as a Photo spot / street block option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "walk",
+          "photo",
+          "798",
+          "free"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Free photo walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Free",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP025",
+    "name": "798 Art Bookstore / Creative Retail Sample",
+    "type": "Bookstore / creative retail",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      40,
+      60
+    ],
+    "tags": [
+      "bookstore",
+      "creative",
+      "798",
+      "quiet",
+      "Bookstore",
+      "retail",
+      "Quiet",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists 798 Art Bookstore / Creative Retail Sample as a Bookstore / creative retail option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bookstore",
+          "creative",
+          "798",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Quiet creative retail\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Quiet",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP026",
+    "name": "Caochangdi Art Zone",
+    "type": "Art district",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "art",
+      "walk",
+      "quiet",
+      "creative",
+      "Art",
+      "district",
+      "Niche",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Caochangdi Art Zone as a Art district option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "art",
+          "walk",
+          "quiet",
+          "creative"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Niche art walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Niche",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP027",
+    "name": "Lido Cinema Sample",
+    "type": "Cinema",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      52,
+      78
+    ],
+    "tags": [
+      "cinema",
+      "entertainment",
+      "lido",
+      "Cinema",
+      "Movie",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Lido Cinema Sample as a Cinema option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "cinema",
+          "entertainment",
+          "lido",
+          "Cinema"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Movie entertainment\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Movie",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP028",
+    "name": "Wangjing Park",
+    "type": "Park / walk",
+    "location": {
+      "name": "望京公园圈",
+      "lat": 40.002,
+      "lng": 116.4748
+    },
+    "distance_km": 0.85,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "park",
+      "walk",
+      "free",
+      "outdoor",
+      "Park",
+      "Outdoor",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Wangjing Park as a Park / walk option near 望京公园圈; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "park",
+          "walk",
+          "free",
+          "outdoor"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Outdoor walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Outdoor",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP029",
+    "name": "Nanhu Park",
+    "type": "Park / walk",
+    "location": {
+      "name": "望京公园圈",
+      "lat": 40.002,
+      "lng": 116.4748
+    },
+    "distance_km": 0.85,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.1,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "park",
+      "walk",
+      "quiet",
+      "free",
+      "Park",
+      "Quiet",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Nanhu Park as a Park / walk option near 望京公园圈; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "park",
+          "walk",
+          "quiet",
+          "free"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Quiet walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Quiet",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP030",
+    "name": "Dawangjing Park",
+    "type": "Park / walk",
+    "location": {
+      "name": "望京公园圈",
+      "lat": 40.002,
+      "lng": 116.4748
+    },
+    "distance_km": 0.85,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "park",
+      "walk",
+      "outdoor",
+      "free",
+      "photo",
+      "Park",
+      "Urban",
+      "green",
+      "space",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Dawangjing Park as a Park / walk option near 望京公园圈; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "park",
+          "walk",
+          "outdoor",
+          "free"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Urban green space\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "space",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP031",
+    "name": "Jiangfu Park",
+    "type": "Park / walk",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      0,
+      0
+    ],
+    "tags": [
+      "park",
+      "walk",
+      "outdoor",
+      "photo",
+      "Park",
+      "Nature",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Jiangfu Park as a Park / walk option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "park",
+          "walk",
+          "outdoor",
+          "photo"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Nature walk\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Nature",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP032",
+    "name": "IKEA (Siyuanqiao area)",
+    "type": "Home retail / shopping",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.2,
+    "age_range": null,
+    "price_range": [
+      64,
+      96
+    ],
+    "tags": [
+      "shopping",
+      "ikea",
+      "family",
+      "walk",
+      "Home",
+      "retail",
+      "Browsing",
+      "experience",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists IKEA (Siyuanqiao area) as a Home retail / shopping option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "shopping",
+          "ikea",
+          "family",
+          "walk"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Browsing experience\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "experience",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP033",
+    "name": "Decathlon / Sports Retail Sample (Lido)",
+    "type": "Sports retail",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "shopping",
+      "sports",
+      "lido",
+      "walk",
+      "Sports",
+      "retail",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 120
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Decathlon / Sports Retail Sample (Lido) as a Sports retail option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "shopping",
+          "sports",
+          "lido",
+          "walk"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Sports shopping\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "retail",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJP034",
+    "name": "Lido Bowling / Sports Entertainment Sample",
+    "type": "Bowling / sports",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.0,
+    "age_range": null,
+    "price_range": [
+      72,
+      108
+    ],
+    "tags": [
+      "bowling",
+      "sports",
+      "entertainment",
+      "friends",
+      "Bowling",
+      "Light",
+      "team",
+      "activity",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 90,
+      "senior": 75,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Lido Bowling / Sports Entertainment Sample as a Bowling / sports option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bowling",
+          "sports",
+          "entertainment",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Light sports team activity\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "activity",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
   }
 ]
