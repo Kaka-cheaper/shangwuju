@@ -117,8 +117,12 @@ export default function TrustBelt() {
 
       <div className="py-2.5 pl-5 pr-3.5">
         {!hasRows ? (
-          <div className="flex h-8 items-center text-base italic text-ink-400">
-            等待 Agent 开始思考……
+          <div className="flex h-10 items-center gap-2 text-base font-semibold leading-snug text-ink-900">
+            <span
+              aria-hidden
+              className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#FFD100]/35 border-t-[#f59e0b]"
+            />
+            <span>AI 正在思考中，马上就好~</span>
           </div>
         ) : (
           <div className="space-y-1">

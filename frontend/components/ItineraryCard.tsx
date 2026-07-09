@@ -343,15 +343,15 @@ export default function ItineraryCard() {
             从 null→非 null 切到"就绪"分支时，React 按元素类型+位置比对，
             这个 <TrustBelt/> 不会被卸载重挂，只有它下面的卡片内容会替换。 */}
         <TrustBelt />
-        <div className="card px-4 py-5 space-y-3">
-          <div className="flex items-center gap-1.5 text-xs text-accent-600">
-            <Icons.thinking
-              className="w-3.5 h-3.5 animate-spin"
-              strokeWidth={2}
+        <div className="card space-y-5 rounded-[30px] px-5 py-5">
+          <div className="flex items-center gap-2 text-base font-semibold leading-snug text-ink-900">
+            <span
+              aria-hidden
+              className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#FFD100]/35 border-t-[#f59e0b]"
             />
-            <span className="tracking-tight">正在为你拼装行程...</span>
+            <span className="tracking-tight">我正在把路线和时间排整齐，马上端上行程~</span>
           </div>
-          <ShimmerStripe rows={4} />
+          <ShimmerStripe rows={4} className="space-y-3.5 [&>*]:h-3.5 [&>*]:rounded-full" />
         </div>
       </div>
     );
@@ -972,23 +972,26 @@ function RefinementSummaryBanner({
   note?: string | null;
 }) {
   return (
-    <div
-      className="rounded-md border border-accent-500/30 px-3 py-2 text-xs text-accent-700 animate-fade-in backdrop-blur-sm"
-      style={{
-        background:
-          "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(245,158,11,0.03) 100%)",
-      }}
-    >
-      <div className="flex items-center gap-1.5 mb-1 font-medium text-accent-700">
-        <Icons.refine className="w-3.5 h-3.5" strokeWidth={2} />
+    <div className="animate-fade-in rounded-[28px] border border-black/[0.06] bg-white px-4 py-3 text-sm shadow-[0_18px_46px_-38px_rgba(17,24,39,0.55)]">
+      <div className="mb-2 flex items-center gap-2 font-black tracking-tight text-ink-900">
+        <Icons.refine className="h-4 w-4 text-[#d97706]" strokeWidth={2.2} />
         <span>已根据反馈调整</span>
       </div>
-      <ul className="space-y-0.5 text-accent-800 ml-5 list-disc list-outside">
+      <ul className="flex flex-wrap gap-2">
         {fields.map((f, i) => (
-          <li key={i}>{f}</li>
+          <li
+            key={i}
+            className="rounded-full border border-[#FFD100]/35 bg-[#fff9df]/70 px-3 py-1 text-sm font-semibold text-[#9a5b00]"
+          >
+            {f}
+          </li>
         ))}
       </ul>
-      {note && <div className="mt-1 ml-5 text-accent-600/80">{note}</div>}
+      {note && (
+        <div className="mt-2 text-base leading-relaxed text-ink-700">
+          {note}
+        </div>
+      )}
     </div>
   );
 }

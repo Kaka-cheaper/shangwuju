@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Ellipsis,
   ArrowRight as ArrowRightIcon,
+  Info,
   Loader2,
   type LucideIcon,
   Plus,
@@ -545,11 +546,20 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
   return (
     <section
       className={cn(
-        "rounded-[24px] border border-[#FFD100]/[0.45] bg-white/[0.78] shadow-[0_18px_45px_-34px_rgba(17,24,39,0.55)] backdrop-blur-xl",
-        compact ? "px-3 py-3" : "px-4 py-4",
+        "relative overflow-hidden rounded-[28px] border border-[#FFD100]/[0.34] bg-white/[0.9]",
+        "shadow-[0_24px_64px_-46px_rgba(17,24,39,0.72),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-2xl",
+        compact ? "px-3.5 py-3.5" : "px-4 py-4",
       )}
     >
-      <div className="mb-3 flex items-end justify-between gap-3">
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-[#FFD100]/[0.13] blur-2xl"
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute left-8 top-0 h-px w-32 bg-gradient-to-r from-transparent via-[#FFD100]/[0.55] to-transparent"
+      />
+      <div className="relative z-10 mb-3 flex items-end justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold tracking-tight text-ink-900">
             {compact ? "快速试试" : "今天想安排点什么？"}
@@ -564,7 +574,7 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
 
       <div
         className={cn(
-          "flex snap-x gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "relative z-10 flex snap-x gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
           !compact && "grid grid-cols-2 overflow-visible",
         )}
       >
@@ -577,26 +587,22 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               disabled={streaming}
               onClick={() => sendScenario(scenario.input, scenario.id)}
               className={cn(
-                "snap-start rounded-2xl border border-[#FFD100]/[0.55] bg-white/[0.86] text-left shadow-sm transition active:scale-[0.98]",
+                "snap-start rounded-[22px] border border-[#FFD100]/[0.36] bg-gradient-to-br from-white via-white to-[#fff8d8]/70 text-center",
+                "shadow-[0_14px_30px_-24px_rgba(17,24,39,0.72),inset_0_1px_0_rgba(255,255,255,0.96)] transition active:scale-[0.98]",
                 "disabled:cursor-not-allowed disabled:opacity-55",
                 compact
-                  ? "flex min-w-[132px] items-center gap-2 px-3 py-2.5"
-                  : "min-h-[88px] px-3.5 py-3",
+                  ? "flex min-h-[62px] min-w-[116px] flex-col items-center justify-center gap-1.5 px-2.5 py-2"
+                  : "flex min-h-[96px] flex-col items-center justify-center gap-3 px-3.5 py-3",
               )}
               title={scenario.input}
             >
               <ScenarioIcon
-                className={cn("text-amber-600", compact ? "h-4 w-4" : "h-5 w-5")}
+                className={cn("text-amber-600", compact ? "h-[18px] w-[18px]" : "h-6 w-6")}
                 strokeWidth={2}
               />
-              <span className={cn("block font-semibold tracking-tight text-ink-900", compact ? "text-sm" : "mt-2 text-base")}>
+              <span className={cn("block font-semibold leading-tight tracking-tight text-ink-900", compact ? "text-sm" : "text-base")}>
                 {scenario.title}
               </span>
-              {!compact && (
-                <span className="mt-1 block line-clamp-1 text-xs text-ink-500">
-                  {scenario.input}
-                </span>
-              )}
             </button>
           );
         })}
@@ -758,12 +764,6 @@ function MobileConversation({
       ) : itinerary ? (
         <MobileIntentFallback itinerary={itinerary} />
       ) : null}
-      {streaming && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-[#FFD100]/[0.45] bg-white/[0.84] px-3 py-2 text-sm font-medium text-amber-700 shadow-sm backdrop-blur-xl">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Agent 正在规划，稍候~
-        </div>
-      )}
     </section>
   );
 }
@@ -871,12 +871,15 @@ function MobilePlanCard() {
       <div className="mt-3 space-y-3">
         {/* 信任带（移动端同款）：规划中就该看到"它在想什么"，不必等方案落地。 */}
         <TrustBelt />
-        <section className="rounded-[24px] border border-[#FFD100]/[0.42] bg-white/[0.82] px-4 py-4 shadow-sm backdrop-blur-xl">
-          <div className="flex items-center gap-2 text-sm font-semibold text-amber-700">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            正在拼装行程方案~
+        <section className="rounded-[30px] border border-black/[0.06] bg-white px-4 py-4 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_4px_16px_-4px_rgba(0,0,0,0.04)]">
+          <div className="flex items-center gap-2 text-base font-semibold leading-snug text-ink-900">
+            <span
+              aria-hidden
+              className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#FFD100]/35 border-t-[#f59e0b]"
+            />
+            <span>正在拼装行程方案~</span>
           </div>
-          <div className="mt-4 space-y-2.5">
+          <div className="mt-4 space-y-3.5">
             <div className="h-4 rounded-full shimmer-skeleton" />
             <div className="h-4 w-4/5 rounded-full shimmer-skeleton" />
             <div className="h-20 rounded-2xl shimmer-skeleton" />
@@ -1021,12 +1024,6 @@ function MobilePlanCard() {
 
       {/* B8：「确认后会发生什么」预告卡——纯派生展示，让用户不点确认也能
           看到一键执行能力（下单后由上面的"已为你预留"订单卡接力）。 */}
-      {!hasOrders && !cancelled && (
-        <div className="mx-4 mb-3">
-          <MobileConfirmPreview itinerary={itinerary} />
-        </div>
-      )}
-
       {/* B10：取消方案后的文案提示——此前 cancelled 只用于禁用按钮，没有
           任何文案告知用户"为什么按钮都灰了"。 */}
       {cancelled && !hasOrders && (
@@ -1145,33 +1142,32 @@ function MobileConfirmPreview({ itinerary }: { itinerary: Itinerary }) {
     buildConfirmPreviewCopy(intent, itinerary);
 
   return (
-    <div className="rounded-2xl border border-black/[0.06] bg-black/[0.02] px-3.5 py-3 text-sm leading-relaxed">
-      <div className="mb-1.5 flex items-center gap-1.5">
-        <Sparkles className="h-3.5 w-3.5 text-ink-500" strokeWidth={2} />
-        <span className="font-semibold tracking-tight text-ink-700">
-          点击「确认并预约」之后
-        </span>
-      </div>
-      <p className="mb-2 text-ink-800">
+    <div className="rounded-[24px] border border-white/[0.76] bg-white px-4 py-3 text-sm leading-relaxed shadow-[inset_0_1px_0_rgba(255,255,255,0.88)]">
+      <p className="mb-3 text-base leading-relaxed text-ink-800">
         {restaurantLine}
         {extraLine}；再为你备好一段可一键复制的转发文案；最后{memoryLine}。
       </p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-500">
-        <span className="inline-flex items-center gap-1">
+      <div
+        className={cn(
+          "grid gap-2 text-xs font-semibold text-ink-600",
+          extraServices.length > 0 ? "grid-cols-4" : "grid-cols-3",
+        )}
+      >
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>🪑</span>
           <span>锁餐厅时段</span>
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>📝</span>
           <span>备转发文案</span>
         </span>
         {extraServices.length > 0 && (
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex items-center justify-center gap-1 text-center">
             <span aria-hidden>+</span>
             <span>加购{extraServices[0]}</span>
           </span>
         )}
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex items-center justify-center gap-1 text-center">
           <span aria-hidden>🧠</span>
           <span>记本次偏好</span>
         </span>
@@ -1882,14 +1878,6 @@ function getHopIconComponent(mode: HopMode | null | undefined): LucideIcon {
 function MobileInlineMap({ itinerary }: { itinerary: Itinerary }) {
   return (
     <section className="mt-3">
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-2">
-          <Route className="h-4 w-4 text-ink-600" />
-          <h2 className="text-base font-semibold tracking-tight text-ink-900">
-            地图路线
-          </h2>
-        </div>
-      </div>
       <div className="[&_.card]:mt-0 [&_.card]:overflow-hidden [&_.card]:rounded-[28px] [&_.card]:border-black/[0.06] [&_.card]:bg-white/[0.88] [&_.card]:shadow-[0_18px_46px_-36px_rgba(17,24,39,0.68)] [&_.card]:backdrop-blur-xl">
         <MapOverlay visibleCount={itinerary.schedule?.length || itinerary.nodes.length} />
       </div>
@@ -1905,17 +1893,19 @@ function MobileInlineCompare({
   itinerary: Itinerary;
 }) {
   return (
-    <section className="mt-3 overflow-hidden rounded-[28px] border border-black/[0.08] bg-white/[0.88] shadow-[0_18px_46px_-36px_rgba(17,24,39,0.68)] backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-black/[0.06] px-4 py-3.5">
-        <Sparkles className="h-4 w-4 text-ink-600" />
-        <h2 className="text-base font-semibold tracking-tight text-ink-900">
+    <section className="mt-3 overflow-hidden rounded-[30px] border border-black/[0.06] bg-white shadow-[0_18px_46px_-36px_rgba(17,24,39,0.68)]">
+      <div className="flex items-center gap-2 border-b border-black/[0.05] px-4 py-3.5">
+        <Sparkles className="h-4 w-4 text-ink-600" strokeWidth={2} />
+        <h2 className="text-lg font-black tracking-tight text-ink-900">
           调整对比
         </h2>
       </div>
-      <div className="overflow-x-auto px-3 py-3">
-        <div className="min-w-[520px]">
-          <ComparisonView oldItinerary={previousItinerary} newItinerary={itinerary} />
-        </div>
+      <div className="px-3 py-3">
+        <ComparisonView
+          oldItinerary={previousItinerary}
+          newItinerary={itinerary}
+          variant="mobile"
+        />
       </div>
     </section>
   );
@@ -1934,6 +1924,7 @@ function MobileActionRail({
   const thoughts = useChatStore((s) => s.thoughts);
   const cancel = useChatStore((s) => s.cancel);
   const [expanded, setExpanded] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   // A6 根治：确认按钮此前无条件调单人 confirm() action，房间参与者能绕过
   // "仅房主可确认"守卫（且完全没走 WS confirm 通道，其它成员看不到）。
   // canConfirm/handleConfirm/confirmLabel 已由共享 hook 统一判定（同
@@ -1997,6 +1988,25 @@ function MobileActionRail({
           已删（反馈走下方聊天框即可），抽屉里只留这三个次级工具，同桌面端
           ItineraryCard「安静工具行」一个意思，只是移动端沿用既有的收纳
           抽屉承载而不是常驻一行（屏窄，收纳比常驻更合适）。 */}
+      {previewOpen && itinerary && !hasOrders && !cancelled && (
+        <div className="pointer-events-auto mx-auto mb-2 max-w-[480px] animate-drawer-slide-up overflow-hidden rounded-[28px] border border-white/[0.86] bg-white p-2 shadow-[0_24px_70px_-42px_rgba(17,24,39,0.82)] ring-1 ring-black/[0.035]">
+          <div className="flex items-center justify-between gap-3 px-3 py-2">
+            <div className="flex items-center gap-2 text-base font-black tracking-tight text-ink-900">
+              <Info className="h-5 w-5 text-[#9a5b00]" strokeWidth={2.5} />
+              点击「确认并预约」之后
+            </div>
+            <button
+              type="button"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-black/[0.06] bg-white/[0.72] text-ink-500 transition active:scale-95"
+              onClick={() => setPreviewOpen(false)}
+              aria-label="关闭预约说明"
+            >
+              <X className="h-4 w-4" strokeWidth={2.2} />
+            </button>
+          </div>
+          <MobileConfirmPreview itinerary={itinerary} />
+        </div>
+      )}
       {expanded && itinerary && !hasOrders && !cancelled && (
         <div className="pointer-events-auto mx-auto mb-2 flex max-w-[480px] justify-end">
           <div className="flex w-[190px] flex-col gap-2 rounded-[24px] border border-white/[0.74] bg-white/[0.72] p-2 shadow-[0_18px_44px_-30px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 animate-drawer-slide-up">
@@ -2006,6 +2016,7 @@ function MobileActionRail({
           />
           <PosterGenerator
             compact
+            variant="mobile"
             className="!h-10 !rounded-full !text-sm !font-semibold"
           />
           <button
@@ -2014,6 +2025,7 @@ function MobileActionRail({
             disabled={streaming}
             onClick={() => {
               setExpanded(false);
+              setPreviewOpen(false);
               cancel();
             }}
           >
@@ -2036,19 +2048,36 @@ function MobileActionRail({
         )}
         {itinerary && !hasOrders && !cancelled && (
           <>
-            <button
-              type="button"
-              className="min-h-11 min-w-0 flex-1 rounded-full border border-[#e6bc00]/45 bg-[#FFD100] px-2 text-sm font-bold text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition active:scale-[0.98] disabled:bg-[#FFD100]/45 disabled:text-ink-500"
-              disabled={!canConfirm}
-              onClick={handleConfirm}
-              title={
-                blockedByOwnerGuard
-                  ? "只有房间发起人可以确认预约"
-                  : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
-              }
+            <div
+              className={cn(
+                "flex min-h-11 min-w-0 flex-1 overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition",
+                !canConfirm && "opacity-60",
+              )}
             >
-              {confirmLabel}
-            </button>
+              <button
+                type="button"
+                className="min-w-0 flex-1 px-2 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:text-ink-500"
+                disabled={!canConfirm}
+                onClick={handleConfirm}
+                title={
+                  blockedByOwnerGuard
+                    ? "只有房间发起人可以确认预约"
+                    : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
+                }
+              >
+                <span className="truncate">{confirmLabel}</span>
+              </button>
+              <button
+                type="button"
+                className="grid h-11 w-11 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition active:scale-95"
+                onClick={() => setPreviewOpen((open) => !open)}
+                aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
+                aria-expanded={previewOpen}
+                title="查看确认后会发生什么"
+              >
+                <Info className="h-5 w-5" strokeWidth={2.5} />
+              </button>
+            </div>
             <button
               type="button"
               className={cn(

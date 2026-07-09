@@ -116,11 +116,13 @@ async function copyToClipboard(text: string): Promise<boolean> {
 interface PosterGeneratorProps {
   compact?: boolean;
   className?: string;
+  variant?: "desktop" | "mobile";
 }
 
 export default function PosterGenerator({
   compact = false,
   className,
+  variant = "desktop",
 }: PosterGeneratorProps) {
   const itinerary = useChatStore((s) => s.itinerary);
   const pushToast = useChatStore((s) => s.pushToast);
@@ -275,6 +277,7 @@ export default function PosterGenerator({
           }}
           onClose={closePreview}
           pushToast={pushToast}
+          mobile={variant === "mobile"}
         />,
         document.body,
       )}
@@ -295,6 +298,7 @@ function PreviewModal({
   onRegenerate,
   onClose,
   pushToast,
+  mobile,
 }: {
   imageUrl: string;
   itinerary: Itinerary;
@@ -302,6 +306,7 @@ function PreviewModal({
   onRegenerate: () => void;
   onClose: () => void;
   pushToast: (t: { kind: "info" | "success" | "warn"; text: string }) => void;
+  mobile: boolean;
 }) {
   const [textCopied, setTextCopied] = useState(false);
 
@@ -333,6 +338,104 @@ function PreviewModal({
       pushToast({ kind: "warn", text: "复制失败" });
     }
   };
+
+  if (mobile) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-end justify-center bg-black/[0.42] p-3 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-label="行程海报预览"
+      >
+        <div
+          className="relative flex max-h-[88dvh] w-full max-w-[480px] flex-col overflow-hidden rounded-[32px] border border-white/[0.86] bg-white shadow-[0_28px_80px_-40px_rgba(17,24,39,0.88)] animate-drawer-slide-up"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-3 border-b border-black/[0.05] px-4 py-3.5">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-[#d97706]">
+                <ImageIcon className="h-3.5 w-3.5" strokeWidth={2} />
+                <span>海报已生成</span>
+              </div>
+              <h3 className="mt-0.5 text-lg font-black tracking-tight text-ink-900">
+                转发给同行人
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-black/[0.06] bg-black/[0.03] text-ink-500 transition active:scale-95"
+              aria-label="关闭预览"
+            >
+              <X className="h-4 w-4" strokeWidth={2.25} />
+            </button>
+          </div>
+
+          <div className="min-h-0 overflow-y-auto px-4 pb-4 pt-3">
+            <div className="rounded-[28px] border border-[#FFD100]/25 bg-gradient-to-br from-[#fffaf2] via-white to-[#fff7d6] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={imageUrl}
+                alt="行程海报"
+                className="mx-auto max-h-[46dvh] w-auto max-w-full rounded-[20px] shadow-[0_22px_48px_-30px_rgba(17,24,39,0.86)]"
+              />
+            </div>
+
+            <p className="mt-3 text-sm leading-relaxed text-ink-500">
+              保存图片后可以直接转发给同行人。也可以改用文字版，一键复制到剪贴板。
+            </p>
+
+            <button
+              type="button"
+              onClick={onDownload}
+              className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-[#FFD100] px-4 text-base font-black text-ink-950 shadow-[0_16px_34px_-24px_rgba(245,158,11,0.95)] transition active:scale-[0.98]"
+            >
+              <Download className="h-[18px] w-[18px]" strokeWidth={2.25} />
+              <span>保存到本地</span>
+            </button>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={onRegenerate}
+                className="flex h-11 items-center justify-center gap-1.5 rounded-full border border-black/[0.08] bg-white/[0.78] px-3 text-sm font-semibold text-ink-700 transition active:scale-[0.98]"
+              >
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={2} />
+                <span>重做</span>
+              </button>
+              <button
+                type="button"
+                onClick={copyText}
+                className={cn(
+                  "flex h-11 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition active:scale-[0.98]",
+                  textCopied
+                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600"
+                    : "border-black/[0.08] bg-white/[0.78] text-ink-700",
+                )}
+              >
+                {textCopied ? (
+                  <>
+                    <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                    <span>已复制</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-3.5 w-3.5" strokeWidth={2} />
+                    <span>文字版</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl border border-black/[0.04] bg-black/[0.025] px-3 py-2 text-xs leading-relaxed text-ink-500">
+              移动端也可以长按海报图片保存。
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

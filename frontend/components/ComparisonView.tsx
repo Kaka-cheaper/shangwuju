@@ -118,11 +118,13 @@ function diffStages(
 interface ComparisonViewProps {
   oldItinerary: Itinerary;
   newItinerary: Itinerary;
+  variant?: "desktop" | "mobile";
 }
 
 export default function ComparisonView({
   oldItinerary,
   newItinerary,
+  variant = "desktop",
 }: ComparisonViewProps) {
   const [expanded, setExpanded] = useState(true);
   const diffs = diffStages(
@@ -131,84 +133,53 @@ export default function ComparisonView({
   );
   const changedCount = diffs.filter((d) => d.kind !== "unchanged").length;
 
+  if (variant === "mobile") {
+    return (
+      <div className="grid grid-cols-2 gap-2.5">
+        <MobileCompareColumn label="调整前" side="old" diffs={diffs} />
+        <MobileCompareColumn label="调整后" side="new" diffs={diffs} />
+      </div>
+    );
+  }
+
   return (
-    <div
-      className={cn(
-        "px-4 py-3 border-b border-black/[0.06]",
-        "bg-gradient-to-r from-accent-500/8 to-accent-600/4",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-2 text-left"
-        aria-expanded={expanded}
-      >
-        <GitCompare
-          className="w-4 h-4 text-accent-400 shrink-0"
-          strokeWidth={2}
-        />
-        <span className="text-sm font-semibold text-ink-900 tracking-tight">
-          调整对比
-        </span>
-        <span className="text-sm font-medium text-ink-500 tabular-nums">
-          {changedCount} 处变化
-        </span>
-        <span className="ml-auto text-sm text-ink-500">
-          {expanded ? "收起对比" : "展开对比"}
-        </span>
-        <ChevronDown
-          className={cn(
-            "w-3.5 h-3.5 text-ink-500 shrink-0 transition-transform duration-200",
-            !expanded && "-rotate-90",
-          )}
-          strokeWidth={2.5}
-        />
-      </button>
+    <div className="px-4 pt-3">
+      <div className="overflow-hidden rounded-[28px] border border-black/[0.06] bg-white shadow-[0_18px_46px_-38px_rgba(17,24,39,0.55)]">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="flex w-full items-center gap-2 border-b border-black/[0.05] px-4 py-3 text-left"
+          aria-expanded={expanded}
+        >
+          <GitCompare
+            className="h-4 w-4 shrink-0 text-[#d97706]"
+            strokeWidth={2}
+          />
+          <span className="text-base font-black tracking-tight text-ink-900">
+            调整对比
+          </span>
+          <span className="rounded-full bg-[#FFD100]/20 px-2 py-0.5 text-sm font-semibold tabular-nums text-[#9a5b00]">
+            {changedCount} 处变化
+          </span>
+          <span className="ml-auto text-sm font-semibold text-ink-500">
+            {expanded ? "收起对比" : "展开对比"}
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 shrink-0 text-ink-500 transition-transform duration-200",
+              !expanded && "-rotate-90",
+            )}
+            strokeWidth={2.5}
+          />
+        </button>
 
-      {expanded && (
-        <div className="mt-2.5 grid grid-cols-2 gap-3 animate-collapse-in">
-          {/* 旧方案列 */}
-          <div>
-            <div className="text-sm font-semibold tracking-tight text-ink-500 mb-1.5 flex items-center gap-1">
-              <span className="inline-block w-1 h-1 rounded-full bg-ink-500/60" />
-              <span>调整前</span>
-            </div>
-            <ul className="space-y-1.5">
-              {diffs.map((d, idx) => (
-                <li key={`old-${idx}`}>
-                  <StageRow
-                    stage={d.oldStage}
-                    diffKind={d.kind}
-                    side="old"
-                    changedFields={d.changedFields}
-                  />
-                </li>
-              ))}
-            </ul>
+        {expanded && (
+          <div className="space-y-3 px-4 py-3 animate-collapse-in">
+            <DesktopCompareRow label="调整前" side="old" diffs={diffs} />
+            <DesktopCompareRow label="调整后" side="new" diffs={diffs} />
           </div>
-
-          {/* 新方案列 */}
-          <div>
-            <div className="text-sm font-semibold tracking-tight text-accent-600 mb-1.5 flex items-center gap-1">
-              <span className="inline-block w-1 h-1 rounded-full bg-accent-400" />
-              <span>调整后</span>
-            </div>
-            <ul className="space-y-1.5">
-              {diffs.map((d, idx) => (
-                <li key={`new-${idx}`}>
-                  <StageRow
-                    stage={d.newStage}
-                    diffKind={d.kind}
-                    side="new"
-                    changedFields={d.changedFields}
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
@@ -216,6 +187,174 @@ export default function ComparisonView({
 // ============================================================
 // 单段渲染
 // ============================================================
+
+function DesktopCompareRow({
+  label,
+  side,
+  diffs,
+}: {
+  label: string;
+  side: "old" | "new";
+  diffs: StageDiff[];
+}) {
+  const isAfter = side === "new";
+
+  return (
+    <div className="grid grid-cols-[5.5rem_1fr] items-start gap-3">
+      <div
+        className={cn(
+          "pt-2 text-sm font-black tracking-tight",
+          isAfter ? "text-[#b45309]" : "text-ink-600",
+        )}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              isAfter ? "bg-[#d97706]" : "bg-ink-400",
+            )}
+            aria-hidden
+          />
+          {label}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {diffs.map((diff, index) => (
+          <StageRow
+            key={`${side}-${index}`}
+            stage={side === "old" ? diff.oldStage : diff.newStage}
+            diffKind={diff.kind}
+            side={side}
+            changedFields={diff.changedFields}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MobileCompareColumn({
+  label,
+  side,
+  diffs,
+}: {
+  label: string;
+  side: "old" | "new";
+  diffs: StageDiff[];
+}) {
+  const isAfter = side === "new";
+
+  return (
+    <div className="min-w-0">
+      <div
+        className={cn(
+          "mb-2 text-center text-sm font-black tracking-tight",
+          isAfter ? "text-[#b45309]" : "text-ink-600",
+        )}
+      >
+        {label}
+      </div>
+      <div className="space-y-1">
+        {diffs.map((diff, index) => (
+          <div key={`${side}-${index}`}>
+            <MobileStageBlock
+              stage={side === "old" ? diff.oldStage : diff.newStage}
+              diffKind={diff.kind}
+              side={side}
+              changedFields={diff.changedFields}
+            />
+            {index < diffs.length - 1 && (
+              <div
+                className={cn(
+                  "flex h-5 items-center justify-center text-base leading-none",
+                  isAfter ? "text-[#d97706]/70" : "text-ink-300",
+                )}
+                aria-hidden
+              >
+                ↓
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MobileStageBlock({
+  stage,
+  diffKind,
+  side,
+  changedFields,
+}: {
+  stage: DiffStage | null;
+  diffKind: StageDiffKind;
+  side: "old" | "new";
+  changedFields: ReadonlyArray<"time" | "title" | "kind">;
+}) {
+  const isAfter = side === "new";
+  const highlight =
+    (diffKind === "modified" && side === "new") ||
+    (diffKind === "added" && side === "new") ||
+    (diffKind === "removed" && side === "old");
+
+  if (!stage) {
+    const placeholder =
+      diffKind === "added" && side === "old"
+        ? "原方案没有这一站"
+        : diffKind === "removed" && side === "new"
+          ? "调整后已移除"
+          : "无";
+
+    return (
+      <div className="min-h-[78px] rounded-2xl border border-dashed border-black/[0.08] bg-white/[0.62] px-2.5 py-2.5">
+        <div className="text-sm font-medium leading-snug text-ink-400">
+          {placeholder}
+        </div>
+      </div>
+    );
+  }
+
+  const timeChanged = changedFields.includes("time");
+  const titleChanged = changedFields.includes("title");
+  const kindChanged = changedFields.includes("kind");
+  const toneClass = isAfter
+    ? "border-[#FFD100]/45 bg-[#fff9df]/70"
+    : "border-black/[0.06] bg-white/[0.72]";
+
+  return (
+    <div className={cn("min-h-[78px] min-w-0 rounded-2xl border px-2.5 py-2.5", toneClass)}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span
+          className={cn(
+            "mono text-[13px] font-semibold leading-none tabular-nums",
+            timeChanged && highlight ? "text-[#b45309]" : "text-ink-600",
+          )}
+        >
+          {stage.start}-{stage.end}
+        </span>
+        <span
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-xs font-medium",
+            kindChanged && highlight
+              ? "border-[#FFD100]/50 bg-[#FFD100]/20 text-[#9a5b00]"
+              : "border-black/[0.06] bg-white/[0.72] text-ink-600",
+          )}
+        >
+          {stage.kind}
+        </span>
+      </div>
+      <div
+        className={cn(
+          "mt-1.5 line-clamp-2 break-words text-sm font-semibold leading-snug tracking-tight",
+          titleChanged && highlight ? "text-[#9a4a10]" : "text-ink-900",
+        )}
+      >
+        {stage.title}
+      </div>
+    </div>
+  );
+}
 
 function StageRow({
   stage,
@@ -262,16 +401,16 @@ function StageRow({
   return (
     <div
       className={cn(
-        "rounded-md border px-2.5 py-2 text-sm transition-colors",
+        "rounded-2xl border px-3 py-2.5 text-sm transition-colors",
         highlight
-          ? "border-amber-500/30 bg-amber-500/5"
-          : "border-black/[0.06] bg-black/[0.02]",
+          ? "border-[#FFD100]/45 bg-[#fff9df]/70"
+          : "border-black/[0.06] bg-black/[0.018]",
       )}
     >
       <div className="flex items-center gap-1.5 mb-0.5">
         <span
           className={cn(
-            "mono text-sm tabular-nums",
+            "mono text-base font-semibold tabular-nums",
             timeChanged ? "text-amber-700 font-semibold" : "text-ink-500",
           )}
         >
@@ -279,7 +418,7 @@ function StageRow({
         </span>
         <span
           className={cn(
-            "px-1.5 py-0 rounded text-xs border",
+            "rounded-full border px-2 py-0.5 text-xs font-medium",
             kindChanged
               ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
               : "border-black/[0.06] bg-black/[0.03] text-ink-700",
@@ -290,8 +429,8 @@ function StageRow({
       </div>
       <div
         className={cn(
-          "text-sm tracking-tight",
-          titleChanged ? "text-amber-800 font-medium" : "text-ink-800",
+          "line-clamp-2 text-base font-semibold leading-snug tracking-tight",
+          titleChanged ? "text-[#9a4a10]" : "text-ink-900",
         )}
       >
         {stage.title}
@@ -310,7 +449,7 @@ function PlaceholderRow({
   return (
     <div
       className={cn(
-        "rounded-md border px-2.5 py-2 text-sm italic text-center",
+        "rounded-2xl border px-3 py-2.5 text-sm font-semibold text-center",
         colorClass,
       )}
     >

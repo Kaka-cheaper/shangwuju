@@ -168,7 +168,7 @@ export default function HomeView() {
       {/* 顶栏：始终显示 */}
       <header
         className={cn(
-          "relative-content sticky top-0 z-20 border-b border-black/[0.06]",
+          "fixed inset-x-0 top-0 z-50 border-b border-black/[0.06]",
           "bg-white/80 backdrop-blur-xl",
           "transition-[background-color,box-shadow] duration-300",
           scrolled && "header-scrolled",
@@ -253,6 +253,7 @@ export default function HomeView() {
           </div>
         </div>
       </header>
+      <div className="h-14" aria-hidden />
 
       {/* 协作状态条 */}
       <CollabBar />
