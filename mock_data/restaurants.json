@@ -4281,5 +4281,4708 @@
       }
     ],
     "typical_dining_min": 80
+  },
+  {
+    "id": "WJR001",
+    "name": "小湘阁(望京店)",
+    "cuisine": "湖南菜",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9965,
+      "lng": 116.4818
+    },
+    "distance_km": 0.01,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 85.0,
+    "rating": 4.0,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "spicy",
+      "hunan",
+      "restaurant",
+      "wangjing soho",
+      "辣味优先",
+      "湘菜",
+      "朋友聚餐",
+      "湘味",
+      "人气高",
+      "小店",
+      "重口味",
+      "湖南菜",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "spicy",
+      "hunan",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“有人爱吃辣”的分支：能强满足嗜辣成员，但如果队伍里有清淡口味成员，需要同时推荐可调辣度或清淡备选。",
+    "reviews": [
+      {
+        "text": "公开点评信息显示，这家店以湖南菜和望京SOHO办公人群就餐为主，评论集中在湘味、人气和小店氛围。",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "spicy",
+          "hunan",
+          "restaurant",
+          "wangjing soho"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“有人爱吃辣”的分支：能强满足嗜辣成员，但如果队伍里有清淡口味成员，需要同时推荐可调辣度或清淡备选。",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "湖南菜",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR002",
+    "name": "隐厨中国菜馆(望京万科时代广场店)",
+    "cuisine": "新派湘菜",
+    "location": {
+      "name": "望京南/万科时代中心",
+      "lat": 39.9918,
+      "lng": 116.4774
+    },
+    "distance_km": 0.66,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120.0,
+    "rating": 4.5,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "spicy",
+      "hunan",
+      "restaurant",
+      "quiet",
+      "premium",
+      "辣味优先",
+      "湘菜",
+      "环境好",
+      "约会",
+      "朋友聚餐",
+      "剁椒鱼头",
+      "小炒黄牛肉",
+      "氛围感",
+      "新中式",
+      "新派湘菜",
+      "辣味体验",
+      "wangjing",
+      "demo"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "spicy",
+      "hunan",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合展示“口味强偏好 + 环境加分”的方案：比普通湘菜更有场景感，但预算和辣度接受度需要提前确认。",
+    "reviews": [
+      {
+        "text": "旅行社区内容集中提到湘菜招牌菜、环境氛围和望京南地铁可达性，适合做“体验优先”的候选。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "spicy",
+          "hunan",
+          "restaurant",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合展示“口味强偏好 + 环境加分”的方案：比普通湘菜更有场景感，但预算和辣度接受度需要提前确认。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "新派湘菜",
+          "辣味体验",
+          "wangjing",
+          "demo"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR003",
+    "name": "桂香黄辣丁(望京SOHO店)",
+    "cuisine": "广西菜/鱼鲜",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9968,
+      "lng": 116.4816
+    },
+    "distance_km": 0.03,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 75.0,
+    "rating": 4.3,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "restaurant",
+      "wangjing soho",
+      "fish",
+      "medium spicy",
+      "广西菜",
+      "酸辣",
+      "特色菜",
+      "黄辣丁",
+      "位置好找",
+      "特色鱼鲜",
+      "鱼鲜",
+      "酸辣鲜香",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "restaurant",
+      "wangjing soho",
+      "fish"
+    ],
+    "recommendation_reason": "适合夹在“重辣”和“清淡”之间做特色方案：有酸辣记忆点，但不像纯湘菜那样单向偏辣。",
+    "reviews": [
+      {
+        "text": "北京旅游网内容提到店铺位于望京SOHO塔1A座2楼1203，人均约75元，主打桂香黄辣丁和复古烟火气氛围。",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "restaurant",
+          "wangjing soho",
+          "fish",
+          "medium spicy"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合夹在“重辣”和“清淡”之间做特色方案：有酸辣记忆点，但不像纯湘菜那样单向偏辣。",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "酸辣鲜香",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR004",
+    "name": "太初·湘苑(颐堤港店)",
+    "cuisine": "湖南菜",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 110.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "spicy",
+      "hunan",
+      "restaurant",
+      "mall",
+      "adjustable spice",
+      "辣度可调",
+      "折中方案",
+      "朋友聚餐",
+      "剁椒鱼头",
+      "温和辣",
+      "商场餐厅",
+      "聚餐",
+      "湖南菜",
+      "温和湘菜",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "spicy",
+      "hunan",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“有人爱辣、有人不能太辣”的折中方案：保留湘菜特色，同时比强重辣店更容易通过备注控制辣度。",
+    "reviews": [
+      {
+        "text": "北京旅游网推荐其老坛剁椒鱼头，并把辣味描述为温和不燥，适合做“爱辣但要兼容”的演示样本。",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "spicy",
+          "hunan",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“有人爱辣、有人不能太辣”的折中方案：保留湘菜特色，同时比强重辣店更容易通过备注控制辣度。",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "温和湘菜",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR005",
+    "name": "小城知味(颐堤港店)",
+    "cuisine": "粤菜/海南鸡饭",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 100.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "cantonese",
+      "restaurant",
+      "mall",
+      "清淡友好",
+      "粤菜",
+      "海南鸡饭",
+      "安静",
+      "家庭聚餐",
+      "清爽",
+      "小资环境",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "cantonese",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“照顾不吃辣的人”：牺牲一部分重口味刺激，但能降低团队分歧，适合默认保守推荐。",
+    "reviews": [
+      {
+        "text": "北京旅游网把它作为颐堤港粤菜选择推荐，提到环境和海南鸡饭等相对清爽的菜品。",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "cantonese",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“照顾不吃辣的人”：牺牲一部分重口味刺激，但能降低团队分歧，适合默认保守推荐。",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "小资环境",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR006",
+    "name": "青柠泰餐厅 Lime Ritzy(颐堤港店)",
+    "cuisine": "泰国菜",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "thai",
+      "restaurant",
+      "mall",
+      "medium spicy",
+      "酸甜",
+      "微辣",
+      "折中方案",
+      "异国风味",
+      "椰青咖喱",
+      "泰餐",
+      "全场好评",
+      "创新菜",
+      "泰国菜",
+      "酸甜微辣",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "thai",
+      "restaurant",
+      "mall"
+    ],
+    "recommendation_reason": "适合把“辣”和“清淡”的冲突转成第三种选择：不是传统重辣，也不是完全清淡，而是酸甜微辣的折中体验。",
+    "reviews": [
+      {
+        "text": "北京旅游网推荐其椰青咖喱等菜品，评价侧重酸甜、咖喱和创新感，适合做口味折中样本。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "thai",
+          "restaurant",
+          "mall",
+          "medium spicy"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合把“辣”和“清淡”的冲突转成第三种选择：不是传统重辣，也不是完全清淡，而是酸甜微辣的折中体验。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "酸甜微辣",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR007",
+    "name": "Shake Shack(北京颐堤港店)",
+    "cuisine": "汉堡/轻快餐",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 85.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "mild",
+      "burger",
+      "quick meal",
+      "mall",
+      "low conflict",
+      "清淡友好",
+      "预算可控",
+      "临时会面",
+      "汉堡",
+      "快取",
+      "社区聚会",
+      "轻松",
+      "轻快餐",
+      "低冲突轻餐",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "burger",
+      "quick meal"
+    ],
+    "recommendation_reason": "适合做兜底方案：当大家对菜系冲突太强时，用低冲突轻餐保证快速集合，但仪式感弱于正式餐厅。",
+    "reviews": [
+      {
+        "text": "品牌官方介绍强调汉堡、鸡肉、热狗等经典轻餐和堂食/自取，适合低决策成本场景。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "burger",
+          "quick meal",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合做兜底方案：当大家对菜系冲突太强时，用低冲突轻餐保证快速集合，但仪式感弱于正式餐厅。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "低冲突轻餐",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR008",
+    "name": "The Lounge(北京望京凯悦酒店)",
+    "cuisine": "咖啡甜点/轻食",
+    "location": {
+      "name": "望京凯悦/利星行中心",
+      "lat": 39.9915,
+      "lng": 116.4804
+    },
+    "distance_km": 0.58,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 130.0,
+    "rating": 4.5,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": true
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quiet",
+      "mild",
+      "hotel",
+      "business",
+      "安静",
+      "适合聊天",
+      "清淡友好",
+      "城市绿洲",
+      "轻食",
+      "甜点",
+      "咖啡甜点",
+      "安静清淡",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quiet",
+      "mild"
+    ],
+    "recommendation_reason": "适合展示“不是吃饭，而是找一个安静沟通地点”的场景：牺牲正餐满足度，换来低噪音和高确定性。",
+    "reviews": [
+      {
+        "text": "酒店官方介绍将 The Lounge 定位为放松的城市空间，提供轻食、饮品和甜点。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quiet",
+          "mild",
+          "hotel"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合展示“不是吃饭，而是找一个安静沟通地点”的场景：牺牲正餐满足度，换来低噪音和高确定性。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "安静清淡",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR009",
+    "name": "Cang Yue 藏悦(北京望京凯悦酒店)",
+    "cuisine": "鲁菜/现代中餐",
+    "location": {
+      "name": "望京凯悦/利星行中心",
+      "lat": 39.9915,
+      "lng": 116.4804
+    },
+    "distance_km": 0.58,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 260.0,
+    "rating": 4.5,
+    "typical_dining_min": 105,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": true
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "business",
+      "private room",
+      "restaurant",
+      "quiet",
+      "正式",
+      "清淡友好",
+      "包间",
+      "现代鲁菜",
+      "季节食材",
+      "鲁菜",
+      "现代中餐",
+      "正式清淡",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "business",
+      "private room"
+    ],
+    "recommendation_reason": "适合展示“正式清淡方案”：能照顾忌辣和安静诉求，但预算明显高，适合作为高端备选。",
+    "reviews": [
+      {
+        "text": "酒店官方介绍强调现代鲁菜、季节食材、茶品和私密包间，适合正式会面。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "business",
+          "private room",
+          "restaurant"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合展示“正式清淡方案”：能照顾忌辣和安静诉求，但预算明显高，适合作为高端备选。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "正式清淡",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR010",
+    "name": "Shunpachi 旬八(北京望京凯悦酒店)",
+    "cuisine": "日料",
+    "location": {
+      "name": "望京凯悦/利星行中心",
+      "lat": 39.9915,
+      "lng": 116.4804
+    },
+    "distance_km": 0.58,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 240.0,
+    "rating": 4.5,
+    "typical_dining_min": 105,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": true
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "japanese",
+      "restaurant",
+      "quiet",
+      "premium",
+      "清淡友好",
+      "日料",
+      "体验优先",
+      "时令",
+      "开放厨房",
+      "私密空间",
+      "清淡精致",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "japanese",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合展示“清淡但不无聊”的选择：能安抚不吃辣成员，同时用体验感弥补嗜辣成员的落差。",
+    "reviews": [
+      {
+        "text": "酒店官方介绍强调日料、时令食材、开放厨房和私密空间，适合清淡精致方案。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "japanese",
+          "restaurant",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合展示“清淡但不无聊”的选择：能安抚不吃辣成员，同时用体验感弥补嗜辣成员的落差。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "清淡精致",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR011",
+    "name": "Haru Kitchen(颐堤港店)",
+    "cuisine": "西餐/轻食",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 130.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "western",
+      "light meal",
+      "mall",
+      "low conflict",
+      "清淡友好",
+      "折中方案",
+      "适合聊天",
+      "轻食",
+      "西餐",
+      "商场餐厅",
+      "低冲突",
+      "轻食折中",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "western",
+      "light meal"
+    ],
+    "recommendation_reason": "适合演示“大家对中餐菜系分歧太大”的降冲突方案：不强押辣或清淡，而是用轻食/西餐保持选择空间。",
+    "reviews": [
+      {
+        "text": "北京旅游网颐堤港美食内容将其列为西式餐饮选择，适合补充非中餐、低辣度的聚会备选。",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "western",
+          "light meal",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“大家对中餐菜系分歧太大”的降冲突方案：不强押辣或清淡，而是用轻食/西餐保持选择空间。",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "轻食折中",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR012",
+    "name": "Wagas(颐堤港店)",
+    "cuisine": "咖啡轻食/沙拉",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 90.0,
+    "rating": 4.1,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "mild",
+      "light meal",
+      "salad",
+      "healthy",
+      "quiet",
+      "清淡友好",
+      "适合聊天",
+      "预算可控",
+      "轻食",
+      "咖啡",
+      "沙拉",
+      "快速碰头",
+      "咖啡轻食",
+      "健康轻食",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "mild",
+      "light meal"
+    ],
+    "recommendation_reason": "适合演示“不是正式吃饭，而是需要一个低负担见面点”：对辣/清淡冲突处理得最保守，但聚餐氛围弱。",
+    "reviews": [
+      {
+        "text": "颐堤港公开餐饮信息包含咖啡轻食品牌，适合补充咖啡/轻食类 meeting point。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "mild",
+          "light meal",
+          "salad"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“不是正式吃饭，而是需要一个低负担见面点”：对辣/清淡冲突处理得最保守，但聚餐氛围弱。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "健康轻食",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR013",
+    "name": "Seesaw Coffee(颐堤港店)",
+    "cuisine": "精品咖啡",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 45.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quiet",
+      "mild",
+      "mall",
+      "适合聊天",
+      "饭后续聊",
+      "低冲突",
+      "预算可控",
+      "精品咖啡",
+      "商场咖啡",
+      "短会",
+      "饭后",
+      "安静咖啡",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quiet",
+      "mild"
+    ],
+    "recommendation_reason": "适合演示“推荐不止一顿饭，还能给下一步动作”：吃饭方案确定后，系统可继续给饭后聊天点。",
+    "reviews": [
+      {
+        "text": "颐堤港公开餐饮信息覆盖咖啡品牌，可作为饭后沟通或轻会面地点补充到 mock 数据。",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quiet",
+          "mild",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“推荐不止一顿饭，还能给下一步动作”：吃饭方案确定后，系统可继续给饭后聊天点。",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "安静咖啡",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR014",
+    "name": "Pacific Coffee(颐堤港店)",
+    "cuisine": "咖啡/简餐",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 50.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "business",
+      "quiet",
+      "mild",
+      "mall",
+      "适合聊天",
+      "轻商务",
+      "低冲突",
+      "咖啡",
+      "连锁",
+      "等人",
+      "简餐",
+      "商务咖啡",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "business",
+      "quiet"
+    ],
+    "recommendation_reason": "适合演示“确认预约前的沟通点”：当用户还没定最终餐厅时，可以先推荐一个低风险碰头地点。",
+    "reviews": [
+      {
+        "text": "颐堤港公开餐饮和商场信息包含多类咖啡空间，适合支持非正餐会面场景。",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "business",
+          "quiet",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“确认预约前的沟通点”：当用户还没定最终餐厅时，可以先推荐一个低风险碰头地点。",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务咖啡",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR015",
+    "name": "西贝莜面村(凯德MALL·望京)",
+    "cuisine": "西北菜",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 95.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "northwest",
+      "restaurant",
+      "mall",
+      "family",
+      "清淡友好",
+      "低冲突",
+      "预算可控",
+      "西北菜",
+      "莜面",
+      "连锁稳定",
+      "家庭友好",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "northwest",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“老人、小孩或忌辣成员在场”的保守方案：不追求惊艳，但可接受度高。",
+    "reviews": [
+      {
+        "text": "凯德MALL·望京公开商业资料和商场餐饮信息覆盖连锁餐饮，西贝适合补充稳定型低冲突正餐选择。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "northwest",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“老人、小孩或忌辣成员在场”的保守方案：不追求惊艳，但可接受度高。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "家庭友好",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR016",
+    "name": "绿茶餐厅(凯德MALL·望京)",
+    "cuisine": "江浙融合菜",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 85.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "jiangzhe",
+      "restaurant",
+      "mall",
+      "low conflict",
+      "清淡友好",
+      "折中方案",
+      "预算可控",
+      "融合菜",
+      "多人可点",
+      "商场餐饮",
+      "江浙融合菜",
+      "大众折中",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "jiangzhe",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“大家没有明确偏好”的默认方案：不给任何人极致满足，但减少踩雷。",
+    "reviews": [
+      {
+        "text": "凯德MALL·望京公开商业资料覆盖多类餐饮品牌，融合菜适合做多人偏好折中样本。",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "jiangzhe",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“大家没有明确偏好”的默认方案：不给任何人极致满足，但减少踩雷。",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "大众折中",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR017",
+    "name": "海底捞火锅(凯德MALL·望京)",
+    "cuisine": "火锅",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120.0,
+    "rating": 4.3,
+    "typical_dining_min": 120,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "hotpot",
+      "spicy",
+      "mild",
+      "restaurant",
+      "mall",
+      "adjustable spice",
+      "辣度可调",
+      "折中方案",
+      "朋友聚餐",
+      "火锅",
+      "服务",
+      "辣锅清汤",
+      "多人聚餐",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "hotpot",
+      "spicy",
+      "mild"
+    ],
+    "recommendation_reason": "适合演示“一个人爱辣、一个人清淡”的最佳结构化折中：用鸳鸯锅把偏好冲突变成可配置项。",
+    "reviews": [
+      {
+        "text": "凯德MALL·望京公开商业资料覆盖餐饮业态，火锅类适合展示辣锅和清汤并存的冲突解决能力。",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "hotpot",
+          "spicy",
+          "mild",
+          "restaurant"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“一个人爱辣、一个人清淡”的最佳结构化折中：用鸳鸯锅把偏好冲突变成可配置项。",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "多人聚餐",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR018",
+    "name": "blue frog蓝蛙(望京SOHO店)",
+    "cuisine": "美式西餐",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 130.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "western",
+      "burger",
+      "bar",
+      "restaurant",
+      "wangjing soho",
+      "friends",
+      "低冲突",
+      "热闹",
+      "汉堡",
+      "饮品",
+      "下班聚会",
+      "西餐",
+      "美式西餐",
+      "轻松社交",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "western",
+      "burger",
+      "bar"
+    ],
+    "recommendation_reason": "适合演示“饭局更像社交而非正餐”的场景：回避辣/清淡冲突，但对想吃传统菜的人吸引力弱。",
+    "reviews": [
+      {
+        "text": "望京SOHO公开商圈信息和餐饮推荐常见西式餐吧类选择，适合补充非中餐社交场景。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "western",
+          "burger",
+          "bar",
+          "restaurant"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“饭局更像社交而非正餐”的场景：回避辣/清淡冲突，但对想吃传统菜的人吸引力弱。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "轻松社交",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR019",
+    "name": "Costa Coffee(望京SOHO店)",
+    "cuisine": "咖啡/甜点",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 45.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quiet",
+      "mild",
+      "wangjing soho",
+      "business",
+      "适合聊天",
+      "低冲突",
+      "预算可控",
+      "咖啡",
+      "办公区",
+      "短会",
+      "连锁",
+      "甜点",
+      "办公咖啡",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quiet",
+      "mild"
+    ],
+    "recommendation_reason": "适合演示“先会合再决定吃什么”：当偏好冲突还没解决时，先推荐一个低成本会面点。",
+    "reviews": [
+      {
+        "text": "望京SOHO办公商圈内连锁咖啡适合轻量会面，能补足非正餐场景和预约前确认场景。",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quiet",
+          "mild",
+          "wangjing soho"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“先会合再决定吃什么”：当偏好冲突还没解决时，先推荐一个低成本会面点。",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "办公咖啡",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR020",
+    "name": "瑞幸咖啡(望京SOHO商圈)",
+    "cuisine": "咖啡/外带",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 25.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "budget",
+      "quick",
+      "mild",
+      "wangjing soho",
+      "预算可控",
+      "临时会面",
+      "低冲突",
+      "外带",
+      "预算低",
+      "快速集合",
+      "办公区",
+      "咖啡",
+      "低成本外带",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "budget",
+      "quick"
+    ],
+    "recommendation_reason": "适合演示“预算低一点/先集合”的反馈按钮：不是体验优先，而是效率优先。",
+    "reviews": [
+      {
+        "text": "望京SOHO办公商圈咖啡外带需求强，低价连锁咖啡适合补充预算敏感和快速集合样本。",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "budget",
+          "quick",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“预算低一点/先集合”的反馈按钮：不是体验优先，而是效率优先。",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "低成本外带",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR021",
+    "name": "Seoul 798 Korean Cuisine (Wangjing Xinhui City)",
+    "cuisine": "Korean cuisine",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 95.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "korean",
+      "restaurant",
+      "mall",
+      "medium spicy",
+      "Korean",
+      "cuisine",
+      "dining",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "korean",
+      "restaurant",
+      "mall"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Korean dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Seoul 798 Korean Cuisine (Wangjing Xinhui City) as a Korean cuisine option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "korean",
+          "restaurant",
+          "mall",
+          "medium spicy"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Korean dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "dining",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR022",
+    "name": "Chishan Restaurant (Xinhui City)",
+    "cuisine": "Yunnan creative cuisine",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 110.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "restaurant",
+      "creative",
+      "yunnan",
+      "mall",
+      "Yunnan",
+      "cuisine",
+      "Creative",
+      "dining",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "restaurant",
+      "creative",
+      "yunnan"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Creative dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Chishan Restaurant (Xinhui City) as a Yunnan creative cuisine option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "restaurant",
+          "creative",
+          "yunnan",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Creative dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "dining",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR023",
+    "name": "Haidilao Hotpot (Wangjing Xinhui City)",
+    "cuisine": "Hotpot",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120.0,
+    "rating": 4.3,
+    "typical_dining_min": 120,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "hotpot",
+      "spicy",
+      "mild",
+      "adjustable spice",
+      "restaurant",
+      "mall",
+      "Hotpot",
+      "Adjustable",
+      "spice",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "hotpot",
+      "spicy",
+      "mild"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Adjustable spice hotpot\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Haidilao Hotpot (Wangjing Xinhui City) as a Hotpot option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "hotpot",
+          "spicy",
+          "mild",
+          "adjustable spice"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Adjustable spice hotpot\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "spice",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR024",
+    "name": "Starbucks (Wangjing Xinhui City area)",
+    "cuisine": "Coffee / dessert",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 45.0,
+    "rating": 4.0,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quiet",
+      "business",
+      "mild",
+      "Coffee",
+      "dessert",
+      "Business",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quiet",
+      "business"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Business coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Starbucks (Wangjing Xinhui City area) as a Coffee / dessert option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quiet",
+          "business",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Business coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Business",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR025",
+    "name": "Mixue Ice Cream & Tea (Xinhui City area)",
+    "cuisine": "Tea drink / ice cream",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 15.0,
+    "rating": 3.9,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "drink",
+      "dessert",
+      "budget",
+      "quick",
+      "Tea",
+      "ice",
+      "cream",
+      "Budget",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "drink",
+      "dessert",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Budget drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Mixue Ice Cream & Tea (Xinhui City area) as a Tea drink / ice cream option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "drink",
+          "dessert",
+          "budget",
+          "quick"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Budget drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Budget",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR026",
+    "name": "Convenience Store (Xinhui City area)",
+    "cuisine": "Convenience / snacks",
+    "location": {
+      "name": "新荟城",
+      "lat": 39.9971,
+      "lng": 116.4836
+    },
+    "distance_km": 0.16,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 20.0,
+    "rating": 3.8,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "convenience",
+      "quick",
+      "budget",
+      "drink",
+      "snack",
+      "Convenience",
+      "snacks",
+      "Emergency",
+      "supply",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "convenience",
+      "quick",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Emergency supply\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Convenience Store (Xinhui City area) as a Convenience / snacks option near 新荟城; tags and source URL are kept for demo traceability.",
+        "rating": 3.8,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "convenience",
+          "quick",
+          "budget",
+          "drink"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Emergency supply\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.8,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "supply",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR027",
+    "name": "Yoshinoya (Hopson Qilin Xintiandi)",
+    "cuisine": "Japanese quick meal",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 35.0,
+    "rating": 3.9,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "quick meal",
+      "japanese",
+      "budget",
+      "mild",
+      "Japanese",
+      "quick",
+      "meal",
+      "Fast",
+      "low-conflict",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "quick meal",
+      "japanese",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Fast low-conflict meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Yoshinoya (Hopson Qilin Xintiandi) as a Japanese quick meal option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "quick meal",
+          "japanese",
+          "budget",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Fast low-conflict meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "low-conflict",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR028",
+    "name": "Kungfu (Hopson Qilin Xintiandi)",
+    "cuisine": "Chinese quick meal",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 35.0,
+    "rating": 3.9,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "quick meal",
+      "chinese",
+      "budget",
+      "mild",
+      "Chinese",
+      "quick",
+      "meal",
+      "Efficient",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "quick meal",
+      "chinese",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Efficient meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Kungfu (Hopson Qilin Xintiandi) as a Chinese quick meal option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "quick meal",
+          "chinese",
+          "budget",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Efficient meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Efficient",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR029",
+    "name": "Hopson Qilin Xintiandi BBQ Sample",
+    "cuisine": "BBQ / late-night dining",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 90.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "bbq",
+      "night life",
+      "restaurant",
+      "friends",
+      "BBQ",
+      "late-night",
+      "dining",
+      "Lively",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "bbq",
+      "night life",
+      "restaurant"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Lively late-night dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hopson Qilin Xintiandi BBQ Sample as a BBQ / late-night dining option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bbq",
+          "night life",
+          "restaurant",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Lively late-night dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Lively",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR030",
+    "name": "Hopson Qilin Xintiandi Tea Drink Sample",
+    "cuisine": "Tea drink",
+    "location": {
+      "name": "合生麒麟新天地",
+      "lat": 39.9978,
+      "lng": 116.4824
+    },
+    "distance_km": 0.14,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 25.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "drink",
+      "bubble tea",
+      "budget",
+      "quick",
+      "Tea",
+      "Takeaway",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "drink",
+      "bubble tea",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Takeaway drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hopson Qilin Xintiandi Tea Drink Sample as a Tea drink option near 合生麒麟新天地; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "drink",
+          "bubble tea",
+          "budget",
+          "quick"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Takeaway drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Takeaway",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR031",
+    "name": "Xiabu Xiabu (CapitaMall Wangjing)",
+    "cuisine": "Individual hotpot",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 70.0,
+    "rating": 4.0,
+    "typical_dining_min": 120,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "hotpot",
+      "budget",
+      "spicy",
+      "mild",
+      "mall",
+      "Individual",
+      "Budget",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "hotpot",
+      "budget",
+      "spicy"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Budget hotpot\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Xiabu Xiabu (CapitaMall Wangjing) as a Individual hotpot option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "hotpot",
+          "budget",
+          "spicy",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Budget hotpot\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Budget",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR032",
+    "name": "Micun Bibimbap (CapitaMall Wangjing)",
+    "cuisine": "Korean bibimbap",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 45.0,
+    "rating": 4.0,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "korean",
+      "quick meal",
+      "budget",
+      "mall",
+      "medium spicy",
+      "Korean",
+      "bibimbap",
+      "Fast",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "korean",
+      "quick meal",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Fast Korean meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Micun Bibimbap (CapitaMall Wangjing) as a Korean bibimbap option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "korean",
+          "quick meal",
+          "budget",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Fast Korean meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR033",
+    "name": "Hefu Noodle (CapitaMall Wangjing)",
+    "cuisine": "Noodles",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 50.0,
+    "rating": 4.0,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "noodle",
+      "mild",
+      "quick meal",
+      "mall",
+      "Noodles",
+      "Mild",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "noodle",
+      "mild",
+      "quick meal"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Mild noodle meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Hefu Noodle (CapitaMall Wangjing) as a Noodles option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "noodle",
+          "mild",
+          "quick meal",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Mild noodle meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR034",
+    "name": "Tai Er Sauerkraut Fish (CapitaMall Wangjing)",
+    "cuisine": "Sauerkraut fish",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 100.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "fish",
+      "medium spicy",
+      "restaurant",
+      "mall",
+      "Sauerkraut",
+      "Sour-spicy",
+      "sharing",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "fish",
+      "medium spicy",
+      "restaurant"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Sour-spicy sharing\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Tai Er Sauerkraut Fish (CapitaMall Wangjing) as a Sauerkraut fish option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "fish",
+          "medium spicy",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Sour-spicy sharing\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "sharing",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR035",
+    "name": "Jiumaojiu Northwest Cuisine (CapitaMall Wangjing)",
+    "cuisine": "Northwest cuisine",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 90.0,
+    "rating": 4.0,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "northwest",
+      "mild",
+      "restaurant",
+      "mall",
+      "Northwest",
+      "cuisine",
+      "Noodle-friendly",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "northwest",
+      "mild",
+      "restaurant"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Noodle-friendly meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Jiumaojiu Northwest Cuisine (CapitaMall Wangjing) as a Northwest cuisine option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "northwest",
+          "mild",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Noodle-friendly meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR036",
+    "name": "Heytea (CapitaMall Wangjing)",
+    "cuisine": "Tea drink / dessert",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 30.0,
+    "rating": 4.1,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "drink",
+      "dessert",
+      "mall",
+      "budget",
+      "Tea",
+      "After-dinner",
+      "sweet",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "drink",
+      "dessert",
+      "mall"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"After-dinner sweet drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Heytea (CapitaMall Wangjing) as a Tea drink / dessert option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "drink",
+          "dessert",
+          "mall",
+          "budget"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"After-dinner sweet drink\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "sweet",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR037",
+    "name": "Holiland (CapitaMall Wangjing)",
+    "cuisine": "Bakery / cake",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 40.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "dessert",
+      "bakery",
+      "mall",
+      "birthday",
+      "Bakery",
+      "cake",
+      "Dessert",
+      "and",
+      "gift",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "dessert",
+      "bakery",
+      "mall"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Dessert and gift\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Holiland (CapitaMall Wangjing) as a Bakery / cake option near 凯德MALL·望京; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "dessert",
+          "bakery",
+          "mall",
+          "birthday"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Dessert and gift\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "gift",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR038",
+    "name": "FEAST (EAST Beijing)",
+    "cuisine": "International buffet / western",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 220.0,
+    "rating": 4.4,
+    "typical_dining_min": 105,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": true
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "western",
+      "buffet",
+      "business",
+      "mild",
+      "hotel",
+      "International",
+      "Hotel",
+      "formal",
+      "dining",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "western",
+      "buffet",
+      "business"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Hotel formal dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists FEAST (EAST Beijing) as a International buffet / western option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "western",
+          "buffet",
+          "business",
+          "mild"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Hotel formal dining\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "dining",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR039",
+    "name": "Domain (EAST Beijing)",
+    "cuisine": "Coffee / business lounge",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 80.0,
+    "rating": 4.4,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "business",
+      "quiet",
+      "hotel",
+      "Coffee",
+      "lounge",
+      "Business",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "business",
+      "quiet"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Business coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Domain (EAST Beijing) as a Coffee / business lounge option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "business",
+          "quiet",
+          "hotel"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Business coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Business",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR040",
+    "name": "EAST Beijing Mobile Coffee Cart",
+    "cuisine": "Coffee",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 30.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quick",
+      "budget",
+      "hotel",
+      "Coffee",
+      "Fast",
+      "weekday",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quick",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Fast weekday coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists EAST Beijing Mobile Coffee Cart as a Coffee option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quick",
+          "budget",
+          "hotel"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Fast weekday coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "weekday",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR041",
+    "name": "Indigo Coffee Festival Sample",
+    "cuisine": "Coffee event",
+    "location": {
+      "name": "颐堤港",
+      "lat": 39.9701,
+      "lng": 116.4916
+    },
+    "distance_km": 3.06,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 80.0,
+    "rating": 4.3,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "coffee",
+      "event",
+      "entertainment",
+      "mall",
+      "Coffee",
+      "experience",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "event",
+      "entertainment"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Coffee experience\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Indigo Coffee Festival Sample as a Coffee event option near 颐堤港; tags and source URL are kept for demo traceability.",
+        "rating": 4.3,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "event",
+          "entertainment",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Coffee experience\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.3,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "experience",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR042",
+    "name": "McDonald's (Wangjing SOHO area)",
+    "cuisine": "Burger / fast food",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 35.0,
+    "rating": 3.9,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "burger",
+      "quick meal",
+      "budget",
+      "wangjing soho",
+      "Burger",
+      "fast",
+      "food",
+      "Fast",
+      "low-conflict",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "burger",
+      "quick meal",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Fast low-conflict meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists McDonald's (Wangjing SOHO area) as a Burger / fast food option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "burger",
+          "quick meal",
+          "budget",
+          "wangjing soho"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Fast low-conflict meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR043",
+    "name": "KFC (Wangjing SOHO area)",
+    "cuisine": "Fried chicken / fast food",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 35.0,
+    "rating": 3.9,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "fried chicken",
+      "quick meal",
+      "budget",
+      "wangjing soho",
+      "Fried",
+      "chicken",
+      "fast",
+      "food",
+      "Quick",
+      "simple",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "fried chicken",
+      "quick meal",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Quick simple meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists KFC (Wangjing SOHO area) as a Fried chicken / fast food option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "fried chicken",
+          "quick meal",
+          "budget",
+          "wangjing soho"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Quick simple meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR044",
+    "name": "Subway (Wangjing SOHO area)",
+    "cuisine": "Sandwich / light meal",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 40.0,
+    "rating": 3.9,
+    "typical_dining_min": 40,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "sandwich",
+      "light meal",
+      "healthy",
+      "quick meal",
+      "mild",
+      "Sandwich",
+      "light",
+      "meal",
+      "Healthy",
+      "fast",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "sandwich",
+      "light meal",
+      "healthy"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Healthy fast meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Subway (Wangjing SOHO area) as a Sandwich / light meal option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 3.9,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "sandwich",
+          "light meal",
+          "healthy",
+          "quick meal"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Healthy fast meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 3.9,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "fast",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR045",
+    "name": "Pizza Marzano (Wangjing SOHO area)",
+    "cuisine": "Pizza / western",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 120.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "western",
+      "pizza",
+      "restaurant",
+      "friends",
+      "Pizza",
+      "Shared",
+      "meal",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "western",
+      "pizza",
+      "restaurant"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Shared western meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Pizza Marzano (Wangjing SOHO area) as a Pizza / western option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "western",
+          "pizza",
+          "restaurant",
+          "friends"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Shared western meal\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meal",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR046",
+    "name": "Manner Coffee (Wangjing SOHO area)",
+    "cuisine": "Specialty coffee",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 30.0,
+    "rating": 4.1,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "quick",
+      "budget",
+      "business",
+      "wangjing soho",
+      "Specialty",
+      "Office",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "quick",
+      "budget"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Office coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Manner Coffee (Wangjing SOHO area) as a Specialty coffee option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "quick",
+          "budget",
+          "business"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Office coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Office",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR047",
+    "name": "Heytea (Wangjing SOHO area)",
+    "cuisine": "Tea drink / dessert",
+    "location": {
+      "name": "望京SOHO",
+      "lat": 39.9966,
+      "lng": 116.4819
+    },
+    "distance_km": 0.0,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 30.0,
+    "rating": 4.0,
+    "typical_dining_min": 45,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "drink",
+      "dessert",
+      "wangjing soho",
+      "budget",
+      "Tea",
+      "Sweet",
+      "social",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "drink",
+      "dessert",
+      "wangjing soho"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Sweet drink social\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Heytea (Wangjing SOHO area) as a Tea drink / dessert option near 望京SOHO; tags and source URL are kept for demo traceability.",
+        "rating": 4.0,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "drink",
+          "dessert",
+          "wangjing soho",
+          "budget"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Sweet drink social\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.0,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "social",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR048",
+    "name": "798 Independent Coffee Sample",
+    "cuisine": "Independent coffee / dessert",
+    "location": {
+      "name": "798艺术区",
+      "lat": 39.9844,
+      "lng": 116.4945
+    },
+    "distance_km": 1.73,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 55.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": false,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": false,
+        "queue_minutes": 15
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 10
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 15
+      }
+    ],
+    "tags": [
+      "coffee",
+      "art",
+      "798",
+      "quiet",
+      "Independent",
+      "dessert",
+      "Art",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "art",
+      "798"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Art coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists 798 Independent Coffee Sample as a Independent coffee / dessert option near 798艺术区; tags and source URL are kept for demo traceability.",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "art",
+          "798",
+          "quiet"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Art coffee\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "Art",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR049",
+    "name": "Lido Hotel Lounge Sample",
+    "cuisine": "Coffee / lounge",
+    "location": {
+      "name": "丽都/将台",
+      "lat": 39.9735,
+      "lng": 116.4846
+    },
+    "distance_km": 2.58,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 100.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": true,
+      "private_room": true
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "coffee",
+      "business",
+      "quiet",
+      "hotel",
+      "Coffee",
+      "lounge",
+      "Quiet",
+      "meeting",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "coffee",
+      "business",
+      "quiet"
+    ],
+    "recommendation_reason": "This option supports the demo branch \"Quiet meeting\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+    "reviews": [
+      {
+        "text": "Public Wangjing-area information lists Lido Hotel Lounge Sample as a Coffee / lounge option near 丽都/将台; tags and source URL are kept for demo traceability.",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "coffee",
+          "business",
+          "quiet",
+          "hotel"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "This option supports the demo branch \"Quiet meeting\": it helps compare taste, budget, commute and after-dinner activity trade-offs.",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "meeting",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR050",
+    "name": "火炉火(望京凯德MALL店)",
+    "cuisine": "韩式烤肉",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 130.0,
+    "rating": 4.2,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "bbq",
+      "korean",
+      "restaurant",
+      "mall",
+      "friends",
+      "热闹",
+      "朋友聚餐",
+      "可分享",
+      "韩式烧烤",
+      "小菜",
+      "肉类",
+      "服务",
+      "韩式烤肉",
+      "热闹共享",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "bbq",
+      "korean",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“体验热闹优先”的分支：共享烤肉能增强互动，但对清淡、安静、低油烟偏好不友好。",
+    "reviews": [
+      {
+        "text": "本地美食推荐把它作为望京凯德MALL餐饮样本，评价侧重韩式烧烤、小菜、肉类和服务。",
+        "rating": 4.2,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "bbq",
+          "korean",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“体验热闹优先”的分支：共享烤肉能增强互动，但对清淡、安静、低油烟偏好不友好。",
+        "rating": 4.2,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹共享",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "WJR051",
+    "name": "南京大牌档/南京印象(凯德MALL·望京)",
+    "cuisine": "江浙菜/南京小吃",
+    "location": {
+      "name": "凯德MALL·望京",
+      "lat": 39.992945,
+      "lng": 116.468485
+    },
+    "distance_km": 1.21,
+    "opening_hours": "10:00-22:00",
+    "avg_price": 95.0,
+    "rating": 4.1,
+    "typical_dining_min": 90,
+    "capacity": {
+      "2": true,
+      "4": true,
+      "6": true,
+      "8": false,
+      "private_room": false
+    },
+    "reservation_slots": [
+      {
+        "time": "17:00",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "17:30",
+        "available": true,
+        "queue_minutes": 0
+      },
+      {
+        "time": "18:00",
+        "available": true,
+        "queue_minutes": 5
+      }
+    ],
+    "tags": [
+      "mild",
+      "jiangzhe",
+      "restaurant",
+      "mall",
+      "low conflict",
+      "清淡友好",
+      "折中方案",
+      "家庭聚餐",
+      "江浙口味",
+      "商场餐饮",
+      "低冲突",
+      "多人可接受",
+      "江浙菜",
+      "南京小吃",
+      "清淡折中",
+      "wangjing",
+      "demo",
+      "real-source"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "闺蜜聊天"
+    ],
+    "signature_dishes": [
+      "mild",
+      "jiangzhe",
+      "restaurant"
+    ],
+    "recommendation_reason": "适合演示“分歧最小方案”：不会强满足嗜辣成员，但能让清淡、预算、交通三个维度都比较稳。",
+    "reviews": [
+      {
+        "text": "凯德物业资料列出 Nanjing Impressions 等餐饮品牌，适合补充望京凯德MALL内的清淡折中候选。",
+        "rating": 4.1,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "mild",
+          "jiangzhe",
+          "restaurant",
+          "mall"
+        ],
+        "visited_at": "2026-06-20",
+        "helpful_count": 18
+      },
+      {
+        "text": "适合演示“分歧最小方案”：不会强满足嗜辣成员，但能让清淡、预算、交通三个维度都比较稳。",
+        "rating": 4.1,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "清淡折中",
+          "wangjing",
+          "demo",
+          "real-source"
+        ],
+        "visited_at": "2026-06-25",
+        "helpful_count": 9
+      }
+    ]
   }
 ]
