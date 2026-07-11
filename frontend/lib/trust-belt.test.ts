@@ -8,13 +8,19 @@
  * - 剪辑规则：3 次同违规合成"发现→压→换引擎"递进；总量 ~7 拍上限。
  * - §五 四种收尾：一次过（跳过④⑤⑥）/ 有自愈（完整七拍）。
  * - buildSearchPreviewChips（2026-07-10 新增）：②拍检索收据芯片数据剪辑。
+ * - buildProfileFieldsReceipt（2026-07-11 新增）：①拍画像收据数据剪辑。
  */
 
 import { describe, expect, it } from "vitest";
 
 import {
+  buildChecksRunReceipt,
+  buildProfileFieldsReceipt,
+  buildRelaxedSearchNotice,
   buildSearchPreviewChips,
+  buildSpineNodes,
   buildTrustBeltBeats,
+  type TrustBeltBeat,
   type TrustBeltInput,
   type TrustBeltToolCall,
 } from "./trust-belt";
@@ -267,6 +273,134 @@ describe("buildTrustBeltBeats — 剪辑规则", () => {
   });
 });
 
+describe("buildTrustBeltBeats — 止损三修（真机症状回归，2026-07-11）", () => {
+  // 真机症状：琥珀行渲染成「还是不行换引擎→让我压缩时间→方案超出限制→
+  // 还是不行换引擎」——因果倒序 + 连续⑥一字不差重复。三处根因各自单测覆盖。
+
+  it("止损修 1：预算裁剪不再从中间切断④⑤配对——按轮整体保留/丢弃", () => {
+    // 构造：3 轮不同违规码（各自 discover+fix，不触发同码合并）+ 1 个 fallback，
+    // 外加完整①②③锚点。总候选拍数 = 3(锚点) + 3*2(轮) + 1(fallback) + 1(⑦) = 11，
+    // 预算 = 7 - 3(锚点) - 1(⑦) = 3 拍——只够放 1 轮多一点。旧实现对拍摊平后
+    // slice(-3) 会切出 [fix(轮3), fallback] 只有 2 个真实拍再垫不满，或在不同
+    // 轮数下切出"孤儿 fix"；新实现必须保证：留下的每一个 fix 拍，它配对的
+    // discover 拍也必须留下（不允许孤儿 fix / 孤儿产生的因果倒序）。
+    const codes = ["duration_out_of_range", "budget_exceeded", "distance_exceeded"];
+    const violationRounds = codes.map((code, i) => violationRound(i * 2 + 1, i + 1, code));
+    const fixAttempts = codes.map((_, i) => fixAttempt(i * 2 + 2, i + 2));
+    const criticReport: CriticReport = {
+      violationRounds,
+      fixAttempts,
+      fallbackHops: [fallbackHop(20)],
+    };
+    const beats = buildTrustBeltBeats(
+      baseInput({
+        understanding: "用户……",
+        toolCalls: [{ tool: "search_pois" }],
+        thoughts: [{ seq: 1, planReason: "用户……，所以先……" }],
+        criticReport,
+      }),
+    );
+    // 断言：每个留下的 fix 拍，紧邻它前面必须是同一轮的 discover 拍（seq 相邻，
+    // fix.seq = discover.seq + 1，本 fixture 的构造方式），不存在孤儿 fix。
+    const kinds = beats.map((b) => b.kind);
+    for (let i = 0; i < beats.length; i += 1) {
+      if (kinds[i] === "fix") {
+        expect(kinds[i - 1]).toBe("discover");
+      }
+    }
+  });
+
+  it("止损修 1：裁剪后不出现『fallback 排在某轮 discover 之前，而该轮 fix 却排在 fallback 之后』的倒序", () => {
+    // 更直接地复现真机症状本身：构造 2 轮违规 + 1 个 fallback，预算恰好只够
+    // 2 个 HealUnit（该 fixture 下 = 1 轮 discover+fix 或 discover+fallback），
+    // 验证裁剪后序列里 discover 一定在其配对 fix 之前，fallback 不会插在
+    // 一对④⑤中间。
+    const criticReport: CriticReport = {
+      violationRounds: [
+        violationRound(1, 1, "duration_out_of_range"),
+        violationRound(3, 2, "budget_exceeded"),
+      ],
+      fixAttempts: [fixAttempt(2, 2), fixAttempt(4, 3)],
+      fallbackHops: [fallbackHop(5)],
+    };
+    const beats = buildTrustBeltBeats(
+      baseInput({
+        understanding: "u",
+        toolCalls: [{ tool: "search_pois" }],
+        thoughts: [{ seq: 1, planReason: "p" }],
+        criticReport,
+      }),
+    );
+    const kinds = beats.map((b) => b.kind);
+    // discover 必须先于同轮的 fix（用 seq 校验配对而非位置假设）
+    const discoverSeqs = beats.filter((b) => b.kind === "discover").map((b) => b.seq);
+    const fixSeqs = beats.filter((b) => b.kind === "fix").map((b) => b.seq);
+    // 若某个 fix 存在，比它 seq 小 1 的 discover 也必须存在于 beats 里
+    for (const fixSeq of fixSeqs) {
+      expect(discoverSeqs).toContain(fixSeq - 1);
+    }
+    void kinds;
+  });
+
+  it("止损修 2：连续 2 次换引擎不再一字不差重复——第二次换成措辞变体", () => {
+    const criticReport: CriticReport = {
+      violationRounds: [],
+      fixAttempts: [],
+      fallbackHops: [fallbackHop(1), fallbackHop(3)],
+    };
+    const beats = buildTrustBeltBeats(baseInput({ criticReport }));
+    const fallbackTexts = beats.filter((b) => b.kind === "fallback").map((b) => b.text);
+    expect(fallbackTexts).toHaveLength(2);
+    expect(fallbackTexts[0]).not.toBe(fallbackTexts[1]);
+    // 两句都不能是空、且都保持第一人称思考腔（不做字面校验，只验证非空）
+    expect(fallbackTexts[0].length).toBeGreaterThan(0);
+    expect(fallbackTexts[1].length).toBeGreaterThan(0);
+  });
+
+  it("止损修 2：3 次连续换引擎——变体池用完后停在最后一种（不循环回第一句、不报错）", () => {
+    const criticReport: CriticReport = {
+      violationRounds: [],
+      fixAttempts: [],
+      fallbackHops: [fallbackHop(1), fallbackHop(3), fallbackHop(5), fallbackHop(7)],
+    };
+    const beats = buildTrustBeltBeats(baseInput({ criticReport }));
+    const fallbackTexts = beats
+      .filter((b) => b.kind === "fallback")
+      .map((b) => b.text);
+    // 4 次 fallback 但只有 3 种变体——第 3、4 次应相同（停在最后一种）
+    expect(fallbackTexts.length).toBeGreaterThan(0);
+    const lastTwo = fallbackTexts.slice(-2);
+    if (fallbackTexts.length >= 4) {
+      expect(lastTwo[0]).toBe(lastTwo[1]);
+    }
+  });
+
+  it("止损修 3：fallback 之后到达的 fix_attempt 不再误挂回切换前的旧违规轮", () => {
+    // 复现根因：违规轮①（duration_out_of_range）先发现，紧接着换引擎（fallback），
+    // 新引擎自己又报了一次同码违规，随后才姗姗来迟一条 fix_attempt——这条
+    // fix_attempt 在真实事件里对应的是**新引擎那一轮**，不该被吞回旧引擎那轮
+    // （旧实现里 current 跨 fallback 不重置，会把它错挂给第一条 discover）。
+    const criticReport: CriticReport = {
+      violationRounds: [
+        violationRound(1, 1, "duration_out_of_range"), // 旧引擎发现，未等到 fix 就换引擎
+        violationRound(5, 2, "duration_out_of_range"), // 新引擎重新报同一类问题
+      ],
+      fixAttempts: [fixAttempt(6, 3)], // 只有新引擎这一轮等到了 fix_attempt
+      fallbackHops: [fallbackHop(3)], // 换引擎发生在旧发现之后、新发现之前
+    };
+    const beats = buildTrustBeltBeats(baseInput({ criticReport }));
+    // 断言核心不变量：任意一个 fix 拍，紧邻它前面的必须是 discover 拍——
+    // 不允许 fix 排在 fallback 之后却和一个更早（fallback 之前）的 discover
+    // 组成非因果配对（即 fix.seq 必须与紧邻 discover.seq 相邻，不能隔着 fallback）。
+    const idx = beats.findIndex((b) => b.kind === "fix");
+    expect(idx).toBeGreaterThan(0);
+    expect(beats[idx - 1].kind).toBe("discover");
+    // 且这个 discover 必须是新引擎那一轮（seq=5），不是旧引擎那一轮（seq=1）——
+    // 若错挂回旧轮，beats[idx-1] 会是 seq=1 的 discover，而 fix.seq=6 与它不相邻。
+    expect(beats[idx - 1].seq).toBe(5);
+  });
+});
+
 describe("buildSearchPreviewChips — ②拍检索收据芯片", () => {
   function poiCall(
     arrivalIdx: number,
@@ -428,5 +562,249 @@ describe("buildSearchPreviewChips — ②拍检索收据芯片", () => {
     ]);
     expect(result.chips).toEqual([]);
     expect(result.overflowCount).toBe(0);
+  });
+});
+
+describe("buildRelaxedSearchNotice — ②拍芯片行尾放宽重搜提示", () => {
+  function poiCallWithRelax(
+    arrivalIdx: number,
+    relaxedTags: string[],
+    count: number,
+  ): TrustBeltToolCall {
+    return {
+      tool: "search_pois",
+      arrivalIdx,
+      output: {
+        success: true,
+        count,
+        preview: [{ kind: "poi", name: "占位", rating: 4.0 }],
+        relaxed_tags: relaxedTags,
+      },
+    };
+  }
+
+  function restaurantCallWithRelax(
+    arrivalIdx: number,
+    relaxedTags: string[],
+    count: number,
+  ): TrustBeltToolCall {
+    return {
+      tool: "search_restaurants",
+      arrivalIdx,
+      output: {
+        success: true,
+        count,
+        preview: [{ kind: "restaurant", name: "占位", rating: 4.0 }],
+        relaxed_tags: relaxedTags,
+      },
+    };
+  }
+
+  it("无放宽（relaxed_tags 缺省或空）→ null", () => {
+    expect(buildRelaxedSearchNotice([])).toBeNull();
+    expect(
+      buildRelaxedSearchNotice([poiCallWithRelax(1, [], 5)]),
+    ).toBeNull();
+  });
+
+  it("有放宽 → 取第一个被丢的 tag + 放宽后的真实候选数", () => {
+    const result = buildRelaxedSearchNotice([
+      poiCallWithRelax(1, ["安静聊天", "拍照友好"], 12),
+    ]);
+    expect(result).toEqual({ tag: "安静聊天", count: 12 });
+  });
+
+  it("poi/restaurant 都放宽时只展示一条（poi 优先），不堆两行", () => {
+    const result = buildRelaxedSearchNotice([
+      poiCallWithRelax(1, ["安静聊天"], 12),
+      restaurantCallWithRelax(2, ["不辣"], 8),
+    ]);
+    expect(result).toEqual({ tag: "安静聊天", count: 12 });
+  });
+
+  it("只有 restaurant 放宽（poi 未放宽）→ 展示 restaurant 那条", () => {
+    const result = buildRelaxedSearchNotice([
+      poiCallWithRelax(1, [], 5),
+      restaurantCallWithRelax(2, ["不辣"], 8),
+    ]);
+    expect(result).toEqual({ tag: "不辣", count: 8 });
+  });
+
+  it("ILS/rule 兜底重查（同名 tool 但 output 无 preview）不误判为本轮放宽", () => {
+    const result = buildRelaxedSearchNotice([
+      poiCallWithRelax(1, [], 5),
+      {
+        tool: "search_pois",
+        arrivalIdx: 9,
+        output: { success: true, candidates: [{ id: "P001" }], relaxed_tags: ["安静聊天"] },
+      },
+    ]);
+    expect(result).toBeNull();
+  });
+
+  it("同轮内同 tool 多次调用 → 取最后一组（arrivalIdx 最大）判定放宽", () => {
+    const result = buildRelaxedSearchNotice([
+      poiCallWithRelax(1, ["安静聊天"], 3),
+      poiCallWithRelax(5, [], 20), // 反馈重规划后不再需要放宽
+    ]);
+    expect(result).toBeNull();
+  });
+});
+
+describe("buildProfileFieldsReceipt — ①拍画像收据", () => {
+  function profileCall(
+    arrivalIdx: number,
+    profileFields: Array<{ field: string; label: string; tags: string[] }>,
+  ): TrustBeltToolCall {
+    return {
+      tool: "get_user_profile",
+      arrivalIdx,
+      output: { success: true, found: true, profile_fields: profileFields },
+    };
+  }
+
+  it("无 get_user_profile 调用 → 空数组", () => {
+    expect(buildProfileFieldsReceipt([])).toEqual([]);
+  });
+
+  it("有调用但无 profile_fields 键（这局没有字段真被画像先验改写）→ 空数组", () => {
+    const result = buildProfileFieldsReceipt([
+      { tool: "get_user_profile", arrivalIdx: 1, output: { success: true, found: true } },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("有 profile_fields → 原样透传（后端已判定好，前端不重新判定）", () => {
+    const result = buildProfileFieldsReceipt([
+      profileCall(1, [{ field: "dietary_constraints", label: "饮食偏好", tags: ["日料"] }]),
+    ]);
+    expect(result).toEqual([
+      { field: "dietary_constraints", label: "饮食偏好", tags: ["日料"] },
+    ]);
+  });
+
+  it("同轮内多次 get_user_profile 调用（反馈重规划）→ 取最后一组（arrivalIdx 最大）", () => {
+    const result = buildProfileFieldsReceipt([
+      profileCall(1, [{ field: "dietary_constraints", label: "饮食偏好", tags: ["旧值"] }]),
+      profileCall(5, [{ field: "experience_tags", label: "体验偏好", tags: ["新值"] }]),
+    ]);
+    expect(result).toEqual([
+      { field: "experience_tags", label: "体验偏好", tags: ["新值"] },
+    ]);
+  });
+
+  it("非 get_user_profile 工具调用不参与画像收据提取", () => {
+    const result = buildProfileFieldsReceipt([
+      { tool: "search_pois", arrivalIdx: 1, output: { success: true, count: 3 } },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("output.profile_fields 非数组（异常线上数据）→ 不消费、不炸", () => {
+    const result = buildProfileFieldsReceipt([
+      { tool: "get_user_profile", arrivalIdx: 1, output: { success: true, profile_fields: "garbage" } },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("profile_fields 空数组 → 视同无收据（不展示空行）", () => {
+    const result = buildProfileFieldsReceipt([profileCall(1, [])]);
+    expect(result).toEqual([]);
+  });
+});
+
+describe("buildChecksRunReceipt — ⑦拍质检收据", () => {
+  it("无携带 checksRun 的条目 → null", () => {
+    expect(buildChecksRunReceipt([])).toBeNull();
+    expect(buildChecksRunReceipt([{ checksRun: null }, { checksRun: undefined }])).toBeNull();
+  });
+
+  it("有携带 checksRun 的条目 → 原样透传（后端已从 REGISTRY 现场数好）", () => {
+    const result = buildChecksRunReceipt([
+      { checksRun: null },
+      { checksRun: 18 },
+      { checksRun: null },
+    ]);
+    expect(result).toBe(18);
+  });
+
+  it("取首个携带该字段的条目（同③拍 plan_reason 的既有取法）", () => {
+    const result = buildChecksRunReceipt([{ checksRun: 18 }, { checksRun: 99 }]);
+    expect(result).toBe(18);
+  });
+});
+
+describe("buildSpineNodes — 折叠脊柱节点投影", () => {
+  function beat(kind: TrustBeltBeat["kind"], amber = false): TrustBeltBeat {
+    return { id: `${kind}-1`, kind, text: "占位", seq: 0, amber };
+  }
+
+  it("②检索拍：有真实召回总数时携带数字", () => {
+    const nodes = buildSpineNodes([beat("search")], {
+      searchTotalCount: 50,
+      midNodeCount: 0,
+      checksRun: null,
+    });
+    expect(nodes[0]).toEqual({ id: "search-1", kind: "search", count: 50, amber: false });
+  });
+
+  it("②检索拍：召回总数为 0 时不编数字（count=null，只显示图标）", () => {
+    const nodes = buildSpineNodes([beat("search")], {
+      searchTotalCount: 0,
+      midNodeCount: 0,
+      checksRun: null,
+    });
+    expect(nodes[0].count).toBeNull();
+  });
+
+  it("③规划拍：携带最终方案活动节点数", () => {
+    const nodes = buildSpineNodes([beat("planning")], {
+      searchTotalCount: 0,
+      midNodeCount: 3,
+      checksRun: null,
+    });
+    expect(nodes[0].count).toBe(3);
+  });
+
+  it("⑦定稿拍：携带质检收据数字（无则 null）", () => {
+    const withChecks = buildSpineNodes([beat("done")], {
+      searchTotalCount: 0,
+      midNodeCount: 0,
+      checksRun: 18,
+    });
+    expect(withChecks[0].count).toBe(18);
+
+    const withoutChecks = buildSpineNodes([beat("done")], {
+      searchTotalCount: 0,
+      midNodeCount: 0,
+      checksRun: null,
+    });
+    expect(withoutChecks[0].count).toBeNull();
+  });
+
+  it("④⑤⑥自愈拍：琥珀节保持琥珀（对象恒存）", () => {
+    const nodes = buildSpineNodes(
+      [beat("discover", true), beat("fix", true), beat("fallback", true)],
+      { searchTotalCount: 0, midNodeCount: 0, checksRun: null },
+    );
+    expect(nodes.every((n) => n.amber)).toBe(true);
+    expect(nodes.every((n) => n.count === null)).toBe(true);
+  });
+
+  it("①理解拍：无可靠数字来源，count 恒 null（不臆造）", () => {
+    const nodes = buildSpineNodes([beat("understanding")], {
+      searchTotalCount: 99,
+      midNodeCount: 99,
+      checksRun: 99,
+    });
+    expect(nodes[0].count).toBeNull();
+  });
+
+  it("同一 kind 出现多次（如④⑤各命中 2 轮）逐条投影，不合并", () => {
+    const nodes = buildSpineNodes(
+      [beat("discover", true), beat("fix", true), beat("discover", true), beat("fix", true)],
+      { searchTotalCount: 0, midNodeCount: 0, checksRun: null },
+    );
+    expect(nodes).toHaveLength(4);
   });
 });

@@ -131,6 +131,14 @@ export interface AgentThoughtPayload {
    * ③拍据此静默跳过，不是渲染空句子。
    */
   plan_reason?: string;
+  /**
+   * 信任带⑦拍质检收据专用（2026-07-11 新增）：critic 校验通过（has_critical=
+   * false）时，`emit_critic` 把「实际跑过的 check 数」挂在"方案验证通过…"这条
+   * 既有 AGENT_THOUGHT 事件的兄弟字段上——数字来自后端 `validate.REGISTRY`
+   * 现场计数，不是前端写死的常量。缺省＝这条 agent_thought 不是 critic 通过
+   * 那一条（如①②③其余思考文本），信任带⑦拍据此静默跳过。
+   */
+  checks_run?: number;
 }
 
 export interface RefinementStartPayload {
@@ -213,6 +221,14 @@ export interface AgentNarrationPayload {
    * 前端据此原地更新已展示的方案卡大标题，不必等一整份新的 itinerary。
    */
   title?: string;
+  /**
+   * 换菜备选收据（2026-07-11 新增）：仅 /chat/adjust 换菜成功这条 AGENT_
+   * NARRATION 携带——换成的新实体在候选池里还有多少个可行同类替补（`node_
+   * actions[swapped_to].alternatives` 现算的长度）。**不进信任带**（adjust
+   * 流不喂带是既定设计），只供换菜结果 UI 显示"同类替补 N 家"小行。"无内容
+   * 不加字段"：新实体没有可行备选时缺省。
+   */
+  swap_alternatives_count?: number;
 }
 
 // ============================================================

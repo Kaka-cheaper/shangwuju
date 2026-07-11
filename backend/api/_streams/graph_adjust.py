@@ -410,6 +410,23 @@ async def _graph_adjust(
     ledger_display = ledger_for_display(updated_ledger)
     if ledger_display:
         narration_payload["demand_ledger"] = ledger_display
+    # 换菜备选收据（2026-07-11，见路演PPT/信任带设计终稿.md 同日修订「五收据」
+    # 换菜备选行）：**不进信任带**——adjust 流不喂带是既定设计（单思考面，
+    # 修订4）。这个数字只挂在换菜结果的这条 AGENT_NARRATION 上，供换菜响应 UI
+    # （ItineraryCard 的 NarrationBlock 附近）显示"同类替补 N 家"小行。数据
+    # 直接读 `node_actions[swapped_to]["alternatives"]`（刚好在这一刻现算好，
+    # 与"点击换菜"实际消费的候选池/预验证同一条真相源，见 `_build_node_actions`
+    # docstring）——不需要前端另外做"这个节点是不是刚被换过"的映射推断（换菜
+    # 前后 target_id 会变，位置也可能因 SWAP_REORDERED 等 advisory 移动，前端
+    # 侧推断不可靠；服务端在换菜发生的同一次请求里直接知道 swapped_to 是谁，
+    # 是唯一干净的数据源）。"无内容不加字段"：swapped_to 为 None（三种 action
+    # 分支里理论上 resolve_node_swap 成功时恒非 None，此处仍防御性判断）或该
+    # 节点没有 alternatives 时不挂字段，换菜响应 UI 据此不渲染这一行。
+    if result.swapped_to:
+        swapped_actions = node_actions.get(result.swapped_to) if node_actions else None
+        alt_count = len(swapped_actions.get("alternatives") or []) if swapped_actions else 0
+        if alt_count > 0:
+            narration_payload["swap_alternatives_count"] = alt_count
     yield emit(SseEventType.AGENT_NARRATION, narration_payload)
 
     yield emit(SseEventType.DONE)

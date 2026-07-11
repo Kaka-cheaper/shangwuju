@@ -53,6 +53,16 @@ class EmitContext:
     last_plan_attempt: int = 0
     last_critic_attempts: list[Any] = field(default_factory=list)
     last_fallback_chain: list[Any] = field(default_factory=list)
+    # 信任带①拍画像收据（2026-07-11）：`intent` / `refiner` 节点的 diff 只含
+    # `{"intent": IntentExtraction}`，而 `get_user_profile_worker` 的 fan-out
+    # emit（`emit_fanout_worker`）只拿到自己的 diff（`{"user_profile": ...}`），
+    # 两者是图里不同节点各自的 diff，互相看不到对方——要判定"这局画像哪些字段
+    # 真被用户这轮的意图消费了"（field_provenance=prior），需要在 fan-out 发生
+    # 时读到 intent.field_provenance。`intent`/`refiner` 都有边直连 3 个 fan-out
+    # worker（build.py），LangGraph astream(stream_mode="updates") 按拓扑序产出
+    # chunk，intent/refiner 节点必然先于其下游 fan-out worker 完成并被 dispatch
+    # ——这里累积的值在 get_user_profile_worker 的 emit 触发时必然是本轮最新的。
+    last_intent: Any = None
 
     def emit(
         self, type_: SseEventType, payload: dict[str, Any] | None = None

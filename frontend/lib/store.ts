@@ -303,6 +303,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // narrationMessages 绑定 narration.text 这一版（见 store/types.ts），
       // 同一起清，防上一版的"点开看全部"列表串场到这一轮反馈重规划。
       narrationMessages: null,
+      // 换菜备选收据同样绑定"这一版叙事"，反馈重规划是新一轮叙事，上一次
+      // 换菜的备选数字不该继续挂着。
+      swapAlternativesCount: null,
       cancelled: false,
       lastRefinement: null,
       // Step 2：refine() 走自己的同步清空（不经 clearForReplanIfPending——本

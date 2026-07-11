@@ -246,6 +246,42 @@ describe("agent_narration.messages（D-7：结构化告知通道——'点开看
   });
 });
 
+describe("agent_narration.swap_alternatives_count（换菜备选收据，2026-07-11）", () => {
+  it("payload.swap_alternatives_count 存在时原样落 swapAlternativesCount", () => {
+    const store = makeStore(baseState());
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: {
+        text: "按你的要求，把「A」换成了「B」，更安静。",
+        stage: "stream",
+        swap_alternatives_count: 5,
+      },
+    } as never);
+    expect(store.getState().swapAlternativesCount).toBe(5);
+  });
+
+  it("payload.swap_alternatives_count 缺省时清成 null——绑定这一版叙事，不沿用上一次换菜的数字", () => {
+    const store = makeStore({ ...baseState(), swapAlternativesCount: 3 });
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: { text: "这一版暖场文案（不是换菜结果）", stage: "stream" },
+    } as never);
+    expect(store.getState().swapAlternativesCount).toBeNull();
+  });
+
+  it("重跑信号（intent_parsed）清空腾位时一并清空 swapAlternativesCount", () => {
+    const store = makeStore({ ...baseState(), swapAlternativesCount: 4 });
+    handleEvent(store.set, store.get, {
+      type: "intent_parsed",
+      seq: 1,
+      payload: { raw_input: "new" },
+    } as never);
+    expect(store.getState().swapAlternativesCount).toBeNull();
+  });
+});
+
 describe("critic 校验 + 自愈闭环三事件（Step 2：系统自愈过程可视化）", () => {
   it("critic_violations 追加一个 violationRound，字段原样落 store", () => {
     const store = makeStore(baseState());

@@ -80,6 +80,9 @@ export default function ItineraryCard() {
   const itinerary = useChatStore((s) => s.itinerary);
   const intent = useChatStore((s) => s.intent);
   const narration = useChatStore((s) => s.narration);
+  // 换菜备选收据（2026-07-11）：不进信任带（adjust 流不喂带是既定设计），
+  // 挂在换菜结果这条叙事下方（见下方 swapAlternativesCount 渲染处注释）。
+  const swapAlternativesCount = useChatStore((s) => s.swapAlternativesCount);
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
@@ -482,6 +485,19 @@ export default function ItineraryCard() {
       {narration?.text && (
         <div className="px-4 pt-3">
           <NarrationBlock text={narration.text} stage={narration?.stage ?? "stream"} />
+        </div>
+      )}
+
+      {/* 换菜备选收据（2026-07-11，见路演PPT/信任带设计终稿.md 同日修订「五
+          收据」换菜备选行）：**不进信任带**——adjust 流不喂带是既定设计（单
+          思考面，修订4）。挂在换菜结果这条叙事正下方——narration 此刻正是
+          "把「X」换成了「Y」"这句话，备选数字紧贴它才读得通；数字来自
+          swap_alternatives_count（服务端现算，见 AgentNarrationPayload 字段
+          注释），不是"有 narration 就显示"，只有真是换菜这条叙事才会带这个
+          字段（"无内容不加字段"）。 */}
+      {narration?.text && swapAlternativesCount != null && swapAlternativesCount > 0 && (
+        <div className="px-4 pt-1.5">
+          <SwapAlternativesNotice count={swapAlternativesCount} />
         </div>
       )}
 
@@ -1286,6 +1302,21 @@ function PlanActionBar({
   );
 }
 
+
+// ============================================================
+// SwapAlternativesNotice —— 换菜备选收据（2026-07-11）：
+// 挂在换菜结果叙事下方的一行小字，让用户知道"还有其它同类可换"，不进信任带。
+// 全程中性墨色，禁 emoji（同任务规格「五收据」纪律）。
+// ============================================================
+
+function SwapAlternativesNotice({ count }: { count: number }) {
+  return (
+    <div className="flex items-center gap-1.5 text-xs font-medium text-ink-500">
+      <ArrowLeftRight className="h-3.5 w-3.5 shrink-0 text-ink-400" strokeWidth={2} aria-hidden />
+      <span>同类替补 {count} 家</span>
+    </div>
+  );
+}
 
 // ============================================================
 // MemoryPersistedBadge —— spec algorithm-redesign R5 收尾：

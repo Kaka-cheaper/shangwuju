@@ -78,6 +78,12 @@ class SseEvent(BaseModel):
       （信任带②拍检索收据芯片专用，2026-07-10 新增；评分 top-3，"无召回不加字段"——
       get_user_profile worker 不产出这个键；见 `agent.graph._emit_handlers.
       emit_fanout_worker` / `_top_rated_preview`）
+      对 get_user_profile worker，output 可选再带
+      "profile_fields": [{"field": str, "label": str, "tags": [str, ...]}, ...]
+      （信任带①拍画像收据专用，2026-07-11 新增；只收 `intent.field_provenance`
+      标为 "prior" 的受控词典字段——即这局真被画像先验改写进搜索过滤的字段，
+      "无真实消费不加字段"；见 `agent.graph._emit_handlers.
+      _consumed_profile_fields`）
     - REPLAN_TRIGGERED payload = {"reason": FailureReason.value, "from_tool": str}
     - CRITIC_VIOLATIONS payload = {"violations": [...], "fix_attempt": int}
     - CRITIC_FIX_ATTEMPT payload = {"attempt": int, "feedback_text": str}
@@ -102,6 +108,11 @@ class SseEvent(BaseModel):
       （"messages" 可选，仅当规划器产出「绝不默默忽略」的结构化告知时出现——
       ADR-0010 D-7 / ADR-0011 决策 5「统一 agent 消息面」；kind 目前恒为
       "advisory"，未来澄清等消息类型复用同一形状/字段）
+      换菜结果这条 AGENT_NARRATION 可选再带 "swap_alternatives_count": int
+      （信任带任务 2026-07-11 修订「换菜备选」收据——**不进信任带**，只挂
+      换菜响应这条叙事上，供换菜结果 UI 显示"同类替补 N 家"；见
+      `api._streams.graph_adjust` 换菜成功分支。"无内容不加字段"：换成的
+      新实体没有可行备选时不挂这个键）
     - MEMORY_PERSISTED payload = {"social_context": str, "summary_preview": str, "success": bool, "skipped_reason": str | None}
     - STREAM_ERROR    payload = {"reason": str, "detail": str}
     - DONE            payload = {}

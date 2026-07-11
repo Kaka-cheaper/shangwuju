@@ -179,6 +179,8 @@ export interface ChatState {
     timestamp_ms: number | null;
     /** 信任带③拍：见 AgentThoughtPayload.plan_reason 字段注释。 */
     planReason?: string | null;
+    /** 信任带⑦拍质检收据：见 AgentThoughtPayload.checks_run 字段注释。 */
+    checksRun?: number | null;
   }[];
   /** Step 2：critic 校验 + 自愈闭环（critic_violations/critic_fix_attempt/
    * plan_fallback 三事件落地）——驱动 ThoughtPanel「质检与自愈」小节。 */
@@ -195,6 +197,10 @@ export interface ChatState {
   previousItinerary: Itinerary | null;
   /** Agent 暖心开场白（行程出炉 / confirm 后由后端推送）。 */
   narration: { text: string; stage: "stream" | "confirm" } | null;
+  /** 换菜备选收据（2026-07-11）：见 AgentNarrationPayload.swap_alternatives_count
+   * 字段注释。绑定"这一版叙事"，同 narrationMessages 的清空语义——每次
+   * agent_narration 事件整体替换，缺省清成 null（不是保留上一次换菜的数字）。 */
+  swapAlternativesCount: number | null;
   /** D-7（ADR-0010 决策 11 / ADR-0011 决策 5「统一 agent 消息面」）：
    * agent_narration payload 的 messages 兄弟字段——narrate 文字里被限额折叠的
    * 完整结构化告知列表（"还有 N 处小取舍"的"点开看全部"落点）。

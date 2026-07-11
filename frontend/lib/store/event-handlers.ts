@@ -50,6 +50,9 @@ function clearForReplanIfPending(set: Setter, get: Getter): void {
     // docstring）——narration 清空时必须跟着清，否则上一轮的"点开看全部"
     // 列表会挂在这一轮还没产出内容的 narration 上，牛头不对马嘴。
     narrationMessages: null,
+    // 换菜备选收据同 narrationMessages 一起清空——绑定"这一版叙事"，新一轮
+    // 规划开始时上一次换菜的备选数字不该继续挂在（此时还没有）新叙事上。
+    swapAlternativesCount: null,
     lastRefinement: null,
     // ADR-0013：node_actions 绑定"这一版方案"，换方案即失效——同 itinerary 一起
     // 清空，等新一轮 narrate 产出前不展示指向已作废节点的按钮。demandLedger 是
@@ -219,6 +222,10 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
             // 缺省（undefined）保留为 null，不是空字符串（区分"没这个字段"
             // 与"字段值为空串"，虽然当前后端只会二选一地不挂键）。
             planReason: p.plan_reason ?? null,
+            // 信任带⑦拍质检收据：见 AgentThoughtPayload.checks_run 字段注释，
+            // 同 planReason 的"缺省保留 null 不是 0"纪律——0 是一个可能的真实
+            // 值（虽然当前 REGISTRY 恒非空），不能用它兼职"没这个字段"。
+            checksRun: p.checks_run ?? null,
           },
         ],
       }));
@@ -276,6 +283,9 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
         // 讲的是上一版 text 里折叠的取舍，这一版 text 换了就该跟着换，缺省即
         // 清空为 null（没有可展开的内容），不是沿用旧值。
         narrationMessages: p.messages ?? null,
+        // 换菜备选收据：同 narrationMessages 的清空语义（绑定这一版叙事，
+        // 缺省清 null，不沿用上一次换菜的数字——见 store/types.ts 字段注释）。
+        swapAlternativesCount: p.swap_alternatives_count ?? null,
         nodeActions: p.node_actions ?? s.nodeActions,
         // node_detail 镜像 node_actions 的"缺省保留上一版"读法（同一先例，见
         // store/types.ts::ChatState.nodeDetail 字段注释）。

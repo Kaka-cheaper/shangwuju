@@ -49,6 +49,11 @@ def emit_intent(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     intent = diff.get("intent")
     if intent is None:
         return []
+    # 信任带①拍画像收据（见 EmitContext.last_intent docstring）：intent 节点是
+    # 图里唯一产出 field_provenance 的地方，fan-out worker 判定"画像字段是否
+    # 真被消费"要读它——这里累积，不在 get_user_profile_worker 自己的 diff 里
+    # （它压根不含 intent）。
+    ctx.last_intent = intent
     return [ctx.emit(SseEventType.INTENT_PARSED, intent.model_dump())]
 
 
@@ -56,6 +61,9 @@ def emit_refiner(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
     intent = diff.get("intent")
     if intent is None:
         return []
+    # 反馈重规划轮同样要更新——refiner 产出的合并后 intent 才是这一轮真正喂
+    # 给下游 fan-out worker 的版本（同 emit_intent 的累积理由）。
+    ctx.last_intent = intent
     return [
         ctx.emit(
             SseEventType.REFINEMENT_DONE,
@@ -104,6 +112,61 @@ def _top_rated_preview(entities: list[Any], kind: str, limit: int = 3) -> list[d
     ]
 
 
+# 信任带①拍画像收据（2026-07-11 修订）：字段名 → 人话短标签。只收窄到"这局
+# 真的可能被 search 过滤消费"的三个受控词典列表字段——不是 UserProfile 的
+# 全部字段（如 home_location/transport_preference 从不出现在 field_provenance
+# 覆盖范围内，是 assemble 阶段读取的路线计算输入，不是"这句话的意图被画像
+# 改写"，语义上不该冒充"画像收据"）。
+_PROFILE_TAG_FIELD_LABEL: dict[str, str] = {
+    "dietary_constraints": "饮食偏好",
+    "physical_constraints": "出行需求",
+    "experience_tags": "体验偏好",
+}
+
+
+def _consumed_profile_fields(intent: Any) -> list[dict[str, Any]]:
+    """从 `intent.field_provenance` 摘出"这局真被画像先验改写"的字段（信任带
+    ①拍画像收据，见路演PPT/信任带设计终稿.md 2026-07-11 修订）。
+
+    【这是什么问题】
+    "画像被拉取了"不等于"画像真的起作用了"——get_user_profile worker 每轮都
+    会跑，但 UserProfile 是否真的改变了这一轮的搜索过滤，只有 `intent.
+    field_provenance` 知道（ADR-0014 决策 1：`prior` = "值来自 persona 画像/
+    历史偏好注入，用户这句话没有另外提及"）。忠实不编、宁缺勿滥（任务规格
+    原文）——没有任何字段的 provenance=prior 时，本函数返回空列表，调用方
+    据此不挂 `profile_fields` 键，前端①拍收据行不出现，不能为了"有内容看起来
+    更好看"而编一个没发生的消费。
+
+    【为什么是这 3 个字段，不是 UserProfile 全部字段】
+    `field_provenance` 的覆盖范围本身就限定在 physical_constraints /
+    dietary_constraints / experience_tags 等受控词典字段（intent.py
+    docstring）——只有这几个字段的取值会真正传入 search_pois/search_restaurants
+    当作过滤条件（tools.py SearchPoisInput.physical_constraints 等）。
+    dietary_preference（自然语言段落）虽然也来自画像、也被注入 intent parser
+    prompt，但它是否被 LLM 采纳、落到哪个具体 tag，只能通过这几个受控字段
+    的 provenance 才能证实——不直接读 dietary_preference 本身当"被消费"的
+    证据，那只是"被展示给了 LLM"，不是"真的用上了"。
+
+    Returns:
+        每个真被消费字段一条 {"field": 内部字段名, "label": 人话短标签,
+        "tags": [具体值, ...]}，只收 provenance==prior 的元素（同字段里
+        user_stated/inferred/default 的元素不算画像贡献，不进这里）。
+        空列表 = 这局画像没有可显示的真实消费证据。
+    """
+    provenance = getattr(intent, "field_provenance", None) if intent else None
+    if not provenance:
+        return []
+    out: list[dict[str, Any]] = []
+    for field_name, label in _PROFILE_TAG_FIELD_LABEL.items():
+        values = getattr(intent, field_name, None) or []
+        prior_tags = [
+            tag for tag in values if provenance.get(f"{field_name}:{tag}") == "prior"
+        ]
+        if prior_tags:
+            out.append({"field": field_name, "label": label, "tags": prior_tags})
+    return out
+
+
 def emit_fanout_worker(
     ctx: EmitContext, node_name: str, diff: dict[str, Any]
 ) -> list[SseEvent]:
@@ -140,6 +203,11 @@ def emit_fanout_worker(
             out_summary["preview"] = preview
     elif "user_profile" in diff:
         out_summary["found"] = diff["user_profile"] is not None
+        # 信任带①拍画像收据（2026-07-11）：见 _consumed_profile_fields
+        # docstring——"无可显示字段就不加字段"（同 preview 的既有纪律）。
+        profile_fields = _consumed_profile_fields(ctx.last_intent)
+        if profile_fields:
+            out_summary["profile_fields"] = profile_fields
     # Step 6：tag relaxation 透传（split per worker key）
     relaxed = (
         diff.get("pois_relaxed_tags") or diff.get("restaurants_relaxed_tags") or []
@@ -271,10 +339,25 @@ def emit_critic(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
                 },
             ),
         ]
+    # 信任带⑦拍质检收据（2026-07-11）：`checks_run` = 这次通过校验时实际跑过的
+    # check 数量——不是硬编码常量，是从 `agent.planning.critic.validate.
+    # REGISTRY`（校验注册表，Stage 0+1+2 全部 check 的显式有序列表）现场数出来
+    # 的，REGISTRY 增删 check 时这个数字自动跟着变，不会因为前端写死一个数字
+    # 而悄悄过期失真。has_critical=False 时 `validate()`（见该函数 docstring）
+    # 已跑完 Stage 0（结构门，无违规）+ Stage 1+2（collect-all）——即 REGISTRY
+    # 里全部 check 都真实执行过，这个数字不是臆造的"应该跑多少条"，是"确实
+    # 跑完了多少条"。延迟 import（validate.py 属于 critic 子包，避免顶层循环
+    # import——emit_handlers 是 graph 适配层，不应对 planning 子包产生模块级
+    # 硬依赖）。
+    from agent.planning.critic.validate import REGISTRY as _CRITIC_REGISTRY
+
     return [
         ctx.emit(
             SseEventType.AGENT_THOUGHT,
-            {"text": f"方案验证通过（{len(violations)} 条提示）。"},
+            {
+                "text": f"方案验证通过（{len(violations)} 条提示）。",
+                "checks_run": len(_CRITIC_REGISTRY),
+            },
         )
     ]
 
