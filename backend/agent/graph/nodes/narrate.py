@@ -708,6 +708,62 @@ def _feedback_entities_unchanged(state: AgentState, itinerary: Any) -> bool:
 
 _RECAP_QUOTE_RE = re.compile(r"『(.+?)』")
 
+# 声明钟点提取：intent.start_time 里出现的首个 HH:MM（"19:00" /
+# "2026-07-02T19:00" 均命中；"today_evening" 这类时段 token 不命中）。
+_DECLARED_CLOCK_RE = re.compile(r"([01]?\d|2[0-3]):([0-5]\d)")
+
+
+def _departure_fold_disclosure(intent, itinerary) -> str:
+    """出发时刻分歧的强制披露句（I1 折叠批 C3，方案 1.16/1.22，ADR-0017）。
+
+    【这是什么问题】意图卡渲染 `intent.start_time` 声明值（"你说的"），时间轴
+    渲染折叠后 `nodes[0].start_time`（"计划的"）——用户明说"19:00 出门"而系统
+    折到 19:55 时，两个视图数字不同。这不是闪变（两个字段语义不同），但落在
+    元验收"每个数字经得起 3 秒常识审视"的射程内：**有分歧就要有说法，不分
+    大小**（1.16 已裁：原"≥15min 才披露"阈值作废，升格强制）。
+
+    【为什么代码后置追加，不进 LLM prompt（方案 1.22 候选 (ii)，拍板项 P9）】
+    披露句必须"必说且数字必对"——代码在 narration 定稿后追加，构造即正确，
+    零验收机器；LLM/模板两条产出路径共用 narrate_node 的同一个追加点。
+    织进 LLM prompt + substring 验收 + 手术式补挂（候选 (i)）留给 4 拍重写批
+    再评估。文体接缝是已接受的代价（路演场合正确性压倒文体）。
+
+    【措辞含出路（拍板项 P2）】"想按原时间出门先转转也行，跟我说"——把改写
+    呈现为服务、给用户顶回的出路。用户真顶回后的 `departure_time_firm` 豁免
+    机制挂路演后（顶回是低频路径），本批只做披露。
+
+    触发条件（方案 1.22）：`intent.start_time` 含明确钟点（HH:MM 形式）且
+    折叠值晚于声明值（差额 >0）。时段 token（today_evening）无钟点可比，
+    不触发——上游 parser 的"口述钟点保形"规则（C8/T2）负责让用户明说的
+    钟点保住 HH:MM 形式。
+
+    Returns:
+        完整披露句；不满足触发条件时返回空串。
+    """
+    start_time = getattr(intent, "start_time", None) or ""
+    m = _DECLARED_CLOCK_RE.search(start_time)
+    if not m:
+        return ""
+    declared = f"{int(m.group(1)):02d}:{m.group(2)}"
+
+    nodes = getattr(itinerary, "nodes", None) or []
+    if not nodes:
+        return ""
+    actual = nodes[0].start_time or ""
+    m2 = _DECLARED_CLOCK_RE.fullmatch(actual)
+    if not m2:
+        return ""
+
+    declared_min = int(m.group(1)) * 60 + int(m.group(2))
+    actual_min = int(m2.group(1)) * 60 + int(m2.group(2))
+    if actual_min <= declared_min:
+        return ""
+
+    return (
+        f"你说 {declared} 出门——其实 {actual} 出发正好赶上，"
+        "不用干等；想按原时间出门先在附近转转也行，跟我说。"
+    )
+
 
 def _plan_recap_clause(plan_version_log: tuple) -> str:
     """反馈轮的"这版是照哪条反馈调的"确定性回顾句（ADR-0011 决策 3 narration
@@ -849,6 +905,14 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         plan_recap=plan_recap,
         feedback_no_change=feedback_no_change,
     )
+
+    # I1 折叠批 C3：出发时刻分歧的强制披露——narration 定稿后代码后置追加，
+    # LLM/模板两路径共用这一个追加点，构造即正确（见 _departure_fold_disclosure
+    # docstring 的完整论证）。防重复：文案里已含该句（如未来 LLM 路径升级为
+    # prompt 织入）则不再追加。
+    _fold_clause = _departure_fold_disclosure(intent, itinerary)
+    if _fold_clause and _fold_clause not in (text or ""):
+        text = f"{text} {_fold_clause}".strip() if text else _fold_clause
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
     update_fields: dict[str, Any] = {}
