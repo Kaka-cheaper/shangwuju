@@ -102,6 +102,13 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
 - **C 类专属红线**：understanding 在方案重新跑之前生成，绝不能写"换掉了/
   已经换成/帮你换了"这类结果性断言（此刻还不知道最后换没换、换成谁）——
   只预告打算怎么处理，如"我理解成重新给你配一版备选"（见上方 C 类说明）。
+- **不暴露内部实现红线（烧烤根治批 L2）**：understanding 是说给用户听的
+  自然语言，**不得**出现"词典/tag/加tag/字段/校验/preferred_poi_types/
+  dietary_constraints"等任何系统实现名词——这是把内部机制当解释讲给用户，
+  用户听不懂也不该听懂"为什么烧烤不在菜系词典里所以不加tag"这种话；只讲
+  用户能懂的结果或倾向（如"我理解成主活动换成烧烤"），不讲"为什么系统内部
+  这样处理"。同 `narrator_prompt.py`"中文词典强约束"节的对称红线——两处
+  都面向用户输出自然语言，都不该泄露词典/tag 这类实现细节。
 
 【硬性约束】
 1. refined_intent.raw_input **必须**与原 raw_input 完全一致（保留首次输入语义）
@@ -125,7 +132,12 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
                                 → budget_per_person 设为该数字（float）；只说"贵/便宜"没给
                                   数字时**不要编造**，budget_per_person 保持原值不变（ADR-0014
                                   决策 3：系统不编造用户没说的话）
-- "想吃 X"（X 是菜系）          → dietary 加对应菜系 tag（必须在词典内）
+- "想吃 X"（X 是菜系，词典内有对应词，如日料/粤菜） → dietary 加对应菜系 tag（必须在词典内）
+- "想吃 X"（X 是词典外品类/活动，如「烧烤」「撸串」「夜宵」「火锅」「川菜」「KTV」「桌游」
+  「密室」「真人 CS」「攀岩」等——同 intent 首轮解析「明示餐饮/活动品类必须保留」的判断标准）
+                                → **不要**塞进 dietary_constraints（词典没有会校验失败）；
+                                  原样写进 `preferred_poi_types`（自由文本，如加一条 "烧烤"），
+                                  让下游据此重新召回——这是词典外品类唯一正确的落点。
 - "不想吃 X"                    → dietary 加忌口 tag（如"不辣"，必须词典内）
 - 就餐意愿三态 explicit_dining_requested（I3 · 关键）：反馈说"加一顿/想吃饭/
   找个地方吃" → true；说"算了不吃了/不用排饭/别安排吃的" → false（撤回是
@@ -363,6 +375,30 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"understanding":"用户说不吃了看完直接回家，我理解成把饭从方案里去掉"},'
         '"changed_fields":["就餐：不安排了"],'
         '"refiner_note":"明白，这次不排饭了，看完展就结束。"}',
+    ),
+    # 9. 反馈提到词典外品类（烧烤根治批 L1 · 反馈轮版，改写自 intent_parser 首轮
+    #    同款烧烤 few-shot）：「吃个烧烤」不进 dietary_constraints（词典没有会
+    #    校验失败），原样写进 preferred_poi_types——与首轮解析规则对称，堵住
+    #    "parser 教了、refiner 没教"的漂移窗口。
+    (
+        '原 intent={"start_time":"today_afternoon","duration_hours":[2,3],'
+        '"distance_max_km":5,"companions":[{"role":"客户","count":2,"is_special_role":true}],'
+        '"physical_constraints":[],"dietary_constraints":["高人均","有包间"],'
+        '"experience_tags":["商务体面","礼仪感"],"social_context":"商务接待",'
+        '"raw_input":"下午陪客户喝茶聊聊","parse_confidence":0.85,"ambiguous_fields":[],'
+        '"start_weekday":null,"capacity_requirement":2,'
+        '"extra_services":[],"preferred_poi_types":[]} | feedback="不喝茶了，吃个烧烤吧"',
+        '{"refined_intent":{"start_time":"today_afternoon","start_weekday":null,'
+        '"duration_hours":[2,3],"distance_max_km":5,'
+        '"companions":[{"role":"客户","age":null,"count":2,'
+        '"is_birthday":false,"is_special_role":true}],'
+        '"physical_constraints":[],"dietary_constraints":["高人均","有包间"],'
+        '"experience_tags":["商务体面","礼仪感"],"social_context":"商务接待",'
+        '"capacity_requirement":2,"extra_services":[],"preferred_poi_types":["烧烤"],'
+        '"raw_input":"下午陪客户喝茶聊聊","parse_confidence":0.85,"ambiguous_fields":[],'
+        '"understanding":"用户说不喝茶了想吃烧烤，我理解成主活动整个换成烧烤"},'
+        '"changed_fields":["加品类：烧烤"],'
+        '"refiner_note":"明白，换成烧烤——已按这个重新给你配。"}',
     ),
 ]
 

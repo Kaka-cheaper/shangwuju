@@ -30,6 +30,10 @@ from schemas.intent import Companion, IntentExtraction
 
 _FORBIDDEN_WORDS = ("为您", "精心", "智能", "贴心", "一站式", "量身")
 
+# 烧烤根治批 L2：understanding 不得暴露内部实现机制的禁词（词典/tag/字段/校验
+# 等系统内部名词，用户听不懂也不该听懂"为什么烧烤不在菜系词典里所以不加tag"）。
+_INTERNAL_MECHANISM_WORDS = ("词典", "tag", "加tag", "字段", "校验", "dietary_constraints", "preferred_poi_types")
+
 
 def _base_intent(**overrides) -> IntentExtraction:
     base = dict(
@@ -155,6 +159,12 @@ def test_system_prompt_has_understanding_style_rules():
     assert "禁词" in REFINER_SYSTEM_PROMPT
 
 
+def test_system_prompt_has_no_internal_mechanism_leak_rule():
+    """烧烤根治批 L2：system prompt 必须显式禁止 understanding 暴露内部实现词
+    （词典/tag/字段/校验），仿 narrator_prompt.py 的对称红线。"""
+    assert "不暴露内部实现" in REFINER_SYSTEM_PROMPT or "内部实现" in REFINER_SYSTEM_PROMPT
+
+
 def test_at_least_one_few_shot_demonstrates_understanding():
     payloads = [json.loads(assistant) for _user, assistant in REFINER_FEW_SHOTS]
     demonstrated = [
@@ -167,3 +177,14 @@ def test_at_least_one_few_shot_demonstrates_understanding():
         assert len(u) <= 40
         for w in _FORBIDDEN_WORDS:
             assert w not in u
+
+
+def test_no_few_shot_understanding_leaks_internal_mechanism_words():
+    """烧烤根治批 L2：few-shot 示范输出本身也不能出现词典/tag 等内部实现词
+    （包括新增的『反馈提到词典外品类』few-shot——它最容易手滑写成"词典里没有
+    烧烤所以……"这类解释）。"""
+    payloads = [json.loads(assistant) for _user, assistant in REFINER_FEW_SHOTS]
+    for p in payloads:
+        u = p["refined_intent"].get("understanding") or ""
+        for w in _INTERNAL_MECHANISM_WORDS:
+            assert w not in u, f"few-shot understanding 泄露内部实现词 {w!r}：{u!r}"

@@ -42,8 +42,10 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from schemas.category_vocab import all_canonical_terms
 from schemas.intent import IntentExtraction
 from schemas.refine import RefinementOutput
+from schemas.tags import DIETARY_TAGS
 
 from ..core.llm_client import LLMClient, LLMMessage, strip_json_fence
 from ..core.feedback_detector import looks_like_feedback
@@ -193,6 +195,65 @@ _LIST_PROVENANCE_FIELDS: tuple[str, ...] = (
 # （distance_max_km/duration_hours/capacity_requirement）子串匹配噪声太大
 # （"5"这种短数字极易在无关文本里假阳性命中），排除，只保留"继承原出处"语义。
 _REASSERT_CHECKABLE_SCALAR_FIELDS: frozenset[str] = frozenset({"social_context", "start_weekday"})
+
+
+def _repair_dictionary_drift(
+    refined: IntentExtraction, feedback_text: str
+) -> IntentExtraction:
+    """反馈轮「词典外品类」漂移根治（用户拍板方案2：共享规则，中立后处理）。
+
+    【命名问题】parser 首轮与 refiner 反馈轮本该共享同一份"品类归属"认知——
+    这是「多入口共享同一条业务规则」的经典问题（DRY 原则的落地形态之一：
+    同一判定逻辑不能只在一个入口实现、指望另一个入口的 LLM 每次都记得），
+    成熟做法是把判定收敛到一个中立函数，被动态检查各入口的输出是否漏判，
+    而不是指望每个入口的 prompt 各自记住同一条规则（prompt 记忆是软约束，
+    程序化校验才是硬约束——同 ADR-0014 决策 1"反馈轮出处传播不要 LLM 自报，
+    纯规则 diff 现算"是同一条纪律：LLM 侧教了只是双保险，真正兜底的是这里）。
+
+    【背景】`intent_parser_prompt.py`「明示餐饮/活动品类必须保留」段教 LLM：
+    词典外品类（烧烤/撸串/火锅…）必须原样写进 `preferred_poi_types`（下游
+    anchor-escape 靠这个信号触发召回）。但 `refiner_prompt.py`（反馈轮）
+    从未提过 `preferred_poi_types`——LLM 反馈轮遇到"吃个烧烤"时，会尝试把
+    它塞进 `dietary_constraints`（词典内没有"烧烤"这个 Literal 值）→ 校验
+    失败会被 Pydantic 拦截整条丢弃，或 LLM 自己判断"词典没有就不加"→
+    `preferred_poi_types` 保持空 → anchor-escape 收不到信号 → 品类丢失。
+
+    【本函数做什么】refiner 产出 `refined_intent` 后，程序化检查：反馈原话
+    里提到的词，若命中 `category_vocab.all_canonical_terms()`（词汇表单一
+    真相源，同一张表也是 `poi_desire_match`/prompt 例词对齐测试的依据）、
+    且不在 `DIETARY_TAGS` 封闭词典内（词典内有对应词的走 dietary_constraints
+    正常路径，不需要本函数插手）、且尚未出现在 `preferred_poi_types` 里
+    （幂等：parser 首轮已正确填的不重复加，也不覆盖 LLM 这轮自己正确填出的）
+    → 自动补进 `preferred_poi_types`。
+
+    词表来源刻意复用 `category_vocab.all_canonical_terms()`，不新拍一个
+    近似判断——避免"哪些词算品类"这件事出现第二个漂移的真相源。
+
+    【为什么是"补齐"而非"替换"】只做追加、不做删除或改写：反馈轮的原有
+    产出（LLM 或 _rule_fallback 给出的 preferred_poi_types）视为已经正确，
+    本函数只补漏，不覆盖——避免在"共享规则"之外再引入一次额外的字段级
+    决策权，保持"最小必要介入"（同 refiner prompt 的"字段最小修改原则"）。
+    """
+    fb = feedback_text or ""
+    if not fb:
+        return refined
+
+    existing = set(refined.preferred_poi_types or [])
+    to_add: list[str] = []
+    for term in all_canonical_terms():
+        if term in DIETARY_TAGS:
+            continue  # 词典内有对应词 → 走 dietary_constraints 正常路径，不由本函数插手
+        if term in existing:
+            continue  # 幂等：已经填过（parser 首轮或本轮 LLM 已正确产出）不重复加
+        if term in fb:
+            to_add.append(term)
+            existing.add(term)
+
+    if not to_add:
+        return refined
+    return refined.model_copy(
+        update={"preferred_poi_types": list(refined.preferred_poi_types or []) + to_add}
+    )
 
 
 def _propagate_field_provenance(
@@ -410,6 +471,13 @@ def _llm_refine(
     refined_intent, fixed_changed = _enforce_duration_consistency(
         refined_intent, raw_changed, feedback_text
     )
+
+    # 烧烤根治批 L1（共享规则，方案2）：LLM 反馈轮遗漏"词典外品类"信号时的
+    # 中立后处理补齐——见 _repair_dictionary_drift docstring。放在
+    # _propagate_field_provenance 之前跑（preferred_poi_types 不在 provenance
+    # 覆盖范围内，顺序对本字段无影响，但保持"业务补齐先于出处记账"的固定顺序
+    # 便于未来该字段若纳入 provenance 时无需重排）。
+    refined_intent = _repair_dictionary_drift(refined_intent, feedback_text)
 
     # ADR-0014 决策 1（G-1）：反馈轮纯规则传播出处，覆盖/忽略 LLM 在
     # refined_intent.field_provenance 里可能自报的任何值（"不要 LLM 自报"）。
@@ -767,6 +835,19 @@ def _rule_fallback(
     updates["understanding"] = _rule_understanding(feedback, is_scenario, changed)
 
     refined = original.model_copy(update=updates)
+
+    # 烧烤根治批 L1（共享规则，方案2）：LLM 不可用时的降级路径也不能漏——
+    # 与 _llm_refine 共用同一个中立后处理函数（见 _repair_dictionary_drift
+    # docstring），保证无论走哪条路径，"词典外品类"信号都不会因为 LLM 缺席
+    # 而丢失。命中时补一条 changed_fields，让前端 toast 也能看到这次调整。
+    _before_poi_types = set(refined.preferred_poi_types or [])
+    refined = _repair_dictionary_drift(refined, feedback)
+    _added_poi_types = [
+        t for t in (refined.preferred_poi_types or []) if t not in _before_poi_types
+    ]
+    if _added_poi_types:
+        changed.append(f"加品类：{'、'.join(_added_poi_types)}")
+
     # ADR-0014 决策 1（G-1）："_rule_fallback 路径同样维护"——它改
     # distance_max_km / duration_hours / dietary_constraints / experience_tags
     # 时同样要走纯规则出处传播（如"太久了"命中 SESSION_TOO_LONG 缩
