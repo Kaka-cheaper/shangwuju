@@ -403,6 +403,15 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       // 只有非自己发的才追加（自己发的在 ChatDock.submit 里已经追加了）
       const myId = get().myUserId;
       if (constraintUserId !== myId) {
+        // 问题②消息乱序修复：createdAt 曾用 Date.now()（客户端接收时刻的
+        // 本地钟），而 chitchatReplies 用 event-handlers.ts 里的服务器
+        // timestamp_ms（见该文件 ev.timestamp_ms 用法）。两把不同的钟比大小
+        // 会导致排序翻转。复用本函数上面已经在读的 msg.timestamp（后端广播
+        // 的秒级时间戳，同一个 constraint_added 事件里的同一个字段，17 行
+        // 之前刚用它算过 constraints 数组的 timestamp）×1000 转成毫秒，与
+        // chitchat_reply 的 timestamp_ms 同源同单位。msg.timestamp 缺失时
+        // 退回本地钟（历史消息/旧后端兜底，同上面 isConstraint 的宽容策略）。
+        const createdAt = msg.timestamp ? (msg.timestamp as number) * 1000 : Date.now();
         useChatStore.setState((s: any) => ({
           messages: [
             ...s.messages,
@@ -410,7 +419,7 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
               id: `collab-${Date.now()}`,
               role: "user",
               text: `${constraintNickname}：${constraintText}`,
-              createdAt: Date.now(),
+              createdAt,
             },
           ],
         }));

@@ -292,6 +292,60 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     expect(useChatStore.getState().nodeActions).toEqual(nodeActions);
   });
 
+  // 问题②消息乱序修复：constraint_added 的 messages.createdAt 此前用
+  // Date.now()（客户端接收时刻的本地钟），chitchat_reply 的 chitchatReplies.
+  // receivedAtMs 用服务器 timestamp_ms（event-handlers.ts）——两把不同的钟
+  // 比大小会导致顺序翻转。本用例钉住：即使 chitchat_reply 先到但服务器时间
+  // 更晚、constraint_added 后到但服务器时间更早，合并后二者的时间戳仍应
+  // 反映真实的服务器时间先后（而不是网络到达顺序）。
+  it("constraint_added reuses the server timestamp for messages.createdAt so mixed ordering with chitchat_reply does not reverse", () => {
+    // 服务器时间线：constraint（第 1 秒）早于 chitchat_reply（第 2 秒）。
+    const constraintServerTs = 1_000; // 秒
+    const chitchatServerTsMs = 2_000_000; // 毫秒
+
+    // 网络到达顺序刻意反着来：chitchat_reply 先到，constraint_added 后到——
+    // 若 constraint_added 仍用 Date.now() 本地钟，它的 createdAt 必然
+    // 大于 chitchat 到达时刻的 receivedAtMs（本地钟单调递增且晚到），
+    // 会把"更早发生"的约束排到"更晚发生"的闲聊后面，顺序翻转。
+    handleWsMessage(useChatStore.setState as any, useChatStore.getState as any, {
+      type: "planning_event",
+      event: {
+        type: "chitchat_reply",
+        seq: 0,
+        payload: {
+          input_kind: "chitchat",
+          confidence: 0.9,
+          reply_text: "hi",
+          tone: "warm",
+          cta_chips: [],
+        },
+        timestamp_ms: chitchatServerTsMs,
+      },
+    });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "constraint_added",
+      user_id: "other_user",
+      nickname: "小北",
+      text: "太远了",
+      source: "text",
+      timestamp: constraintServerTs,
+      is_constraint: true,
+    });
+
+    const { messages, chitchatReplies } = useChatStore.getState();
+    const constraintMsg = messages.find((m) => m.text.includes("太远了"));
+    expect(constraintMsg).toBeDefined();
+    expect(constraintMsg!.createdAt).toBe(constraintServerTs * 1000);
+
+    expect(chitchatReplies).toHaveLength(1);
+    expect(chitchatReplies[0].receivedAtMs).toBe(chitchatServerTsMs);
+
+    // 核心断言：约束的服务器时间戳早于闲聊的服务器时间戳——合并排序时
+    // 约束应排在闲聊之前，与"谁先发生"一致，不受网络到达顺序影响。
+    expect(constraintMsg!.createdAt).toBeLessThan(chitchatReplies[0].receivedAtMs);
+  });
+
   it("room_state without node_actions (no plan yet / assembly failed) resets nodeActions to null", () => {
     useChatStore.setState({
       nodeActions: {
