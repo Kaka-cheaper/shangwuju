@@ -192,15 +192,20 @@ def test_A1_standard_two_segment(profile):
       P040 → R001 = 5min（real_route）
       R001 → home = 7min（real_route）
 
-    预期时间轴（preferred_start_time=14:00, taxi）：
-      n0(home, 14:00, 0min)
-        h0: 14:00 → 14:09, 9min, taxi, real_route, buffer=0
-      n1(P040, 14:09, 165min) → 17:14
-        h1: 17:14 → 17:19, 5min, taxi, real_route, buffer=5
-      n2(R001, 17:24, 60min) → 18:24
-        h2: 18:24 → 18:31, 7min, taxi, real_route, buffer=0
-      n3(home, 18:31, 0min)
-      total = 18:31 - 14:00 = 271min
+    R001.reservation_slots 含 17:00(满)/17:30(可订)/18:00(可订)——蓝图声明
+    14:00 出发时自然到达 17:04，被吸附到 17:30（真因修复批 item 1）；候选 A
+    出发时刻倒推（方案 1.3）以 R001 为锚点，把这段 26 分钟的"看展后干等"
+    整体倒推进出发时刻——19:00 出发变 19:26 出发的同款模式，此处是
+    14:00→14:26：
+
+      n0(home, 14:26, 0min)
+        h0: 14:26 → 14:35, 9min, taxi, real_route, buffer=0
+      n1(P040, 14:35, 165min) → 17:20
+        h1: 17:20 → 17:25, 5min, taxi, real_route, buffer=5
+      n2(R001, 17:30, 60min) → 18:30 —— 自然到达 17:30 恰好等于槽，无残留等待
+        h2: 18:30 → 18:37, 7min, taxi, real_route, buffer=0
+      n3(home, 18:37, 0min)
+      total = 18:37 - 14:26 = 251min（比未倒推少 26min，与消掉的中段死等等量）
     """
     bp = PlanBlueprint(
         nodes=[
@@ -233,33 +238,53 @@ def test_A1_standard_two_segment(profile):
     assert itin.hops[1].buffer_min == 5
     assert itin.hops[2].buffer_min == 0
 
-    # 首跳 hop 命中 routes.json：home → P040 taxi_minutes = 9
-    assert itin.hops[0].start_time == "14:00"
+    # 出发时刻已被候选 A 倒推：14:00 → 14:26（R001 锚点，见类文档字符串）
+    assert itin.hops[0].start_time == "14:26"
     assert itin.hops[0].minutes == 9
     assert itin.hops[0].mode == "taxi"
     assert itin.hops[0].path_type == "real_route"
-    assert itin.nodes[1].start_time == "14:09"
+    assert itin.nodes[1].start_time == "14:35"
+
+    # 倒推后中段死等清零：自然到达恰好等于锚点槽（17:30），无残留 gap
+    assert itin.nodes[2].start_time == "17:30"
+    natural_arrival = (
+        _parse_hhmm(itin.hops[1].start_time) + itin.hops[1].minutes + itin.hops[1].buffer_min
+    )
+    assert _parse_hhmm(itin.nodes[2].start_time) - natural_arrival == 0
 
     # 公共不变量
     _assert_invariants(itin, bp)
 
 
 def test_A1_actual_timing_walkthrough(profile):
-    """A1 同结构，逐字段验证时间游标的精确推进。
+    """A1 同结构，逐字段验证时间游标的精确推进（含候选 A 出发时刻倒推）。
 
-    从 14:00 开始，taxi：
+    未倒推的预演（内核 `_assemble_forward`，仅供推导倒推量，非最终断言）从
+    14:00 开始：
       h0 home→P040 = 9min, buffer=0  → 14:00→14:09 → P040 start 14:09
       n1 P040 165min                 → 14:09→16:54
       h1 P040→R001 = 5min, buffer=5  → 16:54→16:59 → 自然到达 17:04
       n2 R001 60min —— 真因修复批 item 1（槽吸附）：R001.reservation_slots=
          [17:00(满)/17:30(可订)/18:00(可订)]，自然到达 17:04 对不上任何真实槽，
-         吸附到"不早于到达的最早可用槽" 17:30 → 17:30→18:30
-      h2 R001→home = 7min, buffer=0  → 18:30→18:37 → home start 18:37
-      total = 18:37 - 14:00 = 277min
+         吸附到"不早于到达的最早可用槽" 17:30——预演阶段产生 26min 中段死等。
 
-    （吸附前旧断言是 17:04/18:11/251——这条测试正是槽吸附要修的那类必然错位：
-    LLM 路径的精确分钟从不会碰巧对上 mock 餐厅的离散预约槽，真因修复批之后
-    assemble 自己把它吸附到真实可订时刻，此处断言随之有意识更新，不是回归。）
+    候选 A（方案 1.3，backward scheduling from anchor）：R001 是时间序上第一个
+    被吸附顶出正差额的餐厅节点，以它为锚反推 preferred_start_time：
+    17:30 - (5+5)min(hop1+buffer) - 165min(P040) - (9+0)min(hop0+buffer)
+    = 14:26——晚于原下限 14:00，倒推生效，重跑正向 assemble：
+
+      n0(home, 14:26, 0min)
+        h0 home→P040 = 9min, buffer=0  → 14:26→14:35 → P040 start 14:35
+      n1 P040 165min                 → 14:35→17:20
+        h1 P040→R001 = 5min, buffer=5  → 17:20→17:25 → 自然到达 17:30
+      n2 R001 60min —— 自然到达恰好 == 锚点槽 17:30，无残留中段等待
+                                     → 17:30→18:30
+        h2 R001→home = 7min, buffer=0  → 18:30→18:37 → home start 18:37
+      total = 18:37 - 14:26 = 251min（比预演少 26min，即消掉的中段死等）
+
+    （倒推前旧断言是 14:00/14:09/17:30/18:37/277——candidate A 落地后，这条
+    正是任务书「情侣看展」病灶的最小复现：看展后到餐厅之间的死等被整体
+    倒推进出发时刻，看展时长 165min 一分不少，仅仅整体后移。）
     """
     bp = PlanBlueprint(
         nodes=[
@@ -281,17 +306,19 @@ def test_A1_actual_timing_walkthrough(profile):
     )
     itin = assemble_from_blueprint(_intent((4, 5)), bp, profile)
 
-    # 完整精确断言
-    assert itin.nodes[0].start_time == "14:00"
-    assert itin.nodes[1].start_time == "14:09"
+    # 完整精确断言（候选 A 倒推后）
+    assert itin.nodes[0].start_time == "14:26"
+    assert itin.nodes[1].start_time == "14:35"
     assert itin.nodes[2].start_time == "17:30"
     assert itin.nodes[3].start_time == "18:37"
 
-    assert itin.hops[0].start_time == "14:00" and itin.hops[0].minutes == 9
-    assert itin.hops[1].start_time == "16:54" and itin.hops[1].minutes == 5
+    assert itin.hops[0].start_time == "14:26" and itin.hops[0].minutes == 9
+    assert itin.hops[1].start_time == "17:20" and itin.hops[1].minutes == 5
     assert itin.hops[2].start_time == "18:30" and itin.hops[2].minutes == 7
 
-    assert itin.total_minutes == 277
+    # 看展时长一分不少：n1.duration_min 恒 165（倒推只挪位置，不改时长）
+    assert itin.nodes[1].duration_min == 165
+    assert itin.total_minutes == 251
 
     # 标题
     assert itin.nodes[0].title in {"出发", profile.home_location.name}
@@ -545,25 +572,33 @@ def _fake_restaurant(rest_id: str, slots: list[tuple[str, bool]]) -> Restaurant:
 
 def test_A7_restaurant_slot_snap_and_cascade(profile, monkeypatch):
     """真因修复批 item 1：LLM 路径餐厅节点自然到达对不上真实预约槽的必然错位——
+    叠加候选 A 出发时刻倒推（方案 1.3）后，中段死等被整体倒推进出发时刻。
 
-    构造与真 LLM 复测诊断同款的用例："到达 15:17，最近可用槽在 15:30"：
+    未倒推的预演（内核 `_assemble_forward`）："到达 15:17，最近可用槽在 15:30"：
       - preferred_start_time=13:00
       - home→P_TEST 60min（首跳 buffer=0）→ P_TEST 14:00 起
       - P_TEST 60min → 15:00 结束
       - P_TEST→R_TEST 12min + buffer5 → 餐厅自然到达 15:00+12+5=15:17
       - R_TEST.reservation_slots：15:00(不可订，且早于到达) / 15:30(可订)
-        → 吸附到 15:30（不早于到达的最早可用槽）
+        → 吸附到 15:30（不早于到达的最早可用槽）——预演阶段产生 13min 中段死等。
+
+    候选 A：R_TEST 是首个被吸附顶出正差额的餐厅节点，以它为锚反推：
+    15:30 - (12+5)min(hop1+buffer) - 60min(P_TEST) - (60+0)min(hop0+buffer)
+    = 13:13——晚于原下限 13:00，倒推生效，重跑正向 assemble：
+      - home→P_TEST 60min → P_TEST 14:13 起 → 15:13 结束
+      - P_TEST→R_TEST 12min+buffer5 → 自然到达 15:30，恰好等于锚点槽，无残留等待
       - R_TEST 45min → 16:15 结束；R_TEST→home 20min（返程 buffer=0）→ 16:35
 
     lookup_hop 走 monkeypatch 定死通勤分钟数（不依赖 routes.json 真值，专注
-    验证吸附本身 + 顺延，不掺通勤查找的不确定性）。
+    验证吸附本身 + 倒推顺延，不掺通勤查找的不确定性）。
 
     断言：
-    - 餐厅节点吸附为 "15:30"（不是自然到达的 "15:17"）——口径来自
-      R_TEST.reservation_slots 真值，不是套用 ILS 侧的通用半点网格。
-    - 吸附挤出的等待（15:17→15:30 的 13min）不是"只改一个字段的假动作"：
-      餐厅之后所有时刻（返程 hop + home 终点 + total_minutes）跟着顺延，
-      印证 assemble 的单游标（cursor_min）推进机制天然传导吸附结果。
+    - 出发时刻倒推为 "13:13"（不是原始声明的 "13:00"）。
+    - 餐厅节点吸附为 "15:30"（不是未倒推时自然到达的 "15:17"），且倒推后
+      自然到达与锚点槽精确对齐（无残留中段死等）。
+    - 吸附挤出的等待不是"只改一个字段的假动作"：餐厅之后所有时刻（返程
+      hop + home 终点 + total_minutes）跟着顺延，印证 assemble 的单游标
+      （cursor_min）推进机制天然传导吸附结果——倒推重跑亦是同一内核。
     """
     monkeypatch.setattr(
         _assemble_blueprint_mod,
@@ -601,18 +636,26 @@ def test_A7_restaurant_slot_snap_and_cascade(profile, monkeypatch):
     )
     itin = assemble_from_blueprint(_intent((3, 4)), bp, profile)
 
-    # 吸附：餐厅自然到达 15:17，吸附为可用槽 15:30
+    # 出发时刻倒推：13:00 → 13:13（R_TEST 锚点）
+    assert itin.nodes[0].start_time == "13:13"
+    assert itin.nodes[1].start_time == "14:13"
+
+    # 吸附：倒推后自然到达恰好 == 锚点槽 15:30，无残留中段死等
     assert itin.nodes[2].target_id == "R_TEST"
     assert itin.nodes[2].start_time == "15:30", (
-        f"应吸附到 15:30（不早于自然到达 15:17 的最早可用槽），实际 {itin.nodes[2].start_time}"
+        f"应吸附到 15:30（不早于自然到达的最早可用槽），实际 {itin.nodes[2].start_time}"
     )
+    natural_arrival = (
+        _parse_hhmm(itin.hops[1].start_time) + itin.hops[1].minutes + itin.hops[1].buffer_min
+    )
+    assert _parse_hhmm(itin.nodes[2].start_time) - natural_arrival == 0
 
     # 顺延：餐厅之后所有时刻跟着推（不是只改餐厅这一个字段）
     assert itin.nodes[2].duration_min == 45
     assert itin.hops[2].start_time == "16:15"  # 15:30 + 45min
     assert itin.hops[2].minutes == 20
     assert itin.nodes[3].start_time == "16:35"  # 16:15 + 20min
-    assert itin.total_minutes == 215  # 16:35 - 13:00
+    assert itin.total_minutes == 202  # 16:35 - 13:13（比未倒推的 215 少 13min）
 
     # 不变量：hops/nodes 长度、首尾 home
     assert len(itin.hops) == len(itin.nodes) - 1

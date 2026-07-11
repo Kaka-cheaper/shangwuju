@@ -10,9 +10,12 @@
 - 系统决定**客观**项：home 起终点、节点间通勤分钟、时间游标推进
   （通勤通过 `lookup_hop` 查 `routes.json` / haversine 三级降级）
 
-【关键算法（见 design.md「assemble_from_blueprint」伪代码）】
+【关键算法（见 design.md「assemble_from_blueprint」伪代码；候选 A 追补见
+`_assemble_forward`/`_find_backschedule_anchor`/`_backschedule_departure`
+三个函数的 docstring）】
 
 ```
+# 内核（_assemble_forward，cursor 单调推进，候选 A 外层循环调用两次，内核不变）
 cursor = parse(preferred_start_time)
 nodes = [home_start_node]
 hops = []
@@ -31,8 +34,15 @@ commute_back = lookup_hop(last.target_id, "home", ...)
 hops.append(Hop(start=cursor, minutes=commute_back, buffer_min=0))
 nodes.append(home_end_node(start=cursor+commute_back, duration=0))
 
-# 尾部后处理：首段等待折叠（I1「出门即行程」，ADR-0017）——首站吸附/钉窗
-# 挤出的出门后等待，整体后移 n0/h0 的出发时刻吸收掉（见 _fold_leading_wait）
+# 外层循环（assemble_from_blueprint，backward scheduling from anchor，方案 1.3 候选 A）：
+# 1. 先跑一次内核（预演）
+# 2. 找时间序上第一个被吸附顶出正差额的餐厅节点作锚
+# 3. 从锚点减去它之前全部 hop+停留时长，反推 preferred_start_time
+#    早于原下限 → 维持原时刻（差额留作中段合法等待）
+#    否则         → 用新出发时刻重跑一次内核（仍是纯单次正向遍历）
+# 4. 尾部后处理：首段等待折叠（_fold_leading_wait，候选 A 在"锚点=首个 mid
+#    节点"时的退化子集/收尾兜底）——首站吸附/钉窗挤出的出门后等待，整体
+#    后移 n0/h0 的出发时刻吸收掉
 ```
 
 【不变量手工断言（RuntimeError，先于 Pydantic 校验）】
@@ -235,6 +245,149 @@ def _earliest_available_slot_min(target_id: str, natural_arrival_min: int) -> Op
 
 
 # ============================================================
+# 出发时刻倒推（backward scheduling from anchor，方案 1.3 候选 A，ADR-0017 追补）
+# ============================================================
+
+
+def _find_backschedule_anchor(
+    nodes: list[ActivityNode], hops: list[Hop], blueprint: PlanBlueprint
+) -> Optional[tuple[int, int]]:
+    """在预演一次的正向拼装结果里，找「时间序上第一个被硬约束顶出等待」的锚点。
+
+    【这是什么问题】backward scheduling from a due date（frePPLe/VRPTW 式：
+    先按到达/预约锚点倒推最早可行开始时刻）——`_fold_leading_wait`（候选 B）
+    只处理"锚点恰好是首个 mid 节点"这一种情形；候选 A 是它的完整超集：锚点
+    可以出现在链路任意位置（如"先看展、后吃饭"，餐厅是第二个 mid 节点）。
+
+    【锚点判据：不是"有 reservation_slots"，是"被吸附顶出了真实等待"】
+    任务书原文说"时间序上第一个有 reservation_slots 硬约束的节点"，但逐字照办
+    会把 A8 类"到达时刻晚于全部槽、根本没吸附"的餐厅也当成锚点——这种情形
+    压根没有等待可消（自然到达就是最终 start_time，`snapped_min is None`），
+    把它当锚点反推只会得出荒谬的"提前"结论（该店没有更晚的槽，倒推无意义，
+    真正问题是 critic 该拦的 RESTAURANT_FULL_UNRESOLVED）。精确判据改为
+    "该餐厅节点的 `start_time` 确实晚于其自然到达时刻"（即真正被吸附产生了
+    正差额）——这是对任务书算法的忠实但更健壮的实现，差异见报告「待裁决」。
+
+    【范围限定：只认 LLM 路径的 `_earliest_available_slot_min` 吸附，不碰
+    ILS/rule 路径的 `not_before_start` 钉窗（方案 1.11-b「两套槽机制不合并」
+    的直接推论）】`route_builder.route_to_blueprint` 已经把 `route_scheduler`
+    算好的、必要最小 slack 的绝对时刻钉进 `not_before_start`（对所有
+    `slack_min > 0` 的节点，不限餐厅），且 `preferred_start_time` 本就是该
+    调度器自己算出的 `depart_min`——这条时间线已经是另一套独立机制的最优解，
+    它的"正差额"不是"可以倒推消除的死等"，而是 VRPTW 意义上的必要 slack
+    （见 route_scheduler 模块 docstring 判断点 3）。若不加区分地对它再跑一次
+    「零松弛重新摊平」的倒推，等于用 LLM 路径的朴素倒推覆盖 ILS 路径的精细
+    调度结果——违反两套槽机制刻意分层、不合并的既有边界。判据：跳过
+    `blueprint.nodes[idx-1].not_before_start` 已设置的节点（`idx-1` 是因为
+    `nodes[1:]` 与 `blueprint.nodes` 一一对应，`nodes[0]` 是 home 起点）。
+
+    【已知范围限定：只倒推第一个锚点，多餐厅链路的下游锚点不连带处理】
+    任务书原文明确是"时间序上**第一个**有硬约束的节点"——本实现严格按此
+    取第一个。多餐厅场景（如"晚饭+夜宵"）下，若晚饭已吸附产生 gap、夜宵
+    也吸附产生 gap，本函数只用晚饭反推出发时刻；重跑一次之后晚饭的 gap
+    精确清零（单轮收敛，见 `_backschedule_departure` docstring），但夜宵
+    自己的 gap 不受影响（它的自然到达只取决于晚饭的**绝对**结束时刻，与
+    出发时刻整体前移量无关——backward 传播只消掉了它前面那一个锚点的
+    差额，不会连带消掉更下游锚点自己的差额）。这不是 bug：任务书按"第一个"
+    定义了倒推目标，多锚点连续消除是一般化的 VRPTW 多阶段 backward slack
+    传播，超出本次任务范围（报告「待裁决」列出，供主代理判断是否需要
+    扩展成"从最后一个锚点开始向前逐个消除"的多轮版本）。
+
+    Args:
+        nodes: 预演一次的完整节点列表（首尾 home，`_fold_leading_wait` 之前）。
+        hops: 对应 hop 列表。
+        blueprint: 本轮蓝图（读 `nodes[i].not_before_start` 判断该节点是否
+            已被 ILS/rule 路径的调度器钉死，不是本函数的倒推对象）。
+
+    Returns:
+        `(anchor_node_index, anchor_target_min)`——锚点在 `nodes` 里的下标、
+        锚点应该到达的绝对分钟数（即吸附后的 `start_time`）。找不到锚点
+        （没有任何被顶出等待的硬约束节点）→ None。
+    """
+    for idx in range(1, len(nodes) - 1):
+        node = nodes[idx]
+        if node.target_kind != "restaurant":
+            continue
+        bp_node = blueprint.nodes[idx - 1]
+        if getattr(bp_node, "not_before_start", None):
+            # ILS/rule 路径钉窗——不是本函数的倒推对象（见上方范围限定）。
+            continue
+        hop_before = hops[idx - 1]
+        natural_arrival_min = (
+            _parse_hhmm(hop_before.start_time)
+            + hop_before.minutes
+            + hop_before.buffer_min
+        )
+        actual_start_min = _parse_hhmm(node.start_time)
+        if actual_start_min > natural_arrival_min:
+            # 真正被吸附顶出了正差额——这是任务书"硬约束节点"的精确含义。
+            return idx, actual_start_min
+    return None
+
+
+def _backschedule_departure(
+    nodes: list[ActivityNode],
+    hops: list[Hop],
+    anchor_idx: int,
+    anchor_target_min: int,
+    original_start_min: int,
+) -> Optional[int]:
+    """从锚点减去它之前所有 hop+停留时长，反推 `preferred_start_time` 应几点。
+
+    把锚点之前的链路当成"背靠背、零松弛"重新摊平：新出发时刻 = 锚点目标到达
+    时刻 - (锚点之前全部 hop 分钟+buffer 之和) - (锚点之前全部 mid 节点停留
+    时长之和)。这与现有 `_fold_leading_wait` 是同一个代数关系在"锚点=首个
+    mid 节点"这一特殊情形下的退化版本（此时求和项只有 h0，与 `_fold_leading_
+    wait` 的 `gap` 计算完全等价）。
+
+    【边界（方案已列，必须处理）】倒推出的出发时刻若早于用户可接受下限
+    （本系统无实时时钟概念，下限取蓝图原始 `preferred_start_time`——口语
+    "几点出门"默认是 release time，即最早可出发时刻，见 ADR-0017 释义）→
+    维持原时刻，返回 None（差额留作中段合法等待，讲得出因由：这段等待不是
+    "出门太早"，而是"就算不能再早出门，这段路线本身留了这么多余量"）；
+    否则返回倒推出的更晚出发时刻。
+
+    【实现纪律记录：本实现下此边界数学上不可达，但代码仍必须保留判断】
+    `_find_backschedule_anchor` 只在 `actual_start_min(锚点) > natural_
+    arrival_min` 时才判定为锚点——而 `natural_arrival_min` 正是本函数
+    `span` 计算所依据的同一条预演链路上算出来的（`natural_arrival_min ==
+    original_start_min + span`，两者是同一次 `_assemble_forward` 调用的
+    产物）。代入：`new_start_min = anchor_target_min - span >
+    (original_start_min + span) - span == original_start_min`——即"存在
+    锚点"这个前提本身已经保证 `new_start_min > original_start_min` 恒成立，
+    这条边界在当前"单锚点、同一预演链路反推"的实现下不会被触发。保留判断
+    仍然必要：① 这是任务书明确列出的必做边界，属于契约的一部分，不能因为
+    "现在推不出反例"就删除防御；②若未来扩展成多锚点/跨预演链路取值（如
+    改用外部声明的到达截止时间做锚点，而不是本次预演自己算出的吸附时刻），
+    这条边界会立刻变得可达——先量好尺子，后面才不会失守。
+
+    Args:
+        nodes / hops: 预演一次的完整拼装结果（首尾 home）。
+        anchor_idx: `_find_backschedule_anchor` 定位的锚点节点下标。
+        anchor_target_min: 锚点应到达的绝对分钟数。
+        original_start_min: 蓝图原始 `preferred_start_time`（分钟）——同时
+            充当"用户可接受下限"。
+
+    Returns:
+        新的 `preferred_start_time`（分钟）；倒推结果早于下限时返回 None
+        （维持原时刻，不替换）。
+    """
+    span = 0
+    for i in range(anchor_idx):
+        hop = hops[i]
+        span += hop.minutes + hop.buffer_min
+        if i > 0:
+            # nodes[i] 是锚点之前的 mid 节点（i=0 时 nodes[0] 是 home，
+            # duration_min 恒 0，不需要特判也不影响结果，写 i>0 只为可读性）。
+            span += nodes[i].duration_min
+
+    new_start_min = anchor_target_min - span
+    if new_start_min < original_start_min:
+        return None
+    return new_start_min
+
+
+# ============================================================
 # 首段等待折叠（I1「出门即行程」，ADR-0017，2026-07-11）
 # ============================================================
 
@@ -246,10 +399,22 @@ def _fold_leading_wait(nodes: list[ActivityNode], hops: list[Hop]) -> int:
     切片：正向游标 + 餐厅槽吸附的组合会把等待放在**到达之后**（19:00 出门
     19:03 到店、吸附到 20:00 落座 → 57 分钟"自由休息"排在店门口），而 I1
     不变式要求出发时刻回答"我几点出门"——等待应该被出发时刻吸收（19:55 出门
-    20:00 落座）。完整倒推（对任意位置锚点回推出发时刻）挂路演后；本函数只
-    处理首段：首段差额的唯一物理语义就是"出门太早"（首跳 buffer=0，差额没有
-    任何其它成因），后移出发时刻是无损的。中段 gap 不折——那可能有正当因由
-    （等座/消食），归完整倒推批处理。
+    20:00 落座）。
+
+    【与候选 A（`assemble_from_blueprint` 外层倒推循环）的关系，2026-07-11
+    追补】本函数只处理"锚点恰好是首个 mid 节点"这一种情形——这正是候选 A 在
+    "链路第一个 mid 节点就是硬约束节点"时的退化子集，两者用的是同一条代数
+    关系（`_backschedule_departure` 在 `anchor_idx==1` 时，求和项只有 h0，与本
+    函数的 `gap` 计算完全等价）。`assemble_from_blueprint` 现在总是先跑一次
+    候选 A 外层循环（`_find_backschedule_anchor` + `_backschedule_departure`，
+    锚点可能在任意位置、可能倒推出更晚的出发时刻并整体重跑一次正向
+    assemble）；本函数仍在其后无条件调用一次，作为
+    最终收尾——如果锚点就是首个 mid 节点，倒推已经把首段差额消成 0（等号
+    对齐，见下方单轮收敛论证），本函数在此处必然是 no-op（幂等）；如果锚点
+    倒推被下限挡回（`_backschedule_departure` 返回 None，差额留作中段合法
+    等待），本函数依旧兜底处理"首个 mid 节点自身也恰好有独立首段差额"这种
+    锚点不存在时的普通情形（如首站是 POI、全程没有任何餐厅硬约束）。**不
+    删除本函数**——它是候选 A 的必要子例程，不是被替代的旧代码。
 
     【为什么放 assemble 尾部】LLM / ILS / rule 三条规划路径全部经
     `assemble_from_blueprint` 拼装（ILS 见 ils_planner.py route_to_blueprint →
@@ -406,36 +571,26 @@ def _build_summary(
 
 
 # ============================================================
-# 主入口
+# 正向拼装核心（cursor 单调推进，候选 A 外层循环调用两次，内核本身不变）
 # ============================================================
 
 
-def assemble_from_blueprint(
-    intent: IntentExtraction,
+def _assemble_forward(
     blueprint: PlanBlueprint,
     user_profile: UserProfile,
-) -> Itinerary:
-    """蓝图 → Itinerary（edge_v1）。
+) -> tuple[list[ActivityNode], list[Hop], int]:
+    """纯正向拼装：cursor 单调推进算出 nodes/hops，含不变量手工断言。
 
-    Args:
-        intent: 用户意图（companions 用于 summary 同行短语；小红书风格大标题）。
-        blueprint: LLM 输出的 mid nodes + preferred_start_time。
-        user_profile: 含 home_location 与 transport_preference。
+    【为什么单列一个函数】方案 1.11-c 已拍板"cursor 单调推进不打破"——候选 A
+    的倒推是"预演一次正向 assemble → 倒推调整 preferred_start_time → 重跑一次
+    正向 assemble"的外层循环，内核（本函数）必须原样保持纯单次正向遍历，不
+    引入任何双向推进的复杂度。`assemble_from_blueprint` 用同一个纯函数调用
+    两次（预演 + 定稿），而不是维护两份逻辑或让内核感知"这是第几次跑"。
 
     Returns:
-        合法的 Itinerary 对象（含 nodes + hops + schedule + total_minutes）。
-
-    Raises:
-        RuntimeError: 不变量校验失败（hops 长度不匹配 / 首尾不是 home）。
-                      Pydantic ValidationError 是兜底（schemas/itinerary.py 里
-                      的 model_validator 也会再校验一次）。
-
-    保证：
-        - len(hops) == len(nodes) - 1
-        - 首尾 nodes 均为 target_kind="home" / target_id="home" / duration_min=0
-        - schedule 与 nodes/hops 时间一致
+        `(nodes, hops, cursor_min)`——`cursor_min` 是返程到家后的最终游标
+        （分钟数），供调用方算 `total_minutes`。
     """
-    # ---------- 准备：交通偏好 + 时间游标 ----------
     transport_pref = (
         user_profile.transport_preference
         if user_profile.transport_preference in {"walking", "taxi", "bus"}
@@ -604,7 +759,84 @@ def assemble_from_blueprint(
             f"实际 首={nodes[0].duration_min} 尾={nodes[-1].duration_min}"
         )
 
-    # ---------- 4.5 首段等待折叠（I1「出门即行程」，ADR-0017）----------
+    return nodes, hops, cursor_min
+
+
+# ============================================================
+# 主入口
+# ============================================================
+
+
+def assemble_from_blueprint(
+    intent: IntentExtraction,
+    blueprint: PlanBlueprint,
+    user_profile: UserProfile,
+) -> Itinerary:
+    """蓝图 → Itinerary（edge_v1）。
+
+    Args:
+        intent: 用户意图（companions 用于 summary 同行短语；小红书风格大标题）。
+        blueprint: LLM 输出的 mid nodes + preferred_start_time。
+        user_profile: 含 home_location 与 transport_preference。
+
+    Returns:
+        合法的 Itinerary 对象（含 nodes + hops + schedule + total_minutes）。
+
+    Raises:
+        RuntimeError: 不变量校验失败（hops 长度不匹配 / 首尾不是 home）。
+                      Pydantic ValidationError 是兜底（schemas/itinerary.py 里
+                      的 model_validator 也会再校验一次）。
+
+    保证：
+        - len(hops) == len(nodes) - 1
+        - 首尾 nodes 均为 target_kind="home" / target_id="home" / duration_min=0
+        - schedule 与 nodes/hops 时间一致
+
+    【候选 A 外层循环，方案 1.3/1.11-c，ADR-0017 追补】
+    1. 先跑一次 `_assemble_forward`（预演）；
+    2. `_find_backschedule_anchor` 在预演结果里找时间序上第一个被吸附顶出
+       正差额的餐厅节点（"硬约束节点"的精确判据见该函数 docstring）；
+    3. 找到锚点则 `_backschedule_departure` 反推新的 `preferred_start_time`；
+       倒推结果不早于原下限时，用新出发时刻的 blueprint **重跑一次**
+       `_assemble_forward`（cursor 单调推进的内核完全不变，只是外层多调了
+       一次同一个纯函数——1.11-c 已拍板的边界）；
+    4. 无论是否倒推，最终结果都过一次 `_fold_leading_wait`——它是候选 A 在
+       "锚点就是首个 mid 节点"时的退化子集，此处保留作为收尾兜底（若倒推
+       已把首段差额精确清零，这里必然 no-op；若锚点不存在或被下限挡回，
+       这里兜住普通的首段吸附差额，行为与改动前的 C2 完全一致）。
+    """
+    nodes, hops, cursor_min = _assemble_forward(blueprint, user_profile)
+
+    # ---------- 出发时刻倒推（候选 A：任意位置锚点）----------
+    anchor = _find_backschedule_anchor(nodes, hops, blueprint)
+    if anchor is not None:
+        anchor_idx, anchor_target_min = anchor
+        original_start_min = _parse_hhmm(blueprint.preferred_start_time)
+        new_start_min = _backschedule_departure(
+            nodes, hops, anchor_idx, anchor_target_min, original_start_min
+        )
+        if new_start_min is not None and new_start_min > original_start_min:
+            backscheduled_blueprint = blueprint.model_copy(
+                update={"preferred_start_time": _fmt_hhmm(new_start_min)}
+            )
+            nodes, hops, cursor_min = _assemble_forward(
+                backscheduled_blueprint, user_profile
+            )
+            logger.info(
+                "backschedule applied: %s→%s (anchor idx=%d target=%s)",
+                blueprint.preferred_start_time,
+                backscheduled_blueprint.preferred_start_time,
+                anchor_idx,
+                _fmt_hhmm(anchor_target_min),
+            )
+            # 倒推重跑之后，_build_summary/_fold_leading_wait 等下游一律读
+            # 重跑后的 nodes/hops——但 fold 的 logger.info /
+            # finalize_plan._fold_minutes 仍以「原始 blueprint.preferred_
+            # start_time」为基准算总位移（见下方 fold_min 与 finalize_plan
+            # 现算逻辑），倒推位移与首段折叠位移在观测口径上自然合并成一个
+            # 总差值，不需要额外传递"这段位移来自倒推还是折叠"的元数据。
+
+    # ---------- 首段等待折叠（I1「出门即行程」，ADR-0017，候选 A 收尾）----------
     # 必须先于 schedule 派生与 total_minutes 计算：schedule 从折叠后的
     # nodes/hops 展平，total_minutes 从折叠后的出发时刻起算——首段等待
     # 被出发时刻吸收后，总时长如实缩小（时长本来就是虚胖的机制口径）。
@@ -619,16 +851,16 @@ def assemble_from_blueprint(
             nodes[1].start_time,
         )
 
-    # ---------- 5. 派生 schedule + 总时长 + summary ----------
+    # ---------- 派生 schedule + 总时长 + summary ----------
     schedule = _derive_schedule(nodes, hops)
-    # 折叠后 nodes[0].start_time 即真实出发时刻（未折叠时等于
-    # blueprint.preferred_start_time，两种情况下这一个表达式都正确）。
+    # 折叠/倒推后 nodes[0].start_time 即真实出发时刻（未改动时等于
+    # blueprint.preferred_start_time，三种情况下这一个表达式都正确）。
     # 注意：不改 total_minutes 的字段语义（"出发到到家的墙钟时间差"）——
-    # 折叠改变的是出发时刻本身，不是口径。
+    # 折叠/倒推改变的是出发时刻本身，不是口径。
     total_minutes = cursor_min - _parse_hhmm(nodes[0].start_time)
     summary = _build_summary(blueprint, user_profile, total_minutes, intent)
 
-    # ---------- 6. 构造 Itinerary（Pydantic 二次兜底校验） ----------
+    # ---------- 构造 Itinerary（Pydantic 二次兜底校验） ----------
     return Itinerary(
         schema_version="edge_v1",
         summary=summary,
