@@ -1087,12 +1087,14 @@ function ShareMessage({ text }: { text: string }) {
 // NarrationBlock —— Agent 暖心开场白（导游口播）
 //
 // 2026-07-06 收口（方案卡去冗余）：原来这里叠了三份声音——叙事正文 + 「为你
-// 考虑了」intent chips（buildIntentChips）+「查看全部取舍说明」折叠
+// 考虑了」intent chips（原 buildIntentChips）+「查看全部取舍说明」折叠
 // （narrationMessages）。三者说的是同一件事（Agent 权衡了哪些约束），叙事
 // 正文已经把取舍写进一句人话里，chips/折叠列表只是把同一份信息又摆了两遍，
 // 一屏三个声音反而稀释了正文——删掉后者两个，只留 text 这一个唯一声音。
-// chips/折叠这两处如果以后要恢复，对应逻辑还留在 lib/intent-chips.ts 与
-// AgentNarrationMessage 类型里，没有被删，只是这里不再消费。
+// chips 逻辑当时保留在 lib/intent-chips.ts 供"以后恢复"，但两端（桌面/移动）
+// 一直没有再消费过——2026-07-12 代码卫生清理确认零引用后连同该文件一起删除；
+// 如需恢复，从 git 历史找回即可，不必长期挂一份没人调用的代码。
+// AgentNarrationMessage 类型仍在 lib/types.ts，未受影响。
 // ============================================================
 
 function NarrationBlock({

@@ -64,7 +64,7 @@ interface EpicMeta {
 }
 
 const EPICS: Record<EpicId, EpicMeta> = {
-  profile: { id: "profile", label: "用户画像", hint: "读取硬编码偏好", order: 0 },
+  profile: { id: "profile", label: "用户画像", hint: "按当前用户拉取画像偏好", order: 0 },
   discovery: {
     id: "discovery",
     label: "候选发现",
