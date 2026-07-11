@@ -9,7 +9,8 @@
  *
  * 数据流（edge_v1 重构后，2026-05-XX）：
  *   - itinerary.nodes 已带 target_kind / target_id / lat / lng / address
- *     （后端 assemble 时注入；home 节点 lat/lng 可缺，但前端本来就不画 home）
+ *     （后端 assemble 时注入；home 首尾节点的 lat/lng 取自
+ *     user_profile.home_location，参见 assemble_blueprint.py:394/513）
  *   - 旧 stages 模型已删除，不再读 itinerary.stages
  *   - 真接入美团 POI 时，POI 接口直接返坐标 → 数据形态不变
  *
@@ -17,18 +18,31 @@
  *   - 标注（Marker）+ 真实路线规划（Driving）+ InfoWindow 详情
  *   - Driving 失败时 fallback 到直连 Polyline，保证 Demo 不挂
  *
- * 哪些节点会画 marker：
- *   - 仅 target_kind ∈ {poi, restaurant} 且坐标完整的节点
- *   - home 节点（target_kind="home"）永远不画 —— 它是抽象起终点
+ * 哪些节点会画 marker（ADR-0016 起）：
+ *   - target_kind ∈ {poi, restaurant} 且坐标完整的节点 → 编号 marker（黄底数字）
+ *   - target_kind === "home" 的首尾节点 → 家锚点 marker（墨色底 + 白色 Home
+ *     图标，不占编号）。旧决策在此曾写「home 永远不画——它是抽象起终点」；
+ *     ADR-0016 推翻的是这条渲染推论，不是「家是锚点不是站」的域概念本身——
+ *     抽象锚点也可以可见，身份区分交给形态（独立 pin 样式），不靠「隐藏」。
+ *     见 docs/adr/0016-map-home-anchor-visible.md。
  *
  * 路径连法：
- *   - 按 visible nodes 顺序两两相连
+ *   - 编号站之间：按 visible nodes 顺序两两相连，实线
+ *   - 家↔首尾站（通勤壳）：虚线，同一套 Driving/fallback 降级逻辑，只是
+ *     样式参数不同（见 drawSegment 的 style 入参 / RouteStyle）——ADR-0016
+ *     决策 2 明确「不另造第二套」
  *   - hops 信息（如 hop.minutes）当前仅用于 InfoWindow 文案；路线渲染仍走 Driving / fallback
+ *
+ * 编舞（ADR-0016 决策 3）：
+ *   - 家 pin：地图初始化即刻就位，不参与站点 stagger 悬念
+ *   - 去程虚线（家→首站）：随 1 号站一起画出
+ *   - 返程虚线（末站→家）：末站落定（markersRef 全量出齐）后才画，作为闭环的收束动作
  *
  * 降级：
  *   - 没 NEXT_PUBLIC_AMAP_KEY → 渲染文字列表
  *   - 高德 SDK 加载失败 → 渲染文字列表
  *   - 当前 node 无坐标 → 在文字列表中标注「位置待定」
+ *   - home 节点缺坐标 → 静默不画家 pin、不画虚线腿（console.warn 留诊断），不崩
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -52,8 +66,12 @@ const AMAP_PLUGINS = [
   "AMap.Driving",
 ];
 
-// 杭州市中心兜底（map 无标注点时的中心位置）
-const FALLBACK_CENTER: [number, number] = [120.155, 30.255]; // [lng, lat]
+// 望京会场兜底（map 无标注点时的中心位置）——与 mock_data 望京数据集 demo_user
+// 的 home 锚点（望京数字创意园B座2号楼）一致。坐标来源：高德 POI 官方词条
+// 「望京数字创意园｜望京东路1号」= 116.484563, 40.006730（place/text API 实查，
+// GCJ-02，与本地图同坐标系；无楼级词条，园区级即权威粒度）。mock_data 的
+// distance_km/routes.json 均按此坐标 haversine 重算，三处同源。
+const FALLBACK_CENTER: [number, number] = [116.484563, 40.00673]; // [lng, lat]
 
 const MAP_MARKER_TONES = [
   {
@@ -93,10 +111,20 @@ interface NodeWithCoord {
   displayName: string;
 }
 
+/** 家锚点（home anchor）—— 独立于编号站之外的第三种坐标实体（ADR-0016）。 */
+interface HomeAnchor {
+  lat: number;
+  lng: number;
+  /** InfoWindow 展示名：优先取节点 address（画像 home_location.name），
+   *  读不到再退到字面「家」——ADR-0016 决策 4，不硬编码具体地址文案。 */
+  displayName: string;
+}
+
 /**
  * 解析 Itinerary 的 nodes：跳过 home，跳过缺坐标的节点，返回可画在地图上的 NodeWithCoord 列表。
  *
- * - target_kind === "home" 直接跳过（home 不画 marker，它是起终点抽象）
+ * - target_kind === "home" 直接跳过 —— 家不占编号，走独立的 resolveHomeAnchor
+ *   渲染路径（ADR-0016：家是锚点不是「第 0 站」，编号只属于中间站）
  * - target_kind ∈ {poi, restaurant} 但缺 lat/lng 跳过（容错）
  */
 function buildNodeCoords(itinerary: Itinerary): NodeWithCoord[] {
@@ -171,6 +199,39 @@ function buildNodeCoords(itinerary: Itinerary): NodeWithCoord[] {
   return out;
 }
 
+/**
+ * 从 Itinerary 的首尾 home 节点解析出唯一的家锚点（ADR-0016）。
+ *
+ * - assemble_blueprint.py 固定在 nodes 首尾各插入一个 target_kind="home" 节点
+ *   （出发 n0 / 回家 n_last），两者坐标恒相同（同一 user_profile.home_location）
+ *   —— 只画一个 pin，不会叠两个。
+ * - 缺 lat/lng（画像没配 home_location，或 mock 数据缺角）→ 返回 null，
+ *   调用方据此静默降级：不画家 pin、不画虚线腿，仅 console.warn 留诊断
+ *   （ADR-0016 决策 4：地图绝不能因此崩）。
+ * - displayName 优先取 node.address（_resolve_target_meta 里 home 分支填的
+ *   是 user_profile.home_location.name，即画像里的真实地名，如「望京数字创意
+ *   园B座2号楼（用户家）」），读不到再退字面「家」——不硬编码具体地址文案。
+ */
+function resolveHomeAnchor(itinerary: Itinerary): HomeAnchor | null {
+  const homeNode = itinerary.nodes.find((n) => n.target_kind === "home");
+  if (!homeNode || homeNode.lat == null || homeNode.lng == null) {
+    if (typeof window !== "undefined") {
+      console.warn(
+        "[MapOverlay] home 节点缺坐标，静默降级：不画家 pin / 通勤壳虚线",
+        homeNode
+          ? { target_kind: homeNode.target_kind, target_id: homeNode.target_id }
+          : "itinerary.nodes 中无 home 节点",
+      );
+    }
+    return null;
+  }
+  return {
+    lat: homeNode.lat,
+    lng: homeNode.lng,
+    displayName: homeNode.address || "家",
+  };
+}
+
 /** 从 "HH:MM" + 分钟数算结束时刻 "HH:MM"；解析失败兜底回原值。 */
 function addMinutesToHHMM(hhmm: string, minutes: number): string {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
@@ -198,7 +259,8 @@ interface MapOverlayProps {
    *     由于 schedule entries 数 ≈ 2× node 数，所以 markers 会早早全部显示完，
    *     再继续推进时间轴动画。这个偏差是可接受的 UX 取舍：
    *     地图先满亮、时间轴慢出，能让评委先看到「都去哪」再细品「啥时候」
-   *   - home 节点本来就不参与可视化，所以 home 不计入这里
+   *   - home 节点不计入这里——它不参与编号站的 stagger 计数（ADR-0016 起，
+   *     home 锚点走独立的编舞：地图初始化即刻就位，不受 visibleCount 影响）
    */
   visibleCount?: number;
 }
@@ -213,6 +275,13 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   const markersRef = useRef<any[]>([]);
   // routeOverlaysRef：存所有路线段（每段可能是 Driving 渲染的多 polyline 或 fallback 直连 polyline）
   const routeOverlaysRef = useRef<any[]>([]);
+  // ADR-0016：家锚点 pin + 两段通勤壳虚线独立于编号站的 refs/生命周期——
+  // 家 pin 即刻就位（不随 visibleCount 增减重建），通勤壳按「去程随 1 号站、
+  // 返程收尾」各自的时机画一次，不参与站间 routeOverlaysRef 的整体清空重绘。
+  const homeMarkerRef = useRef<any>(null);
+  const outboundCommuteRef = useRef<any[]>([]);
+  const returnCommuteRef = useRef<any[]>([]);
+  const returnCommuteDrawnRef = useRef(false);
 
   // 状态
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -279,6 +348,12 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       }
       markersRef.current = [];
       routeOverlaysRef.current = [];
+      // map.destroy() 已经把 home pin/通勤壳 overlay 一并销毁，这里只是重置
+      // ref 本身，防止组件重挂载时误判「已经画过」而跳过重建
+      homeMarkerRef.current = null;
+      outboundCommuteRef.current = [];
+      returnCommuteRef.current = [];
+      returnCommuteDrawnRef.current = false;
       setMapReady(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,6 +384,28 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         }
       });
       routeOverlaysRef.current = [];
+      // 新方案 → 家 pin + 两段通勤壳虚线也要清掉重来（旧方案的家坐标/路线不能沿用）
+      if (homeMarkerRef.current) {
+        try {
+          homeMarkerRef.current.setMap(null);
+        } catch {
+          // 忽略
+        }
+        homeMarkerRef.current = null;
+      }
+      [...outboundCommuteRef.current, ...returnCommuteRef.current].forEach(
+        (ov) => {
+          try {
+            ov.setMap?.(null);
+            ov.clear?.();
+          } catch {
+            // 忽略
+          }
+        },
+      );
+      outboundCommuteRef.current = [];
+      returnCommuteRef.current = [];
+      returnCommuteDrawnRef.current = false;
       lastItineraryRef.current = itinerary;
     }
   }, [itinerary, mapReady]);
@@ -323,10 +420,38 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
     const AMap = AMapRef.current;
     const map = mapRef.current;
     const nodeCoords = buildNodeCoords(itinerary);
+    const homeAnchor = resolveHomeAnchor(itinerary);
     if (nodeCoords.length === 0) return;
 
     const targetCount =
       visibleCount === -1 ? nodeCoords.length : visibleCount;
+
+    // ADR-0016 决策 3：家 pin 地图初始化即刻就位，不参与站点 stagger 悬念——
+    // 只画一次（首次拿到 homeAnchor 时），不随 visibleCount 变化重建。
+    // homeAnchor 为 null（home 缺坐标）→ 静默跳过，resolveHomeAnchor 内部
+    // 已经 console.warn 过，这里不重复告警。
+    if (homeAnchor && !homeMarkerRef.current) {
+      const marker = new AMap.Marker({
+        position: [homeAnchor.lng, homeAnchor.lat],
+        content: buildHomeMarkerHtml(),
+        offset: new AMap.Pixel(-20, -20),
+        title: homeAnchor.displayName,
+        zIndex: 200, // 高于编号 marker，闭环起点视觉上压得住
+      });
+      marker.setMap(map);
+
+      const infoHtml = buildHomeInfoWindowHtml(homeAnchor);
+      marker.on("click", () => {
+        const infoWindow = new AMap.InfoWindow({
+          content: infoHtml,
+          offset: new AMap.Pixel(0, -28),
+          closeWhenClickMap: true,
+        });
+        infoWindow.open(map, [homeAnchor.lng, homeAnchor.lat]);
+      });
+
+      homeMarkerRef.current = marker;
+    }
 
     // 增量加 marker
     while (
@@ -392,14 +517,53 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       });
     }
 
-    // 全部出来后 setFitView 自动调整视野
+    // ADR-0016 决策 3：去程虚线随 1 号站一起画出——只在「1 号站 marker 已上屏
+    // 且还没画过去程」时画一次，复用 drawSegment 同一套 Driving/fallback
+    // 降级逻辑，只是传入 COMMUTE_ROUTE_STYLE（虚线、稍细）。
     if (
-      markersRef.current.length === nodeCoords.length &&
-      markersRef.current.length > 0
+      homeAnchor &&
+      markersRef.current.length >= 1 &&
+      outboundCommuteRef.current.length === 0
     ) {
+      drawSegment(
+        AMap,
+        map,
+        homeAnchor,
+        nodeCoords[0],
+        outboundCommuteRef.current,
+        COMMUTE_ROUTE_STYLE,
+      );
+    }
+
+    // ADR-0016 决策 3：返程虚线在最后一站落定后才画——收束闭环的最后一笔。
+    // 复用与「全部站点出齐 → setFitView」同一个判断（markersRef 长度 ===
+    // nodeCoords.length），只画一次（returnCommuteDrawnRef 防重复）。
+    const allStationsSettled =
+      markersRef.current.length === nodeCoords.length &&
+      markersRef.current.length > 0;
+    if (
+      homeAnchor &&
+      allStationsSettled &&
+      !returnCommuteDrawnRef.current
+    ) {
+      returnCommuteDrawnRef.current = true;
+      drawSegment(
+        AMap,
+        map,
+        nodeCoords[nodeCoords.length - 1],
+        homeAnchor,
+        returnCommuteRef.current,
+        COMMUTE_ROUTE_STYLE,
+      );
+    }
+
+    // 全部出来后 setFitView 自动调整视野（ADR-0016 决策 4：范围包含家）
+    if (allStationsSettled) {
       try {
-        // 包含所有 marker，setFitView 会自动 zoom 到合适范围
-        map.setFitView(markersRef.current, false, [40, 40, 40, 40]);
+        const fitTargets = homeAnchor && homeMarkerRef.current
+          ? [...markersRef.current, homeMarkerRef.current]
+          : markersRef.current;
+        map.setFitView(fitTargets, false, [40, 40, 40, 40]);
       } catch {
         // 忽略
       }
@@ -467,20 +631,66 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 
 // ============================================================
 // 路线渲染：优先 AMap.Driving 真实驾车路线；失败 fallback 直连 Polyline
+//
+// ADR-0016 决策 2：家↔首尾站两段通勤壳走「同一套」降级逻辑，只是样式（实线/
+// 虚线、线宽）不同——不新造第二套渲染路径。样式差异靠 RouteStyle 参数化：
+//   - 站间（STATION_ROUTE_STYLE）：Driving 成功时用 AMap 默认样式自动渲染
+//     （维持现状不动），失败 fallback 到本来就有的橙色虚线直连
+//   - 通勤壳（COMMUTE_ROUTE_STYLE）：Driving 成功也不能用 AMap 默认样式（那
+//     是实线），必须手动从 Driving 结果提取坐标点、自己用 AMap.Polyline 画
+//     虚线——这是高德官方文档 / 社区方案里「自定义驾车路线样式」的标准做法
+//     （AMap.Driving 本身不暴露 outlineColor/strokeStyle 之类的线型参数）
 // ============================================================
+
+/** 路线渲染样式：区分「站间实线（默认）」与「通勤壳虚线」。 */
+interface RouteStyle {
+  /** true → 即使 Driving 成功也不用 AMap 自动渲染，手动提取路径画自定义样式 */
+  forceCustomRender: boolean;
+  strokeColor: string;
+  strokeWeight: number;
+  strokeStyle: "solid" | "dashed";
+  strokeOpacity: number;
+}
+
+/** 站间默认样式：不强制自定义渲染，维持 AMap.Driving 现状（成功=默认实线自动渲染）。 */
+const STATION_ROUTE_STYLE: RouteStyle = {
+  forceCustomRender: false,
+  strokeColor: "#fb923c",
+  strokeWeight: 3,
+  strokeStyle: "dashed", // 仅 fallback 直连时生效，维持原有视觉
+  strokeOpacity: 0.7,
+};
+
+/** 通勤壳样式（ADR-0016 决策 2）：同色系、稍细、虚线——即使 Driving 成功也要强制这套样式。 */
+const COMMUTE_ROUTE_STYLE: RouteStyle = {
+  forceCustomRender: true,
+  strokeColor: "#fb923c",
+  strokeWeight: 2,
+  strokeStyle: "dashed",
+  strokeOpacity: 0.6,
+};
+
+/** from/to 的坐标形状：NodeWithCoord 与 HomeAnchor 共用（都只需要 lat/lng）。 */
+interface LatLng {
+  lat: number;
+  lng: number;
+}
 
 function drawSegment(
   AMap: any,
   map: any,
-  from: NodeWithCoord,
-  to: NodeWithCoord,
+  from: LatLng,
+  to: LatLng,
   overlayBucket: any[],
+  style: RouteStyle = STATION_ROUTE_STYLE,
 ): void {
   // Driving 实例不能复用（每次 search 会清空之前的路线）→ 每段用一个独立实例
   let driving: any;
   try {
     driving = new AMap.Driving({
-      map,
+      // forceCustomRender 时不传 map：不让 AMap 用默认实线样式自动渲染，
+      // 由下面回调里手动提取 result 坐标、自己画 Polyline 套用 style
+      map: style.forceCustomRender ? undefined : map,
       hideMarkers: true, // 我们自己有标注
       showTraffic: false,
       autoFitView: false,
@@ -488,7 +698,7 @@ function drawSegment(
     });
   } catch (e) {
     console.warn("[MapOverlay] Driving 实例化失败，fallback 直连:", e);
-    drawFallbackPolyline(AMap, map, from, to, overlayBucket);
+    drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
     return;
   }
 
@@ -497,7 +707,7 @@ function drawSegment(
   driving.search(
     [from.lng, from.lat],
     [to.lng, to.lat],
-    (status: string, _result: any) => {
+    (status: string, result: any) => {
       if (status !== "complete") {
         // 路线规划失败（如距离过近 / API 限流）→ fallback 直连
         try {
@@ -505,9 +715,41 @@ function drawSegment(
         } catch {
           // 忽略
         }
-        drawFallbackPolyline(AMap, map, from, to, overlayBucket);
+        drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
+        return;
       }
-      // status === "complete" 时高德 SDK 自动渲染路线到 map 上
+      if (!style.forceCustomRender) {
+        // 站间：维持现状，AMap 已经把默认实线路线自动渲染到 map 上
+        return;
+      }
+      // 通勤壳：成功也要强制虚线——从 result.routes[0].steps[].path 拼出完整
+      // 坐标序列，自己画 Polyline（高德官方路线规划文档记录的标准提取方式）
+      try {
+        const route = result?.routes?.[0];
+        const path: any[] = [];
+        for (const step of route?.steps ?? []) {
+          if (Array.isArray(step?.path)) path.push(...step.path);
+        }
+        if (path.length >= 2) {
+          const polyline = new AMap.Polyline({
+            path,
+            strokeColor: style.strokeColor,
+            strokeWeight: style.strokeWeight,
+            strokeStyle: style.strokeStyle,
+            strokeOpacity: style.strokeOpacity,
+            lineJoin: "round",
+            lineCap: "round",
+          });
+          polyline.setMap(map);
+          overlayBucket.push(polyline);
+        } else {
+          // 提取不到坐标点（result 形状异常）→ 退直连，保证虚线仍然画出来
+          drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
+        }
+      } catch (e) {
+        console.warn("[MapOverlay] 通勤壳自定义渲染失败，fallback 直连:", e);
+        drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
+      }
     },
   );
 }
@@ -515,9 +757,10 @@ function drawSegment(
 function drawFallbackPolyline(
   AMap: any,
   map: any,
-  from: NodeWithCoord,
-  to: NodeWithCoord,
+  from: LatLng,
+  to: LatLng,
   overlayBucket: any[],
+  style: RouteStyle = STATION_ROUTE_STYLE,
 ): void {
   try {
     const polyline = new AMap.Polyline({
@@ -525,10 +768,10 @@ function drawFallbackPolyline(
         [from.lng, from.lat],
         [to.lng, to.lat],
       ],
-      strokeColor: "#fb923c",
-      strokeWeight: 3,
-      strokeStyle: "dashed",
-      strokeOpacity: 0.7,
+      strokeColor: style.strokeColor,
+      strokeWeight: style.strokeWeight,
+      strokeStyle: style.strokeStyle,
+      strokeOpacity: style.strokeOpacity,
       lineJoin: "round",
       lineCap: "round",
     });
@@ -575,6 +818,78 @@ function buildMarkerHtml(index: number): string {
         100% { transform: scale(1); opacity: 1; }
       }
     </style>
+  `;
+}
+
+/**
+ * 家锚点 pin（ADR-0016 决策 1）：墨色底（ink-900 #111827，与信任带检索芯片
+ * 同一套「锚点中性」配色哲学）+ 白色 Lucide Home 图标，不写字（图标自明）。
+ *
+ * SVG path 直接取自 lucide-react 的 House（Home 是它的别名，见
+ * node_modules/lucide-react/dist/esm/icons/house.js），保证与全站其它 Lucide
+ * 图标视觉一致——不是自己临摹一版近似图形。AMap Marker content 只接受 HTML
+ * 字符串，React 组件用不了，所以在这里内联同一份 SVG path。
+ *
+ * 不复用 buildMarkerHtml：家 pin 是独立形态（方形圆角 vs 编号站的圆形、无
+ * 数字、无编号轮转色），语义上是另一种 marker，参数化反而会让两者互相牵扯。
+ */
+function buildHomeMarkerHtml(): string {
+  return `
+    <div style="
+      position: relative;
+      width: 40px;
+      height: 40px;
+      border-radius: 14px;
+      background: #111827;
+      border: 3px solid rgba(255,255,255,0.96);
+      box-shadow: 0 12px 24px -16px rgba(15,23,42,0.58), 0 0 0 8px rgba(17,24,39,0.16);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      animation: amap-marker-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    ">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+        <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      </svg>
+    </div>
+    <style>
+      @keyframes amap-marker-pop {
+        0% { transform: scale(0); opacity: 0; }
+        70% { transform: scale(1.15); opacity: 1; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+    </style>
+  `;
+}
+
+/** 家锚点 InfoWindow：只显示画像家名，与站点 InfoWindow 同交互语言但更简（ADR-0016 决策 4）。 */
+function buildHomeInfoWindowHtml(anchor: HomeAnchor): string {
+  return `
+    <div style="
+      min-width: 160px;
+      max-width: 240px;
+      padding: 10px 12px;
+      font-family: 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    ">
+      <div style="
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(17,24,39,0.08);
+        color: #111827;
+        font-size: 10px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      ">家</div>
+      <div style="
+        font-size: 14px;
+        font-weight: 600;
+        color: #1f1f1f;
+        line-height: 1.4;
+      ">${escapeHtml(anchor.displayName)}</div>
+    </div>
   `;
 }
 
