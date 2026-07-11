@@ -46,6 +46,13 @@
  * 状态机见下方 `SpinePhase` 类型定义处的完整状态转移说明。**这不是推翻修订2
  * ——修订2 反对的是直播中途滚动让①拍不可见，保护的是直播态；折叠只发生在
  * 定稿之后，保护的是交付物台面主权，证据以脊柱形态常驻，不是被隐藏。**
+ *
+ * 修订（本批，⑦拍引擎自证收据——见路演PPT/信任带设计终稿.md 同批修订）：
+ * ILS/rule 兜底成功从不回 critic（`build.py::_route_after_ils` 硬编码直通
+ * finalize，防 ILS 死循环），换引擎成功收尾的局因此永远拿不到质检收据——
+ * `EngineSelfCertificationReceiptRow`（`buildEngineSelfCertificationReceipt`
+ * 判定，见该函数 docstring）在这种局的⑦拍下顶上"算法引擎按硬约束求解通过"，
+ * 与质检收据互斥、同一槽位，视觉同族（ShieldCheck + 中性墨色，不挪用琥珀）。
  */
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
@@ -68,6 +75,7 @@ import {
 import { useChatStore } from "@/lib/store";
 import {
   buildChecksRunReceipt,
+  buildEngineSelfCertificationReceipt,
   buildProfileFieldsReceipt,
   buildRelaxedSearchNotice,
   buildSearchPreviewChips,
@@ -181,6 +189,18 @@ export default function TrustBelt() {
   const profileFields = useMemo(() => buildProfileFieldsReceipt(toolCalls), [toolCalls]);
   const relaxedNotice = useMemo(() => buildRelaxedSearchNotice(toolCalls), [toolCalls]);
   const checksRun = useMemo(() => buildChecksRunReceipt(thoughts), [thoughts]);
+  // 引擎自证收据（本批新增）：ILS/rule 兜底成功从不回 critic，checks_run 永
+  // 不产生——换引擎成功收尾的局用这条收据顶上（与质检收据互斥，同一槽位）。
+  const engineSelfCertified = useMemo(
+    () =>
+      buildEngineSelfCertificationReceipt({
+        fallbackHops: criticReport.fallbackHops,
+        checksRun,
+        itineraryReady: itinerary != null,
+        finalStrategy: itinerary?.decision_trace?.final_strategy ?? null,
+      }),
+    [criticReport.fallbackHops, checksRun, itinerary],
+  );
 
   const reducedMotion = usePrefersReducedMotion();
 
@@ -337,11 +357,21 @@ export default function TrustBelt() {
               const withProfileReceipt = beat.kind === "understanding" && profileFields.length > 0;
               const withRelaxedNotice = beat.kind === "search" && relaxedNotice != null;
               const withChecksReceipt = beat.kind === "done" && checksRun != null;
+              // 引擎自证收据（本批新增）：与质检收据互斥，同一⑦拍槽位——
+              // engineSelfCertified 已经把"有质检收据时不成立"这条纳入判定
+              // （见 buildEngineSelfCertificationReceipt），这里不需要再重复
+              // 排除 withChecksReceipt，但写出来便于读者一眼确认互斥关系。
+              const withEngineSelfCertification =
+                beat.kind === "done" && !withChecksReceipt && engineSelfCertified;
               // 附件行是否需要接一段连线（同②拍芯片行的既有纪律：非最后一行时
               // 补连线，别让附件打断相邻拍之间的时间轴视觉）——一拍可能挂
               // 多个附件（如②拍同时有芯片+放宽提示），除最后一个附件外都要连线。
               const attachmentCount =
-                (withChips ? 1 : 0) + (withRelaxedNotice ? 1 : 0) + (withProfileReceipt ? 1 : 0) + (withChecksReceipt ? 1 : 0);
+                (withChips ? 1 : 0) +
+                (withRelaxedNotice ? 1 : 0) +
+                (withProfileReceipt ? 1 : 0) +
+                (withChecksReceipt ? 1 : 0) +
+                (withEngineSelfCertification ? 1 : 0);
               let attachmentsRendered = 0;
               const isLastAttachment = () => {
                 attachmentsRendered += 1;
@@ -395,6 +425,17 @@ export default function TrustBelt() {
                   {withChecksReceipt && checksRun != null && (
                     <AttachmentRow isLastRow={isLastRow && isLastAttachment()}>
                       <ChecksRunReceiptRow count={checksRun} />
+                    </AttachmentRow>
+                  )}
+                  {/* ⑦拍引擎自证收据（本批新增）：ILS/rule 兜底成功从不回
+                      critic，checks_run 永不产生——换引擎成功收尾的局用这条
+                      顶上，与质检收据互斥、同一槽位（见
+                      buildEngineSelfCertificationReceipt docstring）。视觉
+                      与质检收据同族（ShieldCheck 图标、中性墨色），不挪用
+                      琥珀（琥珀仍是④⑤⑥自愈拍专属）。 */}
+                  {withEngineSelfCertification && (
+                    <AttachmentRow isLastRow={isLastRow && isLastAttachment()}>
+                      <EngineSelfCertificationReceiptRow />
                     </AttachmentRow>
                   )}
                 </Fragment>
@@ -725,6 +766,23 @@ function ChecksRunReceiptRow({ count }: { count: number }) {
       <span className="inline-flex h-6 items-center gap-1 rounded-full border border-black/[0.06] bg-white px-2 text-xs font-medium text-ink-500">
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-ink-400" strokeWidth={2} aria-hidden />
         <span>{count} 项体检 ✓</span>
+      </span>
+    </div>
+  );
+}
+
+// ============================================================
+// ⑦拍引擎自证收据（本批新增）：与质检收据互斥同槽位，视觉同族（ShieldCheck
+// 图标、中性墨色），文案逐字锁定——见 buildEngineSelfCertificationReceipt
+// docstring 的判定条件与理由。
+// ============================================================
+
+function EngineSelfCertificationReceiptRow() {
+  return (
+    <div className="min-w-0 flex-1 pb-1.5 pt-0.5">
+      <span className="inline-flex h-6 items-center gap-1 rounded-full border border-black/[0.06] bg-white px-2 text-xs font-medium text-ink-500">
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-ink-400" strokeWidth={2} aria-hidden />
+        <span>算法引擎按硬约束求解通过</span>
       </span>
     </div>
   );

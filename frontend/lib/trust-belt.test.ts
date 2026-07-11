@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildChecksRunReceipt,
+  buildEngineSelfCertificationReceipt,
   buildProfileFieldsReceipt,
   buildRelaxedSearchNotice,
   buildSearchPreviewChips,
@@ -839,6 +840,87 @@ describe("buildChecksRunReceipt — ⑦拍质检收据", () => {
   it("取首个携带该字段的条目（同③拍 plan_reason 的既有取法）", () => {
     const result = buildChecksRunReceipt([{ checksRun: 18 }, { checksRun: 99 }]);
     expect(result).toBe(18);
+  });
+});
+
+describe("buildEngineSelfCertificationReceipt — ⑦拍引擎自证收据（本批新增）", () => {
+  // 真 bug 背景：ILS/rule 兜底成功从不回 critic（build.py::_route_after_ils
+  // 硬编码直通 finalize），checks_run 永不产生——换引擎成功收尾的局本该有
+  // 收尾证据却什么都没有。三例钉死：干净通过局=体检收据、兜底成功局=自证
+  // 收据、give_up=两者皆无，互斥不重叠。
+
+  it("干净通过局（无 fallback，has checksRun）：不应显示引擎自证收据——质检收据已经够", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [],
+      checksRun: 18,
+      itineraryReady: true,
+      finalStrategy: "llm_first",
+    });
+    expect(result).toBe(false);
+  });
+
+  it("兜底成功局（真实引擎切换 + 无 checksRun）：应显示引擎自证收据", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [{ from: "llm_first", to: "ils" }],
+      checksRun: null,
+      itineraryReady: true,
+      finalStrategy: "ils",
+    });
+    expect(result).toBe(true);
+  });
+
+  it("give_up 收尾（无论是否发生过引擎切换）：两种收据都不显示——⑦拍诚实改口已经讲清楚", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [
+        { from: "llm_first", to: "ils" },
+        { from: "ils", to: "rule" },
+        { from: "rule", to: "give_up" },
+      ],
+      checksRun: null,
+      itineraryReady: true,
+      finalStrategy: "give_up",
+    });
+    expect(result).toBe(false);
+  });
+
+  it("itinerary 未就绪（规划中）：不显示——收尾证据只在方案定稿后才成立", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [{ from: "llm_first", to: "ils" }],
+      checksRun: null,
+      itineraryReady: false,
+      finalStrategy: null,
+    });
+    expect(result).toBe(false);
+  });
+
+  it("没有真实引擎切换（只有 llm_backprompt 且无 checksRun）：不显示——这局压根没有引擎参与，不该无中生有", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [{ from: "llm_first", to: "llm_backprompt" }],
+      checksRun: null,
+      itineraryReady: true,
+      finalStrategy: "llm_backprompt",
+    });
+    expect(result).toBe(false);
+  });
+
+  it("ils 自环（成功确认，非真实切换）单独出现时不算真实引擎切换", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [{ from: "ils", to: "ils" }],
+      checksRun: null,
+      itineraryReady: true,
+      finalStrategy: "ils",
+    });
+    expect(result).toBe(false);
+  });
+
+  it("同时有真实引擎切换和 checksRun（理论边界，当前后端不会真实产生）：checksRun 优先，不显示自证收据——避免同一⑦拍下两种收据打架", () => {
+    const result = buildEngineSelfCertificationReceipt({
+      fallbackHops: [{ from: "llm_first", to: "ils" }],
+      checksRun: 18,
+      itineraryReady: true,
+      finalStrategy: "ils",
+    });
+    expect(result).toBe(false);
   });
 });
 

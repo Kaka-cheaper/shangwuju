@@ -51,6 +51,13 @@
  * 只有 `.to ∈ {"ils","rule"}` 才是真实引擎交接，生成⑥拍+重置轮边界；
  * `.to === "llm_backprompt"` 不生成拍、不重置（重试的故事交给④⑤配对+既有
  * ≥3 轮折叠讲）；`.to === "give_up"` 也不生成⑥拍（收尾交给⑦拍诚实分支）。
+ *
+ * ⑦拍引擎自证收据（本批新增，见下方 `buildEngineSelfCertificationReceipt`
+ * 完整 docstring）：ILS/rule 兜底成功从不回 critic（`build.py::_route_after_
+ * ils` 硬编码直通 finalize），换引擎成功收尾的局因此永远拿不到⑦拍质检收据
+ * ——恰恰是最需要收尾证据的局却最没有证据可看。纯前端判定（复用本批的
+ * `isRealEngineSwitchHop` 分类）：本局真发生过引擎切换 && 非 give_up && 无
+ * 质检收据 → 显示"算法引擎按硬约束求解通过"，与质检收据互斥，同一收据槽位。
  */
 
 import type { useChatStore } from "./store";
@@ -444,6 +451,45 @@ export function buildChecksRunReceipt(
 ): number | null {
   const entry = thoughts.find((t) => typeof t.checksRun === "number");
   return entry?.checksRun ?? null;
+}
+
+// ============================================================
+// ⑦拍引擎自证收据（本批新增，见路演PPT/信任带设计终稿.md 2026-07-11 修订
+// "五收据体系"表格"质检"行——本收据是同一行的互斥兄弟，不是第六种收据）
+// ============================================================
+
+/**
+ * 真 bug 背景：ILS/rule 兜底成功从不回 critic（`build.py::_route_after_ils`
+ * 硬编码直通 finalize，防 ILS 死循环——见该函数 docstring），`checks_run` 只在
+ * critic 真正跑到"通过"分支才产生（见 `buildChecksRunReceipt`），换引擎成功
+ * 收尾的局因此永远拿不到质检收据——⑦拍偏偏是"换引擎"这条最需要收尾证据的
+ * 局，却最没有收据可看，评委看不到"它换的这个引擎到底解没解成"的确认。
+ *
+ * 方案 a（纯前端判定，不动后端）：itineraryReady && 非 give_up 收尾 && 本局
+ * 发生过至少一次真实引擎切换（复用 `isRealEngineSwitchHop`——与⑥拍"该不该
+ * 生成换引擎拍"同一把尺子，不能⑥拍判定"没真的换引擎"却在这里判定"换了"）
+ * && 没有质检收据（checksRun==null，即 critic 从未走到"通过"分支）→ 显示
+ * "算法引擎按硬约束求解通过"。与质检收据互斥（`ChecksRunReceiptRow` 二选一，
+ * 见 `components/TrustBelt.tsx` 调用处），两者共享⑦拍下同一个收据槽位。
+ *
+ * 为什么"发生过真实引擎切换"是必要条件，不能只看 checksRun==null：一次过
+ * 局如果因为某种原因 checksRun 也是 null（如未来 critic 分支变化），不该
+ * 无中生有一句"算法引擎按硬约束求解通过"——那局压根没有 ILS/rule 参与，
+ * 这句话对它不成立（忠实不编）。give_up 收尾同理排除：`ils_replan_node` 两级
+ * 都失败时"引擎"并没有"求解通过"，是"没通过、保留旧方案"，此时既不该显示
+ * 质检收据也不该显示引擎自证收据（⑦拍自己的 give_up 诚实改口已经把这个
+ * 结局讲清楚，不需要再叠一句聚焦"通过"的收据）。
+ */
+export function buildEngineSelfCertificationReceipt(input: {
+  fallbackHops: ReadonlyArray<{ from: string; to: string }>;
+  checksRun: number | null;
+  itineraryReady: boolean;
+  finalStrategy: string | null;
+}): boolean {
+  if (!input.itineraryReady) return false;
+  if (input.finalStrategy === "give_up") return false;
+  if (input.checksRun != null) return false;
+  return input.fallbackHops.some((hop) => isRealEngineSwitchHop(hop));
 }
 
 // ============================================================
