@@ -275,6 +275,43 @@ def _merge_advisories(existing: list[dict], additional: list[dict]) -> list[dict
     return merged
 
 
+# 告知限额（ADR-0014 G-2 cap）的披露优先序（四条不变式批 I4 · C6，方案 1.34-W2）：
+# `_apply_advisory_disclosure_cap`（narrator 侧）消费的是 list[str] 纯消息串、
+# 看不到 code——优先序不可能在 cap 函数内做，必须在本节点组装 advisories 处
+# 排好再传下去（cap 函数本体一行不动）。序 = 显式失败 > 常识缺席 > 一般放宽，
+# 这是 I3 > I4 > 一般诚实的不变式优先级镜像进告知层：折叠上线后
+# SHORTER_THAN_REQUESTED 出现频率升高，与饭缺席告知高频共现——cap 若按先来
+# 后到截断，I4 的核心承诺会被折叠句吞掉。
+_ADVISORY_DISCLOSURE_PRIORITY: dict[str, int] = {
+    "meal_requested_unseated": 0,  # 显式失败（用户明说要吃饭）——最高
+    "meal_omitted_by_design": 1,   # 常识缺席——次高
+}
+_ADVISORY_DEFAULT_PRIORITY = 2     # 其余一般放宽告知
+
+
+def _sort_advisories_for_disclosure(advisories: list[dict]) -> list[dict]:
+    """按披露优先序稳定排序（同级保持既有相对顺序）——见上方常量注释。"""
+
+    def _priority(a: dict) -> int:
+        code = a.get("code")
+        code_value = getattr(code, "value", code)
+        if not isinstance(code_value, str):
+            return _ADVISORY_DEFAULT_PRIORITY
+        return _ADVISORY_DISCLOSURE_PRIORITY.get(code_value, _ADVISORY_DEFAULT_PRIORITY)
+
+    return sorted(advisories, key=_priority)
+
+
+def _is_dining_unmet_desire(desire: str) -> bool:
+    """unmet 条目是不是餐饮品类（"同一顿饭只道歉一次"去重用，宁缺毋崩）。"""
+    try:
+        from agent.planning.blueprint.demand_scope import is_dining_desire
+
+        return bool(is_dining_desire(desire))
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _dedupe_unmet_desires_against_advisories(
     unmet_desires: list[str], advisory_messages: list[str]
 ) -> list[str]:
@@ -841,7 +878,28 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
         _extract_advisories(state),
         _extract_soft_violation_advisories(state),
     )
+
+    # I4 缺席发声（四条不变式批 C6）：饭缺席的三分叉互斥编排——单一分叉点
+    # （explicit_dining_requested）、单一产出点（build_meal_absence_signal），
+    # 见 agent/planning/critic/meal_absence.py 模块 docstring。ILS 路径的
+    # _build_success_advisories 已同步产出同一实现的结果，两路撞车靠
+    # _merge_advisories 的同 message 去重合并（既有机制）。
+    from agent.planning.critic.meal_absence import build_meal_absence_signal
+
+    meal_advisory, meal_light_confirm = build_meal_absence_signal(intent, itinerary)
+    if meal_advisory is not None:
+        advisories = _merge_advisories(advisories, [meal_advisory.model_dump()])
+
+    # cap 优先序（方案 1.34-W2）：排序必须发生在这里（组装处），cap 函数
+    # 本体吃纯消息串不动——见 _sort_advisories_for_disclosure 注释。
+    advisories = _sort_advisories_for_disclosure(advisories)
     advisory_messages = [a["message"] for a in advisories]
+
+    # tristate=False 的轻确认句（无码纯句）：只进口播 honest 段（narrator 的
+    # advisories 句子列表），不进 advisories 结构化条目（不上 SSE
+    # narrationMessages）——方案 1.31 呈现面对照表。
+    if meal_light_confirm and meal_light_confirm not in advisory_messages:
+        advisory_messages.append(meal_light_confirm)
 
     # 诚实告知（用户观察的 bug）：用户明示诉求但因超距/无候选/重排仍未选上而未排进行程
     # → 检测未满足诉求，让 narrator 诚实说明"附近没找到 X，帮你换了替代品"。
@@ -855,6 +913,11 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
             unmet_desires.append(d)
     # D-7 决策 G：advisory 已经提过的名词不在 unmet_desires 里重复说。
     unmet_desires = _dedupe_unmet_desires_against_advisories(unmet_desires, advisory_messages)
+    # I4（C6）"同一顿饭只道歉一次"：饭缺席 advisory 在场时，餐饮品类的 unmet
+    # 条目（"烧烤没找到"类）不再重复道歉——用户同时点名品类又丢失时，
+    # MEAL_REQUESTED_UNSEATED 与 unmet_cuisines 语义重叠（方案 1.9 互斥编排）。
+    if meal_advisory is not None:
+        unmet_desires = [d for d in unmet_desires if not _is_dining_unmet_desire(d)]
 
     # 体感编排批 ⑤：实体反查改用全量目录（不再吃 execute 阶段窄池，见本文件
     # 头部模块 docstring「实体反查改用全量目录」）——同时喂给

@@ -405,6 +405,8 @@ def _build_success_advisories(
     current_scheduled: Sequence[Any],
     money_budget: float,
     budget_source_clause: str = "你平时",
+    intent: Any = None,
+    itinerary: Any = None,
 ) -> list[Advisory]:
     """把这一路收集到的告知拼成**最终交付方案**的 advisories 列表。
 
@@ -417,10 +419,29 @@ def _build_success_advisories(
     判定后传入对应措辞——"你说的"/"你档案里的默认"，与 G-2 出处口径
     （`exit_audit._PROVENANCE_CLAUSE`）"哪个口径讲清楚"同一纪律。默认值
     "你平时"保留 G-3 之前的旧文案，向后兼容不传参的调用点（如测试直调）。
+
+    `intent` / `itinerary`（四条不变式批 I4 · C6 新增，默认 None 向后兼容）：
+    饭缺席发声的三分叉编排——两者都在场时经
+    `agent.planning.critic.meal_absence.build_meal_absence_signal`（与 narrate
+    侧共用的同一实现）产出 MEAL_REQUESTED_UNSEATED / MEAL_OMITTED_BY_DESIGN；
+    False 态的轻确认是无码纯句、不占本列表（ILS 产物必经 narrate，那一侧统一
+    补句）。narrate 对同一 itinerary 会再算一遍——两路撞车靠 narrate 的
+    `_merge_advisories` 同 message 去重（既有机制），这里产出的意义是让
+    `HybridResult.advisories` 自身即完整（ADR-0010 决策 11："advisories 描述
+    最终交付的方案"，不依赖下游谁来补）。
     """
     from .activity_pool import route_total_cost
 
     advisories: list[Advisory] = list(pin_advisories)
+
+    # I4 缺席发声（C6）：三分叉互斥编排的 ILS 侧消费点（单一实现 import，
+    # 不复制判定逻辑——见 meal_absence 模块 docstring）。
+    if intent is not None and itinerary is not None:
+        from ..critic.meal_absence import build_meal_absence_signal
+
+        meal_advisory, _light_confirm = build_meal_absence_signal(intent, itinerary)
+        if meal_advisory is not None:
+            advisories.append(meal_advisory)
 
     # 成员资格过滤（深审修正 1）：告知必须对「最终交付的方案」字面为真。
     # unmet/dropped 是构造期/修复期的**历史记录**——修复闭环换血时重搜池含全部
@@ -693,6 +714,8 @@ def plan_hybrid(
                 current_scheduled=current_scheduled,
                 money_budget=money_budget,
                 budget_source_clause=budget_source_clause,
+                intent=intent,
+                itinerary=current_itin,
             )
             return HybridResult(
                 success=True,

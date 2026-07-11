@@ -103,6 +103,23 @@ class AdvisoryCode(str, Enum):
     # 约束下能做到的最好结果"，见 `agent.planning.critic.exit_audit` 模块 docstring。
     CONSTRAINT_RELAXED = "constraint_relaxed"
 
+    # ---- 四条不变式批 I4（C6，2026-07-11）：饭缺席发声——双码三分叉互斥 ----
+    # 两码由 `agent.planning.critic.meal_absence.build_meal_absence_signal` 这
+    # **一个**生成函数、以 `intent.explicit_dining_requested` 为**唯一**分叉点
+    # 产出——结构上互斥（不是生成后再去重），一次只说一种诚实，杜绝"一边说
+    # 我按设计没排、一边实际是想排没排上"的口播自相矛盾：
+    # - True 且最终无饭 → MEAL_REQUESTED_UNSEATED（显式失败："试了没排上"+
+    #   出路——设计明明想排，绝不能说"默认你吃过来"）；
+    # - None 且出行窗真实压过某饭点窗（`meal_windows.crossed_meal_window`）
+    #   且最终无饭 → MEAL_OMITTED_BY_DESIGN（常识缺席："默认你们吃过来，
+    #   想加跟我说"——按设计不排可以，不能沉默）；
+    # - False → 无码轻确认句（"按你说的，这次没排饭"——缺席是用户点的，
+    #   发声退化为一句复述确认，不占 advisory 通道）。
+    # 告知限额（ADR-0014 G-2 cap）的优先序在 narrate_node 组装处排：
+    # 显式失败 > 常识缺席 > 一般放宽——I3>I4>一般诚实的不变式优先级镜像。
+    MEAL_REQUESTED_UNSEATED = "meal_requested_unseated"
+    MEAL_OMITTED_BY_DESIGN = "meal_omitted_by_design"
+
 
 class Advisory(BaseModel):
     """一条「限制/建议」告知——不 gate 方案，只如实说明（区别于 Violation，见模块 docstring）。"""
