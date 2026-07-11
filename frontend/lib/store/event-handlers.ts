@@ -30,6 +30,40 @@ import { emptyCriticReport } from "./types";
 import type { Getter, Setter, ToolCallRecord } from "./types";
 
 /**
+ * 集中收口（ComparisonView 快照 bug 修复）：任何"整份替换 itinerary"的路径都
+ * 必须经过这里——它是"itinerary 即将被覆盖"这一事件本身的唯一关卡，而不是分散
+ * 在 sendMessage/refine/sendAdjust 等各个 action 内部各自维护。
+ *
+ * 不变量：previousItinerary 必须永远是"itinerary 这次被替换前一刻的值"。
+ *
+ * 为什么只在 get().itinerary 非 null 时才推进快照（而不是无脑 structuredClone
+ * 当前值)：sendMessage()/refine()/collab-store.ts 的 planning_started 三处，
+ * 在真正的新方案到达（本函数被调用）之前，已经在各自的同步 set() 里做了
+ * "读当前 itinerary → structuredClone → 写 previousItinerary" 这一步，然后**紧接着
+ * 把 itinerary 置 null**（清屏等新方案流式产出）。如果本函数在 itinerary_ready
+ * 到达时无条件重新 snapshot get().itinerary，读到的会是它们刚置的 null，
+ * 反而用 null 覆盖掉它们已经正确写入的 previousItinerary——弄巧成拙。
+ *
+ * sendAdjust（单人 store.ts + 房间 collab-store.ts 两条路径）恰恰相反：换菜
+ * 全程不清屏，itinerary 在 itinerary_ready 到达前始终是"换菜前的那份真实方案"
+ * ——这正是需要在此刻捕获的快照，也是本次 bug 的根因（此前 sendAdjust 完全没有
+ * 对称维护 previousItinerary）。
+ *
+ * 换句话说：itinerary 非 null 时，get().itinerary 就是"这次替换前紧邻的那一版"
+ * ——无论是被 sendAdjust 保留下来的，还是极端情况下任何其它未来会经过这里的
+ * 写入路径保留下来的；itinerary 已是 null 时，说明有更早的 action 已经代为
+ * 完成了这一步（或者本来就是全新会话，没有可比较的上一版）。
+ */
+function commitItinerary(set: Setter, get: Getter, newItinerary: Itinerary): void {
+  const current = get().itinerary;
+  if (current) {
+    set({ itinerary: newItinerary, previousItinerary: structuredClone(current) });
+  } else {
+    set({ itinerary: newItinerary });
+  }
+}
+
+/**
  * 惰性清空（Bug 修复）：只有收到「重跑信号」(intent_parsed / refinement_start) 时，
  * 才把主页面清空腾位给新一轮。提问 / 确认 / 预约 / 闲聊只发 chitchat_reply，
  * 收不到这两个信号 → awaitingReplan 一直为 true、主页面纹丝不动。
@@ -265,10 +299,10 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
           total_minutes: rawPayload.total_minutes ?? 0,
           decision_trace: null,
         };
-        set({ itinerary: fallback as unknown as Itinerary });
+        commitItinerary(set, get, fallback as unknown as Itinerary);
         break;
       }
-      set({ itinerary: rawPayload });
+      commitItinerary(set, get, rawPayload);
       break;
     }
 
@@ -295,6 +329,14 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
         // （finalize_plan 节点），这里只在 narrate 换出更精彩的 LLM 标题时
         // （payload.title 存在）原地更新已展示的方案卡大标题，不整份替换
         // itinerary（title 缺省 = 本轮没有更好的标题，沿用已展示的版本）。
+        //
+        // ComparisonView 快照集中收口不覆盖这条分支（不走 commitItinerary）：
+        // 这里只原地改 summary 字符串，nodes/hops/schedule 等实质内容原样保留
+        // （spread s.itinerary 不换对象身份意义上的"新方案"），不构成"itinerary
+        // 被替换"这件事——ComparisonView 的 diff 只消费 nodes（见
+        // ComparisonView.tsx::nodesToDiffStages），不读 summary，因此这条分支
+        // 不会、也不该推进 previousItinerary。若未来有人往这个分支里加会实质
+        // 改变行程内容的字段，必须重新评估是否该改走 commitItinerary。
         itinerary: p.title && s.itinerary
           ? { ...s.itinerary, summary: p.title }
           : s.itinerary,

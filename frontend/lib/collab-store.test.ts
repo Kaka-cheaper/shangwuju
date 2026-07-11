@@ -372,4 +372,84 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
 
     expect(useChatStore.getState().nodeActions).toBeNull();
   });
+
+  // ComparisonView 快照集中收口回归（房间模式）：房间版 sendAdjust
+  // （collab-store.ts::sendAdjust，仅发 WS "adjust" 消息）本身不碰
+  // previousItinerary——真正的方案替换永远经由 "planning_event" →
+  // handleEvent 的 itinerary_ready case，同单人模式共用同一份
+  // commitItinerary 收口逻辑（event-handlers.ts）。本用例还原
+  // 审查报告坐实的场景："重规划→换菜→重规划"，断言第二次重规划后
+  // previousItinerary 是紧接前一版（换菜后的方案），不是更早版本。
+  it("回归（房间模式）：planning_started（重规划）→ planning_event/itinerary_ready（换菜）→ planning_started（重规划）三步序列，previousItinerary 紧接前一版", () => {
+    const planA = {
+      schema_version: "edge_v1",
+      summary: "方案A（第一次重规划后）",
+      nodes: [],
+      hops: [],
+      schedule: [],
+      orders: [],
+      total_minutes: 0,
+    };
+    const planB = { ...planA, summary: "方案B（换菜后）" };
+    const planC = { ...planA, summary: "方案C（第二次重规划后）" };
+
+    // 起始态：房间里已有方案A在展示（模拟第一次重规划已完成）。
+    useChatStore.setState({ itinerary: planA as any, previousItinerary: null });
+
+    // 换菜：房间版 sendAdjust 只发 WS 消息，真正生效靠房主/后端广播回来的
+    // planning_event（内层 itinerary_ready）——node_locked 在中途不碰
+    // itinerary，所以到 itinerary_ready 到达时 itinerary 全程仍是"换菜前"
+    // 的方案A，这正是需要被捕获的快照。
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "node_locked",
+      node_id: "R001",
+      by_user: "p1",
+      nickname: "小明",
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "itinerary_ready",
+        seq: 1,
+        payload: planB,
+        timestamp_ms: Date.now(),
+      },
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "node_unlocked",
+      node_id: "R001",
+    });
+
+    expect((useChatStore.getState().itinerary as any).summary).toBe("方案B（换菜后）");
+    expect((useChatStore.getState().previousItinerary as any).summary).toBe(
+      "方案A（第一次重规划后）",
+    );
+
+    // 第二次重规划：planning_started（非 confirm）自己的同步 setState 会
+    // 读当前 itinerary（此刻是方案B，换菜后的结果）存进 previousItinerary，
+    // 再把 itinerary 置 null 腾位——这是房间模式对称于单人 refine() 的既有
+    // 正确逻辑，本次改动不涉及，此处按真实实现手动重放这一步。
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_started",
+      trigger: "refine",
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "itinerary_ready",
+        seq: 2,
+        payload: planC,
+        timestamp_ms: Date.now(),
+      },
+    });
+
+    // 核心断言：previousItinerary 必须是紧接前一版（换菜后的方案B），
+    // 不是更早的方案A——修复前的 bug 恰恰是这里会残留更早的版本。
+    expect((useChatStore.getState().itinerary as any).summary).toBe(
+      "方案C（第二次重规划后）",
+    );
+    expect((useChatStore.getState().previousItinerary as any).summary).toBe(
+      "方案B（换菜后）",
+    );
+  });
 });

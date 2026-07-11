@@ -446,3 +446,138 @@ describe("critic 校验 + 自愈闭环三事件（Step 2：系统自愈过程可
     expect(report.fallbackHops).toHaveLength(0);
   });
 });
+
+describe("itinerary_ready：previousItinerary 集中收口（ComparisonView 快照 bug 修复）", () => {
+  // 命名规范：Ⅰ 代际方案，避免和别处的 ITIN 常量混淆。
+  const planA = { ...ITIN, summary: "方案A（换菜前）" } as unknown as ChatState["itinerary"];
+  const planB = { ...ITIN, summary: "方案B（换菜后）" } as unknown as ChatState["itinerary"];
+  const planC = { ...ITIN, summary: "方案C（第二次重规划后）" } as unknown as ChatState["itinerary"];
+
+  function readyPayload(plan: ChatState["itinerary"]) {
+    return { ...(plan as unknown as Record<string, unknown>), schema_version: "edge_v1" };
+  }
+
+  it("sendAdjust（换菜）路径：itinerary_ready 到达时若 itinerary 非空，推进 previousItinerary 为换菜前的方案", () => {
+    // 对应单人 store.ts::sendAdjust——换菜全程不清屏，itinerary 在
+    // itinerary_ready 到达前一直是"换菜前的真实方案"，这正是本次 bug 的根因：
+    // 此前 sendAdjust 完全不维护 previousItinerary，本用例断言修复后的行为。
+    const store = makeStore({ ...baseState(), itinerary: planA, previousItinerary: null });
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 1,
+      payload: readyPayload(planB),
+    } as never);
+    expect((store.getState().itinerary as unknown as { summary: string }).summary).toBe(
+      "方案B（换菜后）",
+    );
+    expect(
+      (store.getState().previousItinerary as unknown as { summary: string }).summary,
+    ).toBe("方案A（换菜前）");
+  });
+
+  it("refine 路径：itinerary 已被 refine() 自己的同步 set 置 null 时，itinerary_ready 不再重复 snapshot（不会用 null 覆盖 refine 已正确写入的 previousItinerary）", () => {
+    // 模拟 refine() 在发起流之前做的事：previousItinerary 已经正确写好，
+    // 紧接着把 itinerary 置 null 腾位等新方案。
+    const store = makeStore({
+      ...baseState(),
+      itinerary: null,
+      previousItinerary: planA,
+    });
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 1,
+      payload: readyPayload(planC),
+    } as never);
+    expect((store.getState().itinerary as unknown as { summary: string }).summary).toBe(
+      "方案C（第二次重规划后）",
+    );
+    // previousItinerary 必须保持 refine() 已经正确写入的 planA，不能被本次
+    // itinerary_ready 用"此刻 get().itinerary 是 null"错误地覆盖掉。
+    expect(
+      (store.getState().previousItinerary as unknown as { summary: string }).summary,
+    ).toBe("方案A（换菜前）");
+  });
+
+  it("回归：重规划→换菜→重规划 三步序列，第二次重规划后「调整前」是紧接前一版（换菜后），不是更早的版本", () => {
+    // 还原 D:/tmp_claude/comparison-bug/审查.md 坐实的根因场景：
+    // T0 refine → T1 sendAdjust（换菜）→ T2 refine，断言 T2 后 previousItinerary
+    // 精确等于 T1 换菜后的方案（planB），而不是 T0 之前更早的版本。
+    const store = makeStore({ ...baseState(), itinerary: planA, previousItinerary: null });
+
+    // T0：第一次反馈重规划——模拟 refine() 自己的同步 set()（读当前 itinerary
+    // 存快照 + 置 null 腾位），随后 itinerary_ready 到达带来 planA 自身
+    // （这里直接从"已有 planA 在展示"开始叙事，等价于 T0 之前就有方案）。
+    // 换菜（T1）：itinerary 全程非空，itinerary_ready 到达时应推进快照。
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 1,
+      payload: readyPayload(planB),
+    } as never);
+    expect(
+      (store.getState().previousItinerary as unknown as { summary: string }).summary,
+    ).toBe("方案A（换菜前）");
+    expect((store.getState().itinerary as unknown as { summary: string }).summary).toBe(
+      "方案B（换菜后）",
+    );
+
+    // T2：第二次反馈重规划——refine() 自己的同步 set() 先正确 snapshot
+    // previousItinerary=方案B（换菜后）、itinerary 置 null（腾位）。
+    store.set({
+      previousItinerary: store.getState().itinerary,
+      itinerary: null,
+    });
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 2,
+      payload: readyPayload(planC),
+    } as never);
+
+    // 断言核心：previousItinerary 是「紧接前一版」（换菜后的方案B），
+    // 不是更早的方案A——这正是本次 bug 修复前会出错的地方。
+    expect(
+      (store.getState().previousItinerary as unknown as { summary: string }).summary,
+    ).toBe("方案B（换菜后）");
+    expect((store.getState().itinerary as unknown as { summary: string }).summary).toBe(
+      "方案C（第二次重规划后）",
+    );
+  });
+
+  it("previousItinerary 快照是深拷贝：后续修改 itinerary 不会污染已存的 previousItinerary", () => {
+    const store = makeStore({ ...baseState(), itinerary: planA, previousItinerary: null });
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 1,
+      payload: readyPayload(planB),
+    } as never);
+    const snap = store.getState().previousItinerary as unknown as { summary: string };
+    // 原地修改新 itinerary 不应该影响已经存下来的快照引用（structuredClone 断开引用）
+    (store.getState().itinerary as unknown as { summary: string }).summary = "被污染了";
+    expect(snap.summary).toBe("方案A（换菜前）");
+  });
+
+  it("schema 不兼容降级分支同样走集中收口：previousItinerary 照样被正确推进", () => {
+    const store = makeStore({ ...baseState(), itinerary: planA, previousItinerary: null });
+    handleEvent(store.set, store.get, {
+      type: "itinerary_ready",
+      seq: 1,
+      payload: { summary: "旧 schema 数据", schema_version: "legacy_v0" },
+    } as never);
+    expect(
+      (store.getState().previousItinerary as unknown as { summary: string }).summary,
+    ).toBe("方案A（换菜前）");
+  });
+
+  it("agent_narration 的 title-only 覆盖不推进 previousItinerary（不是新方案，只改大标题）", () => {
+    const store = makeStore({ ...baseState(), itinerary: planA, previousItinerary: null });
+    handleEvent(store.set, store.get, {
+      type: "agent_narration",
+      seq: 1,
+      payload: { text: "暖场文案", stage: "stream", title: "更精彩的标题" },
+    } as never);
+    expect(
+      (store.getState().itinerary as unknown as { summary: string }).summary,
+    ).toBe("更精彩的标题");
+    // previousItinerary 纹丝不动——这条分支明确排除在集中收口之外
+    expect(store.getState().previousItinerary).toBeNull();
+  });
+});
