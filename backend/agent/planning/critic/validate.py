@@ -87,6 +87,7 @@ from ._rules.checks import (
     check_dietary,
     check_distance,
     check_duration,
+    check_explicit_dining_presence,
     check_hop_feasibility,
     check_invariants,
     check_meal_time,
@@ -151,6 +152,10 @@ REGISTRY: list[CheckSpec] = [
     # 锁定节点；ILS 路径 plan_hybrid 不传 pinned 进本 critic，天然不受影响——
     # 两轴分工见 check_pinned_presence docstring）
     CheckSpec(ViolationCode.PINNED_ENTITY_MISSING, 1, "hard", check_pinned_presence),
+    # 四条不变式批 I3（C5a）：显式要吃饭但方案无餐厅节点 → HARD 驱动补饭；
+    # 带可行性护栏（窄池 tool_results 有餐厅才判，池空降级走 C6 advisory），
+    # message 带池内候选店名（slot-hint 范式）——见 check_explicit_dining_presence docstring
+    CheckSpec(ViolationCode.EXPLICIT_DINING_MISSING, 1, "hard", check_explicit_dining_presence),
     # ── Stage 2: soft 建议（narration only，不 gate） ──────────────────────
     CheckSpec(ViolationCode.DISTANCE_EXCEEDED, 2, "soft", check_distance),
     # ADR-0014 决策 3（G-3）：预算超出，mock 价格粒度粗，只告知不 gate（见 check_budget docstring）

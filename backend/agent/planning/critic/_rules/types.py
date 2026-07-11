@@ -50,6 +50,7 @@ class ViolationCode(str, Enum):
     OPENING_HOURS_VIOLATION = "opening_hours_violation"  # ADR-0008 B-2b：营业时间检查（新增）
     BUDGET_EXCEEDED = "budget_exceeded"  # ADR-0014 决策 3（G-3）：见 check_budget
     PINNED_ENTITY_MISSING = "pinned_entity_missing"  # 赞锁定根治批：锁定实体缺席（见 check_pinned_presence）
+    EXPLICIT_DINING_MISSING = "explicit_dining_missing"  # 四条不变式批 I3：显式要吃饭但方案无餐厅节点（见 check_explicit_dining_presence，含可行性护栏）
 
 
 class Severity(str, Enum):

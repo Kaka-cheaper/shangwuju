@@ -106,27 +106,41 @@ def decide_nodes(intent: IntentExtraction) -> list[str]:
 
     规则（按优先级，与旧 decide_segments 行为对齐）：
 
+    0. tristate 显式态压过一切推断（I3，四条不变式批 C5a）：
+       - explicit_dining_requested=False（明说不要排饭）→ 恒 ["主活动"]，
+         抑制 dietary/商务/纪念日/时长默认全部推断触发。
+       - explicit_dining_requested=True（明说要吃饭）→ 用餐节点强制在场，
+         即使时长很短（下面各分支里 True 与 has_dietary 同权触发、且压过
+         独处放空的"不强行吃饭"例外——用户明说了要吃，独处也排）。
+       - None（没提及）→ 走下面既有规则，现状行为分毫不变。
     1. duration_hours 上限 < 90min（极短）：
-       - 用餐导向 social / 有 dietary → ["用餐"]
+       - 用餐导向 social / 有 dietary / 显式要吃 → ["用餐"]
        - 否则 → ["主活动"]
     2. duration_hours 上限 < 180min（短）：
        - 用餐导向 social：
          - 时长 ≥ 150min → ["主活动", "用餐"]
          - 否则 → ["用餐"]
-       - 独处放空 + 无 dietary → ["主活动"]
-       - 有 dietary + 非独处 → ["主活动", "用餐"]
+       - 独处放空 + 无 dietary + 非显式要吃 → ["主活动"]
+       - 有 dietary / 显式要吃 → ["主活动", "用餐"]
        - 都不满足 → ["主活动"]
     3. duration_hours 上限 ≥ 180min（中长）：
-       - 独处放空 + 无 dietary → ["主活动"]（一人安静）
+       - 独处放空 + 无 dietary + 非显式要吃 → ["主活动"]（一人安静）
        - 否则 → ["主活动", "用餐"]
     """
     duration_max_min = max(0, intent.duration_hours[1]) * 60
     has_dietary = bool(intent.dietary_constraints)
     ctx = intent.social_context
 
+    # tristate 显式态（I3 显式压过推断，双向；None 走既有推断，行为不变）
+    if intent.explicit_dining_requested is False:
+        # 显式不要排饭：现有规则的产物只有 [主]/[主,餐]/[餐] 三种形状，
+        # 抑制一切用餐触发后统一坍缩为 ["主活动"]。
+        return [KIND_MAIN]
+    dining_required = intent.explicit_dining_requested is True
+
     # 极短：1 个中间节点
     if duration_max_min < THRESHOLD_VERY_SHORT_MIN:
-        if has_dietary or ctx in _DINING_FOCUSED_CONTEXTS:
+        if has_dietary or dining_required or ctx in _DINING_FOCUSED_CONTEXTS:
             return [KIND_DINING]
         return [KIND_MAIN]
 
@@ -136,14 +150,14 @@ def decide_nodes(intent: IntentExtraction) -> list[str]:
             if duration_max_min >= THRESHOLD_SHORT_HAS_BOTH_MIN:
                 return [KIND_MAIN, KIND_DINING]
             return [KIND_DINING]
-        if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary:
+        if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary and not dining_required:
             return [KIND_MAIN]
-        if has_dietary:
+        if has_dietary or dining_required:
             return [KIND_MAIN, KIND_DINING]
         return [KIND_MAIN]
 
-    # 中长：默认 (主活动, 用餐)；独处放空例外
-    if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary:
+    # 中长：默认 (主活动, 用餐)；独处放空例外（显式要吃时例外失效）
+    if ctx in _SOLO_IMMERSIVE_CONTEXTS and not has_dietary and not dining_required:
         return [KIND_MAIN]
     return [KIND_MAIN, KIND_DINING]
 

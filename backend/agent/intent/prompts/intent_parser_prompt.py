@@ -79,6 +79,7 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
   "capacity_requirement": int | null, // 同行 ≥ 4 人时填总人数
   "extra_services": list[str],        // 仪式场景填 ["蛋糕"] 等
   "preferred_poi_types": list[str],   // 用户明示的 POI 类型，如 ["展览", "美术馆"]
+  "explicit_dining_requested": bool | null, // 就餐意愿三态，见下方【就餐意愿三态抽取规则】；没提及一律 null
   "budget_per_person": float | null,  // 仅当原话**明说具体数字**才填，见下方【预算抽取规则】；定性表达一律 null
   "raw_input": str,                   // 原样回填用户输入
   "parse_confidence": float,          // 0-1，对自身抽取的信心；不确定字段越多越低
@@ -124,6 +125,25 @@ INTENT_PARSER_SYSTEM_PROMPT = f"""你是「晌午局」的意图解析模块。
 - **禁止凭空添加**：用户没提的活动/品类（如真人 CS、密室、看展）**禁止添加**到 preferred_poi_types 或 experience_tags。
   用户只说「撸串喝酒」→ preferred_poi_types=["烧烤"]，**不要**自作主张加任何主活动。
   没点名任何活动品类时 preferred_poi_types 保持空数组 []。
+
+【就餐意愿三态抽取规则（I3 显式诉求零丢失 · 关键）】
+`explicit_dining_requested` 三态，判定对象是**就餐行为本身**：
+- **true（显式要吃饭）**：话里出现就餐意愿——"找个地方吃饭 / 顺便吃个饭 /
+  搓一顿 / 吃点东西 / 吃个下午茶"等，**不论有没有点名具体品类**。点名了品类
+  （"想吃烧烤"）时品类照旧进 preferred_poi_types / dietary，本字段**同时**为
+  true（两者不互斥，都是"显式要吃饭"的证据）。
+- **false（显式不要排饭）**：否定对象是就餐行为本身——"我们吃过了 / 不用排饭 /
+  别安排吃的 / 吃完饭来的"。
+- **null（没提及）**：话里完全没说吃不吃。**绝不**把"没提"填成 false——
+  false 专指显式拒绝，null 才是没提及（下游对两者处理完全不同）。
+- **区分（重要）**：否定对象是**品类/口味**（"不吃辣 / 别吃日料"）→ 走 dietary
+  词典轨（如加 "不辣"），**不是** false——那是"要吃但有忌口"，不是"不要吃"。
+- 非 null 时 field_provenance 标 "explicit_dining_requested": "user_stated"
+  （本字段唯一来源就是原话明说）。
+- 本字段只管"有没有这顿饭"，不表示"吃饭是唯一诉求"——用户说"吃饭"之外的
+  活动照常抽取。
+- understanding 句：true 时理解句应自然提到吃饭（如"……我理解成看展之余还要
+  找个能安静吃饭的地方"），让用户看见系统听到了这条诉求。
 
 【预算抽取规则（ADR-0014 决策 3 · G-3，关键 · 定量定性分轨）】
 - **定量**：原话明说具体数字才填 `budget_per_person`——
@@ -265,6 +285,8 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
     ),
     (
         # 预算正例（ADR-0014 决策 3·G-3）：原话明说数字 → budget_per_person 填数字 + user_stated
+        # I3 三态：撸串=点名品类的显式就餐诉求 → preferred_poi_types 承接品类，
+        # explicit_dining_requested 同时为 true（两者不互斥）
         "今晚和兄弟出来撸串喝点酒，人均 50 左右就行",
         '{"start_time":"today_evening","start_weekday":null,"duration_hours":[3,4],'
         '"distance_max_km":5,'
@@ -273,12 +295,14 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["热闹"],"social_context":"朋友热闹",'
         '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["烧烤"],'
+        '"explicit_dining_requested":true,'
         '"budget_per_person":50,'
         '"raw_input":"今晚和兄弟出来撸串喝点酒，人均 50 左右就行",'
         '"parse_confidence":0.86,"ambiguous_fields":[],'
         '"field_provenance":{"start_time":"user_stated","duration_hours":"inferred",'
         '"distance_max_km":"default","social_context":"inferred",'
-        '"experience_tags:热闹":"inferred","budget_per_person":"user_stated"},'
+        '"experience_tags:热闹":"inferred","budget_per_person":"user_stated",'
+        '"explicit_dining_requested":"user_stated"},'
         '"understanding":"用户和兄弟撸串、人均 50 封顶，我理解成图热闹但预算卡得紧"}',
     ),
     (
@@ -299,6 +323,107 @@ INTENT_PARSER_FEW_SHOTS: list[tuple[str, str]] = [
         '"duration_hours":"inferred","distance_max_km":"default","social_context":"inferred",'
         '"capacity_requirement":"user_stated","experience_tags:热闹":"inferred"},'
         '"understanding":"用户 4 人周五去 K 歌、说别太贵，我理解成想热闹但价格敏感"}',
+    ),
+    (
+        # I3 三态正例（S5 canonical）：泛化就餐意愿（没点名品类）→ true；
+        # 活动品类"看展"镜像进 preferred_poi_types；understanding 自然提到吃饭
+        "周日下午带着女朋友去看个展，顺便找个安静能聊天的地方吃饭。",
+        '{"start_time":"sunday_afternoon","start_weekday":"sunday","duration_hours":[3,5],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"女朋友","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["看展","安静聊天"],"social_context":"情侣亲密",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["看展"],'
+        '"explicit_dining_requested":true,'
+        '"budget_per_person":null,'
+        '"raw_input":"周日下午带着女朋友去看个展，顺便找个安静能聊天的地方吃饭。",'
+        '"parse_confidence":0.9,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","start_weekday":"user_stated",'
+        '"duration_hours":"inferred","distance_max_km":"default","social_context":"inferred",'
+        '"experience_tags:看展":"user_stated","experience_tags:安静聊天":"user_stated",'
+        '"explicit_dining_requested":"user_stated"},'
+        '"understanding":"用户带女朋友看展、还要找安静地方吃饭，我理解成看展加一顿安静的约会饭"}',
+    ),
+    (
+        # I3 三态正例（S6 canonical）：茶点类就餐意愿（"吃个下午茶"）同样置 true——
+        # 方案排下午茶/甜品即满足，不是要硬塞正餐
+        "周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。",
+        '{"start_time":"weekend_afternoon","start_weekday":null,"duration_hours":[3,5],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"闺蜜","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":["下午茶"],'
+        '"experience_tags":["网红打卡","拍照友好"],"social_context":"闺蜜聊天",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["网红打卡"],'
+        '"explicit_dining_requested":true,'
+        '"budget_per_person":null,'
+        '"raw_input":"周末下午约了闺蜜想找个网红的地方拍拍照吃个下午茶。",'
+        '"parse_confidence":0.88,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","duration_hours":"inferred",'
+        '"distance_max_km":"default","social_context":"inferred",'
+        '"dietary_constraints:下午茶":"user_stated","experience_tags:网红打卡":"user_stated",'
+        '"experience_tags:拍照友好":"user_stated","explicit_dining_requested":"user_stated"},'
+        '"understanding":"用户约闺蜜拍照吃下午茶，我理解成网红范儿的轻食小聚"}',
+    ),
+    (
+        # I3 三态负例①：否定对象是就餐行为本身（"吃过了/不用安排吃的"）→ false
+        "和朋友刚吃完饭，不用再安排吃的了，找个地方消消食走走。",
+        '{"start_time":"today_afternoon","start_weekday":null,"duration_hours":[2,3],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"朋友","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":[],"social_context":"朋友热闹",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":false,'
+        '"budget_per_person":null,'
+        '"raw_input":"和朋友刚吃完饭，不用再安排吃的了，找个地方消消食走走。",'
+        '"parse_confidence":0.85,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"default","duration_hours":"inferred",'
+        '"distance_max_km":"default","social_context":"inferred",'
+        '"explicit_dining_requested":"user_stated"},'
+        '"understanding":"用户说吃过了不用安排吃的，我理解成只排消食遛弯不排饭"}',
+    ),
+    (
+        # I3 三态负例②：显式拒绝 + 点名活动（"别安排吃的，就想唱K"）→ false，
+        # 活动照常抽取
+        "别安排吃的，就想和室友出去唱唱歌。",
+        '{"start_time":"today_evening","start_weekday":null,"duration_hours":[3,4],'
+        '"distance_max_km":5,'
+        '"companions":[{"role":"室友","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["热闹"],"social_context":"朋友热闹",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["K歌"],'
+        '"explicit_dining_requested":false,'
+        '"budget_per_person":null,'
+        '"raw_input":"别安排吃的，就想和室友出去唱唱歌。",'
+        '"parse_confidence":0.85,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"default","duration_hours":"inferred",'
+        '"distance_max_km":"default","social_context":"inferred",'
+        '"experience_tags:热闹":"inferred","explicit_dining_requested":"user_stated"},'
+        '"understanding":"用户说别安排吃的就想唱歌，我理解成纯 K 歌局不排饭"}',
+    ),
+    (
+        # I3 三态同框区分：否定对象是口味（"不辣"）→ dietary 词典轨，
+        # 就餐意愿本身仍是 true——"要吃但有忌口"≠"不要吃"
+        "下班想随便吃口不辣的，一个人。",
+        '{"start_time":"today_evening","start_weekday":null,"duration_hours":[2,3],'
+        '"distance_max_km":5,'
+        '"companions":[],'
+        '"physical_constraints":[],"dietary_constraints":["不辣"],'
+        '"experience_tags":["独处舒缓"],"social_context":"独处放空",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":true,'
+        '"budget_per_person":null,'
+        '"raw_input":"下班想随便吃口不辣的，一个人。",'
+        '"parse_confidence":0.87,"ambiguous_fields":[],'
+        '"field_provenance":{"start_time":"user_stated","duration_hours":"inferred",'
+        '"distance_max_km":"default","social_context":"inferred",'
+        '"dietary_constraints:不辣":"user_stated","experience_tags:独处舒缓":"inferred",'
+        '"explicit_dining_requested":"user_stated"},'
+        '"understanding":"用户一个人想吃口不辣的，我理解成安排一顿清淡简餐"}',
     ),
 ]
 

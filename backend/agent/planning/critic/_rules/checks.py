@@ -1538,3 +1538,77 @@ def check_pinned_presence(
             )
         )
     return out
+
+
+# ============================================================
+# 显式就餐诉求在场（四条不变式批 I3 · C5a）
+# ============================================================
+
+_EXPLICIT_DINING_HINT_CANDIDATES = 3
+"""violation message 里列出的池内候选餐厅家数上限（slot-hint 范式）。"""
+
+
+def check_explicit_dining_presence(
+    itinerary: Itinerary, *, ctx: "CriticContext | None" = None
+) -> list[Violation]:
+    """显式就餐诉求在场检查（四条不变式批 I3）：用户明说要吃饭
+    （`intent.explicit_dining_requested is True`）而最终方案没有任何餐厅节点
+    → HARD 违规，驱动 backprompt 修复闭环补一顿饭。
+
+    【这是什么问题】把"显式诉求零丢失"从 prompt 指令层面（靠 LLM 自觉）
+    提升到 critic 硬校验的制度化关键一步——`check_pinned_presence` 的姊妹
+    逻辑：判的都是"该在场的东西缺席"。仅 True 触发；None（没提及）与
+    False（明说不要）都不判——tristate 语义见 `schemas/intent.py` 字段
+    docstring。
+
+    【可行性护栏（拍板项 P3：规划期窄池口径）】HARD 判定加前置条件——
+    `ctx.tool_results["restaurants"]`（execute 阶段搜索快照，即修复闭环里
+    蓝图 LLM 实际能挑的候选池）里**确实有餐厅**才判 HARD；池空/无快照
+    （ILS 路径 tool_results=None）→ 不判 HARD——修复循环冲着一个"物理上
+    补不进"的目标空转 2 轮 backprompt 只会拖垮整个方案，此时降级为 I4 式
+    诚实告知（`MEAL_REQUESTED_UNSEATED` advisory，narrate 侧三分叉产出，
+    见 C6）。全量池（ctx.restaurants）有货但窄池没有时修复同样空转，故
+    判据用窄池不用全量池。
+
+    【消息纪律（slot-hint 范式，方案 1.34 附加补强）】violation message
+    必须带池内 2-3 家候选店名——`restaurant_full` 修复闭环曾有 8/8 全灭
+    实测先例，真因是 LLM 缺具体材料只能盲猜，后靠 `_available_slots_hint`
+    喂真值治好。本 check 照抄同款范式，不让 LLM 盲猜该补哪家。
+
+    - intent 缺失 / 非 True → 跳过（None=现状零变化保证）。
+    - field_path 留空：违规主体是"缺席"，没有肇事节点可定位。
+    """
+    intent = getattr(ctx, "intent", None) if ctx is not None else None
+    if intent is None or intent.explicit_dining_requested is not True:
+        return []
+
+    has_restaurant_node = any(
+        node.target_kind == "restaurant" for node in itinerary.nodes
+    )
+    if has_restaurant_node:
+        return []
+
+    tool_results = getattr(ctx, "tool_results", None) if ctx is not None else None
+    pool = (tool_results or {}).get("restaurants") or []
+    if not pool:
+        # 可行性护栏：窄池无餐厅（或无搜索快照）→ 修复闭环无从补起，
+        # 不判 HARD；诚实义务由 MEAL_REQUESTED_UNSEATED advisory 承接（C6）。
+        return []
+
+    hint_names = [
+        getattr(r, "name", None) or getattr(r, "id", "")
+        for r in pool[:_EXPLICIT_DINING_HINT_CANDIDATES]
+    ]
+    hint = "、".join(f"「{n}」" for n in hint_names if n)
+    return [
+        Violation(
+            code=ViolationCode.EXPLICIT_DINING_MISSING,
+            severity=Severity.HARD,
+            message=(
+                "用户明说了要吃饭，但这版方案里没有任何用餐安排。"
+                f"必须补一顿进方案——候选里有 {hint} 可选，"
+                "从中挑一家排进合适的饭点（可以为它调整其余节点的时长或顺序）。"
+            ),
+            field_path="",
+        )
+    ]

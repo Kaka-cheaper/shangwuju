@@ -389,6 +389,18 @@ def _llm_refine(
         refined_intent_data["raw_input"] = _compose_raw_input(
             original.raw_input, feedback_text
         )
+        # I3 反馈轮存活守卫（四条不变式批 C5a；ADR-0015 决策 4「生成归 LLM、
+        # 验收归代码」）：explicit_dining_requested 键**不存在**（区别于显式
+        # 输出 null/false——改口是合法语义，few-shot 8 教过必须显式输出 false）
+        # → 从 original 继承。refiner 对 intent 是整体替换，不在 LLM 输出里的
+        # 字段会被 Pydantic 默认值（None）静默顶上——用户没在反馈里撤回吃饭
+        # 诉求，字段就不该因为 LLM 忘写而翻转（S5 反馈轮二次丢饭的根因）。
+        # few-shots 全量带该字段是第一道防线，本守卫是第二道；_rule_fallback
+        # 走 model_copy(update=...) 天然继承，无需守卫。
+        if "explicit_dining_requested" not in refined_intent_data:
+            refined_intent_data["explicit_dining_requested"] = (
+                original.explicit_dining_requested
+            )
 
     refined_intent = IntentExtraction.model_validate(refined_intent_data)
 

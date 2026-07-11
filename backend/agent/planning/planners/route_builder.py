@@ -215,9 +215,20 @@ def _resolve_depart_min(start_time: str) -> int:
 def dining_soft_anchored(
     intent: IntentExtraction, *, depart_min: Optional[int] = None
 ) -> bool:
-    """判断"饭是否被软锚"（ADR-0010 决策 10，规则定死，不可扩大解释）。
+    """判断"饭是否被软锚"（ADR-0010 决策 10；四条不变式批扩充 tristate 触发）。
 
-    饭被软锚 **iff**：
+    【tristate 显式态压过一切推断（I3 宪法双向，四条不变式批 C5a，2026-07-11，
+    修订 ADR-0010 决策 10 原"规则定死不可扩大解释"文——正式留痕见该 ADR）】
+    - `intent.explicit_dining_requested is True`（用户明说要吃饭）→ 恒 True，
+      不看任何推断条件——"用户明说要吃饭"本身就是充分条件，优先级高于
+      商务/纪念日/跨窗+dietary 这些推断性触发。
+    - `intent.explicit_dining_requested is False`（用户明说不要排饭）→ 恒
+      False，**抑制下面全部推断触发**——顺带修复既存缺陷：此前商务场景
+      无条件软锚饭，用户说"接客户，不用安排吃的"也会被硬塞一顿商务餐。
+      显式拒绝与显式要求同权：都压过推断。
+    - `None`（没提及）→ 走下面的既有推断规则，现状行为分毫不变。
+
+    None 态下饭被软锚 **iff**：
     ① `intent.social_context` 落在 `_DINING_FOCUSED_CONTEXTS`（商务接待/
        纪念日仪式感——复用 `node_decider` 的既有集合，不重复定义一份）；
     **或**
@@ -228,6 +239,10 @@ def dining_soft_anchored(
        `intent.dietary_constraints` 非空。
 
     否则涌现（utility 说了算，是否有饭由贪心插入段自然决定）。
+
+    【触发集镜像纪律】本判定与 `blueprint_prompt.py`【饭：条件性主角】段是
+    **两处独立实现的同一条规则**（LLM 路径吃 prompt、ILS/rule 路径吃本函数）
+    ——任何触发条件改动必须两处同步，否则重新制造"两条路径行为不一致"。
 
     【规则②放宽记录（用户拍板，修订 ADR-0010 决策 10 共识）】
     旧规则要求出行窗"完整覆盖"饭点窗才软锚，真 LLM 复测实证：14:00-19:00
@@ -242,6 +257,12 @@ def dining_soft_anchored(
     `intent.start_time` 的天真解析分叉——软锚判定必须和真实排程用同一个窗）；
     不传（None）时才回退到自行解析 `intent.start_time`（独立调用/测试便利）。
     """
+    # tristate 显式态早退（I3 显式压过推断，双向）——见 docstring
+    if intent.explicit_dining_requested is True:
+        return True
+    if intent.explicit_dining_requested is False:
+        return False
+
     if intent.social_context in _DINING_FOCUSED_CONTEXTS:
         return True
     if not intent.dietary_constraints:

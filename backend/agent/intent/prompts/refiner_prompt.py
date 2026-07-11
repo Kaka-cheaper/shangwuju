@@ -127,6 +127,10 @@ C. 只是想换一个备选（"不要刚才那家店 / 换个地方"）
                                   决策 3：系统不编造用户没说的话）
 - "想吃 X"（X 是菜系）          → dietary 加对应菜系 tag（必须在词典内）
 - "不想吃 X"                    → dietary 加忌口 tag（如"不辣"，必须词典内）
+- 就餐意愿三态 explicit_dining_requested（I3 · 关键）：反馈说"加一顿/想吃饭/
+  找个地方吃" → true；说"算了不吃了/不用排饭/别安排吃的" → false（撤回是
+  合法改口）；**反馈没提就餐 → 原值原样保留**（null/true/false 都不许动——
+  用户没撤回的诉求不能因为你忘写而丢失，这个字段每次输出都必须显式带上）
 - "换个氛围"                    → experience 调整（如安静聊天 ↔ 热闹）
 - "时间紧"                      → duration_hours 改 [2, 3]
 - "时间多"                      → duration_hours 改 [5, 7]
@@ -174,6 +178,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
         '"social_context":"家庭日常","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":null,'
         '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[],'
         '"understanding":"用户说太远了，我理解成要拉近距离"},'
         '"changed_fields":["距离上限：5km → 3km"],'
@@ -195,6 +200,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":["有包间","健康轻食"],'
         '"experience_tags":["礼仪感"],"social_context":"商务接待",'
         '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":null,'
         '"raw_input":"接客户","parse_confidence":0.82,"ambiguous_fields":[],'
         '"understanding":"用户说预算紧、便宜点，我理解成要降档但留住包间"},'
         '"changed_fields":["去掉：高人均","加：健康轻食","去掉体验：商务体面"],'
@@ -216,6 +222,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["社交","拍照友好"],"social_context":"朋友热闹",'
         '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":null,'
         '"raw_input":"和朋友 4 人","parse_confidence":0.88,"ambiguous_fields":[],'
         '"understanding":"用户没再多说，我理解成先紧凑范围重新试一版"},'
         '"changed_fields":["距离上限：5km → 4km"],'
@@ -239,10 +246,12 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"dietary_constraints":["健康轻食","软烂"],"experience_tags":["安静聊天"],'
         '"social_context":"老人伴助","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":true,'
         '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,"ambiguous_fields":[],'
         '"understanding":"用户说改成陪爸妈吃饭要安静，我理解成这次场景整个换了"},'
         '"changed_fields":["同行：妻子+孩子 → 父母","场景：家庭日常 → 老人伴助",'
-        '"物理：去亲子友好/适合5-10岁，加适合老人/可休息","忌口加软烂；体验加安静聊天"],'
+        '"物理：去亲子友好/适合5-10岁，加适合老人/可休息","忌口加软烂；体验加安静聊天",'
+        '"就餐：明确要安排一顿饭"],'
         '"refiner_note":"明白，这次是陪爸妈吃饭——去掉了亲子相关，换成适合老人的安静安排。"}',
     ),
     # 5. C 换备选：不满意某个具体推荐，字段基本不动（改口根治批判据变更：
@@ -270,6 +279,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"dietary_constraints":["低脂","健康轻食"],"experience_tags":[],'
         '"social_context":"家庭日常","capacity_requirement":null,'
         '"extra_services":[],"preferred_poi_types":[],'
+        '"explicit_dining_requested":null,'
         '"raw_input":"今天下午带老婆孩子","parse_confidence":0.92,'
         '"ambiguous_fields":[],'
         '"understanding":"用户说不要那家餐厅，我理解成换一版备选就行"},'
@@ -294,11 +304,65 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":[],'
         '"experience_tags":["热闹"],"social_context":"朋友热闹",'
         '"capacity_requirement":4,"extra_services":[],"preferred_poi_types":["KTV"],'
+        '"explicit_dining_requested":null,'
         '"raw_input":"周五晚上和室友 4 个人想去 K 歌，预算别太贵","parse_confidence":0.82,'
         '"ambiguous_fields":["budget_per_person"],"budget_per_person":200,'
         '"understanding":"用户说预算给到200，我理解成按这个数重新配"},'
         '"changed_fields":["预算：未设定 → 200 元/人"],'
         '"refiner_note":"明白，预算按 200 元/人给你安排。"}',
+    ),
+    # 7. I3 三态·主动保持：原 intent 明确要吃饭（true），反馈只说换展没提就餐
+    #    → explicit_dining_requested 原样保留 true（"没提=不变"——用户没撤回的
+    #    显式诉求不能在反馈轮静默丢失）
+    (
+        '原 intent={"start_time":"sunday_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"女朋友","count":1}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["看展","安静聊天"],"social_context":"情侣亲密",'
+        '"raw_input":"周日下午带女朋友看个展，顺便找个安静能聊天的地方吃饭",'
+        '"parse_confidence":0.9,"ambiguous_fields":[],'
+        '"start_weekday":"sunday","capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":["看展"],'
+        '"explicit_dining_requested":true} | feedback="换个更近一点的展"',
+        '{"refined_intent":{"start_time":"sunday_afternoon","start_weekday":"sunday",'
+        '"duration_hours":[3,5],"distance_max_km":3,'
+        '"companions":[{"role":"女朋友","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["看展","安静聊天"],"social_context":"情侣亲密",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["看展"],'
+        '"explicit_dining_requested":true,'
+        '"raw_input":"周日下午带女朋友看个展，顺便找个安静能聊天的地方吃饭",'
+        '"parse_confidence":0.9,"ambiguous_fields":[],'
+        '"understanding":"用户说换个更近的展，我理解成缩范围换展、那顿饭照常安排"},'
+        '"changed_fields":["距离上限：5km → 3km"],'
+        '"refiner_note":"好，换个更近的展——要吃饭这条不变，照常安排。"}',
+    ),
+    # 8. I3 三态·显式撤回：反馈明说"算了不吃了" → false（撤回是合法改口，
+    #    与"忘写"不同——改口必须显式输出 false，不是省略字段）
+    (
+        '原 intent={"start_time":"sunday_afternoon","duration_hours":[3,5],'
+        '"distance_max_km":5,"companions":[{"role":"女朋友","count":1}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["看展","安静聊天"],"social_context":"情侣亲密",'
+        '"raw_input":"周日下午带女朋友看个展，顺便找个安静能聊天的地方吃饭",'
+        '"parse_confidence":0.9,"ambiguous_fields":[],'
+        '"start_weekday":"sunday","capacity_requirement":null,'
+        '"extra_services":[],"preferred_poi_types":["看展"],'
+        '"explicit_dining_requested":true} | feedback="算了不吃了，看完展直接回家"',
+        '{"refined_intent":{"start_time":"sunday_afternoon","start_weekday":"sunday",'
+        '"duration_hours":[3,5],"distance_max_km":5,'
+        '"companions":[{"role":"女朋友","age":null,"count":1,'
+        '"is_birthday":false,"is_special_role":false}],'
+        '"physical_constraints":[],"dietary_constraints":[],'
+        '"experience_tags":["看展","安静聊天"],"social_context":"情侣亲密",'
+        '"capacity_requirement":null,"extra_services":[],"preferred_poi_types":["看展"],'
+        '"explicit_dining_requested":false,'
+        '"raw_input":"周日下午带女朋友看个展，顺便找个安静能聊天的地方吃饭",'
+        '"parse_confidence":0.9,"ambiguous_fields":[],'
+        '"understanding":"用户说不吃了看完直接回家，我理解成把饭从方案里去掉"},'
+        '"changed_fields":["就餐：不安排了"],'
+        '"refiner_note":"明白，这次不排饭了，看完展就结束。"}',
     ),
 ]
 
