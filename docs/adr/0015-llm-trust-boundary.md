@@ -23,7 +23,7 @@
 **无标准答案的语义判断归 LLM;有标准答案的计算、校验、查表归确定性代码;两域之间用类型化契约(schema)交接。**
 
 - 归 LLM 的:路由义务分类、意图抽取、反馈合并、蓝图选点(哪里/做什么/多久)、权重品味、叙事措辞、隐晦软约束、弃答文案。
-- 归代码的:时间游标与通勤估算、critic 16 项判据、ILS 目标函数与调度、硬软放宽序、预算比较、桌型分档、台账 merge、版本志、出处 diff。
+- 归代码的:时间游标与通勤估算、critic 全部判据(数量见 `agent.planning.critic.validate.REGISTRY`,现场计数、不硬编)、ILS 目标函数与调度、硬软放宽序、预算比较、桌型分档、台账 merge、版本志、出处 diff。
 - 契约:IntentExtraction/Blueprint/RouterDecision 等 Pydantic schema,词典 Literal 镜像数据目录可查标签集——**schema 即解耦接口**,不是耦合。
 
 ### 2. 不变式:四条永不交给 LLM

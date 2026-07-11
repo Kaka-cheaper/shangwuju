@@ -12,7 +12,8 @@
  *   ③ 规划   —— blueprint.plan_reason（LLM 现生成，新字段，随 agent_thought 兄弟字段到达）
  *   ④ 发现问题 —— critic_violations（按违规码分种落词，§三）
  *   ⑤ 修正   —— critic_fix_attempt（同一违规码的修正句，§三）
- *   ⑥ 换引擎 —— plan_fallback（固定句）
+ *   ⑥ 换引擎 —— plan_fallback，仅 `.to` 落在真实引擎边界（ils/rule）才生成
+ *              （固定句；见下方"琥珀误分类修复"，llm_backprompt/give_up 不生成）
  *   ⑦ 定稿   —— itinerary 就绪（固定句；give_up 策略时诚实改口，§五"失败保留"）
  *
  * 剪辑规则（§二"信息流要剪辑"+ 本文件的可执行落地）：
@@ -37,10 +38,19 @@
  *    从中间切断④⑤配对（见 `collapseRepeatedHealRounds` / 主入口裁剪循环）。
  * 2. ⑥换引擎固定句加措辞变体池（`FALLBACK_FIXED_TEXTS`）——连续换引擎不再
  *    一字不差重复，按出现次序取变体，最后一种封顶。
- * 3. `buildHealRoundsAndFallbacks` 在 fallback 处重置 `current`——fallback=
- *    引擎切换=轮边界，切换后到达的 fix_attempt 不再误挂回切换前的旧违规轮
- *    （曾用旧违规码的措辞、却顶着切换后的新 seq，排序后修正句跑到发现句
- *    前面）。
+ * 3. `buildHealRoundsAndFallbacks` 在真实引擎切换处重置 `current`——引擎切换=
+ *    轮边界，切换后到达的 fix_attempt 不再误挂回切换前的旧违规轮（曾用旧
+ *    违规码的措辞、却顶着切换后的新 seq，排序后修正句跑到发现句前面）。
+ *
+ * 琥珀误分类修复（2026-07-11 同日修订，止损三修之后发现的第四处真 bug）：
+ * 后端 `emit_replan_router` 对**每次** replan 决策都发一条 PLAN_FALLBACK——
+ * 包括 `llm_backprompt`（LLM 自己重试重出蓝图，根本没换引擎）。旧实现不读
+ * `PlanFallbackHop.to`，一律当⑥"换引擎"渲染+重置 discover/fix 配对，真机上
+ * 连出三条⑥、中间零④⑤配对、最后一句因果倒序重复——像系统抽风。改为按
+ * `.to` 分类（见 `REAL_ENGINE_SWITCH_STAGES` 常量 docstring 完整取值集穷举）：
+ * 只有 `.to ∈ {"ils","rule"}` 才是真实引擎交接，生成⑥拍+重置轮边界；
+ * `.to === "llm_backprompt"` 不生成拍、不重置（重试的故事交给④⑤配对+既有
+ * ≥3 轮折叠讲）；`.to === "give_up"` 也不生成⑥拍（收尾交给⑦拍诚实分支）。
  */
 
 import type { useChatStore } from "./store";
@@ -176,6 +186,46 @@ const DONE_FIXED_TEXT = "规划成功";
 const GIVE_UP_FIXED_TEXT = "试了几版都排不下，先保留这版方案";
 
 const SEARCH_TOOLS = new Set(["search_pois", "search_restaurants"]);
+
+// ============================================================
+// 琥珀误分类修复（2026-07-11 真机实锤，见路演PPT/信任带设计终稿.md 同批修订）
+// ============================================================
+
+/**
+ * 真引擎边界——只有 `.to` 落在这个集合，才可能是"换了个引擎接手"。取值集
+ * 穷举自后端两条 PLAN_FALLBACK 发射路径（`_emit_handlers.py::
+ * emit_replan_router` 的 `_STRATEGY_TO_LABEL` + `emit_ils_replan` 从
+ * `ils_replan_node.fallback_chain` 增量推的 `to_stage`）：
+ * - "llm_backprompt"：LLM 自己重试重出蓝图，引擎压根没换——旧实现把它也当⑥
+ *   渲染，导致"换引擎"三连里混进了根本没发生的换引擎（真机症状根因之一）。
+ *   这条不生成任何拍，重试的故事完全交给④⑤配对 + 已有的"连续同违规折叠"
+ *   逻辑去讲（§二剪辑规则）。
+ * - "ils" / "rule"：LLM 三次仍未过 critic → 切 ILS；ILS 也失败 → 回 rule
+ *   planner——这两个才是真实的"引擎交接"，唯一配得上⑥拍的两种（还需下方
+ *   `isRealEngineSwitchHop` 的 `from !== to` 这层过滤）。
+ * - "give_up"：不是新引擎接手，是"全部试完，保留当前最佳方案"（见
+ *   `ils_replan_node` docstring + `finalize_plan.py::_FINAL_STRATEGY_BY_LAST_HOP`）
+ *   ——⑦拍的 give_up 分支（`GIVE_UP_FIXED_TEXT`）已经诚实讲了这个结局，
+ *   ⑥拍再喊一遍"换成算法引擎"反而是编造了一次并未发生的引擎切换。这条
+ *   同样不生成拍，把收尾交给⑦。
+ * - "error"（schema 保留值，当前后端从未产出）：未识别值一律归入"不生成拍"
+ *   的保守桶，不臆造。
+ */
+const REAL_ENGINE_SWITCH_STAGES = new Set(["ils", "rule"]);
+
+/**
+ * 真实引擎切换判定：`.to` 落在 `REAL_ENGINE_SWITCH_STAGES` 且 `from !== to`
+ * （同阶段自环不算切换）。`ils_replan_node` 在 ILS 真给出可行方案时会补写
+ * 一跳 `from_stage="ils", to_stage="ils"`（reason="ILS 算法给出可行方案，
+ * 成功兜底，不再进一步降级"）——这跳的语义是"确认已经切换过去的引擎成功
+ * 了"，不是"又切了一次"。若只按 `.to` 判断会让这跳也命中 "ils"，在真实的
+ * llm→ils 切换之后再生成第二条⑥"还是不行，换成算法引擎"，语义上等于重复
+ * 宣布了一次并未发生的第二次切换——同样是"忠实不编"要防的误分类，只是换了
+ * 个触发路径。
+ */
+function isRealEngineSwitchHop(hop: { from: string; to: string }): boolean {
+  return hop.from !== hop.to && REAL_ENGINE_SWITCH_STAGES.has(hop.to);
+}
 
 // ============================================================
 // ②拍检索收据芯片（2026-07-10 新增，见路演PPT/信任带设计终稿.md 同日修订）
@@ -465,28 +515,41 @@ function buildHealRoundsAndFallbacks(criticReport: StoreState["criticReport"]): 
         };
       }
     } else {
-      // fallback（plan_fallback → ILS/rule 等）：§三注 + §二①"⑥ 换引擎"固定句，
-      // 不区分 to_stage 细分（ILS/rule 对评委而言都是"换了个引擎接手"）。
-      // 止损修 2：按 fallback 出现次序（非全局 seq）取措辞变体，连续换引擎不再
-      // 一字不差重复；变体用完则停在最后一种（真机极少见 >3 次换引擎的场景，
-      // 停在最后一种仍诚实，不比循环回第一句更奇怪）。
-      const wordingIdx = Math.min(fallbackBeats.length, FALLBACK_FIXED_TEXTS.length - 1);
-      fallbackBeats.push({
-        id: `fallback-${item.data.seq}`,
-        kind: "fallback",
-        text: FALLBACK_FIXED_TEXTS[wordingIdx],
-        seq: item.data.seq,
-        amber: true,
-      });
-      // 止损修 3（根因）：fallback = 引擎切换 = 轮边界。旧引擎最后一轮的违规若
-      // 还没等到 fix_attempt 就切换了引擎，那条 fix_attempt 不该再补给它——
-      // 新引擎自己的 backprompt 循环会产生新的 violations/fix_attempt 对，若不
-      // 重置 current，新引擎的 fix_attempt 会被错挂到旧引擎那条violation round
-      // 上（措辞用旧违规码的，seq 却是新引擎产生的），排序后出现"发现句还没
-      // 出现、修正句先跑到换引擎前面"的因果倒序（真机症状根因）。fallback 后
-      // current=null，若新引擎确实还会再报同一条 violations，下一条 violations
-      // 事件会重新开一轮、拿到自己的 discover+fix 配对，不会错挂历史。
-      current = null;
+      // fallback（plan_fallback）：先按 `.from`/`.to` 分类，不是每次 replan
+      // 决策都配得上⑥"换引擎"这句话——琥珀误分类修复（见上方
+      // `isRealEngineSwitchHop` docstring）：`llm_backprompt` 是 LLM 自己
+      // 重试，`give_up` 是诚实收尾，`ils→ils` 自环是"确认已切换的引擎成功了"
+      // ——都不生成⑥拍；只有真实引擎交接（llm→ils / ils→rule 这类 from!==to
+      // 且 to∈{ils,rule}）才生成。
+      if (isRealEngineSwitchHop(item.data)) {
+        // 止损修 2：按 fallback 出现次序（非全局 seq）取措辞变体，连续换引擎
+        // 不再一字不差重复；变体用完则停在最后一种（真机极少见 >3 次换引擎的
+        // 场景，停在最后一种仍诚实，不比循环回第一句更奇怪）。注意计数只数
+        // 真实引擎切换次数（fallbackBeats.length），llm_backprompt/give_up
+        // 被上面的分类挡在外面，不会占用变体序号。
+        const wordingIdx = Math.min(fallbackBeats.length, FALLBACK_FIXED_TEXTS.length - 1);
+        fallbackBeats.push({
+          id: `fallback-${item.data.seq}`,
+          kind: "fallback",
+          text: FALLBACK_FIXED_TEXTS[wordingIdx],
+          seq: item.data.seq,
+          amber: true,
+        });
+      }
+      // 止损修 3（根因）：真实引擎切换 = 轮边界。旧引擎最后一轮的违规若还没
+      // 等到 fix_attempt 就切换了引擎，那条 fix_attempt 不该再补给它——新引擎
+      // 自己的 backprompt 循环会产生新的 violations/fix_attempt 对，若不重置
+      // current，新引擎的 fix_attempt 会被错挂到旧引擎那条 violation round 上
+      // （措辞用旧违规码的，seq 却是新引擎产生的），排序后出现"发现句还没
+      // 出现、修正句先跑到换引擎前面"的因果倒序（真机症状根因）。
+      // `llm_backprompt` 不重置 current：它就是"当前这一轮 LLM 还在自己改"，
+      // 紧随其后到达的 fix_attempt 本来就该配对给这一轮的 discover——重置了
+      // 反而会把这对真实的④⑤拆散，制造新的错挂。`give_up` 是终局（之后不会
+      // 再有新的 violations/fix_attempt 到达），重置与否不影响展示，为语义
+      // 一致仍归为"边界"重置。
+      if (item.data.to !== "llm_backprompt") {
+        current = null;
+      }
     }
   }
 

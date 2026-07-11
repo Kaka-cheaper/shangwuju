@@ -403,6 +403,112 @@ describe("buildTrustBeltBeats — 止损三修（真机症状回归，2026-07-11
   });
 });
 
+describe("buildTrustBeltBeats — 琥珀误分类修复（2026-07-11 同批，真机三连 bug）", () => {
+  // 真机症状：一局"换引擎"里琥珀句连出三条、中间零④⑤对、最后一句逐字重复
+  // 两遍。根因：emit_replan_router 对每次 replan 决策（含 llm_backprompt，
+  // LLM 自己重试、根本没换引擎）都发 PLAN_FALLBACK，旧实现不读 `.to`，一律
+  // 当⑥渲染。本组断言：llm_backprompt / give_up / ils→ils 自环三种"非真实
+  // 引擎切换"均不生成⑥拍、不拆散④⑤配对；只有 from!==to 且 to∈{ils,rule}
+  // 的真实切换才生成⑥拍。
+
+  it("to===llm_backprompt：不生成⑥拍，且不打断同一轮的④⑤配对", () => {
+    const criticReport: CriticReport = {
+      violationRounds: [violationRound(1, 1, "duration_out_of_range")],
+      fixAttempts: [fixAttempt(3, 2)],
+      fallbackHops: [
+        { seq: 2, arrivalIdx: 2, from: "llm_first", to: "llm_backprompt", reason: "LLM 修正重出" },
+      ],
+    };
+    const beats = buildTrustBeltBeats(baseInput({ criticReport }));
+    expect(beats.some((b) => b.kind === "fallback")).toBe(false);
+    // fix 紧邻同一轮 discover（未被 llm_backprompt 打断配对）
+    const idx = beats.findIndex((b) => b.kind === "fix");
+    expect(idx).toBeGreaterThan(0);
+    expect(beats[idx - 1].kind).toBe("discover");
+    expect(beats[idx - 1].seq).toBe(1);
+  });
+
+  it("to===give_up：不生成⑥拍（收尾交给⑦拍诚实分支，不重复宣布一次引擎切换）", () => {
+    const criticReport: CriticReport = {
+      violationRounds: [],
+      fixAttempts: [],
+      fallbackHops: [
+        { seq: 1, arrivalIdx: 1, from: "rule", to: "give_up", reason: "rule planner 也未能产出方案" },
+      ],
+    };
+    const beats = buildTrustBeltBeats(
+      baseInput({ criticReport, itineraryReady: true, finalStrategy: "give_up" }),
+    );
+    expect(beats.some((b) => b.kind === "fallback")).toBe(false);
+    // ⑦拍诚实改口独立承担收尾叙事
+    const done = beats.find((b) => b.kind === "done");
+    expect(done?.text).toBe("试了几版都排不下，先保留这版方案");
+  });
+
+  it("from===to===ils（ILS 成功自环）：不生成第二条⑥拍——不是又切了一次引擎", () => {
+    const criticReport: CriticReport = {
+      violationRounds: [],
+      fixAttempts: [],
+      fallbackHops: [
+        { seq: 1, arrivalIdx: 1, from: "llm_first", to: "ils", reason: "LLM 失败，切换 ILS 算法兜底" },
+        { seq: 2, arrivalIdx: 2, from: "ils", to: "ils", reason: "ILS 算法给出可行方案，成功兜底" },
+      ],
+    };
+    const beats = buildTrustBeltBeats(baseInput({ criticReport }));
+    const fallbackBeats = beats.filter((b) => b.kind === "fallback");
+    // 只有第一跳（llm_first→ils，真实切换）产生⑥拍；自环那一跳不产生第二条
+    expect(fallbackBeats).toHaveLength(1);
+  });
+
+  it("真实抓包回放（S2 撸串场景，同 event-handlers.test.ts 的抓包 fixture）：" +
+    "修前会连出 4 条⑥且因果错位，修后只在真实 llm→ils 切换处出 1 条⑥，" +
+    "叙事呈现④→⑤→⑥→⑦", () => {
+    // 复用 lib/store/event-handlers.test.ts「真实抓包回放（LLM_PROVIDER=stub，
+    // S2 撸串场景）」同一份真机 SSE 序列：3 轮 itinerary=None 空 violations
+    // （critic 的"这稿压根没生成出方案"分支）+ 2 次 llm_backprompt 退回 + 1 次
+    // 真实切 ILS + 1 次 ILS 成功自环。
+    const criticReport: CriticReport = {
+      violationRounds: [
+        // 真实抓包里这三轮 violations=[]（itinerary=None 分支，不是规则违规），
+        // 不用 violationRound() 助手（它总塞一条 code）——照真实 fixture 形状。
+        { seq: 10, arrivalIdx: 1, fixAttempt: 1, violations: [] },
+        { seq: 16, arrivalIdx: 2, fixAttempt: 2, violations: [] },
+        { seq: 22, arrivalIdx: 3, fixAttempt: 3, violations: [] },
+      ],
+      fixAttempts: [fixAttempt(14, 2), fixAttempt(20, 3)],
+      fallbackHops: [
+        { seq: 12, arrivalIdx: 1, from: "llm_first", to: "llm_backprompt", reason: "LLM 修正重出" },
+        { seq: 18, arrivalIdx: 2, from: "llm_first", to: "llm_backprompt", reason: "LLM 修正重出" },
+        { seq: 24, arrivalIdx: 3, from: "llm_first", to: "ils", reason: "LLM 失败，切换 ILS 算法兜底" },
+        { seq: 27, arrivalIdx: 4, from: "ils", to: "ils", reason: "ILS 算法给出可行方案，成功兜底" },
+      ],
+    };
+    const beats = buildTrustBeltBeats(
+      baseInput({ criticReport, itineraryReady: true, finalStrategy: "ils" }),
+    );
+
+    // 核心断言 1：⑥拍只出现 1 次（真实的 llm_first→ils 切换），不是修前的
+    // "4 条 plan_fallback 全部渲染成⑥"（那会连出 3 条⑥ + 1 条自环⑥ = 4 条）。
+    const fallbackBeats = beats.filter((b) => b.kind === "fallback");
+    expect(fallbackBeats).toHaveLength(1);
+
+    // 核心断言 2：因果顺序正确——discover 在 fix 之前，fix 在 fallback 之前，
+    // fallback 在 done 之前（④→⑤→⑥→⑦，不是修前截图那种"⑥→⑤→④→⑥"倒序）。
+    const kinds = beats.map((b) => b.kind);
+    const discoverIdx = kinds.indexOf("discover");
+    const fixIdx = kinds.indexOf("fix");
+    const fallbackIdx = kinds.indexOf("fallback");
+    const doneIdx = kinds.indexOf("done");
+    expect(discoverIdx).toBeGreaterThanOrEqual(0);
+    expect(fixIdx).toBeGreaterThan(discoverIdx);
+    expect(fallbackIdx).toBeGreaterThan(fixIdx);
+    expect(doneIdx).toBeGreaterThan(fallbackIdx);
+
+    // 核心断言 3：⑦拍是"规划成功"（真实切换到 ILS 且成功，不是 give_up 诚实改口）
+    expect(beats[doneIdx].text).toBe("规划成功");
+  });
+});
+
 describe("buildSearchPreviewChips — ②拍检索收据芯片", () => {
   function poiCall(
     arrivalIdx: number,
