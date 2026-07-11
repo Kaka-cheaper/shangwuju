@@ -12,9 +12,9 @@
   "u_dad": {
     "user_id": "u_dad",
     "home_location": {
-      "name": "望京花园西区",
-      "lat": 40.0004,
-      "lng": 116.4715
+      "name": "望京数字创意园B座2号楼（用户家）",
+      "lat": 40.00673,
+      "lng": 116.484563
     },
     "default_budget": 280.0,
     "transport_preference": "taxi"
@@ -22,9 +22,9 @@
   "u_biz": {
     "user_id": "u_biz",
     "home_location": {
-      "name": "望京SOHO公寓",
-      "lat": 39.9958,
-      "lng": 116.4825
+      "name": "望京数字创意园B座2号楼（用户家）",
+      "lat": 40.00673,
+      "lng": 116.484563
     },
     "default_budget": 800.0,
     "transport_preference": "taxi"
@@ -32,9 +32,9 @@
   "u_grandma": {
     "user_id": "u_grandma",
     "home_location": {
-      "name": "望京融科橄榄城",
-      "lat": 39.9895,
-      "lng": 116.4772
+      "name": "望京数字创意园B座2号楼（用户家）",
+      "lat": 40.00673,
+      "lng": 116.484563
     },
     "default_budget": 200.0,
     "transport_preference": "bus"
@@ -42,9 +42,9 @@
   "u_solo": {
     "user_id": "u_solo",
     "home_location": {
-      "name": "大西洋新城",
-      "lat": 39.9973,
-      "lng": 116.4661
+      "name": "望京数字创意园B座2号楼（用户家）",
+      "lat": 40.00673,
+      "lng": 116.484563
     },
     "default_budget": 150.0,
     "transport_preference": "walking"
@@ -52,9 +52,9 @@
   "u_couple": {
     "user_id": "u_couple",
     "home_location": {
-      "name": "望京南湖东园",
-      "lat": 39.9884,
-      "lng": 116.4701
+      "name": "望京数字创意园B座2号楼（用户家）",
+      "lat": 40.00673,
+      "lng": 116.484563
     },
     "default_budget": 400.0,
     "transport_preference": "taxi"
