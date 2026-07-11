@@ -34,12 +34,10 @@ import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
 import { useChatStore } from "@/lib/store";
-import { formatStartTimeLabel } from "@/lib/time-labels";
 import type {
   AlternativeOption,
   DecisionTrace,
   HopMode,
-  IntentExtraction,
   Itinerary,
   NodeChip,
   NodeDetail,
@@ -91,7 +89,6 @@ export default function MobileHomeView() {
   const messages = useChatStore((s) => s.messages);
   const streaming = useChatStore((s) => s.streaming);
   const itinerary = useChatStore((s) => s.itinerary);
-  const intent = useChatStore((s) => s.intent);
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const startNewSession = useChatStore((s) => s.startNewSession);
@@ -99,9 +96,7 @@ export default function MobileHomeView() {
 
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [visibleIntent, setVisibleIntent] = useState<IntentExtraction | null>(null);
   const personaResetOnLoadRef = useRef(false);
-  const visibleIntentSessionRef = useRef(sessionId);
   const activated = messages.length > 0 || streaming || itinerary != null;
   const canCompare = Boolean(previousItinerary && itinerary && lastRefinement);
 
@@ -109,17 +104,6 @@ export default function MobileHomeView() {
   // 挂载——移动端此前压根不挂那个徽章组件，plannerMode 永远停在硬编码的
   // "rule"，实际跑的是降智版规则规划。根组件统一调这个 hook 即可校准。
   useBootstrapPlannerMode();
-
-  useEffect(() => {
-    if (visibleIntentSessionRef.current !== sessionId) {
-      visibleIntentSessionRef.current = sessionId;
-      setVisibleIntent(null);
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (intent) setVisibleIntent(intent);
-  }, [intent]);
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
@@ -174,10 +158,7 @@ export default function MobileHomeView() {
             一行，窄屏（iPhone SE 等）挤不下时自然换行，不会裁切。 */}
         <MobileScenarioRail compact={activated} />
 
-        <MobileConversation
-          visibleIntent={visibleIntent}
-          itinerary={itinerary}
-        />
+        <MobileConversation />
 
         {/* A11：约束流 + 诉求台账（单人/房间共用 useChatStore.demandLedger，
             见 ConstraintFeed.tsx 顶部 docstring）。二者各自按内容是否为空
@@ -630,96 +611,7 @@ function MobileStreamErrorBanner() {
   );
 }
 
-function MobileIntentStrip({ intent }: { intent: IntentExtraction }) {
-  const duration = intent.duration_hours || [0, 0];
-  const companions = intent.companions || [];
-  const companionText = companions.length
-    ? companions.map((c) => `${c.role}${c.count > 1 ? `×${c.count}` : ""}`).join("、")
-    : "轻松出发";
-
-  return (
-    <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-ink-900">
-          <Sparkles className="h-4 w-4 text-amber-500" />
-          意图解析
-        </div>
-        <span className="text-xs font-medium text-ink-500">
-          {Math.round((intent.parse_confidence ?? 0.88) * 100)}%
-        </span>
-      </div>
-      <div className="grid grid-cols-1 gap-2.5 min-[380px]:grid-cols-2">
-        <MiniField label="时间" value={`${formatStartTimeLabel(intent.start_time)} · ${duration[0]}-${duration[1]} 小时`} />
-        <MiniField label="距离" value={`${intent.distance_max_km} km`} />
-        <MiniField label="同行" value={companionText} />
-        <MiniField label="场景" value={intent.social_context} />
-      </div>
-    </div>
-  );
-}
-
-function MiniField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0 rounded-2xl bg-black/[0.025] px-3 py-2.5">
-      <div className="text-xs font-bold text-ink-500">{label}</div>
-      <div className="mt-1 whitespace-normal break-words text-[15px] font-semibold leading-snug text-ink-900">
-        {value}
-      </div>
-    </div>
-  );
-}
-
-function MobileIntentFallback({ itinerary }: { itinerary: Itinerary }) {
-  const visibleEntries = getVisibleEntries(itinerary);
-  const activityEntries = visibleEntries.filter(
-    (entry) => entry.entry_kind === "node" && entry.title,
-  );
-  const firstActivity = activityEntries[0];
-  const timeText = firstActivity
-    ? `${firstActivity.start} 起 · 约 ${(itinerary.total_minutes / 60).toFixed(1)} 小时`
-    : `约 ${(itinerary.total_minutes / 60).toFixed(1)} 小时`;
-
-  return (
-    <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.84] px-4 py-3.5 shadow-sm backdrop-blur-xl">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-1.5 text-base font-bold tracking-tight text-ink-900">
-          <Sparkles className="h-4 w-4 text-amber-500" />
-          意图解析
-        </div>
-        <span className="shrink-0 rounded-full bg-[#FFD100]/[0.16] px-2.5 py-1 text-xs font-semibold text-ink-700">
-          已匹配
-        </span>
-      </div>
-      <div className="grid grid-cols-1 gap-2.5 min-[380px]:grid-cols-2">
-        <MiniField label="时间" value={timeText} />
-        <MiniField label="方案" value={itinerary.summary} />
-      </div>
-      {activityEntries.length > 0 && (
-        <div className="mt-3 border-t border-black/[0.06] pt-3">
-          <div className="mb-2 text-sm font-bold text-ink-700">标签</div>
-          <div className="flex flex-wrap gap-1.5">
-            {activityEntries.slice(0, 4).map((entry) => (
-              <span
-                key={`fallback-intent-${entry.ref_id}`}
-                className="rounded-[10px] border border-[#FFD100]/45 bg-[#FFD100]/[0.10] px-2.5 py-1 text-sm font-medium leading-tight text-ink-800"
-              >
-                {entry.title}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MobileConversation({
-  visibleIntent,
-  itinerary,
-}: {
-  visibleIntent: IntentExtraction | null;
-  itinerary: Itinerary | null;
-}) {
+function MobileConversation() {
   const messages = useChatStore((s) => s.messages);
   const chitchatReplies = useChatStore((s) => s.chitchatReplies);
   const streaming = useChatStore((s) => s.streaming);
@@ -746,9 +638,7 @@ function MobileConversation({
     ].sort((a, b) => a.ts - b.ts);
   }, [messages, chitchatReplies]);
 
-  const showIntentSummary = visibleIntent || itinerary;
-
-  if (!timeline.length && !streaming && !showIntentSummary) return null;
+  if (!timeline.length && !streaming) return null;
 
   return (
     <section className="mt-3 space-y-2.5">
@@ -759,11 +649,6 @@ function MobileConversation({
           <MobileChitchatBubble key={item.id} payload={item.payload} />
         ),
       )}
-      {visibleIntent ? (
-        <MobileIntentStrip intent={visibleIntent} />
-      ) : itinerary ? (
-        <MobileIntentFallback itinerary={itinerary} />
-      ) : null}
     </section>
   );
 }

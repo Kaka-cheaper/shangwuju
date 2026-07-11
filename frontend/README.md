@@ -172,7 +172,6 @@ pnpm test:watch    # 监听模式
 HomeView              页面骨架：顶栏 + 聊天 + 行程/链路双栏
 ChatDock              对话输入区与消息流
 QuickScenarios        首页演示场景快捷按钮
-IntentSummary         实时意图摘要卡片
 ToolTracePanel        工具调用链路可视化
 ThoughtPanel          Agent 思考过程
 DecisionTraceCard     决策依据卡片
