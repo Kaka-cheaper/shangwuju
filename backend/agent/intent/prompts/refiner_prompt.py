@@ -407,6 +407,7 @@ REFINER_FEW_SHOTS: list[tuple[str, str]] = [
         '"physical_constraints":[],"dietary_constraints":["高人均","有包间"],'
         '"experience_tags":["商务体面","礼仪感"],"social_context":"商务接待",'
         '"capacity_requirement":2,"extra_services":[],"preferred_poi_types":["烧烤"],'
+        '"explicit_dining_requested":true,'
         '"raw_input":"下午陪客户喝茶聊聊","parse_confidence":0.85,"ambiguous_fields":[],'
         '"understanding":"用户说不喝茶了想吃烧烤，我理解成主活动整个换成烧烤"},'
         '"changed_fields":["加品类：烧烤"],'
