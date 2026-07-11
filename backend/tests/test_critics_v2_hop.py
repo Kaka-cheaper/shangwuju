@@ -519,3 +519,79 @@ def test_no_profile_skips_check():
 
     violations = _check_hop_feasibility(itinerary, user_profile=None)
     assert violations == [], f"profile=None 时应跳过，实际：{violations}"
+
+
+# ============================================================
+# Test 6：虚高方向 SOFT tripwire（四条不变式批 I2 · C8，2026-07-11）
+# hop.minutes 比实际值多超容差 → SOFT（只告知不 gate）；
+# 正常拼装路径（assemble 与 critic 共用同一 lookup_hop）数学上不可能触发，
+# 本组测试就是"钉住测试里手造 hop 的诚实性"这层 tripwire 价值本身。
+# ============================================================
+
+
+def _upper_bound_itinerary(profile, h0_minutes: int) -> Itinerary:
+    """home→P040 实际 taxi 9min，h0.minutes 由参数给（用于上界正反例）。"""
+    nodes = [
+        _make_home_node("n0", "14:00", "出发"),
+        _make_node(
+            node_id="n1",
+            target_kind="poi",
+            target_id="P040",
+            start_time=f"14:{h0_minutes:02d}",
+            duration_min=120,
+            title="童趣海洋亲子馆",
+            kind="主活动",
+        ),
+        _make_home_node("n2", "16:30", "回家"),
+    ]
+    hops = [
+        _make_hop(
+            hop_id="h0",
+            from_node_id="n0",
+            to_node_id="n1",
+            start_time="14:00",
+            minutes=h0_minutes,
+            mode="taxi",
+            path_type="real_route",
+            buffer_min=0,
+        ),
+        _make_hop(
+            hop_id="h1",
+            from_node_id="n1",
+            to_node_id="n2",
+            start_time=f"16:{h0_minutes:02d}",
+            minutes=9,  # P040→home 反向：hangzhou routes 有 P040→home 9min 真值
+            mode="taxi",
+            path_type="real_route",
+            buffer_min=0,
+        ),
+    ]
+    return Itinerary(
+        summary="upper bound probe",
+        nodes=nodes,
+        hops=hops,
+        total_minutes=150,
+    )
+
+
+def test_hop_minutes_inflated_triggers_soft(profile):
+    """hop.minutes=15 vs actual=9（虚高 6 > 容差 2）→ SOFT（只告知不 gate）。"""
+    itinerary = _upper_bound_itinerary(profile, h0_minutes=15)
+    violations = _check_hop_feasibility(itinerary, user_profile=profile)
+    hop_v = _filter_hop(violations)
+    assert hop_v, f"虚高 6min 应触发 SOFT tripwire，实际：{violations}"
+    assert all(v.severity == Severity.SOFT for v in hop_v), (
+        f"虚高方向必须是 SOFT（判 HARD 会让恢复的旧会话反馈轮全灭）：{hop_v}"
+    )
+    msg = hop_v[0].message
+    assert "9" in msg and "15" in msg, f"消息应含实际值与标注值：{msg}"
+    assert "hops[0]" not in msg, f"消息不应暴露 dot-path：{msg}"
+
+
+def test_hop_minutes_within_upper_tolerance_passes(profile):
+    """hop.minutes=11 vs actual=9（虚高 2 == 容差）→ 不触发（边界在容差内）。"""
+    itinerary = _upper_bound_itinerary(profile, h0_minutes=11)
+    violations = _check_hop_feasibility(itinerary, user_profile=profile)
+    assert _filter_hop(violations) == [], (
+        f"容差内（+2min）不应触发：{violations}"
+    )

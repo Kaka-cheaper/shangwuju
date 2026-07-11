@@ -802,6 +802,32 @@ def _departure_fold_disclosure(intent, itinerary) -> str:
     )
 
 
+def _return_by_disclosure(intent, itinerary) -> str:
+    """终点门禁披露（C8/T2，方案 1.25 步②，G-3 定性预算同款范式）。
+
+    「十点前得回家」这类显式门禁当前 schema 无专门字段（`return_by` 一等字段
+    挂路演后），parser 把它折算进 duration 区间并把 "return_by" 自报进
+    `ambiguous_fields`——本函数消费该信号，把**预计到家时刻**
+    （`nodes[-1].start_time`，尾 home 节点）说出来让用户自己核对：系统不假装
+    有能力守门禁（fold 保持时长后移出发时，到家时刻会同步后移——这正是要
+    把数字摆给用户看的原因），只把事实亮出来。与 G-3「听到了预算顾虑但没法
+    量化 → 尽量控制着来」同一条"听懂但不瞎猜"的诚实纪律。
+    """
+    fields = getattr(intent, "ambiguous_fields", None) or []
+    if "return_by" not in fields:
+        return ""
+    nodes = getattr(itinerary, "nodes", None) or []
+    if not nodes:
+        return ""
+    arrive_home = getattr(nodes[-1], "start_time", "") or ""
+    if not _DECLARED_CLOCK_RE.fullmatch(arrive_home):
+        return ""
+    return (
+        f"你提到要按点回家——这版预计 {arrive_home} 到家，"
+        "帮你核出来了，来不来得及你看一眼，紧了跟我说我再压一压。"
+    )
+
+
 def _plan_recap_clause(plan_version_log: tuple) -> str:
     """反馈轮的"这版是照哪条反馈调的"确定性回顾句（ADR-0011 决策 3 narration
     切片）。
@@ -976,6 +1002,12 @@ def narrate_node(state: AgentState) -> dict[str, Any]:
     _fold_clause = _departure_fold_disclosure(intent, itinerary)
     if _fold_clause and _fold_clause not in (text or ""):
         text = f"{text} {_fold_clause}".strip() if text else _fold_clause
+
+    # C8/T2：终点门禁披露（parser 自报 "return_by" 时把预计到家时刻亮给用户核）
+    # ——与披露句同一后置追加点纪律。
+    _return_clause = _return_by_disclosure(intent, itinerary)
+    if _return_clause and _return_clause not in (text or ""):
+        text = f"{text} {_return_clause}".strip() if text else _return_clause
 
     # spec R7（Agent H P1-H6）：用 model_copy 不可变更新 itinerary，避免原地 mutate
     update_fields: dict[str, Any] = {}

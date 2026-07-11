@@ -486,13 +486,27 @@ def check_hop_feasibility(
     *,
     ctx: "CriticContext | None" = None,
 ) -> list[Violation]:
-    """验 hop.minutes ≥ lookup_hop 实际值 - 容差。
+    """验 hop.minutes 与 lookup_hop 实际值的双向偏差。
 
     设计依据（design.md _check_hop_feasibility 伪代码 + Property 5）：
     - 与 assemble 共享同一 `lookup_hop` 函数 → 同输入同输出 → 不会漂移
     - in_place hop（minutes=0 / from_id == to_id）跳过：恒可达
     - hop.minutes < actual - 2 → HARD（Stage 1，gate 修复；hackathon 防御性兜底）
     - 数据缺失（lookup_hop 4 级兜底返 15min）也按 actual=15 比较，仍可触发
+
+    【虚高方向 SOFT tripwire（四条不变式批 I2 · C8，2026-07-11）】
+    hop.minutes > actual + 2 → SOFT（只告知不 gate）。此前校验是单向的——
+    一条写着 15 分钟、实际 2 分钟的 hop 永远合法，而 I2 是双向陈述（"任意边
+    分钟≈距离÷速度"）。价值定位是 **tripwire（绊网）**，不是修复既有暴露面：
+    本进程内 assemble 出来的行程与本 check 调用**同一个确定性 lookup_hop**
+    （同输入同输出），双向差值数学上恒为 0——上界判在正常路径**不可能触发**
+    （与下界判同一论证；换菜产物亦全链重拼，`node_swap` 直接 import
+    `assemble_from_blueprint`，零交叉零误伤）。它防的是未来出现"手工拼接
+    hop 不走 assemble"的新路径 + 钉住测试里手造 hop 的诚实性。判 SOFT 不判
+    HARD：虚高不构成"去不了"的硬伤，判 HARD 会让恢复的旧会话反馈轮全灭。
+    SOFT 经 narrate 的 `_extract_soft_violation_advisories` 进诚实告知；
+    emit_critic 的 CRITIC_VIOLATIONS 仅推 HARD → 本 SOFT 不进信任带 heal 拍，
+    无需登记前端词条（1.31 顺带核验结论）。
     """
     out: list[Violation] = []
 
@@ -535,6 +549,25 @@ def check_hop_feasibility(
                         f"但行程里这段 hop 只留了 {hop.minutes} 分钟，"
                         f"缺 {shortage} 分钟（容差 2 分钟内不算违规）。"
                         f"请改为更近的目标点，或让系统按 routes.json 重算 hop 分钟。"
+                    ),
+                    field_path=f"hops[{i}].minutes",
+                )
+            )
+        elif hop.minutes > actual_min + HOP_FEASIBILITY_TOLERANCE_MIN:
+            # 虚高方向 SOFT tripwire（I2 双向对称，见本函数 docstring）——
+            # 正常拼装路径数学上不可能触发，防未来旁路 + 钉测试手造 hop 诚实性。
+            surplus = hop.minutes - actual_min
+            out.append(
+                Violation(
+                    code=ViolationCode.HOP_INFEASIBLE,
+                    severity=Severity.SOFT,
+                    message=(
+                        f"{humanize_node(i, from_node)} 去往 "
+                        f"{humanize_node(i + 1, to_node)} 的通勤按实际路线只需约 "
+                        f"{actual_min} 分钟（{actual_mode}），"
+                        f"行程里这段却标了 {hop.minutes} 分钟，"
+                        f"多出 {surplus} 分钟——行程仍然可行，"
+                        f"只是这段路上的时间可能比显示的宽松。"
                     ),
                     field_path=f"hops[{i}].minutes",
                 )
