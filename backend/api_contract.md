@@ -391,7 +391,10 @@ docstring）：
 1. `checks.llm`：`LLM_PROVIDER=stub` 视为可用；否则调 `_resolve_creds`
 2. `checks.redis`：仅当 `SESSION_STORE=redis` 或显式配了 `REDIS_URL` 才探；
    InMemory 模式恒 `{"ok": true, "skipped": "session_store=memory"}`
-3. `checks.mock_data`：`data.loader.load_pois()`/`load_restaurants()` 至少各有 1 条
+3. `checks.mock_data`：`data.loader.load_pois()`/`load_restaurants()` 至少各有 1 条；
+   同时附带 `pois`/`restaurants`/`routes`/`reviews` 四个计数字段（`routes` 来自
+   `load_routes()`，`reviews` 是所有 POI/餐厅 `.reviews` 字段的内嵌评论条数之和）
+   ——供前端 `MockModeBadge` 运行时 fetch 展示真实数据规模，避免硬编码数字过时
 
 ---
 

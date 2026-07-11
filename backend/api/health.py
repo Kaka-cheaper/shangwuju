@@ -124,16 +124,28 @@ async def ready() -> dict[str, Any]:
     else:
         checks["redis"] = {"ok": True, "skipped": "session_store=memory"}
 
-    # 3. mock 数据可加载（POI/餐厅）
+    # 3. mock 数据可加载（POI/餐厅/路线 + 两者内嵌评论数）
+    #
+    # 计数字段供前端 MockModeBadge（spec bonus-points-review M1）运行时展示
+    # 真实数据规模——徽章不再硬编码数字，改为读这里，永不过时（见该组件
+    # docstring 与 2026-07-12 修复）。routes/reviews 是新增维度：routes 来自
+    # load_routes()，reviews 是 Poi/Restaurant.reviews 字段的内嵌评论逐条求和
+    # （数据里没有独立 reviews.json，评论挂在各 POI/餐厅记录下）。
     try:
-        from data.loader import load_pois, load_restaurants
+        from data.loader import load_pois, load_restaurants, load_routes
 
-        pois_count = len(load_pois())
-        rests_count = len(load_restaurants())
+        pois = load_pois()
+        rests = load_restaurants()
+        pois_count = len(pois)
+        rests_count = len(rests)
+        routes_count = len(load_routes())
+        reviews_count = sum(len(p.reviews) for p in pois) + sum(len(r.reviews) for r in rests)
         checks["mock_data"] = {
             "ok": pois_count > 0 and rests_count > 0,
             "pois": pois_count,
             "restaurants": rests_count,
+            "routes": routes_count,
+            "reviews": reviews_count,
         }
         if pois_count == 0 or rests_count == 0:
             overall_ok = False

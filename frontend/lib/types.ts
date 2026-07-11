@@ -616,6 +616,27 @@ export interface HealthResponse {
   planner_real?: string;
 }
 
+/**
+ * GET /ready 的响应体（`api/health.py::ready`）。
+ *
+ * 这里只声明 MockModeBadge 用得到的 `checks.mock_data` 计数字段——`checks.llm`/
+ * `checks.redis` 等其余子项目前无前端消费方，故不逐一强类型化。
+ */
+export interface ReadyResponse {
+  status: string;
+  version: string;
+  checks: {
+    mock_data?: {
+      ok: boolean;
+      pois?: number;
+      restaurants?: number;
+      routes?: number;
+      reviews?: number;
+    };
+    [key: string]: unknown;
+  };
+}
+
 // ============================================================
 // Persona + Memory（schemas/persona.py，Phase 0.7）
 // ============================================================
