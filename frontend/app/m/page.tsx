@@ -1,5 +1,5 @@
-import MobileHomeView from "@/components/mobile/MobileHomeView";
+import AdaptiveAppShell from "@/components/AdaptiveAppShell";
 
 export default function MobilePage() {
-  return <MobileHomeView />;
+  return <AdaptiveAppShell forcedMode="mobile" />;
 }

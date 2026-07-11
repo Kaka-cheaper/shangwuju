@@ -11,47 +11,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 
-import HomeView from "@/components/HomeView";
-import MobileHomeView from "@/components/mobile/MobileHomeView";
+import AdaptiveAppShell from "@/components/AdaptiveAppShell";
 import { useCollabStore } from "@/lib/collab-store";
 
 interface RoomClientProps {
   roomIdFromPath?: string;
-}
-
-// A4：邀请链接落地页视口二选一。
-//
-// 房间邀请链接恒是 `/room?room_id=...`（ShareModal.tsx 生成，Web/移动端共用
-// 同一个 URL，不区分 `/m/room`）——协作的天然入口就是扫码，扫码的人几乎都在
-// 手机上。此前 RoomClient 全仓无 UA/视口判断，恒 `return <HomeView />`，手机
-// 扫码进房看到的是被浏览器挤压显示的桌面版（不是 404，是错的布局）。
-//
-// 与新增 `app/m/room` 路由这个候选方案相比，选择"同一路由内视口二选一"：
-// - 昵称收集卡（NicknameEntryCard）/ 连接中态（RoomShell）本身已是响应式居中
-//   小卡片，不需要为移动端另写一份；只有"已连接"之后的主视图需要分叉。
-// - 分享链接生成端（ShareModal）不需要跟着改判断逻辑（还是一个 `/room` URL）。
-// 视口检测用 matchMedia，SSR/首次渲染恒按桌面路径出（与 HomeView 一致，避免
-// hydration mismatch），mount 后一次性根据真实视口纠正——同本文件其余状态
-// （collabMode 是否已连接）的"先出兜底态、mount 后纠正"既有模式一致。
-const MOBILE_MAX_WIDTH_PX = 640; // 与 Tailwind `sm` 断点对齐（app/m 路由面向同一档位）
-
-function useIsMobileViewport(): boolean {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mql = window.matchMedia(`(max-width: ${MOBILE_MAX_WIDTH_PX}px)`);
-    const update = () => setIsMobile(mql.matches);
-    update();
-    // Safari <14 无 addEventListener，兼容走 addListener（同类兼容写法在
-    // 本仓库暂无其它先例，这里是新引入的视口探测，独立兜底）。
-    if (mql.addEventListener) {
-      mql.addEventListener("change", update);
-      return () => mql.removeEventListener("change", update);
-    }
-    mql.addListener(update);
-    return () => mql.removeListener(update);
-  }, []);
-  return isMobile;
 }
 
 export default function RoomClient({ roomIdFromPath }: RoomClientProps) {
@@ -66,8 +30,6 @@ export default function RoomClient({ roomIdFromPath }: RoomClientProps) {
   const collabMode = useCollabStore((s) => s.collabMode);
   const connected = useCollabStore((s) => s.connected);
   const connectionError = useCollabStore((s) => s.connectionError);
-  const isMobileViewport = useIsMobileViewport();
-
   const [userId] = useState(() => {
     if (queryUserId?.trim()) return queryUserId.trim();
     if (typeof window === "undefined") return "anon";
@@ -123,7 +85,7 @@ export default function RoomClient({ roomIdFromPath }: RoomClientProps) {
     );
   }
 
-  return isMobileViewport ? <MobileHomeView /> : <HomeView />;
+  return <AdaptiveAppShell />;
 }
 
 export function RoomShell({ children }: { children: ReactNode }) {
