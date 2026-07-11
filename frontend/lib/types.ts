@@ -531,6 +531,14 @@ export interface IntentExtraction {
   extra_services: string[];
   preferred_poi_types: string[];
   /**
+   * 泛化就餐意愿三态（四条不变式批 I3，2026-07-11，镜像
+   * `backend/schemas/intent.py` 同名字段）：null/缺失=用户没提及（就餐走
+   * 推断触发）、true=显式要吃饭（「找个地方吃饭」类意愿动词、无具体品类）、
+   * false=显式不要（「我们吃过了/不用排饭」，抑制一切推断触发）。
+   * 旧数据无此键 → 视同 null，前端不应假设它总是存在。
+   */
+  explicit_dining_requested?: boolean | null;
+  /**
    * 用户明说的人均预算（元，ADR-0014 决策 3 · G-3）。仅当原话明确给出数字才
    * 有值（如"人均 50"→50）；定性表达（"别太贵"）不映射数字，留 null——
    * 系统不编造用户没说的话。

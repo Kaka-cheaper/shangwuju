@@ -84,6 +84,14 @@ class IntentExtraction(BaseModel):
 
     禁止顶层出现 scene_type / relation_type / is_family / is_friends 字段。
     `extra="forbid"` 配合 grep gate 双重防御。
+
+    【新增字段纪律（四条不变式批沉淀，2026-07-11）】任何新增字段必须同步
+    `agent/intent/prompts/refiner_prompt.py` 的 REFINER_FEW_SHOTS 全部示例
+    ——refiner 反馈轮对 intent 是**整体替换**（refiner.py 无字段保留逻辑），
+    不在 few-shots 里的字段 LLM 大概率照猫画虎省略、Pydantic 默认值静默顶上，
+    显式诉求在反馈轮被二次击穿且无报警（budget_per_person /
+    explicit_dining_requested 两次踩过同一雷）。同时评估是否需要
+    `refine_intent` 的缺键继承守卫（区分「LLM 忘写」与「显式改口」）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -167,6 +175,30 @@ class IntentExtraction(BaseModel):
     )
     preferred_poi_types: list[str] = Field(
         default_factory=list, description="用户明示 POI 类型，如 [展览, 美术馆]"
+    )
+
+    # ===== 显式就餐诉求三态（四条不变式批 I3，2026-07-11）=====
+    explicit_dining_requested: Optional[bool] = Field(
+        default=None,
+        description=(
+            "泛化就餐意愿三态（I3 显式诉求零丢失）。**None=用户没提及**（就餐"
+            "安排走既有推断触发——商务/纪念日软锚、跨饭点窗+dietary，现状行为"
+            "分毫不变）；**True=显式要吃饭**（「找个地方吃饭/搓一顿/顺便吃个饭」"
+            "这类意愿动词但无具体品类的表达——点名了品类（『想吃烧烤』）时由"
+            " preferred_poi_types 承接品类、本字段仍可同时为 True，两者不互斥）；"
+            "**False=显式不要**（「我们吃过了/不用排饭/别安排吃的」——否定对象"
+            "是**就餐行为本身**才填 False；否定对象是品类/口味（『不吃辣』）走"
+            " dietary 词典轨，与本字段无关）。"
+            "三态而非 bool：把「没提」和「明确不要」折叠成同一个 False 本身就是"
+            "一次归一化吞显式——显式拒绝必须可表达（I3 宪法双向：要与不要都压过"
+            "推断）。"
+            "边界①（勿扩大）：本字段只管「有没有这顿饭」，不承载「这是不是唯一"
+            "诉求」——不得用于扩大 demand_scope.is_single_consumption 的判定。"
+            "边界②（勿泛化）：这是吃饭专属信号，不是通用泛化意愿信号——『想"
+            "活动一下』等其它类别的同款缺口需专项评估（方案 1.8），别看到本字段"
+            "就假设该模式已覆盖所有类别。"
+            "Optional 默认 None：旧 checkpoint（无此字段）免迁移。"
+        ),
     )
 
     # ===== 预算（ADR-0014 决策 3，G-3）=====

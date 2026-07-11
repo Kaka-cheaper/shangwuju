@@ -305,6 +305,15 @@ INTENT_FIELD_NOT_CONSUMED_OUTSIDE_SCHEMAS: dict[str, str] = {
         "raw_input 恰好还被 `_apply_provenance_correction` 当子串扫描读取，"
         "understanding 没有对应的规则消费点，故显式登记而非假装有消费方。"
     ),
+    "explicit_dining_requested": (
+        "【临时登记，C5a 落地即删】四条不变式批 C4 惰性提交（安全熔断点）："
+        "tristate 字段先落 schema、零消费者、行为零变化（None=现状逐字节"
+        "一致是该 commit 的验收红线，见 test_explicit_dining_tristate_schema"
+        ".py）。消费者在紧随其后的 C5a（dining_soft_anchored 三分支 / "
+        "blueprint prompt 决策 3/10 / critic explicit_dining_missing 护栏 / "
+        "refiner 缺键继承守卫）——C5a 合入后本条必须删除，让本测试重新逼问"
+        "真实消费点。若 C5a 被熔断砍掉，本字段应随之从 schema 删除。"
+    ),
 }
 
 # 在 Advisory 轴排除集基础上追加 scripts/——理由见模块 docstring【实现手法】
