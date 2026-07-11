@@ -182,8 +182,9 @@ def test_feedback_round_emits_prelude_then_real_planning_stream():
     events = room.planning_events_history
     # 前奏 payload 与单人 SSE 逐字段同形（emit_router feedback 分支 + emit_refiner）
     assert events[0]["payload"] == {"text": "收到反馈，正在调整……"}
-    assert events[1]["payload"] == {"feedback_text": "发起人说：太远了"}, (
-        "refinement_start 携带喂给 refiner 的反馈文本（房间侧=归名合并后的约束池文本）"
+    assert events[1]["payload"] == {"feedback_text": "【最新·最高优先】发起人说：太远了"}, (
+        "refinement_start 携带喂给 refiner 的反馈文本（房间侧=归名合并后的约束池文本，"
+        "问题①目标态：单条切片也带显式优先级标签，见 _merge_constraints_text）"
     )
     done_payload = events[2]["payload"]
     assert set(done_payload.keys()) == {"refined_intent", "changed_fields", "refiner_note"}, (
@@ -235,7 +236,7 @@ def test_feedback_round_lands_state_on_persistent_room_thread():
         f"intent 必须是活对象（serde 无声类型擦除哨兵），实际={type(vals.get('intent'))}"
     )
     assert vals.get("route_kind") == "feedback"
-    assert vals.get("user_input") == "发起人说：太远了"
+    assert vals.get("user_input") == "【最新·最高优先】发起人说：太远了"
     assert vals.get("itinerary") is not None, "续跑终态应有方案"
 
     msgs = vals.get("messages") or []

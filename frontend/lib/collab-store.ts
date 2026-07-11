@@ -375,19 +375,31 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       const constraintUserId = msg.user_id as string;
       const constraintNickname = msg.nickname as string;
       const constraintText = msg.text as string;
-      set((s) => ({
-        constraints: [
-          ...s.constraints,
-          {
-            user_id: constraintUserId,
-            nickname: constraintNickname,
-            text: constraintText,
-            source: (msg.source as "text" | "vote_dislike") || "text",
-            timestamp: (msg.timestamp as number) || Date.now() / 1000,
-          },
-        ],
-      }));
-      // 同步到主 store 的 messages（让所有窗口的 ChatPanel 显示这条约束）
+      // 问题①展示分流修复：is_constraint 由后端 room.py 广播（=
+      // outcome.kind == "feedback"，即这条发言是否真进了 room.constraints）。
+      // 只有真约束才塞进约束流面板（ConstraintFeed 的"N个约束待合并"计数只
+      // 该数真约束）；闲聊（"你好"/"我是谁"）不再进这个数组——它本来就已经
+      // 进了下面的 messages/chat_messages 气泡里，不需要在约束流里重复展示、
+      // 更不该在约束流里展示（那会让用户误以为闲聊也在驱动规划）。
+      // 历史消息/旧后端不带这个字段时按"未知当约束"兜底（!== false），
+      // 避免新老版本混跑时突然把原本能看到的内容全部隐藏。
+      const isConstraint = msg.is_constraint !== false;
+      if (isConstraint) {
+        set((s) => ({
+          constraints: [
+            ...s.constraints,
+            {
+              user_id: constraintUserId,
+              nickname: constraintNickname,
+              text: constraintText,
+              source: (msg.source as "text" | "vote_dislike") || "text",
+              timestamp: (msg.timestamp as number) || Date.now() / 1000,
+            },
+          ],
+        }));
+      }
+      // 同步到主 store 的 messages（让所有窗口的 ChatPanel 显示这条发言，
+      // 无论是否算约束——聊天气泡对所有发言一视同仁，是纯展示语义）。
       // 只有非自己发的才追加（自己发的在 ChatDock.submit 里已经追加了）
       const myId = get().myUserId;
       if (constraintUserId !== myId) {

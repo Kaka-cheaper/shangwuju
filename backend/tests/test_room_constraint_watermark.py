@@ -108,7 +108,8 @@ def test_second_replan_feeds_only_new_constraints():
 
     现状（RED 依据）：`_merge_constraints_text` 全量拼接最近 5 条，第二轮文本
     是「发起人说：太远了，近一点；发起人说：太贵了」——第一轮旧话以新话身份
-    重播。根治后第二轮应恰为「发起人说：太贵了」。
+    重播。根治后第二轮应恰为「【最新·最高优先】发起人说：太贵了」（问题①
+    目标态：单条切片也带显式优先级标签，见 _merge_constraints_text）。
     """
     owner = "owner_wm_slice"
     manager, room = _seed_room(owner)
@@ -121,8 +122,8 @@ def test_second_replan_feeds_only_new_constraints():
     asyncio.run(scenario())
 
     assert len(captured) == 2, f"两轮反馈应各触发一次注入链，实际={captured}"
-    assert captured[0] == f"发起人说：{FEEDBACK_1}"
-    assert captured[1] == f"发起人说：{FEEDBACK_2}", (
+    assert captured[0] == f"【最新·最高优先】发起人说：{FEEDBACK_1}"
+    assert captured[1] == f"【最新·最高优先】发起人说：{FEEDBACK_2}", (
         "第二轮切片只应含水位线之后的新增条目（链式意图继承：第一轮已合并进"
         f"意图，不得重播），实际={captured[1]!r}"
     )
@@ -139,7 +140,8 @@ def test_all_new_entries_in_one_round_taken_with_attribution():
 
     场景构造：成员 B 的条目已入池但尚未被任何重排消化（对应真实时序：上一轮
     重排被新约束打断取消，条目在池里挂账），随后 owner 的强信号反馈触发重排
-    ——切片应含两条，且都带「{昵称}说：」前缀。
+    ——切片应含两条。问题①目标态：**倒序**（最新/owner 的话排最前，对应
+    "最后一个人的话第一优先级"）+ 显式优先级标签，而非按入池时间顺序拼接。
     """
     owner = "owner_wm_multi"
     manager, room = _seed_room(owner)
@@ -149,8 +151,10 @@ def test_all_new_entries_in_one_round_taken_with_attribution():
 
     asyncio.run(_add_and_drain(manager, room, owner, FEEDBACK_1))
 
-    assert captured == [f"小北说：想安静一点的；发起人说：{FEEDBACK_1}"], (
-        f"切片应全取新增条目并保留归名前缀，实际={captured}"
+    assert captured == [
+        f"【最新·最高优先】发起人说：{FEEDBACK_1}；【其次】小北说：想安静一点的"
+    ], (
+        f"切片应全取新增条目、倒序 + 显式优先级标签，实际={captured}"
     )
 
 
@@ -196,7 +200,7 @@ def test_fresh_plan_fast_forwards_watermark_and_discards_stale_pending():
 
     asyncio.run(scenario())
 
-    assert captured == [f"发起人说：{FEEDBACK_1}"], (
+    assert captured == [f"【最新·最高优先】发起人说：{FEEDBACK_1}"], (
         f"旧 episode 挂账条目不得跨 episode 重播进新方案的反馈切片，实际={captured}"
     )
     assert room.constraints_consumed_watermark == len(room.constraints), (

@@ -544,6 +544,14 @@ class RoomManager:
                 "text": text,
                 "source": source,
                 "timestamp": timestamp,
+                # 问题①展示分流修复：这条发言是否真进了 room.constraints（即
+                # outcome.kind == "feedback"）。constraint_added 广播此前对
+                # 所有房间发言（含闲聊"你好"/"我是谁"）无条件发出，前端不分
+                # 青红皂白塞进"约束流"面板，让用户误以为闲聊也在驱动规划。
+                # 加这个字段后前端只把 is_constraint=true 的塞进约束流，闲聊
+                # 留在聊天气泡（它本来就已经进了上面的 chat_messages）——
+                # 展示分流，不改变 outcome.kind 判定本身的既有语义。
+                "is_constraint": outcome.kind == "feedback",
             })
 
             if outcome.kind == "feedback":
@@ -1551,6 +1559,13 @@ class RoomManager:
                     "timestamp_ms": int(time.time() * 1000),
                 })
 
+    # 问题①目标态（用户拍板）：「以最后一个人的话为第一优先级；第一个人的
+    # 需求满足后，再依次考虑上一条非闲聊的反馈」——2 条及以内直接给两级标签；
+    # 3 条及以上时中间条目统一降级为"再其次"（切片本就罕见超过 2 条，见下面
+    # docstring"同一轮多人发言"场景；不为一个几乎不会发生的长尾过度设计三级
+    # 以上的序数标签体系）。
+    _PRIORITY_LABELS: tuple[str, ...] = ("【最新·最高优先】", "【其次】", "【再其次】")
+
     def _merge_constraints_text(self, room: Room, *, since_index: int = 0) -> str:
         """把约束池 `constraints[since_index:]` 合并为一段 feedback 文本（喂给 refiner）。
 
@@ -1564,14 +1579,25 @@ class RoomManager:
         止血，切片天然有界——至多积累"自上次成功合并以来"的发言，止血随病灶
         一起撤）。归名前缀「{昵称}说：」语义原样保留——refiner 需要知道哪句
         话是谁说的。
+
+        【问题①目标态：最新在前 + 显式优先级标注】此前按时间顺序拼接
+        （"X说：a；Y说：b"），"最新最高优先"完全靠 refiner prompt 的一句
+        软性措辞承接，多人各说一条时优先级在文本里没有任何显式信号。改为
+        **倒序**（最新的排在最前）+ 每条前缀显式优先级标签（如「【最新·
+        最高优先】发起人说：吃个烧烤；【其次】kaka说：要更近」），把"最新
+        最高优先"从纯 prompt 措辞的软约束升级成文本结构本身的显式指令——
+        LLM 不需要"记得"这条规则，因为标签已经把顺序摆在眼前。
         """
         entries = room.constraints[since_index:]
         if not entries:
             return ""
+        # 倒序：最新的排最前，对应"最后一个人的话第一优先级"
+        newest_first = list(reversed(entries))
         parts = []
-        for c in entries:
+        for i, c in enumerate(newest_first):
             nickname = room.members.get(c.user_id, Member(user_id=c.user_id, nickname=c.user_id, role="participant")).nickname
-            parts.append(f"{nickname}说：{c.text}")
+            label = self._PRIORITY_LABELS[min(i, len(self._PRIORITY_LABELS) - 1)]
+            parts.append(f"{label}{nickname}说：{c.text}")
         return "；".join(parts)
 
     def _append_to_llm_context(
