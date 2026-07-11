@@ -883,7 +883,9 @@ def _estimate(call, from_id: str, to_id: str) -> int:
         - routes.json 是 56 条手工随机数，存在大量 from→to 没覆盖的情况
         - 缺路线时返 15 分钟会让 stage 间「打车约 15 分钟」无意义
         - 现在改为：mock 命中走 mock；mock 没命中且双方都有坐标 → haversine 估算
-        - 平均车速取 25 km/h（杭州市区拥堵实测中位数），向上取整到分钟
+        - 平均车速取 25 km/h（城市主城区拥堵实测中位数量级；最初按杭州标定，
+          望京活集切换后与 lookup_hop.TAXI_KMH 同值沿用，两套数据集下实测
+          估算均落在 hop 容差内），向上取整到分钟
     """
     result = call(
         "estimate_route_time",
@@ -912,7 +914,8 @@ def _estimate(call, from_id: str, to_id: str) -> int:
 # 坐标估算辅助（routes.json fallback；2026-05-22 新增）
 # ============================================================
 
-# 平均车速（km/h）—— 杭州市区拥堵实测中位数
+# 平均车速（km/h）—— 城市主城区拥堵实测中位数量级（最初按杭州标定；望京活集
+# 切换后沿用，与 lookup_hop.TAXI_KMH 同值，实测估算落在 hop 容差内）
 _AVG_TAXI_SPEED_KMH = 25.0
 # 起步耗时（分钟）—— 上车 / 下车 / 等红绿灯固定耗时
 _TAXI_BASE_MINUTES = 4

@@ -112,14 +112,17 @@ def venue_distance_km(
     经由本模块的 provider 调用）现在都改调这一个函数，不再各自决定"该不该算
     真实坐标"。
 
-    - `"authored"`（默认，当前杭州虚构小城集）：直接返回 `venue.distance_km`
-      ——mock 数据手写的这个字段才是产品叙事的距离真相，`home_lat`/`home_lng`
-      在这个分支里不参与计算（仅为保持两分支同签名，调用方不需要按模式分叉
-      调用方式）。
-    - `"coords"`（未来望京真实数据集声明）：对 `venue.location` 与
-      `(home_lat, home_lng)` 跑 haversine 实时算。若 `venue.location` 缺坐标
-      （防御性；authored 集允许坐标缺失，coords 集理论上不该发生）—— 退回
-      `venue.distance_km`，不因为一条坐标缺失就把整个候选丢掉。
+    - `"authored"`（默认）：直接返回 `venue.distance_km`——杭州归档集（存量
+      测试加载）里这个手写字段才是产品叙事的距离真相；望京活集（顶层
+      mock_data/，2026-07-10 起的现场演示集）该字段已按真值坐标 haversine
+      重算、与坐标一致（见 data/loader.py「距离真相源」声明），本分支对两套
+      数据集都正确。`home_lat`/`home_lng` 在这个分支里不参与计算（仅为保持
+      两分支同签名，调用方不需要按模式分叉调用方式）。
+    - `"coords"`（保留给未来「坐标可信但 distance_km 不再维护」的数据集）：
+      对 `venue.location` 与 `(home_lat, home_lng)` 跑 haversine 实时算。
+      若 `venue.location` 缺坐标（防御性；authored 集允许坐标缺失，coords 集
+      理论上不该发生）——退回 `venue.distance_km`，不因为一条坐标缺失就把
+      整个候选丢掉。
 
     Returns:
         距离（km），coords 分支保留 2 位小数（与历史 haversine 写回精度一致）。

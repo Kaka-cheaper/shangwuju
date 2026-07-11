@@ -8,6 +8,7 @@
 
 | ADR | 标题 | 范围 | 决策状态 | 落地状态 | 证据 / 备注 |
 |---|---|---|---|---|---|
+| [0017](0017-departure-fold-and-disclosure.md) | 首段等待折叠与出发时刻语义：出门即行程 + 分歧强制披露 | 拼装+口播 | Accepted | ✅ 已落地 | 四条不变式批 C2/C3（93b60be/499b55b）：assemble 尾部折叠一处覆盖三路径 + 披露句后置追加；test_assemble_fold 11 例 + test_departure_disclosure 8 例；终点锚/firm 位挂账见 ADR 边界节 |
 | [0016](0016-map-home-anchor-visible.md) | 地图家锚点可见：锚点形态 + 虚线通勤壳 + 闭环编舞 | 前端地图 | Accepted | ⏳ 待实现 | grilling 拍板 2026-07-10；实现排在望京数据迁移释放 MapOverlay 之后 |
 | [0001](0001-routing-one-deep-module.md) | 路由层收口为一个 deep module(route_turn) | 路由 | Accepted | ✅ 已落地 | `routing/route_turn.py` + 三 adapter 委托(586b846) |
 | [0002](0002-dialogue-act-sealed-collaborator.md) | 对话行为判定保留为密封协作者 | 路由 | **Superseded by 0011** | 🪦 已退役 | E-2-c(5321d8d)落地:classify_dialogue_act/DialogueAct 删除,统一路由脑子吸收;字面确认/预约规则下放 dialogue_acts.py 保留,BOOKING/CONFIRM 合流 confirm |

@@ -45,13 +45,20 @@ def _mock_dir() -> Path:
 # ============================================================
 #
 # 背景（诊断已实证，见 data/nearby_provider.py::venue_distance_km 消费点）：
-# 当前杭州 mock 集是**虚构密集小城**——`pois.json`/`restaurants.json` 里手写的
+# **杭州归档集**（`mock_data/hangzhou/`，现仅存量测试加载——见 tests/conftest.py）
+# 是**虚构密集小城**——`pois.json`/`restaurants.json` 里手写的
 # `distance_km` 字段（home→该点的直线距离）才是产品叙事的距离真相：数值经过
 # 挑选，保证"半天逛遍全城"在一个 5km 出行半径内成立。`location.lat/lng` 用的
 # 是真实杭州西湖景区坐标（只为地图渲染时 pin 位置看着真实），两者从未被要求
 # 一致——实测对同一批 home→POI/餐厅算 haversine 真实距离，与 authored 字段
 # 系统性偏差 0.2x～5x（如 P020 authored 1.8km 而 haversine 9.6km），真坐标半径
 # 常超 15km，远超 authored 字段刻意收窄的 ~5km 叙事半径。
+#
+# **望京活集**（仓库顶层 `mock_data/`，2026-07-10 切换后的现场演示集）两个字段
+# **已按构造一致**：坐标是高德店级真值，`distance_km` 按家真值坐标 haversine
+# 重算（±0.02km 一致性由 test_wangjing_live_dataset.py::
+# test_distance_km_consistent_with_coords 钉住）——authored 与 coords 两种模式
+# 在望京活集上等价，"authored" 默认因此对两套数据集都安全，无需切换。
 #
 # 这不是"哪个字段算错了"的 bug，是两个字段服务两个不同目的、从设计起就没有
 # 被要求自洽——`venue_distance_km` 把"该用哪个当真相"收口成一个显式声明，
@@ -67,20 +74,21 @@ def _mock_dir() -> Path:
 #                          要么按坐标算好、要么干脆不再权威），召回距离改用
 #                          haversine(home, venue.location) 实时算。
 #
-# 望京真实数据集接入时：把这里的默认值改成 "coords"（或设
-# SHANGWUJU_DISTANCE_MODE=coords env），`venue_distance_km` 自动切换，
-# 调用方（execute 阶段 NearbySearchProvider / ILS `_query_pois`/
-# `_query_restaurants`）不需要跟着改一行代码——两侧本来就已经统一经过这一个
-# 接缝（见该函数消费点 docstring）。
+# 望京活集已接入（2026-07-10）且两字段按构造一致（见上），默认保持 "authored"
+# 即正确；"coords" 开关保留给未来「坐标可信但 distance_km 不再维护」的数据集
+# ——届时改默认值（或设 SHANGWUJU_DISTANCE_MODE=coords env），
+# `venue_distance_km` 自动切换，调用方（execute 阶段 NearbySearchProvider /
+# ILS `_query_pois`/`_query_restaurants`）不需要跟着改一行代码——两侧本来就
+# 已经统一经过这一个接缝（见该函数消费点 docstring）。
 _VALID_DISTANCE_MODES = frozenset({"authored", "coords"})
 
 
 def dataset_distance_mode() -> str:
     """返回当前 mock 数据集声明的距离真相源：`"authored"` | `"coords"`。
 
-    可用 `SHANGWUJU_DISTANCE_MODE` env 覆盖（供测试构造 "coords" 分支，
-    不需要真的换一套望京数据集）；非法值 / 缺省一律回退 "authored"
-    （安全默认——现有杭州集就是 authored 语义，误设不该悄悄切换真相源）。
+    可用 `SHANGWUJU_DISTANCE_MODE` env 覆盖（供测试构造 "coords" 分支）；
+    非法值 / 缺省一律回退 "authored"（安全默认——杭州归档集是 authored
+    语义，望京活集两字段按构造一致、两模式等价，误设不该悄悄切换真相源）。
     """
     raw = (os.getenv("SHANGWUJU_DISTANCE_MODE") or "authored").strip().lower()
     return raw if raw in _VALID_DISTANCE_MODES else "authored"

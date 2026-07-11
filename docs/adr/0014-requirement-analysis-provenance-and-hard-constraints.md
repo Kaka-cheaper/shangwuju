@@ -63,3 +63,5 @@ stub 固定 fixture 加新字段(否则全量 stub 测试当场炸)/前端 types
 **横审四发现全部处置完毕**(2026-07-03/04):P0 换菜硬约束两道防线+备选排雷(b15fee5)/P1 出处豁免(同)/P2a 审计逐节点+日志(f46423d)/P2b 前端告知通道+预算格(a88c96b)。
 **降级演练追加发现两处已修**(3113332):refiner 异常网漏传输层(LLM 挂时反馈轮裸炸,--degraded 实弹抓获,修后 7/7 全过)/REFINEMENT_DONE.changed_fields 硬编码空数组(前端 toast 从未收到真实变更清单)。
 余 E-3 挂钩两项(置信度接澄清/台账收全局诉求)随 E-3 排期。
+
+**G-2 告知限额修订(2026-07-11,四条不变式批 C6 留痕)**:cap 从「先来后到截断」改「**优先序截断**」——排序落在 `narrate_node` 组装 advisories 处(显式失败 `meal_requested_unseated` > 常识缺席 `meal_omitted_by_design` > 一般放宽告知),`_apply_advisory_disclosure_cap` **函数本体一行不动**(它消费 list[str] 纯消息串、看不到 code,优先序不可能在 cap 内做——方案 1.34-W2 读实修正)。动机:I1 折叠上线后 `SHORTER_THAN_REQUESTED` 出现频率升高,与饭缺席告知高频共现,按先来后到截断会让 I4 的核心承诺被折叠句吞掉;这是 I3>I4>一般诚实的不变式优先级镜像进告知层。
