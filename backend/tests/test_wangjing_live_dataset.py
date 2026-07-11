@@ -615,3 +615,181 @@ def test_physical_redline_extended_venues(wangjing_live):
         if p.type in ("密室", "桌游馆", "酒吧", "轰趴馆", "剧本杀"):
             bad = {"适合老人", "无台阶", "无障碍"} & set(p.tags or [])
             assert not bad, f"{p.id}({p.type}) 不应挂物理硬标签：{bad}"
+
+
+# ============================================================
+# ⑥ 望京活集 lookup_hop 三级降级回归（C1，2026-07-11）
+#    —— 对齐 test_lookup_hop.py 的 L1-L6 覆盖矩阵，输入换真实 WJP/WJR id。
+#
+# 背景（见 _resolve_coord docstring 与 conftest.py 顶部说明）：这组测试补的
+# 正是"测试基础设施数据源与生产数据源分裂"的缺口——存量 `test_lookup_hop.py`
+# 只在杭州归档 id（P001/R001）上验证 L1-L6，从未在望京 id（WJP001/WJR001）上
+# 跑过；`_resolve_coord` 曾经的 id 前缀判断（startswith("P")/startswith("R")）
+# 对 WJP/WJR 前缀永久失效，全部回程/场所间边跌到 15 分钟兜底假值，且没有任何
+# 测试能看见——因为望京专属测试此前全是数据形状校验，没有一条调用 lookup_hop。
+#
+# 在修复落地前（本组测试首次编写时），L3/部分 L5 用例对望京 id 应为红灯
+# （因为 3 级 haversine 从未被真实触发过，_resolve_coord 直接返回 None，
+# 落到 4 级 15min 兜底）；`_resolve_coord` 改为坐标表存在性判断后应全绿。
+# ============================================================
+
+
+def test_wangjing_L1_same_id_returns_in_place(wangjing_live):
+    """L1：from_id == to_id → (0, "virtual", "in_place")（id 无关，天然通过）。"""
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    minutes, mode, path_type = lookup_hop("WJP001", "WJP001", "taxi", profile)
+    assert (minutes, mode, path_type) == (0, "virtual", "in_place")
+
+
+def test_wangjing_L2_routes_hit_returns_real_route(wangjing_live):
+    """L2：routes.json 对望京活集同样命中 home→WJP001 真值（walking=31/taxi=8/bus=22）。"""
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    minutes, mode, path_type = lookup_hop("home", "WJP001", "taxi", profile)
+    assert (minutes, mode, path_type) == (8, "taxi", "real_route")
+
+    minutes_w, mode_w, path_w = lookup_hop("home", "WJP001", "walking", profile)
+    assert (minutes_w, mode_w, path_w) == (31, "walking", "real_route")
+
+
+def test_wangjing_L3_haversine_reverse_edge(wangjing_live):
+    """L3：望京 id 上的 3 级 haversine——这是本组的核心钉子。
+
+    routes.json 只有 home→WJP001 正向边，没有 WJP001→home 反向边；望京 id 前缀
+    是 WJP（不是历史的纯 P），`_resolve_coord` 若仍用 id 前缀判断会直接返回
+    None、错误跳到 4 级 15min 兜底——本断言要求走的是 3 级 haversine，且估算值
+    与 routes.json 里已有的正向真值（8 分钟）足够接近（±2min 容差，对齐
+    `HOP_FEASIBILITY_TOLERANCE_MIN`），不是恒定的 15。
+    """
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    minutes, mode, path_type = lookup_hop("WJP001", "home", "taxi", profile)
+    assert mode == "haversine_estimated", (
+        f"望京 id 的反向边应走 3 级 haversine，实际 mode={mode}"
+        "（若仍是兜底值，说明 _resolve_coord 对 WJP 前缀未生效）"
+    )
+    assert path_type == "estimated"
+    assert minutes != 15 or True  # 允许巧合等于 15，但下面的容差断言才是真正的钉子
+    assert abs(minutes - 8) <= 2, f"3 级 haversine 估算 {minutes} 与正向真值 8 分钟误差超容差"
+
+
+def test_wangjing_L3_venue_to_venue_not_flat_fallback(wangjing_live):
+    """L3：场所间边（routes.json 零覆盖的组合）不应统统落到同一个 15min 兜底值。
+
+    抽样两组不同距离的 POI 对，验证估算值随距离变化（不是恒定假值），且都走
+    haversine 分支而非 4 级兜底——直接对应设计文档实证的"0.4km 和 2km 都报 15
+    分钟"这一荒谬场景的反例。
+    """
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    m1, mode1, pt1 = lookup_hop("WJP001", "WJP002", "taxi", profile)
+    m2, mode2, pt2 = lookup_hop("WJP001", "WJR001", "taxi", profile)
+    assert mode1 == "haversine_estimated" and pt1 == "estimated"
+    assert mode2 == "haversine_estimated" and pt2 == "estimated"
+    # 不强行断言 m1 != m2（存在巧合相等的可能），但两者都不该是兜底 15（除非巧合）
+    # 核心钉子：两者都真正来自坐标计算，而不是同一个写死常量
+    assert m1 >= 1 and m2 >= 1
+
+
+def test_wangjing_L4_fallback_when_unknown_ids(wangjing_live):
+    """L4：未知 id 在望京活集上仍正确走 4 级保守兜底（15min）。"""
+    from agent.planning.commute.lookup_hop import lookup_hop, FALLBACK_MIN
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    minutes, mode, path_type = lookup_hop("GHOST_X", "GHOST_Y", "taxi", profile)
+    assert (minutes, mode, path_type) == (FALLBACK_MIN, "taxi", "estimated")
+
+
+@pytest.mark.parametrize(
+    "from_id,to_id,pref",
+    [
+        ("WJP001", "WJP001", "taxi"),      # 1 级
+        ("home", "WJP001", "taxi"),        # 2 级
+        ("WJP001", "home", "taxi"),        # 3 级（望京 id 专属钉子）
+        ("WJP001", "WJR001", "taxi"),      # 3 级（场所间边）
+        ("GHOST_X", "GHOST_Y", "bus"),     # 4 级
+    ],
+)
+def test_wangjing_L5_consistency_same_input_same_output(
+    wangjing_live, from_id, to_id, pref
+):
+    """L5：望京活集上同输入 3 次同输出（critic + assemble 共用要求，跨数据集同样成立）。"""
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    r1 = lookup_hop(from_id, to_id, pref, profile)
+    r2 = lookup_hop(from_id, to_id, pref, profile)
+    r3 = lookup_hop(from_id, to_id, pref, profile)
+    assert r1 == r2 == r3, f"非确定性输出！{from_id}→{to_id}/{pref}: {r1} {r2} {r3}"
+
+
+def test_wangjing_L6_routes_hit_but_pref_field_none_falls_to_haversine(
+    wangjing_live, monkeypatch
+):
+    """L6：边在 routes 命中，但当前 transport_pref 对应字段为 None → 走 haversine
+    （望京 id 上同样不静默换交通方式）。"""
+    from agent.planning.commute import lookup_hop as lookup_hop_mod
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    fake_index = {
+        ("home", "WJP001"): {"walking": None, "taxi": 8, "bus": None},
+    }
+    monkeypatch.setattr(lookup_hop_mod, "_route_index", lambda: fake_index)
+
+    minutes_w, mode_w, path_w = lookup_hop("home", "WJP001", "walking", profile)
+    assert mode_w == "haversine_estimated"
+    assert path_w == "estimated"
+    assert minutes_w >= 1
+
+    minutes_t, mode_t, path_t = lookup_hop("home", "WJP001", "taxi", profile)
+    assert (minutes_t, mode_t, path_t) == (8, "taxi", "real_route")
+
+    minutes_b, mode_b, path_b = lookup_hop("home", "WJP001", "bus", profile)
+    assert mode_b == "haversine_estimated"
+
+
+def test_wangjing_reverse_edge_asymmetry_within_tolerance(wangjing_live):
+    """I2 双向对称性验收：抽样多个 home↔venue 对，回程 haversine 估算与去程
+    routes.json 真值误差应全部落在 HOP_FEASIBILITY_TOLERANCE_MIN=2min 容差内
+    （±1min 量级的微不对称是两种口径的正常误差，不是 bug——见 _resolve_coord
+    docstring）。"""
+    import json
+    from pathlib import Path
+
+    from agent.planning.commute.lookup_hop import lookup_hop
+    from data.loader import load_user_profile
+
+    profile = load_user_profile()
+    routes = json.loads(
+        (Path(_WANGJING_MOCK_DIR) / "routes.json").read_text(encoding="utf-8")
+    )
+    home_routes = [
+        r for r in routes if r["from_location"] == "home" and r.get("taxi_minutes") is not None
+    ]
+    sample = home_routes[:30]
+
+    bad = []
+    for r in sample:
+        venue_id = r["to_location"]
+        real_min = r["taxi_minutes"]
+        est_min, mode, path_type = lookup_hop(venue_id, "home", "taxi", profile)
+        if mode != "haversine_estimated":
+            continue  # 该场所坐标缺失，跳过（不是本测试的钉子对象）
+        err = abs(est_min - real_min)
+        if err > 2:
+            bad.append((venue_id, real_min, est_min, err))
+
+    assert not bad, f"以下场所回程估算与去程真值误差超 2min 容差：{bad}"

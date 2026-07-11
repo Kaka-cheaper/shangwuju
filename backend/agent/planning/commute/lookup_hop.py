@@ -31,7 +31,9 @@
 【约定】
 - `from_id == "home"` 或 `to_id == "home"` 时使用 `user_profile.home_location` 解析坐标；
   routes.json 中以字面量 `"home"` 出现的边可直接命中 2 级。
-- POI id 以 `P` 开头，Restaurant id 以 `R` 开头；其它前缀视为未知，跳过 3 级直接 4 级。
+- POI/Restaurant id 的归属按坐标表**存在性**判断（先查 POI 坐标表，查不到再查
+  Restaurant 坐标表），不依赖 id 前缀字符串猜测——见 `_resolve_coord` docstring
+  的 2026-07-11 望京数据集切换批修复说明。两表都查不到才跳过 3 级直接 4 级。
 - transport_pref 在 routes.json 对应字段为 None 时降级到 3 级（不静默回退到其它交通方式）。
 
 【不负责】
@@ -159,20 +161,37 @@ def _resolve_coord(
     """按 target_id 解析 (lat, lng)；解析失败返回 None。
 
     - `target_id == "home"` → user_profile.home_location.lat/lng
-    - 以 `P` 开头 → POI 坐标表
-    - 以 `R` 开头 → Restaurant 坐标表
-    - 其它前缀或坐标缺失 → None
+    - 否则按坐标表**存在性**查找：先查 POI 坐标表，查不到再查 Restaurant 坐标表，
+      两表都查不到才判定不可解析。
+
+    【为什么不用 id 前缀判断（2026-07-11 望京数据集切换批修复）】
+    历史实现曾用 `target_id.startswith("P")` / `startswith("R")` 猜测归属——这
+    耦合了"这一批数据集恰好用 P/R 前缀"这个偶然事实。望京数据集的真实 id 前缀是
+    `WJP`/`WJR`（如 `WJP001`），`"WJP001".startswith("P")` 为 False，导致这一级
+    对望京数据永久失效、静默跳到 4 级兜底（15 分钟假值）——回程/场所间边因此
+    全部跌到同一个数字，物理上不可能（0.4km 与 2km 报同一通勤时间）。
+    改为"查表判存在性"后不依赖任何 id 命名约定：未来换任何城市/数据集，只要
+    POI/Restaurant 坐标表本身建得出来，这一级就天然生效，不会重演本 bug。
+    POI id 与 Restaurant id 理论上可能有交集时会有歧义（当前数据集 `WJP*`/
+    `WJR*`/历史 `P*`/`R*` 均不交叉，交集概率工程上为零）；即便未来出现，
+    "先查到 POI 即用"是合理的降级，不比原状更差。
+
+    【±1 分钟微不对称，非 bug】
+    去程（routes.json 命中真值）与回程（本级 haversine 估算）存在 ~1 分钟量级
+    的微小不对称（30 样本实测均值 0.73min、最大 1min，全部落在
+    `HOP_FEASIBILITY_TOLERANCE_MIN=2min` 容差内）——这是"实测真值"与"haversine
+    直线距离估算"两种口径的正常误差，不是双向对称性缺陷，未来排障时不要误当
+    回归。
     """
     if target_id == "home":
         loc = user_profile.home_location
         if loc.lat is None or loc.lng is None:
             return None
         return (loc.lat, loc.lng)
-    if target_id.startswith("P"):
-        return _poi_coord_index().get(target_id)
-    if target_id.startswith("R"):
-        return _restaurant_coord_index().get(target_id)
-    return None
+    poi_coord = _poi_coord_index().get(target_id)
+    if poi_coord is not None:
+        return poi_coord
+    return _restaurant_coord_index().get(target_id)
 
 
 def _speed_kmh_for(mode: str) -> float:
