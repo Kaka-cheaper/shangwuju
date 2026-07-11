@@ -149,12 +149,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // 只有本轮真重跑了（收到过 intent_parsed / refinement_start → awaitingReplan 被清）
           // 才补一条 agent 总结消息。chitchat turn（提问/确认/预约/闲聊）保留着上一轮的
           // narration，不能再 push 一遍——否则旧方案文案会重复出现（惰性清空的连带 bug）。
+          //
+          // 卡片放全文，聊天放交接句：口播全文（narr.text）已经是 ItineraryCard 顶部
+          // NarrationBlock 的正文（见 ItineraryCard.tsx narration?.text 渲染），聊天气泡
+          // 若再推一遍一字不差的全文，多轮后就是文字墙——且上一版口播若还留着会误导（如
+          // 描述的方案已被替换）。这里只推一句"标题级 + 指向卡片"的短交接句。
           const wasReplan = !get().awaitingReplan;
           if (wasReplan) {
             const itin = get().itinerary;
             const narr = get().narration;
             if (narr?.text || itin) {
-              const text = narr?.text || (itin ? `已为你规划：${itin.summary}` : "");
+              const text = itin
+                ? `排好了——${itin.summary}。细节和提醒都在方案卡上。`
+                : "方案排好了，细节在方案卡上。";
               if (text) {
                 set((s) => ({
                   messages: [
@@ -242,7 +249,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         onDone: () => {
           // confirm 是终态：意图解析 / 思考链路 / 执行动画都让位给「已预约」结果。
           // 清掉规划过程展示，保留方案卡（itinerary 已带订单）+ 暖心收尾文案（"都搞定了"）。
+          // 卡片放全文，聊天放交接句：narr.text 全文已在 ItineraryCard 顶部展示，
+          // 聊天气泡只推一句"标题级 + 指向卡片"的短交接句，避免与卡片一字不差重复。
           const narr = get().narration;
+          const itin = get().itinerary;
+          const text = itin
+            ? `都订好了——${itin.summary}。凭证和安排都在卡片里。`
+            : "都订好了，凭证和安排都在卡片里。";
           set((s) => ({
             streaming: false,
             streamPhase: "idle",
@@ -261,7 +274,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     {
                       id: `a-${Date.now()}`,
                       role: "agent",
-                      text: narr.text,
+                      text,
                       createdAt: Date.now(),
                     },
                   ]
@@ -344,14 +357,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }),
         onDone: () => {
           // refine 后的导游开场白（暖语气，强调"已根据反馈"）
+          // 卡片放全文，聊天放交接句：narr.text 全文已在 ItineraryCard 顶部展示，
+          // 聊天气泡只推一句"标题级 + 指向卡片"的短交接句，避免与卡片一字不差重复。
           const itin = get().itinerary;
           const narr = get().narration;
           if (narr?.text || itin) {
-            const text = narr?.text
-              ? `已根据你的反馈重新规划——${narr.text}`
-              : itin
-                ? `已根据你的反馈重新规划：${itin.summary}`
-                : "";
+            const text = itin
+              ? `已按你说的调整了——${itin.summary}。变化都标在卡上。`
+              : "已按你说的调整了，变化都标在卡上。";
             if (text) {
               set((s) => ({
                 messages: [

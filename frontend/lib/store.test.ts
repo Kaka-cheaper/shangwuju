@@ -6,13 +6,45 @@
  * - changed_fields 中文显示规则（≤2 条独立 toast / >2 条聚合 toast）
  * - cancel 推 agent 消息 + warn toast
  * - setPlannerMode 改 cookie + 推 toast
+ *
+ * 聊天气泡口播去重（卡片放全文，聊天放交接句）：
+ * - sendMessage/confirm/refine 的 onDone 直接调 streamSse 的 handlers.onDone，
+ *   mock 掉 "./sse" 模块后即可在不起真实网络请求的前提下驱动真实 store action，
+ *   断言三处 onDone 推的交接句文案（而非复刻一份逻辑再测复刻品）。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// 测试用假流：streamSse 被 mock 后不发起真实网络请求，也不推任何 onEvent——
+// 直接调 handlers.onDone。真实 SSE 流里 awaitingReplan 由 handleEvent 收到
+// intent_parsed / refinement_start 时清掉（见 store/event-handlers.ts）；这里
+// 没有真流可清，改用一个测试专用开关模拟"本轮是否真重跑了"，由各测试用例
+// 在调用 sendMessage 前设置。mockBeforeDone 允许测试在 onDone 触发前再改一次
+// store 状态（模拟"流处理到最后一刻把 itinerary/narration 改成了 X"）。
+let mockWasReplanTurn = true;
+let mockBeforeDone: (() => void) | null = null;
+vi.mock("./sse", () => ({
+  streamSse: vi.fn(
+    async (
+      _url: string,
+      _body: unknown,
+      _signal: AbortSignal,
+      handlers: { onDone?: () => void },
+    ) => {
+      if (mockWasReplanTurn) {
+        useChatStore.setState({ awaitingReplan: false });
+      }
+      mockBeforeDone?.();
+      handlers.onDone?.();
+    },
+  ),
+}));
+
 import { useChatStore } from "./store";
 
 beforeEach(() => {
+  mockWasReplanTurn = true;
+  mockBeforeDone = null;
   // 全部测试都跑在 jsdom-less 的 node 环境；mock document.cookie 让 setPlannerModeCookie 不抛
   Object.defineProperty(globalThis, "document", {
     value: { cookie: "" },
@@ -33,6 +65,8 @@ beforeEach(() => {
     replans: [],
     thoughts: [],
     itinerary: null,
+    narration: null,
+    awaitingReplan: false,
     cancelled: false,
     lastRefinement: null,
     toasts: [],
@@ -141,5 +175,121 @@ describe("store · refinement", () => {
     expect(useChatStore.getState().toasts).toHaveLength(1);
     useChatStore.getState().setPlannerMode("llm");
     expect(useChatStore.getState().toasts).toHaveLength(1);
+  });
+});
+
+describe("store · 聊天气泡口播去重（卡片放全文，聊天放交接句）", () => {
+  const makeItinerary = (summary: string) => ({
+    schema_version: "edge_v1" as const,
+    summary,
+    nodes: [],
+    hops: [],
+    schedule: [],
+    orders: [] as never[],
+    total_minutes: 0,
+  });
+
+  it("sendMessage onDone：重跑成功后推交接句（非全文），不含口播原文", async () => {
+    // 模拟"流已经把 itinerary_ready / agent_narration 都处理完"：预置好
+    // itinerary + narration，mock streamSse 只负责触发 onDone。
+    useChatStore.setState({
+      itinerary: makeItinerary("和室友唱K，2.8小时"),
+      narration: { text: "这是一段很长的口播全文，包含时间线与诚实披露……", stage: "stream" },
+    });
+    await useChatStore.getState().sendMessage("随便找个地方");
+    const s = useChatStore.getState();
+    const last = s.messages.at(-1);
+    expect(last?.role).toBe("agent");
+    expect(last?.text).toBe("排好了——和室友唱K，2.8小时。细节和提醒都在方案卡上。");
+    // 红线：不能包含口播全文（否则又是卡片/聊天一字不差重复）
+    expect(last?.text).not.toContain("很长的口播全文");
+  });
+
+  it("sendMessage onDone：itinerary 缺失但 narration 存在 → 兜底句", async () => {
+    useChatStore.setState({
+      itinerary: null,
+      narration: { text: "口播全文", stage: "stream" },
+    });
+    await useChatStore.getState().sendMessage("随便找个地方");
+    expect(useChatStore.getState().messages.at(-1)?.text).toBe(
+      "方案排好了，细节在方案卡上。",
+    );
+  });
+
+  it("sendMessage onDone：chitchat turn（未重跑）不推消息", async () => {
+    mockWasReplanTurn = false; // 模拟没收到 intent_parsed / refinement_start
+    useChatStore.setState({
+      itinerary: makeItinerary("上一轮方案"),
+      narration: { text: "上一轮口播", stage: "stream" },
+    });
+    await useChatStore.getState().sendMessage("你好");
+    // chitchat turn 不该补 agent 消息（沿用既有纪律，本次改动不动这条判定逻辑）
+    expect(useChatStore.getState().messages.some((m) => m.role === "agent")).toBe(
+      false,
+    );
+  });
+
+  it("confirm onDone：推交接句（凭证/安排在卡片里），不含口播原文", async () => {
+    useChatStore.setState({
+      itinerary: makeItinerary("和室友唱K，2.8小时"),
+      narration: { text: "confirm 阶段的口播全文", stage: "confirm" },
+    });
+    await useChatStore.getState().confirm();
+    const last = useChatStore.getState().messages.at(-1);
+    expect(last?.text).toBe("都订好了——和室友唱K，2.8小时。凭证和安排都在卡片里。");
+    expect(last?.text).not.toContain("confirm 阶段的口播全文");
+  });
+
+  it("confirm onDone：narration.stage 不是 confirm 时不推消息（既有 gate 不变）", async () => {
+    useChatStore.setState({
+      itinerary: makeItinerary("x"),
+      narration: { text: "还是上一轮 stream 阶段的口播", stage: "stream" },
+    });
+    const before = useChatStore.getState().messages.length;
+    await useChatStore.getState().confirm();
+    expect(useChatStore.getState().messages.length).toBe(before);
+  });
+
+  it("refine onDone：推交接句（变化标在卡上），不含口播原文", async () => {
+    // refine() 入口守卫要求已有 itinerary 才会开始；但其同步 set 块会立刻把
+    // itinerary 清空等 refinement_done 事件重新填充（真实链路由 handleEvent
+    // 完成，mock streamSse 不推 onEvent）——用 mockBeforeDone 模拟"事件已经
+    // 把新方案填回 itinerary"这一步，再触发 onDone。
+    useChatStore.setState({
+      itinerary: makeItinerary("占位，供 refine() 入口守卫通过"),
+      narration: null,
+    });
+    mockBeforeDone = () => {
+      useChatStore.setState({
+        itinerary: makeItinerary("换了一家人均更低的餐厅"),
+        narration: { text: "refine 阶段的口播全文", stage: "stream" },
+      });
+    };
+    await useChatStore.getState().refine("换个便宜点的餐厅");
+    const last = useChatStore.getState().messages.at(-1);
+    expect(last?.text).toBe("已按你说的调整了——换了一家人均更低的餐厅。变化都标在卡上。");
+    expect(last?.text).not.toContain("refine 阶段的口播全文");
+  });
+
+  it("refine onDone：itinerary 被清空但 narration 存在 → 兜底句", async () => {
+    // refine() 入口要求已有 itinerary 才会开始（否则直接 return，不发起流）。
+    // 但流处理中 refine 会先把 itinerary 置 null 等 refinement_done 事件重新
+    // 填充（见 store.ts refine() 顶部 set），若事件没如期把 itinerary 填回来
+    // （真实链路里的极端情形），onDone 时 itin 仍是 null、narr 仍在——
+    // 用 mockBeforeDone 模拟这一时序：onDone 触发前 itinerary 仍未被填回。
+    useChatStore.setState({
+      itinerary: makeItinerary("占位，供 refine() 入口守卫通过"),
+      narration: null,
+    });
+    mockBeforeDone = () => {
+      useChatStore.setState({
+        itinerary: null,
+        narration: { text: "refine 阶段的口播全文", stage: "stream" },
+      });
+    };
+    await useChatStore.getState().refine("换个便宜点的餐厅");
+    expect(useChatStore.getState().messages.at(-1)?.text).toBe(
+      "已按你说的调整了，变化都标在卡上。",
+    );
   });
 });
