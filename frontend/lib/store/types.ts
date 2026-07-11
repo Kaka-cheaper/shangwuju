@@ -256,8 +256,15 @@ export interface ChatState {
   setPlannerMode: (mode: PlannerMode, options?: { silent?: boolean; persist?: boolean }) => void;
   setCurrentUserId: (userId: string, options?: { silent?: boolean }) => void;
   loadPersonas: () => Promise<void>;
-  refreshPreferences: () => Promise<void>;
-  resetUserMemory: () => Promise<void>;
+  /**
+   * 拉取「合并偏好」视图（persona 模板 + 会话累积）。`sessionIdOverride` 供
+   * 房间模式调用点传入房间会话键（`collab_{roomId}`，见 `collab-store.ts`
+   * `myUserId`/`roomId` 与 `data/memory_store.py` 房间键坐实）——省略时用
+   * 个人 `sessionId`。房间模式下「这次对话学到的」区整区隐藏（用户拍板 ⑤ +
+   * 方案 §13），但画像/台账仍需正确的会话键才能不串味，故保留可覆盖入口。
+   */
+  refreshPreferences: (sessionIdOverride?: string) => Promise<void>;
+  resetUserMemory: (sessionIdOverride?: string) => Promise<void>;
   pushToast: (toast: Omit<ToastItem, "id">) => void;
   dismissToast: (id: string) => void;
 }

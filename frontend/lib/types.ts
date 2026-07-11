@@ -667,11 +667,24 @@ export interface UserMemory {
   last_updated_ms?: number | null;
 }
 
+/** 会话内最近行程档案一条（schemas/domain.py::RecentTrip 手抄）。
+ * `summary` 是后端 LLM 生成的脱敏自然语言（50-150 字），前端「去过」子项
+ * 直接渲染，不需要模板拼接（见用户偏好面板全环方案 §3.6）。 */
+export interface RecentTrip {
+  timestamp: string;
+  social_context: string;
+  summary: string;
+  success: boolean;
+}
+
 export interface UserPreferenceView {
   persona: Persona;
   memory: UserMemory;
   top_priors: string[];
   suggested_distance_max_km?: number | null;
+  /** 用户偏好面板全环方案 §2.3/§14.3 新增：LIFO 最近 5 条，最新在头；
+   * session_id 缺省时恒为空数组。 */
+  recent_trips: RecentTrip[];
 }
 
 export interface PersonasResponse {

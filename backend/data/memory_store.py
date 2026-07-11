@@ -384,17 +384,19 @@ TOP_PRIORS_N = 5
 def compute_priors(
     user_id: str, session_id: Optional[str] = None
 ) -> UserPreferenceView:
-    """双键合并 persona 模板 + 会话累积，输出 top tag 与建议距离。
+    """双键合并 persona 模板 + 会话累积，输出 top tag / 建议距离 / 最近行程档案。
 
     键语义（读写分离批）：
     - `user_id`：模板键——persona label / 默认 tag / 默认距离（共享只读）。
-    - `session_id`：累积键——本会话确认攒下的偏好 / 距离史。缺省（None）时
-      返回**纯模板视图**（零累积）——供无会话上下文的调用方（如
-      GET /preferences/{user_id}）诚实展示"模板长什么样"，绝不混入任何
-      别的会话的累积。
+    - `session_id`：累积键——本会话确认攒下的偏好 / 距离史 / 行程档案
+      （`recent_trips`，用户偏好面板全环方案 §2.3/§14.3 新增）。缺省（None）时
+      返回**纯模板视图**（零累积、`recent_trips=[]`）——供无会话上下文的调用方
+      （如 GET /preferences/{user_id} 不传 session_id 时）诚实展示"模板长什么样"，
+      绝不混入任何别的会话的累积。
     """
     persona = get_persona(user_id) or get_default_persona()
     memory = get_memory(session_id) if session_id else UserMemory(user_id="")
+    recent_trips = get_recent_trips(session_id) if session_id else []
 
     # 合并打分
     score: dict[str, float] = {}
@@ -425,4 +427,5 @@ def compute_priors(
         memory=memory,
         top_priors=top_priors,
         suggested_distance_max_km=suggested,
+        recent_trips=recent_trips,
     )

@@ -541,12 +541,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  refreshPreferences: async () => {
+  refreshPreferences: async (sessionIdOverride) => {
     const userId = get().currentUserId;
     if (!userId) return;
+    // 闭环读端点断链修复（用户偏好面板全环方案 §2.3/§14.4）：GET 无请求体，
+    // session_id 走 query（HTTP 语义：GET 的参数是资源过滤/视图上下文）。
+    // 不传 sessionIdOverride 时用个人会话 id；房间模式调用点传房间会话键。
+    const sessionId = sessionIdOverride ?? get().sessionId;
     try {
+      const qs = sessionId
+        ? `?session_id=${encodeURIComponent(sessionId)}`
+        : "";
       const resp = await fetch(
-        `${API_BASE}/preferences/${encodeURIComponent(userId)}`,
+        `${API_BASE}/preferences/${encodeURIComponent(userId)}${qs}`,
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = (await resp.json()) as UserPreferenceView;
@@ -556,17 +563,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  resetUserMemory: async () => {
+  resetUserMemory: async (sessionIdOverride) => {
     const userId = get().currentUserId;
     if (!userId) return;
+    // POST 已带 body，session_id 走 body（操作载荷），见方案 §14.4。
+    const sessionId = sessionIdOverride ?? get().sessionId;
     try {
       const resp = await fetch(
         `${API_BASE}/preferences/${encodeURIComponent(userId)}/reset`,
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session_id: sessionId ?? null }),
+        },
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      await get().refreshPreferences();
-      get().pushToast({ kind: "success", text: "已清空当前用户的偏好记忆" });
+      await get().refreshPreferences(sessionIdOverride);
+      get().pushToast({ kind: "success", text: "已清空学到的记忆" });
     } catch (e) {
       get().pushToast({
         kind: "warn",

@@ -33,6 +33,8 @@ import { buildCriticTimeline } from "@/lib/critic-timeline";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
+import { ledgerEntryLine } from "@/lib/ledger-copy";
+import { distanceNote, preferenceNote } from "@/lib/preference-notes";
 import { useChatStore } from "@/lib/store";
 import type {
   AlternativeOption,
@@ -152,7 +154,14 @@ export default function MobileHomeView() {
         {/* A8 根治：SSE 流错误——移动端此前零订阅 streamError，完全静默失败。 */}
         <MobileStreamErrorBanner />
 
-        {/* B3：偏好画像面板——紧凑折叠卡，默认收起，不占初始态视觉焦点。 */}
+        {/* B3：偏好画像面板——紧凑折叠卡，默认收起，不占初始态视觉焦点。
+            用户偏好面板全环方案 §8 边注坐实：本组件此前定义了却从未挂载
+            （死代码），是移动端"学到的偏好"长期不可见的直接原因——本批
+            补上挂载点，并把内容对齐桌面 PreferencesPanel.tsx 的三区结构
+            （画像/这次对话学到的/本次调整，同订阅 preferences+demandLedger，
+            同房间降级规则）。 */}
+        <MobilePreferencesCard />
+
         {/* C4：评委证据徽章——桌面端默认 hidden md:/lg: 在移动端窄容器里天经
             地义不可见，用 compact prop 摘掉这层限制。flex-wrap 而非固定高度
             一行，窄屏（iPhone SE 等）挤不下时自然换行，不会裁切。 */}
@@ -160,9 +169,9 @@ export default function MobileHomeView() {
 
         <MobileConversation />
 
-        {/* A11：约束流 + 诉求台账（单人/房间共用 useChatStore.demandLedger，
-            见 ConstraintFeed.tsx 顶部 docstring）。二者各自按内容是否为空
-            独立 return null，不需要额外的显隐判断。 */}
+        {/* A11：约束流（房间模式自由文字广播，见 ConstraintFeed.tsx 顶部
+            docstring）——诉求台账已收编进上方 MobilePreferencesCard「本次
+            调整」区，本组件不再消费 demandLedger。 */}
         <div className="mt-3 [&_.card]:mb-0 [&_.card]:rounded-[22px] [&_.card]:border-black/[0.06] [&_.card]:bg-white/[0.82] [&_.card]:shadow-sm [&_.card]:backdrop-blur-xl">
           <ConstraintFeed />
         </div>
@@ -364,20 +373,34 @@ function MobileTopBar({
 }
 
 /**
- * B3：偏好画像面板（累积标签统计 / 清空记忆）——移动端紧凑版。
+ * B3：偏好画像面板（三区：画像 / 这次对话学到的 / 本次调整）——移动端紧凑版。
  *
  * 桌面端 PreferencesPanel.tsx 假设有一块「大头像图 + 文字右对齐」的横向空间
- * （150px 头像图、pr-20 让位），480px 宽的手机容器放不下同一套布局，这里
+ * （96px 头像图、pr-20 让位），480px 宽的手机容器放不下同一套布局，这里
  * 按移动端已有的圆角卡片语言重写渲染，但读同一份 store 字段/同一套折叠态
- * 持久化 key（shangwuju.preferences.open）——桌面/移动切换时"是否展开"的
- * 记忆是共享的。批 A（confirm/refine 走通）之后这里会开始出现会话级累积
- * 数据（accepted_tags/rejected_tags），这是预期行为，不是这次改动引入的。
+ * 持久化 key（shangwuju.preferences.open）+ 同一套三区业务规则（用户偏好
+ * 面板全环方案 §3/§8 边注，本批新增）：
+ *   - 「画像」：persona 模板 tag + 默认距离，随画像切换。
+ *   - 「这次对话学到的」：偏好笔记（`lib/preference-notes.ts::preferenceNote`，
+ *     取 top_priors 首位生成一句，无计数）+ 距离笔记 + 去过（recent_trips
+ *     ≤3 最新在前）+ 诚实空态；**房间模式整区隐藏**（同桌面端 §13 理由：
+ *     房间累积键全房间共享，显示会有混合口味困惑）。
+ *   - 「本次调整」：`demandLedger`（同订阅字段，人话化用
+ *     `lib/ledger-copy.ts`，只显生效中/已满足、被顶替砍掉，≤5 条 + N 折叠）。
+ * 房间模式下清空按钮同样隐藏（清空全房间共享键不该被单个成员静默触发）。
  */
 function MobilePreferencesCard() {
   const currentUserId = useChatStore((s) => s.currentUserId);
   const preferences = useChatStore((s) => s.preferences);
+  const demandLedger = useChatStore((s) => s.demandLedger);
+  const itinerary = useChatStore((s) => s.itinerary);
+  const refreshPreferences = useChatStore((s) => s.refreshPreferences);
   const resetUserMemory = useChatStore((s) => s.resetUserMemory);
+  const collabMode = useCollabStore((s) => s.collabMode);
+  const roomId = useCollabStore((s) => s.roomId);
   const [open, _setOpen] = useState(false);
+  const [tripsExpanded, setTripsExpanded] = useState(false);
+  const [ledgerExpanded, setLedgerExpanded] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -398,21 +421,40 @@ function MobilePreferencesCard() {
     }
   };
 
+  const roomSessionId = collabMode && roomId ? `collab_${roomId}` : undefined;
+
+  // 进/退房间时重刷一次（顶层 MobileHomeView 的 mount-only refreshPreferences
+  // 不会在房间生命周期变化时重跑）——同桌面端 PreferencesPanel.tsx 的同款
+  // effect，读对房间会话键（collab_{roomId}）而不是恒读个人 sessionId。
+  useEffect(() => {
+    if (currentUserId) refreshPreferences(roomSessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUserId, roomSessionId, refreshPreferences]);
+
   if (!currentUserId) return null;
   const persona = preferences?.persona;
-  const memory = preferences?.memory;
-  const acceptedCount = memory
-    ? Object.values(memory.accepted_tags.counts).reduce((a, b) => a + b, 0)
-    : 0;
-  const acceptedTop = memory
-    ? Object.entries(memory.accepted_tags.counts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const learnedCount = collabMode ? 0 : preferences?.top_priors?.length ?? 0;
+
+  const templateTags = persona
+    ? [
+        ...persona.default_tags.physical,
+        ...persona.default_tags.dietary,
+        ...persona.default_tags.experience,
+      ]
     : [];
-  const rejectedTop = memory
-    ? Object.entries(memory.rejected_tags.counts)
-        .filter(([, n]) => n > 0)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-    : [];
+
+  const prefNote = collabMode ? null : preferenceNote(preferences?.top_priors ?? []);
+  const distNote = collabMode ? null : distanceNote(preferences?.suggested_distance_max_km ?? null);
+  const recentTrips = collabMode ? [] : preferences?.recent_trips ?? [];
+  const visibleTrips = tripsExpanded ? recentTrips : recentTrips.slice(0, 3);
+  const hiddenTripsCount = recentTrips.length - visibleTrips.length;
+  const learnedIsEmpty = !prefNote && !distNote && recentTrips.length === 0;
+
+  // 「本次调整」：只显生效中/已满足，被顶替的条目砍掉（同桌面端）。
+  const visibleLedger = (demandLedger ?? []).filter((e) => e.status !== "superseded");
+  const orderedLedger = [...visibleLedger].reverse();
+  const visibleLedgerRows = ledgerExpanded ? orderedLedger : orderedLedger.slice(0, 5);
+  const hiddenLedgerCount = orderedLedger.length - visibleLedgerRows.length;
 
   return (
     <section className="rounded-[22px] border border-black/[0.06] bg-white/[0.80] px-4 py-3 shadow-sm backdrop-blur-xl">
@@ -431,9 +473,9 @@ function MobilePreferencesCard() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {acceptedCount > 0 && (
+          {learnedCount > 0 && (
             <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600">
-              已学 {acceptedCount}
+              已学 {learnedCount}
             </span>
           )}
           <ChevronDown
@@ -444,11 +486,12 @@ function MobilePreferencesCard() {
       </button>
 
       {open && persona && (
-        <div className="mt-3 space-y-2.5 border-t border-black/[0.06] pt-3 animate-collapse-in">
-          {(preferences?.top_priors ?? []).length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs text-ink-500">常去</span>
-              {preferences!.top_priors.map((t) => (
+        <div className="mt-3 max-h-[60vh] space-y-3 overflow-y-auto border-t border-black/[0.06] pt-3 animate-collapse-in">
+          {/* 区一：画像 */}
+          <div>
+            <div className="text-xs font-semibold text-ink-500">画像</div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+              {templateTags.slice(0, 5).map((t) => (
                 <span
                   key={t}
                   className="rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-medium text-ink-700"
@@ -456,55 +499,100 @@ function MobilePreferencesCard() {
                   {t}
                 </span>
               ))}
-            </div>
-          )}
-
-          {preferences?.suggested_distance_max_km != null && (
-            <div className="text-xs text-ink-600">
-              建议距离{" "}
-              <span className="font-semibold text-ink-900">
-                {preferences.suggested_distance_max_km}km
+              <span className="rounded-full border border-black/[0.07] bg-white/70 px-2.5 py-1 text-xs text-ink-600">
+                距离 {persona.default_distance_max_km}km
               </span>
             </div>
-          )}
+          </div>
 
-          {(acceptedTop.length > 0 || rejectedTop.length > 0) && (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-600">
-              {acceptedTop.length > 0 && (
-                <span>
-                  接受{" "}
-                  {acceptedTop.map(([t, n], i) => (
-                    <span key={t}>
-                      {i > 0 && "、"}
-                      {t}
-                      <span className="text-ink-400">×{n}</span>
-                    </span>
+          {/* 区二：这次对话学到的——房间模式整区隐藏 */}
+          {!collabMode && (
+            <div>
+              <div className="text-xs font-semibold text-ink-500">这次对话学到的</div>
+              {learnedIsEmpty ? (
+                <div className="mt-1.5 text-xs text-ink-400">还没学到新偏好，继续聊聊看</div>
+              ) : (
+                <div className="mt-1.5 space-y-1">
+                  {prefNote && (
+                    <div className="text-xs text-ink-600">
+                      <span className="text-ink-400">偏好 · </span>
+                      {prefNote}
+                    </div>
+                  )}
+                  {distNote && (
+                    <div className="text-xs text-ink-600">
+                      <span className="text-ink-400">距离 · </span>
+                      {distNote}
+                    </div>
+                  )}
+                  {visibleTrips.map((trip, i) => (
+                    <div key={`${trip.timestamp}-${i}`} className="text-xs text-ink-600">
+                      <span className="text-ink-400">去过 · </span>
+                      {trip.summary}
+                    </div>
                   ))}
-                </span>
-              )}
-              {rejectedTop.length > 0 && (
-                <span>
-                  拒绝{" "}
-                  {rejectedTop.map(([t, n], i) => (
-                    <span key={t}>
-                      {i > 0 && "、"}
-                      {t}
-                      <span className="text-ink-400">×{n}</span>
-                    </span>
-                  ))}
-                </span>
+                  {hiddenTripsCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setTripsExpanded(true)}
+                      className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
+                    >
+                      查看全部 {recentTrips.length} 条
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={() => void resetUserMemory()}
-            className="text-xs text-ink-500 underline decoration-dotted underline-offset-2 transition-colors hover:text-rose-500"
-            title="清空当前用户的累积偏好（演示完清场用）"
-          >
-            清空记忆
-          </button>
+          {/* 区三：本次调整——房间模式照常显示（归名台账是房间协商核心价值） */}
+          <div>
+            <div className="text-xs font-semibold text-ink-500">本次调整</div>
+            {orderedLedger.length === 0 ? (
+              <div className="mt-1.5 text-xs text-ink-400">还没有调整过，换个菜试试</div>
+            ) : (
+              <div className="mt-1.5 space-y-1">
+                {visibleLedgerRows.map((entry, i) => (
+                  <div key={`${entry.created_at}-${i}`} className="flex items-start gap-1.5 text-xs">
+                    <span
+                      className={cn(
+                        "shrink-0 rounded border px-1.5 py-0 text-[11px] font-medium leading-[1.4]",
+                        entry.status === "satisfied"
+                          ? "border-emerald-500/30 bg-emerald-500/12 text-emerald-700"
+                          : "border-amber-400/30 bg-amber-400/15 text-amber-700",
+                      )}
+                    >
+                      {entry.status === "satisfied" ? "已满足" : "生效中"}
+                    </span>
+                    <span className="text-ink-600 break-all">
+                      {ledgerEntryLine(entry, itinerary)}
+                    </span>
+                  </div>
+                ))}
+                {hiddenLedgerCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setLedgerExpanded(true)}
+                    className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
+                  >
+                    查看更多 {hiddenLedgerCount} 条
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 清空按钮——房间模式隐藏（清空全房间共享键不该被单个成员静默触发） */}
+          {!collabMode && (
+            <button
+              type="button"
+              onClick={() => void resetUserMemory(roomSessionId)}
+              className="text-xs text-ink-500 underline decoration-dotted underline-offset-2 transition-colors hover:text-rose-500"
+              title="清空当前会话累积的学到的记忆（画像/台账不受影响）"
+            >
+              清空学到的记忆
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -952,8 +1040,9 @@ function MobileRefinementBanner({
 // ============================================================
 // B1：Agent 暖心开场白 + intent 命中可视化（narration + "为你考虑了" chips +
 // D-7 取舍说明）。照 ItineraryCard.tsx:752-851（NarrationBlock）+ :993-1066
-// （buildIntentChips，已抽到 lib/intent-chips.ts）移植，HighlightText 逐字
-// 高亮暂不移植（属于 Tier C 视觉打磨 C2，不影响内容完整性）。
+// （buildIntentChips，此前抽到 lib/intent-chips.ts；该文件已随另一批改动
+// 删除，本行注释不再指向死链接）移植，HighlightText 逐字高亮暂不移植
+// （属于 Tier C 视觉打磨 C2，不影响内容完整性）。
 // ============================================================
 
 function MobileNarrationBlock({

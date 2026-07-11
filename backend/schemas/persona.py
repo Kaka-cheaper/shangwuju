@@ -27,6 +27,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, NonNegativeFloat, NonNegativeInt
 
+from schemas.domain import RecentTrip
 from schemas.tags import (
     DietaryTag,
     ExperienceTag,
@@ -214,6 +215,16 @@ class UserPreferenceView(BaseModel):
     suggested_distance_max_km: Optional[NonNegativeFloat] = Field(
         default=None,
         description="建议默认距离（memory 中位数；为空时用 persona.default_distance_max_km）",
+    )
+    recent_trips: list[RecentTrip] = Field(
+        default_factory=list,
+        description=(
+            "本会话最近行程档案（LIFO，最新在头，最多 5 条），"
+            "`data.memory_store.get_recent_trips(session_id)` 原样透传。"
+            "用户偏好面板全环方案 §2.3/§14.3 新增字段——`summary` 已是后端 LLM"
+            "生成的脱敏自然语言，前端「去过」子项直接渲染，不需要模板拼接。"
+            "session_id 缺省时恒为空列表（同 memory 区的模板视图纪律）。"
+        ),
     )
 
 

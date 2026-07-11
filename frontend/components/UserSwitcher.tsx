@@ -31,6 +31,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useCollabStore } from "@/lib/collab-store";
 import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { buildAppPath, cn } from "@/lib/utils";
@@ -125,6 +126,13 @@ export default function UserSwitcher({
   const loadPersonas = useChatStore((s) => s.loadPersonas);
   const preferences = useChatStore((s) => s.preferences);
   const resetUserMemory = useChatStore((s) => s.resetUserMemory);
+  // 闭环审计 P1（用户偏好面板全环方案任务书裁决）：房间内切画像是 no-op
+  // 假控件——`setCurrentUserId` 改的是 `useChatStore.currentUserId`，房间
+  // 成员身份是 `collab-store.myUserId`，两者不同步（§8 坐实的既有错位），
+  // 房间里点"切画像"不会真的换成员身份，还会误导性地刷新偏好面板显示
+  // 别人（或模板 demo_user）的画像。房间模式下整个入口隐藏，而不是禁用/
+  // 只读展示——禁用态仍会让用户以为"点了会生效只是暂时关闭"，隐藏才诚实。
+  const collabMode = useCollabStore((s) => s.collabMode);
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -289,7 +297,9 @@ export default function UserSwitcher({
   };
 
   useEffect(() => {
-    if (!mounted || !autoOpenOnMount) return;
+    // 房间模式：不强弹"选画像"引导——整个切换器都要隐藏（见上方 collabMode
+    // docstring），强弹的阻断式 onboarding 模态在房间里更是无意义的打扰。
+    if (!mounted || !autoOpenOnMount || collabMode) return;
 
     if (currentOption) {
       if (blocking && presentation === "modal" && step === "choose") {
@@ -302,7 +312,7 @@ export default function UserSwitcher({
     if (open) return;
     openPanel("modal", true, "choose");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoOpenOnMount, blocking, currentOption, mounted, open, presentation, step]);
+  }, [autoOpenOnMount, blocking, collabMode, currentOption, mounted, open, presentation, step]);
 
   const chooseOption = (option: MatchOption) => {
     setSelectedUserId(option.userId);
@@ -334,6 +344,10 @@ export default function UserSwitcher({
     setSelectedTraits([]);
     setStep("choose");
   };
+
+  // 房间模式：整个切换器隐藏（见顶部 collabMode docstring）——所有 hooks
+  // 已在上方无条件跑完，这里只是渲染早退，不违反 Hooks 规则。
+  if (collabMode) return null;
 
   return (
     <div ref={wrapRef} className="relative">
