@@ -51,46 +51,26 @@ function useDetectedInterfaceMode(
   const [mode, setMode] = useState<InterfaceMode | null>(forcedMode ?? null);
 
   useEffect(() => {
-    if (forcedMode) {
-      setMode(forcedMode);
+    if (forcedMode) return;
+    if (typeof window === "undefined" || !window.matchMedia) {
+      setMode("desktop");
       return;
     }
-    if (typeof window === "undefined" || !window.matchMedia) return;
 
     const compactViewport = window.matchMedia(COMPACT_VIEW_QUERY);
     const touchFirst = window.matchMedia(TOUCH_FIRST_QUERY);
-    const update = () => {
-      setMode(
-        resolveInterfaceMode({
-          compactViewport: compactViewport.matches,
-          touchFirst: touchFirst.matches,
-        }),
-      );
-    };
-
-    update();
-    const cleanups = [
-      subscribeMediaQuery(compactViewport, update),
-      subscribeMediaQuery(touchFirst, update),
-    ];
-    return () => cleanups.forEach((cleanup) => cleanup());
+    // 根视图只在本次页面入口判定一次。持续监听断点并切换整棵根组件
+    // 会重跑画像、会话和房间初始化；手机横屏则由 touchFirst 信号在首次
+    // 判定时稳定命中移动界面。
+    setMode(
+      resolveInterfaceMode({
+        compactViewport: compactViewport.matches,
+        touchFirst: touchFirst.matches,
+      }),
+    );
   }, [forcedMode]);
 
   return forcedMode ?? mode;
-}
-
-function subscribeMediaQuery(
-  query: MediaQueryList,
-  listener: () => void,
-): () => void {
-  if (query.addEventListener) {
-    query.addEventListener("change", listener);
-    return () => query.removeEventListener("change", listener);
-  }
-
-  // Safari <14 兼容。
-  query.addListener(listener);
-  return () => query.removeListener(listener);
 }
 
 function AdaptiveLoadingShell() {
