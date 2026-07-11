@@ -1,0 +1,3077 @@
+[
+  {
+    "id": "P001",
+    "name": "森林儿童探索乐园",
+    "type": "亲子乐园",
+    "location": {
+      "name": "西溪湿地北门",
+      "lat": 30.285,
+      "lng": 120.083
+    },
+    "distance_km": 4.2,
+    "opening_hours": "09:00-18:00",
+    "rating": 4.6,
+    "age_range": [
+      3,
+      10
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 45
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "kid_7_12": 90,
+      "multi_gen": 75
+    },
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 31
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-19",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "P002",
+    "name": "西溪艺术展中心 · 当季特展",
+    "type": "展览",
+    "location": {
+      "name": "西溪文创园",
+      "lat": 30.29,
+      "lng": 120.078
+    },
+    "distance_km": 3.8,
+    "opening_hours": "10:00-20:00",
+    "rating": 4.4,
+    "price_range": [
+      60,
+      60
+    ],
+    "tags": [
+      "看展",
+      "安静聊天",
+      "拍照友好",
+      "亲密情侣",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 300,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 32
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 40
+      }
+    ]
+  },
+  {
+    "id": "P003",
+    "name": "城市儿童博物馆",
+    "type": "亲子博物馆",
+    "location": {
+      "name": "城西银泰",
+      "lat": 30.28,
+      "lng": 120.11
+    },
+    "distance_km": 3.2,
+    "opening_hours": "09:30-17:30",
+    "rating": 4.5,
+    "age_range": [
+      3,
+      12
+    ],
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "学习成长",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 300,
+      "available_slots": 80
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-02-09",
+        "helpful_count": 48
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-14",
+        "helpful_count": 49
+      }
+    ]
+  },
+  {
+    "id": "P004",
+    "name": "悦读亲子绘本馆",
+    "type": "儿童阅读馆",
+    "location": {
+      "name": "西溪天街",
+      "lat": 30.288,
+      "lng": 120.083
+    },
+    "distance_km": 2.5,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.7,
+    "age_range": [
+      3,
+      10
+    ],
+    "price_range": [
+      40,
+      60
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "学习成长",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-05-26",
+        "helpful_count": 23
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-01-16",
+        "helpful_count": 12
+      }
+    ]
+  },
+  {
+    "id": "P005",
+    "name": "江畔老人公园",
+    "type": "城市公园",
+    "location": {
+      "name": "运河边",
+      "lat": 30.288,
+      "lng": 120.176
+    },
+    "distance_km": 2.0,
+    "opening_hours": "06:00-21:00",
+    "rating": 4.5,
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "户外",
+      "低强度",
+      "无障碍"
+    ],
+    "suitable_for": [
+      "老人伴助",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "kid_3_6": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人"
+        ],
+        "visited_at": "2026-04-19",
+        "helpful_count": 38
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人"
+        ],
+        "visited_at": "2026-04-11",
+        "helpful_count": 19
+      }
+    ]
+  },
+  {
+    "id": "P006",
+    "name": "怡心老年茶艺馆",
+    "type": "茶馆",
+    "location": {
+      "name": "南山路",
+      "lat": 30.235702,
+      "lng": 120.157144
+    },
+    "distance_km": 2.8,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.3,
+    "price_range": [
+      40,
+      80
+    ],
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "安静聊天",
+      "室内",
+      "无障碍"
+    ],
+    "suitable_for": [
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "带老人去的，全程电梯无台阶，60+ 长辈走完一圈不累。环境也清静，没有那种年轻人扎堆的喧闹感。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 22
+      },
+      {
+        "text": "70 岁妈妈第一次来表示满意。走道宽敞、休息长椅多，老人累了随时坐下歇会儿。这种贴心设计现在不多见了。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "适合老人",
+          "可休息"
+        ],
+        "visited_at": "2026-02-27",
+        "helpful_count": 37
+      }
+    ]
+  },
+  {
+    "id": "P007",
+    "name": "国韵戏曲文化园",
+    "type": "戏曲园",
+    "location": {
+      "name": "中山北路",
+      "lat": 30.268877,
+      "lng": 120.167215
+    },
+    "distance_km": 4.6,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.6,
+    "tags": [
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "70 岁妈妈第一次来表示满意。走道宽敞、休息长椅多，老人累了随时坐下歇会儿。这种贴心设计现在不多见了。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "适合老人",
+          "可休息"
+        ],
+        "visited_at": "2026-03-10",
+        "helpful_count": 41
+      },
+      {
+        "text": "带老人去的，全程电梯无台阶，60+ 长辈走完一圈不累。环境也清静，没有那种年轻人扎堆的喧闹感。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
+        "visited_at": "2026-04-06",
+        "helpful_count": 40
+      }
+    ]
+  },
+  {
+    "id": "P008",
+    "name": "云上私人画廊",
+    "type": "画廊",
+    "location": {
+      "name": "玉皇山路",
+      "lat": 30.213,
+      "lng": 120.149
+    },
+    "distance_km": 3.5,
+    "opening_hours": "11:00-20:00",
+    "rating": 4.4,
+    "price_range": [
+      50,
+      80
+    ],
+    "tags": [
+      "看展",
+      "安静聊天",
+      "亲密情侣",
+      "拍照友好",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-10",
+        "helpful_count": 49
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-03-17",
+        "helpful_count": 44
+      }
+    ]
+  },
+  {
+    "id": "P009",
+    "name": "城市公共图书馆",
+    "type": "图书馆",
+    "location": {
+      "name": "钱江新城",
+      "lat": 30.25,
+      "lng": 120.207
+    },
+    "distance_km": 4.0,
+    "opening_hours": "09:00-21:00",
+    "rating": 4.7,
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "学习成长",
+      "可休息",
+      "室内",
+      "无障碍"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 60,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 39
+      },
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-27",
+        "helpful_count": 34
+      }
+    ]
+  },
+  {
+    "id": "P010",
+    "name": "舒愈 SPA 养身馆",
+    "type": "SPA",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.273,
+      "lng": 120.08
+    },
+    "distance_km": 2.3,
+    "opening_hours": "11:00-23:00",
+    "rating": 4.5,
+    "price_range": [
+      200,
+      400
+    ],
+    "tags": [
+      "独处舒缓",
+      "可休息",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75
+    },
+    "reviews": [
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-02-23",
+        "helpful_count": 10
+      },
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-01-19",
+        "helpful_count": 16
+      }
+    ]
+  },
+  {
+    "id": "P011",
+    "name": "晨光网红独立书店",
+    "type": "书店",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
+    },
+    "distance_km": 4.8,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "网红打卡",
+      "拍照友好",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 150,
+      "available_slots": 70
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-02-15",
+        "helpful_count": 34
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-28",
+        "helpful_count": 17
+      }
+    ]
+  },
+  {
+    "id": "P012",
+    "name": "花漾网红咖啡花园",
+    "type": "咖啡馆",
+    "location": {
+      "name": "良渚文化村",
+      "lat": 30.395,
+      "lng": 120.02
+    },
+    "distance_km": 4.3,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "网红打卡",
+      "拍照友好",
+      "安静聊天",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "朋友热闹",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 90
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-26",
+        "helpful_count": 43
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-11",
+        "helpful_count": 36
+      }
+    ]
+  },
+  {
+    "id": "P013",
+    "name": "极速密室逃脱",
+    "type": "密室",
+    "location": {
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
+    },
+    "distance_km": 4.7,
+    "opening_hours": "11:00-23:00",
+    "rating": 4.5,
+    "price_range": [
+      120,
+      180
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内",
+      "高强度"
+    ],
+    "suitable_for": [
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_7_12": 75
+    },
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-08",
+        "helpful_count": 17
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-01-07",
+        "helpful_count": 42
+      }
+    ]
+  },
+  {
+    "id": "P014",
+    "name": "联机桌游主题馆",
+    "type": "桌游馆",
+    "location": {
+      "name": "嘉里中心",
+      "lat": 30.276,
+      "lng": 120.166
+    },
+    "distance_km": 4.4,
+    "opening_hours": "12:00-24:00",
+    "rating": 4.4,
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 120,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_7_12": 90,
+      "multi_gen": 75
+    },
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-14",
+        "helpful_count": 22
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-03-12",
+        "helpful_count": 37
+      }
+    ]
+  },
+  {
+    "id": "P015",
+    "name": "南宋御街 city walk 街区",
+    "type": "街区漫步",
+    "location": {
+      "name": "上城区",
+      "lat": 30.232,
+      "lng": 120.169
+    },
+    "distance_km": 4.9,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.5,
+    "tags": [
+      "网红打卡",
+      "拍照友好",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-01-01",
+        "helpful_count": 22
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "网红打卡"
+        ],
+        "visited_at": "2026-05-25",
+        "helpful_count": 6
+      }
+    ]
+  },
+  {
+    "id": "P016",
+    "name": "云岚商务雅集茶室",
+    "type": "商务茶室",
+    "location": {
+      "name": "钱江新城万象城",
+      "lat": 30.247,
+      "lng": 120.207
+    },
+    "distance_km": 4.5,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "price_range": [
+      200,
+      400
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待",
+      "纪念日仪式感"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "结婚纪念日去的，满分回忆。氛围、服务、出片都很赞。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 17
+      },
+      {
+        "text": "正式商务用，客户体验感不错。流程顺畅、不打扰谈话。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面"
+        ],
+        "visited_at": "2026-04-28",
+        "helpful_count": 50
+      }
+    ]
+  },
+  {
+    "id": "P017",
+    "name": "童趣海洋亲子馆",
+    "type": "亲子游乐场",
+    "location": {
+      "name": "西溪天街",
+      "lat": 30.288,
+      "lng": 120.083
+    },
+    "distance_km": 2.7,
+    "opening_hours": "09:00-19:00",
+    "rating": 4.5,
+    "age_range": [
+      3,
+      12
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-01-17",
+        "helpful_count": 26
+      },
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-05-07",
+        "helpful_count": 40
+      }
+    ]
+  },
+  {
+    "id": "P018",
+    "name": "西湖游船码头",
+    "type": "城市观光",
+    "location": {
+      "name": "断桥",
+      "lat": 30.255,
+      "lng": 120.144
+    },
+    "distance_km": 4.7,
+    "opening_hours": "08:00-20:00",
+    "rating": 4.7,
+    "price_range": [
+      70,
+      130
+    ],
+    "tags": [
+      "户外",
+      "拍照友好",
+      "网红打卡",
+      "可休息"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "朋友热闹",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 500,
+      "available_slots": 220
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "户外"
+        ],
+        "visited_at": "2026-03-27",
+        "helpful_count": 42
+      },
+      {
+        "text": "和闺蜜每次约都来这家，能安心聊心事，环境也好出片。下午茶时段一坐就是几个小时。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 31
+      }
+    ]
+  },
+  {
+    "id": "P019",
+    "name": "玉皇山陶艺工坊",
+    "type": "DIY 工坊",
+    "location": {
+      "name": "玉皇山南麓",
+      "lat": 30.214684,
+      "lng": 120.147288
+    },
+    "distance_km": 4.4,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.5,
+    "price_range": [
+      120,
+      180
+    ],
+    "tags": [
+      "学习成长",
+      "亲密情侣",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "闺蜜聊天",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-02-03",
+        "helpful_count": 48
+      },
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "学习成长"
+        ],
+        "visited_at": "2026-05-23",
+        "helpful_count": 11
+      }
+    ]
+  },
+  {
+    "id": "P020",
+    "name": "运河文化夜跑步道",
+    "type": "运动步道",
+    "location": {
+      "name": "运河南端",
+      "lat": 30.275,
+      "lng": 120.175
+    },
+    "distance_km": 1.8,
+    "opening_hours": "00:00-23:59",
+    "rating": 4.4,
+    "tags": [
+      "户外",
+      "低强度",
+      "可休息",
+      "适合老人",
+      "无台阶"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "老人伴助",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": null,
+      "available_slots": 9999
+    },
+    "suggested_duration_minutes": {
+      "default": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "假日去人不算特别多，孩子玩得很尽兴。门票价格在合理范围内，比同类场所性价比高。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "户外"
+        ],
+        "visited_at": "2026-01-06",
+        "helpful_count": 26
+      },
+      {
+        "text": "环境安静，没台阶，老人走动方便。是我找了很久才发现的适合带长辈去的地方。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶"
+        ],
+        "visited_at": "2026-05-26",
+        "helpful_count": 40
+      }
+    ]
+  },
+  {
+    "id": "P_SOLD",
+    "name": "热门草莓音乐节限定场",
+    "type": "演出",
+    "location": {
+      "name": "黄龙体育中心",
+      "lat": 30.26819,
+      "lng": 120.129899
+    },
+    "distance_km": 4.6,
+    "opening_hours": "14:00-22:00",
+    "rating": 4.8,
+    "price_range": [
+      380,
+      880
+    ],
+    "tags": [
+      "热闹",
+      "网红打卡",
+      "拍照友好",
+      "户外",
+      "高强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 5000,
+      "available_slots": 0
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "senior": 75,
+      "multi_gen": 75
+    },
+    "reviews": [
+      {
+        "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-01-07",
+        "helpful_count": 50
+      },
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-01-23",
+        "helpful_count": 25
+      }
+    ]
+  },
+  {
+    "id": "P021",
+    "name": "礼遇花园 · 家宴庆典广场",
+    "type": "庆典花园",
+    "location": {
+      "name": "钱江世纪城",
+      "lat": 30.241,
+      "lng": 120.244
+    },
+    "distance_km": 4.6,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.7,
+    "price_range": [
+      60,
+      120
+    ],
+    "tags": [
+      "礼仪感",
+      "拍照友好",
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "户外"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 50
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "纪念日去的，氛围拉满，对方惊喜满满。细节处理得用心，仪式感到位。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-01",
+        "helpful_count": 48
+      },
+      {
+        "text": "环境安静，没台阶，老人走动方便。是我找了很久才发现的适合带长辈去的地方。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "适合老人",
+          "无台阶"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 20
+      }
+    ]
+  },
+  {
+    "id": "P022",
+    "name": "毛球先生猫咖",
+    "type": "猫咖",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.273,
+      "lng": 120.08
+    },
+    "distance_km": 2.4,
+    "opening_hours": "11:00-22:00",
+    "rating": 4.7,
+    "price_range": [
+      60,
+      100
+    ],
+    "tags": [
+      "亲密情侣",
+      "拍照友好",
+      "网红打卡",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "情侣亲密",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "情侣去刚刚好。空间不算大但布置温馨，氛围拍照都很在线。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-02-24",
+        "helpful_count": 20
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-14",
+        "helpful_count": 10
+      }
+    ]
+  },
+  {
+    "id": "P023",
+    "name": "二两猫舍 · 治愈系猫咖",
+    "type": "猫咖",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
+    },
+    "distance_km": 4.6,
+    "opening_hours": "12:00-23:00",
+    "rating": 4.6,
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "独处舒缓",
+      "安静聊天",
+      "拍照友好",
+      "网红打卡",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 22
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-02-10",
+        "helpful_count": 48
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-05",
+        "helpful_count": 29
+      }
+    ]
+  },
+  {
+    "id": "P024",
+    "name": "悬念剧场 · 沉浸式剧本杀",
+    "type": "剧本杀",
+    "location": {
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
+    },
+    "distance_km": 4.7,
+    "opening_hours": "13:00-23:30",
+    "rating": 4.6,
+    "price_range": [
+      120,
+      220
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 50,
+      "available_slots": 20
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 120
+    },
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 7
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-25",
+        "helpful_count": 11
+      }
+    ]
+  },
+  {
+    "id": "P025",
+    "name": "故事会 · 推理剧本杀馆",
+    "type": "剧本杀",
+    "location": {
+      "name": "嘉里中心",
+      "lat": 30.276,
+      "lng": 120.166
+    },
+    "distance_km": 4.4,
+    "opening_hours": "13:00-24:00",
+    "rating": 4.5,
+    "price_range": [
+      128,
+      188
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "学习成长",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": {
+      "default": 150,
+      "kid_7_12": 120
+    },
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-13",
+        "helpful_count": 15
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-22",
+        "helpful_count": 29
+      }
+    ]
+  },
+  {
+    "id": "P026",
+    "name": "麦霸欢唱 KTV · 旗舰店",
+    "type": "KTV",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.273,
+      "lng": 120.08
+    },
+    "distance_km": 2.5,
+    "opening_hours": "12:00-02:00",
+    "rating": 4.4,
+    "price_range": [
+      80,
+      200
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "有包间",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 25
+    },
+    "suggested_duration_minutes": {
+      "default": 90
+    },
+    "reviews": [
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-03",
+        "helpful_count": 31
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-01",
+        "helpful_count": 16
+      }
+    ]
+  },
+  {
+    "id": "P027",
+    "name": "星光量贩式 KTV",
+    "type": "KTV",
+    "location": {
+      "name": "钱江新城万象城",
+      "lat": 30.247,
+      "lng": 120.207
+    },
+    "distance_km": 4.5,
+    "opening_hours": "12:00-02:00",
+    "rating": 4.3,
+    "price_range": [
+      100,
+      280
+    ],
+    "tags": [
+      "热闹",
+      "社交",
+      "有包间",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": {
+      "default": 90
+    },
+    "reviews": [
+      {
+        "text": "毕业 N 年后第一次聚会，这里气氛很好。大家都说下次还来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-12",
+        "helpful_count": 10
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-04-21",
+        "helpful_count": 27
+      }
+    ]
+  },
+  {
+    "id": "P028",
+    "name": "万达 IMAX 电影院",
+    "type": "电影院",
+    "location": {
+      "name": "西溪天街",
+      "lat": 30.288,
+      "lng": 120.083
+    },
+    "distance_km": 2.6,
+    "opening_hours": "09:30-24:00",
+    "rating": 4.6,
+    "price_range": [
+      50,
+      120
+    ],
+    "tags": [
+      "亲密情侣",
+      "拍照友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹",
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 600,
+      "available_slots": 280
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-03-15",
+        "helpful_count": 46
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-01-10",
+        "helpful_count": 21
+      }
+    ]
+  },
+  {
+    "id": "P029",
+    "name": "时代广场 杜比影院",
+    "type": "电影院",
+    "location": {
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
+    },
+    "distance_km": 4.7,
+    "opening_hours": "09:30-24:00",
+    "rating": 4.7,
+    "price_range": [
+      60,
+      150
+    ],
+    "tags": [
+      "亲密情侣",
+      "礼仪感",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹",
+      "纪念日仪式感"
+    ],
+    "capacity": {
+      "daily_quota": 400,
+      "available_slots": 180
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 75,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-11",
+        "helpful_count": 36
+      },
+      {
+        "text": "重要日子的不二之选。环境格调高，能让人感受到节日的特别感。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感"
+        ],
+        "visited_at": "2026-04-24",
+        "helpful_count": 45
+      }
+    ]
+  },
+  {
+    "id": "P030",
+    "name": "嫩白美甲 · 闺蜜下午局",
+    "type": "美甲",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.273,
+      "lng": 120.08
+    },
+    "distance_km": 2.3,
+    "opening_hours": "10:00-21:30",
+    "rating": 4.7,
+    "price_range": [
+      120,
+      280
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "独处舒缓",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": {
+      "default": 60
+    },
+    "reviews": [
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 4,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 27
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-21",
+        "helpful_count": 36
+      }
+    ]
+  },
+  {
+    "id": "P031",
+    "name": "晨星瑜伽馆",
+    "type": "瑜伽馆",
+    "location": {
+      "name": "钱江新城",
+      "lat": 30.25,
+      "lng": 120.207
+    },
+    "distance_km": 4.0,
+    "opening_hours": "07:00-22:00",
+    "rating": 4.6,
+    "price_range": [
+      80,
+      180
+    ],
+    "tags": [
+      "独处舒缓",
+      "可休息",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "独处放空",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": {
+      "default": 60,
+      "senior": 45
+    },
+    "reviews": [
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-05-03",
+        "helpful_count": 17
+      },
+      {
+        "text": "闺蜜局首选。能聊能拍能放松，是那种你不愿意离开的氛围。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "独处舒缓"
+        ],
+        "visited_at": "2026-03-09",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "P032",
+    "name": "硬核燃力健身工坊",
+    "type": "健身房",
+    "location": {
+      "name": "西溪天街",
+      "lat": 30.288,
+      "lng": 120.083
+    },
+    "distance_km": 2.6,
+    "opening_hours": "06:00-23:00",
+    "rating": 4.4,
+    "price_range": [
+      80,
+      200
+    ],
+    "tags": [
+      "高强度",
+      "独处舒缓",
+      "室内"
+    ],
+    "suitable_for": [
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 60
+    },
+    "reviews": [
+      {
+        "text": "工作压力大的时候来这里待半天就能整个人放松。比咖啡馆还安静。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-04-17",
+        "helpful_count": 45
+      },
+      {
+        "text": "适合一个人坐很久，是我的固定独处选择。环境氛围都到位。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-03-13",
+        "helpful_count": 13
+      }
+    ]
+  },
+  {
+    "id": "P033",
+    "name": "梦幻奇迹乐园（大型主题）",
+    "type": "主题乐园",
+    "location": {
+      "name": "钱江世纪城",
+      "lat": 30.241,
+      "lng": 120.244
+    },
+    "distance_km": 4.8,
+    "opening_hours": "09:00-21:00",
+    "rating": 4.8,
+    "age_range": [
+      3,
+      18
+    ],
+    "price_range": [
+      220,
+      380
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "拍照友好",
+      "网红打卡",
+      "户外",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常"
+    ],
+    "capacity": {
+      "daily_quota": 2000,
+      "available_slots": 850
+    },
+    "suggested_duration_minutes": {
+      "default": 180,
+      "kid_3_6": 90,
+      "kid_7_12": 120,
+      "senior": 90,
+      "multi_gen": 90
+    },
+    "reviews": [
+      {
+        "text": "亲子设施齐全，分龄区分得很清楚。5 岁孩在适合的区域玩得很开心，不像有些场所大孩子小孩子混着，磕碰风险高。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合 5-10 岁"
+        ],
+        "visited_at": "2026-05-03",
+        "helpful_count": 8
+      },
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-03-28",
+        "helpful_count": 15
+      }
+    ]
+  },
+  {
+    "id": "P034",
+    "name": "腾跃蹦床公园",
+    "type": "室内运动馆",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.273,
+      "lng": 120.08
+    },
+    "distance_km": 2.5,
+    "opening_hours": "10:00-22:30",
+    "rating": 4.5,
+    "age_range": [
+      6,
+      35
+    ],
+    "price_range": [
+      80,
+      138
+    ],
+    "tags": [
+      "高强度",
+      "热闹",
+      "社交",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "家庭日常",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 90
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-04-19",
+        "helpful_count": 11
+      },
+      {
+        "text": "周末和朋友扎堆来。氛围轻松，玩得开心。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-10",
+        "helpful_count": 41
+      }
+    ]
+  },
+  {
+    "id": "P035",
+    "name": "Vertical 攀岩馆",
+    "type": "室内运动馆",
+    "location": {
+      "name": "城西银泰",
+      "lat": 30.28,
+      "lng": 120.11
+    },
+    "distance_km": 3.3,
+    "opening_hours": "11:00-22:30",
+    "rating": 4.6,
+    "age_range": [
+      10,
+      45
+    ],
+    "price_range": [
+      100,
+      160
+    ],
+    "tags": [
+      "高强度",
+      "社交",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "独处放空"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 40
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 45,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-03-26",
+        "helpful_count": 16
+      },
+      {
+        "text": "一个人去最舒服。安静且不打扰，能专注做自己的事。周围氛围不会让独自一人感到尴尬。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "高强度"
+        ],
+        "visited_at": "2026-05-19",
+        "helpful_count": 27
+      }
+    ]
+  },
+  {
+    "id": "P036",
+    "name": "胶片屋 livehouse",
+    "type": "livehouse",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.240948,
+      "lng": 120.170836
+    },
+    "distance_km": 4.9,
+    "opening_hours": "18:00-02:00",
+    "rating": 4.6,
+    "price_range": [
+      80,
+      280
+    ],
+    "tags": [
+      "热闹",
+      "亲密情侣",
+      "拍照友好",
+      "网红打卡",
+      "室内"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 80
+    },
+    "suggested_duration_minutes": {
+      "default": 120
+    },
+    "reviews": [
+      {
+        "text": "和大学同学聚会去的，好多年没见的朋友这里玩得很尽兴。不像有的场所拘谨。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-02-10",
+        "helpful_count": 20
+      },
+      {
+        "text": "和女朋友约会的好去处，环境很有氛围感。两个人聊天很惬意，不会被周围打扰。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-05",
+        "helpful_count": 30
+      }
+    ]
+  },
+  {
+    "id": "P037",
+    "name": "微醺时刻 精酿酒馆",
+    "type": "酒吧",
+    "location": {
+      "name": "湖滨银泰 in77",
+      "lat": 30.25316,
+      "lng": 120.162484
+    },
+    "distance_km": 4.7,
+    "opening_hours": "17:00-02:00",
+    "rating": 4.5,
+    "price_range": [
+      80,
+      180
+    ],
+    "tags": [
+      "热闹",
+      "亲密情侣",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "情侣亲密",
+      "朋友热闹"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 45
+    },
+    "suggested_duration_minutes": {
+      "default": 90
+    },
+    "reviews": [
+      {
+        "text": "周末约会去的，气氛很赞，有不少角落适合两个人独处。整体格调比较精致。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "安静聊天"
+        ],
+        "visited_at": "2026-01-21",
+        "helpful_count": 23
+      },
+      {
+        "text": "几个朋友一起去玩得很 high，空间够大、设施齐全。很适合朋友局，气氛能炒起来。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-03-20",
+        "helpful_count": 31
+      }
+    ]
+  },
+  {
+    "id": "P038",
+    "name": "麦香烘焙体验工坊",
+    "type": "烘焙工坊",
+    "location": {
+      "name": "西溪天街",
+      "lat": 30.288,
+      "lng": 120.083
+    },
+    "distance_km": 2.5,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.7,
+    "age_range": [
+      6,
+      60
+    ],
+    "price_range": [
+      120,
+      200
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "学习成长",
+      "亲子友好",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "家庭日常",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 25
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周末带孩子去的，环境干净安全，工作人员对小朋友很有耐心。孩子玩了一下午都不愿意走，下次还想再来。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好"
+        ],
+        "visited_at": "2026-02-11",
+        "helpful_count": 41
+      },
+      {
+        "text": "好几个朋友一起去过，每次都很尽兴。空间够私密，话题不会被周围干扰。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-16",
+        "helpful_count": 41
+      }
+    ]
+  },
+  {
+    "id": "P040",
+    "name": "无障碍亲子博物馆 · 三代同堂友好馆",
+    "type": "复合体验馆",
+    "location": {
+      "name": "西溪银泰",
+      "lat": 30.282,
+      "lng": 120.105
+    },
+    "distance_km": 3.0,
+    "opening_hours": "09:30-17:30",
+    "rating": 4.7,
+    "age_range": [
+      3,
+      80
+    ],
+    "price_range": [
+      80,
+      120
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "适合老人",
+      "无台阶",
+      "可休息",
+      "学习成长",
+      "室内",
+      "低强度",
+      "无障碍"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "老人伴助"
+    ],
+    "capacity": {
+      "daily_quota": 200,
+      "available_slots": 60
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "带 5 岁孩 + 70 岁外婆一起去刚刚好，全程电梯无台阶，外婆全程不累。亲子互动区适合小孩，老人安静区有老电影看。三代同堂的难得选择。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合老人",
+          "无台阶",
+          "可休息"
+        ],
+        "visited_at": "2026-04-20",
+        "helpful_count": 38
+      },
+      {
+        "text": "孩子玩了 1.5 小时还想接着玩，奶奶在外面长椅上休息也很惬意。整体动线设计真的为多代家庭考虑。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "适合老人",
+          "无台阶"
+        ],
+        "visited_at": "2026-03-30",
+        "helpful_count": 21
+      }
+    ]
+  },
+  {
+    "id": "P041",
+    "name": "亲子商务双轨体验中心",
+    "type": "复合空间",
+    "location": {
+      "name": "城东 city center",
+      "lat": 30.262,
+      "lng": 120.215
+    },
+    "distance_km": 4.6,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "age_range": [
+      3,
+      60
+    ],
+    "price_range": [
+      150,
+      300
+    ],
+    "tags": [
+      "亲子友好",
+      "适合 5-10 岁",
+      "高人均",
+      "商务体面",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "家庭日常",
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 30
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周末带客户 + 客户家小孩一起，环境分区很贴心：成人有商务洽谈区，孩子有专属游玩区，互不打扰。客户最后说这才是真有诚意的接待。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "亲子友好",
+          "商务体面",
+          "高人均"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 19
+      },
+      {
+        "text": "外地朋友带孩子来杭州出差，找这种又能谈事又不让孩子哭闹的地方真的难。这家算是少有的兼顾。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "亲子友好",
+          "商务体面"
+        ],
+        "visited_at": "2026-04-12",
+        "helpful_count": 12
+      }
+    ]
+  },
+  {
+    "id": "P042",
+    "name": "静谧拍照阁 · 闺蜜下午茶私享空间",
+    "type": "私享空间",
+    "location": {
+      "name": "钱江新城",
+      "lat": 30.245,
+      "lng": 120.205
+    },
+    "distance_km": 4.4,
+    "opening_hours": "11:00-22:00",
+    "rating": 4.8,
+    "age_range": [
+      18,
+      60
+    ],
+    "price_range": [
+      120,
+      220
+    ],
+    "tags": [
+      "拍照友好",
+      "网红打卡",
+      "安静聊天",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "闺蜜聊天",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 50,
+      "available_slots": 20
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "和闺蜜约这种地方真是绝配——拍照位每个角度都能出片，但同时音量又不会被外面影响，能安心聊心事。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好",
+          "安静聊天",
+          "网红打卡"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 27
+      },
+      {
+        "text": "通常网红店都吵到不行，这家居然兼顾了出片和聊天的安静感。是闺蜜下午茶的优选。",
+        "rating": 4.5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "拍照友好",
+          "安静聊天"
+        ],
+        "visited_at": "2026-03-18",
+        "helpful_count": 14
+      }
+    ]
+  },
+  {
+    "id": "P051",
+    "name": "云栖商务私享茶馆",
+    "type": "商务茶馆",
+    "location": {
+      "name": "钱江世纪城东塔",
+      "lat": 30.252,
+      "lng": 120.218
+    },
+    "distance_km": 3.2,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.7,
+    "price_range": [
+      180,
+      380
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "安静聊天",
+      "低强度",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 28
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 30,
+      "kid_7_12": 45,
+      "senior": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "包间安静私密，茶艺师态度专业，与客户洽谈不会被打扰，茶具也很有质感，符合高端会面调性。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-04-22",
+        "helpful_count": 18
+      },
+      {
+        "text": "下午两点带客户来这边，预约 90 分钟刚好，环境光线柔和，谈完后给客户的印象很正式。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-08",
+        "helpful_count": 11
+      }
+    ]
+  },
+  {
+    "id": "P052",
+    "name": "钱塘汇 · 商务雪茄厅",
+    "type": "雪茄会所",
+    "location": {
+      "name": "钱江新城核心区",
+      "lat": 30.246,
+      "lng": 120.215
+    },
+    "distance_km": 3.5,
+    "opening_hours": "14:00-23:00",
+    "rating": 4.6,
+    "price_range": [
+      280,
+      580
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "高人均",
+      "室内",
+      "低强度"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 40,
+      "available_slots": 18
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 0,
+      "kid_7_12": 0,
+      "senior": 60,
+      "multi_gen": 0
+    },
+    "reviews": [
+      {
+        "text": "国内少有的高规格雪茄环境，恒温恒湿橱窗、专业割烟器、单独通风，与外籍客户会面非常合适。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "高人均"
+        ],
+        "visited_at": "2026-04-30",
+        "helpful_count": 22
+      },
+      {
+        "text": "环境真的很有商务感，唯一缺点就是不能带小朋友，但跟客户单独聊天非常合适。",
+        "rating": 4.5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "商务体面",
+          "礼仪感"
+        ],
+        "visited_at": "2026-05-12",
+        "helpful_count": 9
+      }
+    ]
+  },
+  {
+    "id": "P053",
+    "name": "西湖云顶 · 高端会客中心",
+    "type": "会客中心",
+    "location": {
+      "name": "杭州大厦顶层",
+      "lat": 30.26,
+      "lng": 120.165
+    },
+    "distance_km": 4.0,
+    "opening_hours": "09:00-22:00",
+    "rating": 4.8,
+    "price_range": [
+      220,
+      480
+    ],
+    "tags": [
+      "商务体面",
+      "礼仪感",
+      "拍照友好",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "商务接待"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 0,
+      "kid_7_12": 30,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "29 楼俯瞰整个西湖+市中心夜景，玻璃幕墙落地大窗，会客厅 6 人间预约即可，茶水点心都很精致。",
+        "rating": 5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "商务体面",
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-25",
+        "helpful_count": 26
+      },
+      {
+        "text": "夜景太赞了，与重要客户合影背景一流，正式商务接待最高规格。",
+        "rating": 4.5,
+        "user_age_bucket": "70后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-10",
+        "helpful_count": 14
+      }
+    ]
+  },
+  {
+    "id": "P054",
+    "name": "玫瑰花谷 · 纪念日影像馆",
+    "type": "影像馆",
+    "location": {
+      "name": "西湖文化广场",
+      "lat": 30.29,
+      "lng": 120.17
+    },
+    "distance_km": 3.8,
+    "opening_hours": "10:00-21:00",
+    "rating": 4.9,
+    "price_range": [
+      380,
+      880
+    ],
+    "tags": [
+      "拍照友好",
+      "礼仪感",
+      "亲密情侣",
+      "网红打卡",
+      "室内"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 30,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": {
+      "default": 75,
+      "kid_3_6": 30,
+      "kid_7_12": 45,
+      "senior": 45,
+      "multi_gen": 45
+    },
+    "reviews": [
+      {
+        "text": "结婚纪念日去拍的，老板娘很会调动情绪，玫瑰布景与灯光都精致，相册当天就能给电子版。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-02",
+        "helpful_count": 31
+      },
+      {
+        "text": "纪念日带媳妇来拍照，客片很自然，不会矫情，关键是 75 分钟就能拍完不累，节奏正好。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "拍照友好",
+          "礼仪感"
+        ],
+        "visited_at": "2026-05-15",
+        "helpful_count": 17
+      }
+    ]
+  },
+  {
+    "id": "P055",
+    "name": "时光胶囊 · 私人订制纪念馆",
+    "type": "私人定制",
+    "location": {
+      "name": "中山中路历史街区",
+      "lat": 30.265,
+      "lng": 120.17
+    },
+    "distance_km": 3.3,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.8,
+    "price_range": [
+      280,
+      680
+    ],
+    "tags": [
+      "礼仪感",
+      "亲密情侣",
+      "拍照友好",
+      "安静聊天",
+      "室内"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 24,
+      "available_slots": 9
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 0,
+      "kid_7_12": 60,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "私人定制纪念盒、写时光信、拍胶片照，仪式感拉满。我和老公的 5 周年就是来这做的，非常推荐。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-04-18",
+        "helpful_count": 28
+      },
+      {
+        "text": "民国老建筑改造，很有杭州味道，店主夫妇都很有耐心，会帮你设计每个纪念环节。",
+        "rating": 4.5,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "安静聊天"
+        ],
+        "visited_at": "2026-05-05",
+        "helpful_count": 13
+      }
+    ]
+  },
+  {
+    "id": "P056",
+    "name": "湖畔星辉 · 纪念日游艇下午茶",
+    "type": "游艇茶歇",
+    "location": {
+      "name": "西湖游船码头",
+      "lat": 30.245,
+      "lng": 120.15
+    },
+    "distance_km": 4.5,
+    "opening_hours": "13:00-21:00",
+    "rating": 4.9,
+    "price_range": [
+      480,
+      1280
+    ],
+    "tags": [
+      "礼仪感",
+      "拍照友好",
+      "亲密情侣",
+      "高人均",
+      "户外"
+    ],
+    "suitable_for": [
+      "纪念日仪式感",
+      "情侣亲密"
+    ],
+    "capacity": {
+      "daily_quota": 20,
+      "available_slots": 7
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 60,
+      "kid_7_12": 75,
+      "senior": 75,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "湖面游艇上喝下午茶，三层精致点心架配香槟，远看雷峰塔近看孤山，纪念日仪式感天花板。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好",
+          "亲密情侣"
+        ],
+        "visited_at": "2026-05-01",
+        "helpful_count": 35
+      },
+      {
+        "text": "求婚选这里成功率 100%，船上有提琴手和摄影师，最关键是西湖夕阳真的美。",
+        "rating": 4.8,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "礼仪感",
+          "拍照友好"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 22
+      }
+    ]
+  },
+  {
+    "id": "P057",
+    "name": "8 号台球俱乐部 · 私房包房",
+    "type": "台球厅",
+    "location": {
+      "name": "湖滨银泰",
+      "lat": 30.255,
+      "lng": 120.164
+    },
+    "distance_km": 4.5,
+    "opening_hours": "13:00-02:00",
+    "rating": 4.5,
+    "price_range": [
+      60,
+      120
+    ],
+    "tags": [
+      "夜场",
+      "热闹",
+      "社交",
+      "可饮酒"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 60,
+      "available_slots": 12
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 30,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "周五晚和兄弟打几局台球。包房有沙发，喝啤酒聊天很爽。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "热闹"
+        ],
+        "visited_at": "2026-05-09",
+        "helpful_count": 26
+      },
+      {
+        "text": "最近常和同事来打。包房足够大、桌面平整、灯光也舒服。",
+        "rating": 4,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "社交"
+        ],
+        "visited_at": "2026-04-18",
+        "helpful_count": 12
+      }
+    ]
+  },
+  {
+    "id": "P058",
+    "name": "枪林弹雨 · 真人 CS 馆",
+    "type": "真人 CS",
+    "location": {
+      "name": "城西银泰",
+      "lat": 30.292,
+      "lng": 120.075
+    },
+    "distance_km": 5.4,
+    "opening_hours": "10:00-22:00",
+    "rating": 4.6,
+    "price_range": [
+      80,
+      150
+    ],
+    "tags": [
+      "运动",
+      "热闹",
+      "团队",
+      "户外"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "同学重聚"
+    ],
+    "capacity": {
+      "daily_quota": 80,
+      "available_slots": 22
+    },
+    "suggested_duration_minutes": {
+      "default": 120,
+      "kid_3_6": 0,
+      "kid_7_12": 90,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "8 个老同学组团来玩。装备真，地形丰富，玩了 2 小时累瘫但很爽。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "团队"
+        ],
+        "visited_at": "2026-04-26",
+        "helpful_count": 31
+      },
+      {
+        "text": "公司团建去过。组队对抗有意思，比窝在 KTV 强多了。",
+        "rating": 4,
+        "user_age_bucket": "80后",
+        "tag_evidence": [
+          "运动"
+        ],
+        "visited_at": "2026-03-30",
+        "helpful_count": 18
+      }
+    ]
+  },
+  {
+    "id": "P059",
+    "name": "复古机厅 · 80s 街机",
+    "type": "复古街机",
+    "location": {
+      "name": "南宋御街",
+      "lat": 30.247,
+      "lng": 120.168
+    },
+    "distance_km": 4.2,
+    "opening_hours": "12:00-23:00",
+    "rating": 4.7,
+    "price_range": [
+      30,
+      60
+    ],
+    "tags": [
+      "怀旧",
+      "拍照友好",
+      "室内",
+      "灯光氛围"
+    ],
+    "suitable_for": [
+      "朋友热闹",
+      "情侣亲密",
+      "闺蜜聊天"
+    ],
+    "capacity": {
+      "daily_quota": 100,
+      "available_slots": 35
+    },
+    "suggested_duration_minutes": {
+      "default": 90,
+      "kid_3_6": 30,
+      "kid_7_12": 60,
+      "multi_gen": 60
+    },
+    "reviews": [
+      {
+        "text": "复古街机一晚上玩了三十多枚币。和女朋友双人通关泡泡龙超有 feel。",
+        "rating": 5,
+        "user_age_bucket": "00后",
+        "tag_evidence": [
+          "怀旧"
+        ],
+        "visited_at": "2026-05-13",
+        "helpful_count": 24
+      },
+      {
+        "text": "和闺蜜约着拍照打卡。霓虹灯墙拍出来很出片，街机本身很多童年记忆。",
+        "rating": 5,
+        "user_age_bucket": "90后",
+        "tag_evidence": [
+          "拍照友好"
+        ],
+        "visited_at": "2026-04-20",
+        "helpful_count": 17
+      }
+    ]
+  }
+]

@@ -4,7 +4,7 @@
     "label": "新手爸爸",
     "icon": "👨‍👩‍👧",
     "notes": "偏好近距离 + 室内备份；老婆在减肥；不要太累，孩子能玩 1.5h+",
-    "home_location": "望京花园西区",
+    "home_location": "嘉绿苑",
     "default_distance_max_km": 5.0,
     "default_budget": 280,
     "default_tags": {
@@ -29,7 +29,7 @@
     "label": "商务白领",
     "icon": "💼",
     "notes": "经常临时接客户；预算高、要体面；偏好交通便捷的核心商圈",
-    "home_location": "望京SOHO公寓",
+    "home_location": "钱江新城",
     "default_distance_max_km": 8.0,
     "default_budget": 800,
     "default_tags": {
@@ -55,7 +55,7 @@
     "label": "孝顺儿女",
     "icon": "👵",
     "notes": "经常带父母外出；老人腿脚不便；偏好近 + 软烂菜 + 无台阶",
-    "home_location": "望京融科橄榄城",
+    "home_location": "西湖区文一路",
     "default_distance_max_km": 3.0,
     "default_budget": 200,
     "default_tags": {
@@ -80,7 +80,7 @@
     "label": "独居青年",
     "icon": "🌿",
     "notes": "工作高压，下午常一个人放空；偏好安静 / 室内 / 单人友好",
-    "home_location": "大西洋新城",
+    "home_location": "城西银泰",
     "default_distance_max_km": 5.0,
     "default_budget": 150,
     "default_tags": {
@@ -102,7 +102,7 @@
     "label": "情侣党",
     "icon": "💑",
     "notes": "和女朋友周末出门，偏好看展 / 网红 / 安静聊天",
-    "home_location": "望京南湖东园",
+    "home_location": "湖滨银泰",
     "default_distance_max_km": 6.0,
     "default_budget": 400,
     "default_tags": {

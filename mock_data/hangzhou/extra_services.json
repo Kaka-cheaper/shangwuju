@@ -39,13 +39,13 @@
       "restaurant"
     ],
     "target_ids": [
-      "WJR002",
-      "WJR008",
-      "WJR009",
-      "WJR010",
-      "WJR038",
-      "WJR049",
-      "WJR058"
+      "R001",
+      "R018",
+      "R024",
+      "R025",
+      "R026",
+      "R027",
+      "R028"
     ],
     "price": 98,
     "available": true,

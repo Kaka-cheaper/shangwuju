@@ -1,9 +1,9 @@
 {
   "user_id": "demo_user",
   "home_location": {
-    "name": "望京数字创意园B座2号楼（用户家）",
-    "lat": 40.00673,
-    "lng": 116.484563
+    "name": "西溪诚园（用户家）",
+    "lat": 30.275,
+    "lng": 120.075
   },
   "default_budget": 300.0,
   "transport_preference": "taxi",
