@@ -56,17 +56,21 @@ from agent.planning.blueprint.prompts.blueprint_prompt import (  # noqa: E402
 
 
 def test_system_prompt_length_under_hard_cap() -> None:
-    """渲染后 prompt 总字符数 ≤ 2800（ADR-0010 对齐后提升 cap）。
+    """渲染后 prompt 总字符数 ≤ 3000（四条不变式批提升 cap）。
 
     历史：1500 → 2200（spec R3 加按 age 分级表 + 候选预览消费规则）→ 2800
     （ADR-0010 决策 4/6/10：数量软上限 / 节奏留白 / 饭的条件性主角 / 顺序 flow——
-    `check_duration` 拆向后 LLM prompt 是这些 UX 规格唯一的约束面，必要扩容）。
-    旧版 ~3500 → 新版 < 2800 仍是巨大压缩，仅放宽必要业务规则空间。
+    `check_duration` 拆向后 LLM prompt 是这些 UX 规格唯一的约束面，必要扩容）
+    → 3000（四条时间线不变式批，2026-07-11：① rationale 禁写具体钟点——I1
+    折叠纪律，ADR-0017/方案 1.34-W3；② 决策 3/10 触发集 tristate 扩充——
+    ADR-0010 决策 10 修订。原 cap 剩余空间仅 7 字符，两条 ADR 强制的新规则
+    无处安放，按既有"必要业务规则空间"先例扩容，随 C7 文档批留痕）。
+    旧版 ~3500 → 新版 < 3000 仍是显著压缩，仅放宽必要业务规则空间。
     """
     length = len(BLUEPRINT_SYSTEM_PROMPT)
-    assert length <= 2800, (
-        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 2800，"
-        f"需精简（ADR-0010 对齐后 cap 2800，进一步放宽需修订 ADR）"
+    assert length <= 3000, (
+        f"BLUEPRINT_SYSTEM_PROMPT 长度 {length} 超过 hard cap 3000，"
+        f"需精简（四条不变式批 cap 3000，进一步放宽需修订 ADR）"
     )
 
 

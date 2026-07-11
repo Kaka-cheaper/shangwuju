@@ -217,7 +217,7 @@ class AgentState(TypedDict, total=False):
     fallback_chain: list[Any]      # EPISODE_SCOPED：list[FallbackHop]，随事件重置
     critic_attempts: list[Any]     # EPISODE_SCOPED：list[CriticAttempt]，随事件重置
     alternatives: list[Any]        # EPISODE_SCOPED：list[AlternativeCandidate]，随事件重置
-    quality_issues: list[Any]      # EPISODE_SCOPED：list[str]，narrator 主动质疑信号（spec R6）；intent_node 每次规划事件唯一写手，不应跨事件累积
+    quality_issues: list[Any]      # EPISODE_SCOPED：list[str]，narrator 主动质疑信号（spec R6）；两个写手：intent_node（词典外社交意图）+ finalize_plan_node（fold 巨额折叠信号，拍板项 P1），不应跨事件累积
     advisories: list[Any]          # EPISODE_SCOPED：list[dict]（Advisory.model_dump()）：D-7「绝不默默
     # 忽略」的结构化告知——ils_replan_node 在 hybrid 成功时写入（见 replan.py），
     # narrate_node 消费并透传进 SSE（见 _emit_handlers.emit_narrate）。

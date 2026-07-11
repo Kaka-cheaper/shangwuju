@@ -113,6 +113,44 @@ def _version_log_entry(state: AgentState, *, version_n: int) -> dict[str, Any]:
         "timestamp": now_ms(),
     }
 
+_FOLD_QUALITY_WARNING_THRESHOLD_MIN = 90
+"""首段折叠量 ≥ 该阈值时写一条 quality_warnings（拍板项 P1）：差额巨大说明
+真正的问题是规划本身没填满时段（该修的是蓝图/涌现层，不是折叠层）——折叠
+不设硬上限（诚实优先），但异常不静默吞掉，把"计划比你的出发时段晚开场较多"
+暴露给 narrator。"""
+
+
+def _fold_minutes(state: AgentState, itinerary: Any) -> int:
+    """现算首段折叠量（分钟）：blueprint 原 preferred_start_time 与折叠后
+    nodes[0].start_time 的差值。
+
+    零管道设计（方案 1.29）：折叠量不需要 assemble 外传元数据——本节点 state
+    里同时有 blueprint（原出发时刻）与 itinerary（折叠后出发时刻），差值现场
+    可算，零 schema/零事件改动。
+
+    防御边界：仅当 state.blueprint 存在且确为本 itinerary 的拼装来源时结果
+    有意义——调用方以 `itinerary.decision_trace is not None` 为门（该 trace
+    只由 assemble_node 注入，即 LLM/backprompt 主路径；ILS/rule 路径的
+    state.blueprint 可能是早前失败轮的陈值，不做折叠说明——其 trace 本就
+    没有 blueprint_rationale 可追加，assemble 内部的 logger.info 一行仍覆盖
+    全部三路径的排障需求）。解析失败/差值非正/差值离谱（≥24h）一律返 0。
+    """
+    blueprint = state.get("blueprint")
+    if blueprint is None or not getattr(itinerary, "nodes", None):
+        return 0
+    try:
+        from agent.planning.blueprint.assemble_blueprint import _parse_hhmm
+
+        delta = _parse_hhmm(itinerary.nodes[0].start_time) - _parse_hhmm(
+            blueprint.preferred_start_time
+        )
+    except (ValueError, AttributeError):
+        return 0
+    if delta <= 0 or delta >= 24 * 60:
+        return 0
+    return delta
+
+
 _FINAL_STRATEGY_BY_LAST_HOP: dict[str, str] = {
     "give_up": "give_up",
     "ils": "ils",
@@ -154,6 +192,15 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
     if rule_title and rule_title.strip() and rule_title.strip() != (itinerary.summary or "").strip():
         update_fields["summary"] = rule_title.strip()
 
+    # fold 可观测性（I1 折叠批，方案 1.29 / ADR-0017）：折叠量本节点现算，
+    # 差值 >0 时 ① trace 的 blueprint_rationale 追加一句人话说明（评委追问
+    # "为什么 19:55 出发"时讲解可指认）；② 差额 ≥90min 时写 quality_warnings
+    # （拍板项 P1——差额巨大是"规划没填满时段"的信号，不静默）。
+    # 注意追加的是 decision_trace 的 rationale 副本（定稿阶段），不动
+    # state.blueprint 本体——emit_planner 推信任带的 blueprint.rationale[:80]
+    # 发生在折叠语义确定之前，不会提早泄漏折叠时刻（方案 1.34-W3）。
+    fold_min = 0
+
     # ---- 3. decision_trace 收尾（叙事无关部分，原样从 narrate.py 挪来）----
     if itinerary.decision_trace is not None:
         old_trace = itinerary.decision_trace
@@ -167,10 +214,24 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
             if not last.resolved:
                 new_critic_attempts[-1] = last.model_copy(update={"resolved": True})
 
+        fold_min = _fold_minutes(state, itinerary)
+        new_rationale = old_trace.blueprint_rationale
+        if fold_min > 0:
+            blueprint = state.get("blueprint")
+            fold_note = (
+                f"出发时刻按首站可订时刻折叠 {fold_min} 分钟"
+                f"（{blueprint.preferred_start_time}→{itinerary.nodes[0].start_time}），"
+                "出门即行程、不在店门口干等。"
+            )
+            new_rationale = (
+                f"{new_rationale} {fold_note}".strip() if new_rationale else fold_note
+            )
+
         new_trace = old_trace.model_copy(
             update={
                 "final_strategy": final_strategy,
                 "critic_attempts": new_critic_attempts,
+                "blueprint_rationale": new_rationale,
             }
         )
         update_fields["decision_trace"] = new_trace
@@ -243,8 +304,22 @@ def finalize_plan_node(state: AgentState) -> dict[str, Any]:
             a.model_dump() for a in new_advisories
         ]
 
-    return {
+    out: dict[str, Any] = {
         "itinerary": new_itinerary,
         "plan_version_log": [version_entry],
         "advisories": existing_advisories,
     }
+
+    # ---- 6. fold 巨额折叠的质量信号（拍板项 P1）----
+    # quality_issues 是普通覆盖字段（无 reducer），读现值合并后整体返回——
+    # 与上面 advisories 的追加姿势一致。intent_node 之外本节点是第二写手
+    # （见 state.py 字段注释）。
+    if fold_min >= _FOLD_QUALITY_WARNING_THRESHOLD_MIN:
+        existing_quality = list(state.get("quality_issues") or [])
+        existing_quality.append(
+            f"计划比原定出发时段晚开场较多（出发时刻按首站可订时刻折叠了 "
+            f"{fold_min} 分钟）——时段可能没有被填满"
+        )
+        out["quality_issues"] = existing_quality
+
+    return out

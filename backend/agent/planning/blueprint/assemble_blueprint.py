@@ -30,6 +30,9 @@ for i, bp_node in enumerate(blueprint.nodes):
 commute_back = lookup_hop(last.target_id, "home", ...)
 hops.append(Hop(start=cursor, minutes=commute_back, buffer_min=0))
 nodes.append(home_end_node(start=cursor+commute_back, duration=0))
+
+# 尾部后处理：首段等待折叠（I1「出门即行程」，ADR-0017）——首站吸附/钉窗
+# 挤出的出门后等待，整体后移 n0/h0 的出发时刻吸收掉（见 _fold_leading_wait）
 ```
 
 【不变量手工断言（RuntimeError，先于 Pydantic 校验）】
@@ -57,6 +60,7 @@ nodes.append(home_end_node(start=cursor+commute_back, duration=0))
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional
 
@@ -73,6 +77,8 @@ from schemas.itinerary import (
 
 from .blueprint import BlueprintNode, BlueprintTargetKind, PlanBlueprint
 from ..commute.lookup_hop import lookup_hop
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -226,6 +232,65 @@ def _earliest_available_slot_min(target_id: str, natural_arrival_min: int) -> Op
             candidates.append(slot_min)
 
     return min(candidates) if candidates else None
+
+
+# ============================================================
+# 首段等待折叠（I1「出门即行程」，ADR-0017，2026-07-11）
+# ============================================================
+
+
+def _fold_leading_wait(nodes: list[ActivityNode], hops: list[Hop]) -> int:
+    """把「出门后在首站门口罚站」的首段等待折叠进出发时刻，返回折叠分钟数。
+
+    【这是什么问题】backward scheduling from anchor（frePPLe 式排程）的最小
+    切片：正向游标 + 餐厅槽吸附的组合会把等待放在**到达之后**（19:00 出门
+    19:03 到店、吸附到 20:00 落座 → 57 分钟"自由休息"排在店门口），而 I1
+    不变式要求出发时刻回答"我几点出门"——等待应该被出发时刻吸收（19:55 出门
+    20:00 落座）。完整倒推（对任意位置锚点回推出发时刻）挂路演后；本函数只
+    处理首段：首段差额的唯一物理语义就是"出门太早"（首跳 buffer=0，差额没有
+    任何其它成因），后移出发时刻是无损的。中段 gap 不折——那可能有正当因由
+    （等座/消食），归完整倒推批处理。
+
+    【为什么放 assemble 尾部】LLM / ILS / rule 三条规划路径全部经
+    `assemble_from_blueprint` 拼装（ILS 见 ils_planner.py route_to_blueprint →
+    assemble 调用链），在这里后处理一次即三路径同时覆盖，无需各路径独立改动。
+
+    【单轮收敛（实证钉死，见 test_assemble_fold.py）】吸附规则是"不早于自然
+    到达的最早可用槽"（`_earliest_available_slot_min`，`>=` 判定）：折叠量 g
+    恰好使新自然到达 == 原选中槽时刻，`slot_min >= natural_arrival_min` 以
+    等号成立，重跑吸附必选同一个槽——一轮收敛，不振荡。ILS 路径的
+    `not_before_start` 是绝对时刻，后移出发只会让自然到达逼近但不超过它，
+    同理收敛。对已折叠行程再折 → 差额恒 0 → no-op（幂等）。
+
+    【安全性质】只改写 nodes[0]（home 起点）与 hops[0] 两个 start_time 且
+    保持精确对齐（h0_end + buffer == n1.start 以等号成立），活动节点时刻/
+    槽位/窗全部不动 → critic 各 check 输入不变或更优，折叠不制造任何新违规。
+    跨午夜防御：n1.start_time 若因上游异常回卷（mod-24），差额算出负值 →
+    直接 no-op（此类行程本就会被 check_temporal_alignment HARD 拦下）。
+
+    Args:
+        nodes: assemble 拼好的完整节点列表（首尾 home）。原地改写 nodes[0]。
+        hops: 对应 hop 列表。原地改写 hops[0]。
+
+    Returns:
+        折叠的分钟数 g（≥0；0 表示无首段等待，未做任何改写）。
+    """
+    if len(nodes) < 3 or not hops:
+        # 无 mid 节点（不构成"出门去做事"的行程）——没有可折叠的首段
+        return 0
+
+    h0 = hops[0]
+    n1 = nodes[1]
+    h0_start_min = _parse_hhmm(h0.start_time)
+    # 首跳 buffer 按构造恒为 0；公式仍带上 buffer_min，若未来首跳规则改变，
+    # 折叠依旧保持"精确对齐"语义（幂等单测会先叫）。
+    gap = _parse_hhmm(n1.start_time) - (h0_start_min + h0.minutes + h0.buffer_min)
+    if gap <= 0:
+        return 0
+
+    nodes[0].start_time = _fmt_hhmm(_parse_hhmm(nodes[0].start_time) + gap)
+    h0.start_time = _fmt_hhmm(h0_start_min + gap)
+    return gap
 
 
 # ============================================================
@@ -539,9 +604,28 @@ def assemble_from_blueprint(
             f"实际 首={nodes[0].duration_min} 尾={nodes[-1].duration_min}"
         )
 
+    # ---------- 4.5 首段等待折叠（I1「出门即行程」，ADR-0017）----------
+    # 必须先于 schedule 派生与 total_minutes 计算：schedule 从折叠后的
+    # nodes/hops 展平，total_minutes 从折叠后的出发时刻起算——首段等待
+    # 被出发时刻吸收后，总时长如实缩小（时长本来就是虚胖的机制口径）。
+    fold_min = _fold_leading_wait(nodes, hops)
+    if fold_min > 0:
+        logger.info(
+            "fold applied: %s→%s (+%dmin), anchor=%s@%s",
+            blueprint.preferred_start_time,
+            nodes[0].start_time,
+            fold_min,
+            nodes[1].title or nodes[1].target_id,
+            nodes[1].start_time,
+        )
+
     # ---------- 5. 派生 schedule + 总时长 + summary ----------
     schedule = _derive_schedule(nodes, hops)
-    total_minutes = cursor_min - _parse_hhmm(blueprint.preferred_start_time)
+    # 折叠后 nodes[0].start_time 即真实出发时刻（未折叠时等于
+    # blueprint.preferred_start_time，两种情况下这一个表达式都正确）。
+    # 注意：不改 total_minutes 的字段语义（"出发到到家的墙钟时间差"）——
+    # 折叠改变的是出发时刻本身，不是口径。
+    total_minutes = cursor_min - _parse_hhmm(nodes[0].start_time)
     summary = _build_summary(blueprint, user_profile, total_minutes, intent)
 
     # ---------- 6. 构造 Itinerary（Pydantic 二次兜底校验） ----------

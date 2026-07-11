@@ -433,6 +433,12 @@ def emit_assemble(ctx: EmitContext, diff: dict[str, Any]) -> list[SseEvent]:
 
     最终方案由 narrate 节点统一推送（critic 通过或 give_up 后才是定稿）。
     这里只做一次状态提示，让前端 dock 知道蓝图已拼好正在验证。
+
+    【纪律注记（I1 折叠批，ADR-0017 / 方案 1.16）】本函数推的思考句**不得
+    携带任何具体钟点（HH:MM）**——首段等待折叠发生在 assemble 节点内部，
+    首个携带行程时刻的事件必须是 finalize_plan 之后的 ITINERARY_READY；
+    若这里提早推出折叠前的时刻，台面会出现"19:00 → 19:55"的闪变。未来给
+    本函数加文案时保持这条红线。
     """
     itin = diff.get("itinerary")
     if itin is None:
