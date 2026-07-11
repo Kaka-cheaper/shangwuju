@@ -114,7 +114,7 @@ export interface TrustBeltInput {
 }
 
 // ============================================================
-// §三：④⑤ 分种落词（原文照抄设计文档，7 种：6 具名 + 1 兜底）
+// §三：④⑤ 分种落词（原文照抄设计文档，8 种：7 具名 + 1 兜底）
 // ============================================================
 
 interface HealWording {
@@ -138,6 +138,9 @@ const VIOLATION_WORDING: Record<string, HealWording> = {
   distance_exceeded: { discover: "有的点离得太远", fix: "让我找近一点的" },
   // 营业时间
   opening_hours_violation: { discover: "有的店那个点没开门", fix: "让我调下时段" },
+  // 显式要吃饭但这版没排上（四条不变式批 I3·C5b，
+  // 后端 check_explicit_dining_presence 的 explicit_dining_missing HARD 码）
+  explicit_dining_missing: { discover: "你说了要吃饭，这版还没排上", fix: "让我补一顿进去" },
 };
 
 // 兜底（未列类型：invariant_broken / nodes_incomplete / timeline_inconsistent /

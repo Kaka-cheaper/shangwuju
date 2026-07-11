@@ -127,6 +127,8 @@ describe("buildTrustBeltBeats — §三 ④⑤ 分种落词", () => {
     ["dietary_violation", "有一站不合忌口", "让我避开这个"],
     ["distance_exceeded", "有的点离得太远", "让我找近一点的"],
     ["opening_hours_violation", "有的店那个点没开门", "让我调下时段"],
+    // 四条不变式批 I3·C5b：显式要吃饭但这版没排上（explicit_dining_missing HARD）
+    ["explicit_dining_missing", "你说了要吃饭，这版还没排上", "让我补一顿进去"],
     // 兜底（未列类型）
     ["some_unlisted_code", "方案有个地方不太对", "让我调整一下"],
   ];
