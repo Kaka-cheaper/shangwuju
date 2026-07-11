@@ -40,7 +40,8 @@ D-1（`activity_pool.py`）给出候选池 + `Visit` + utility；D-2（`route_sc
   生产包装（绑定 transport_pref + `functools.lru_cache`）。
 - `repair_route(previous_scheduled, poi_visits, rest_visits, weights, *, depart_min,
   budget_min, commute_fn, money_budget, blacklist_poi, blacklist_rest,
-  blacklist_rest_time) -> Optional[RouteSchedule]`：min-conflicts 风格有界修复
+  blacklist_rest_time, preserve_position=None, reorder_flag_out=None)
+  -> Optional[RouteSchedule]`：min-conflicts 风格有界修复
   （**ADR-0013 F-1 起共享 seam**：原 `ils_planner._repair_route`，模块私有，只
   服务 critic-to-solver 修复闭环；F-1 局部重解引擎 `planners/node_swap.py`
   需要同一"腾格→只补该格→不加塞"语义——`build_route` 的涌现填充循环在替换品
@@ -48,6 +49,9 @@ D-1（`activity_pool.py`）给出候选池 + `Visit` + utility；D-2（`route_sc
   调用方现在共享同一实现，提升为本模块公开接口。**行为逐字节未变**（纯挪移
   + 去掉前导下划线，未改一行算法逻辑），`ils_planner.py` 原调用点与其既有
   回归测试（`test_planner_hybrid*.py`）不受影响。见其自身 docstring。
+  **2026-07-10 追加**：`preserve_position`/`reorder_flag_out` 是换菜"位置
+  丢失" bug 修复新增的换菜专用 opt-in 形参，`ils_planner.py` 不传，默认值
+  下行为与追加前逐字节一致——见函数自身 docstring「`preserve_position`」节。
 
 【调研留痕：本步自行拍板、值得读者知道的判断点】
 
@@ -176,6 +180,7 @@ from .route_scheduler import (
     RouteSchedule,
     schedule_route,
     try_insert,
+    try_order_fixed,
 )
 
 # ============================================================
@@ -731,6 +736,8 @@ def repair_route(
     blacklist_poi: set[str],
     blacklist_rest: set[str],
     blacklist_rest_time: set[tuple[str, str]],
+    preserve_position: Optional[int] = None,
+    reorder_flag_out: Optional[dict] = None,
 ) -> Optional[RouteSchedule]:
     """min-conflicts 风格有界修复（ADR-0009 引用的 prior art：Minton et al. 1992）：
     把上一轮方案里命中黑名单的节点从 `previous_scheduled` 剔除（POI/餐厅整黑
@@ -758,6 +765,45 @@ def repair_route(
     SWAP_KEPT_NODE_UNFIT`，复用 D-7 `PINNED_UNSATISFIABLE` 的"绝不静默、如实
     告知"先例语义（见 `node_swap.py` 模块 docstring）。
 
+    **`preserve_position`（换菜"位置丢失" bug 修复，2026-07-10）——为什么需要**：
+    `schedule_route(kept, ...)`（无此形参时的既有路径）对 `kept` 做**全排列
+    枚举**求最优序（`route_scheduler` 判断点 1），这对"首次构造"（顺序本就
+    未定）是对的，但换菜场景里 `kept` 已经是**用户看到过的、排定妥当的顺序**
+    ——全排列允许把保留节点整体重排，真实症状：两活动方案换 1 号位，替补与
+    2 号位保留节点互换了位置（成员级换对、位置级错位，用户读作"换错了卡"）。
+    `try_insert` 同一根因（其 docstring 原话"不保留 existing 原有顺序"）——
+    `ils_planner.plan_hybrid` 消费 `repair_route` 服务 critic 修复闭环，那里
+    "整体重排"合理且必须保留（blame 驱动的修复本就可能需要挪动多个节点），
+    不能改 `schedule_route`/`try_insert` 本身语义，故做成**换菜专用 opt-in**：
+    只有 `node_swap.py` 传入 `preserve_position` 才走"钉死顺序"路径，ILS
+    调用点不传此参数，行为与本次改动前逐字节一致。
+
+    语义：`preserve_position` 是目标节点在**去掉它之后的 `kept` 列表**里应该
+    被插回的下标（0-indexed，只数非 home 的已选节点——`kept`/`previous_
+    scheduled` 本就不含 home，见 D-2 `schedule_route` 的 `home_id` 处理，不
+    是"整个 itinerary.nodes 下标"，调用方 `node_swap.py` 负责按这个口径换算）。
+    替补候选逐个按 `kept[:preserve_position] + [v] + kept[preserve_position:]`
+    这个**固定顺序**用 `route_scheduler.try_order_fixed` 求可行排程（不枚举、
+    不重排，见其 docstring）——固定顺序内哪个候选胜出，selection 逻辑与既有
+    行为一致（仍按 `route_score` 边际分挑最优，只是"可行"的判据从"存在某个
+    可行序"换成"这一个序可行"）。
+
+    **`preserve_position` 只有 `len(removed_kinds) == 1` 时才生效**（F-1 恒
+    只黑名单一个 target_id，`removed_kinds` 天然只含一个元素；若未来有调用方
+    在一次调用里塞进多个黑名单目标却仍传了 `preserve_position`，"这一个下标
+    该对应哪个槽位"本就歧义不明，因此直接退化为忽略 `preserve_position`、按
+    原有全排列路径处理其余全部槽位——保守选择，不是本次要覆盖的场景）。
+
+    **降级到全排列的边界（诚实退让，不强行凑一个不可行的定序）**：固定顺序
+    对当前候选池里**所有**候选都排不开（如替补时长远超原节点、挤压后续节点
+    窗口）时，整个替补搜索退回现行为——对这一个 kind 的槽位改用 `schedule_
+    route`/`try_insert` 的全排列路径重新搜索一遍（选中的候选可能因此与固定
+    顺序搜索不同，全排列有更大的可行空间）。是否发生了这次降级通过
+    `reorder_flag_out`（见 Args）告知调用方，`node_swap.py` 据此产出
+    `AdvisoryCode.SWAP_REORDERED`——"绝不静默"纪律的同一先例（`SWAP_KEPT_
+    NODE_UNFIT`/`SWAP_NO_ALTERNATIVE_FOUND` 已确立）：宁可如实说"为了排开，
+    顺序调整了"，不要悄悄把用户点的那一格换到别的位置上。
+
     Args:
         previous_scheduled: 上一轮 `RouteSchedule.scheduled`
             （`route_scheduler.ScheduledVisit` 序列，或任何暴露 `.visit`
@@ -766,6 +812,19 @@ def repair_route(
             由调用方缓存跨轮复用）。
         blacklist_poi / blacklist_rest / blacklist_rest_time: 跨轮单调累积的
             黑名单（`plan_hybrid` 维护；F-1 场景下是一次性的单元素集合）。
+        preserve_position: 换菜专用 opt-in（见上）。`None`（默认）→ 行为与
+            本次改动前逐字节一致，ILS 消费方零感知。
+        reorder_flag_out: 换菜专用 opt-in 的输出信道——调用方传入一个空
+            `dict`，本函数在发生"固定顺序降级为全排列"时写入
+            `reorder_flag_out["reordered"] = True`（不发生则保持调用方
+            传入时的原样，通常是空 dict，键不存在）。选用"调用方提供的
+            输出容器"而非改变本函数返回类型（如 `(schedule, bool)` 二元组），
+            是为了让 `repair_route` 的返回类型 `Optional[RouteSchedule]`
+            对**所有**调用方、**所有**参数组合保持字面不变——包括提前返回
+            分支（`schedule is None` / `not removed_kinds`）——不需要在这些
+            分支里区分"这次调用有没有传 preserve_position"来决定返回形状，
+            心智负担和出错面都更小；`ils_planner.py` 原调用点不传这两个新
+            形参，函数签名、返回类型、调用写法三者均与本次改动前逐字节一致。
 
     Returns:
         新的 `RouteSchedule`；`kept` 为空且无任何替补时返回一个 0 活动的平凡
@@ -809,6 +868,11 @@ def repair_route(
     if not removed_kinds:
         return schedule
 
+    # 位置保持只在"恰好一个槽位"时语义明确（见上方 docstring）；否则退化为
+    # 全排列路径处理全部槽位，preserve_position 被忽略。
+    fixed_slot = preserve_position if len(removed_kinds) == 1 else None
+    reordered = False
+
     poi_pool = _apply_blacklist_to_pool(poi_visits, blacklist_poi, set())
     rest_pool = _apply_blacklist_to_pool(rest_visits, blacklist_rest, blacklist_rest_time)
     kept_keys = {(v.kind, v.target_id) for v in kept}
@@ -822,22 +886,115 @@ def repair_route(
         base_score = route_score(
             [sv.visit for sv in schedule.scheduled], weights, money_budget
         )
+
         best: Optional[tuple[Visit, RouteSchedule, float]] = None
-        for v in pool:
-            candidate_schedule = try_insert(
-                kept, v, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+        used_fixed_position = fixed_slot is not None
+        if fixed_slot is not None:
+            best = _best_fixed_position_candidate(
+                pool,
+                kept,
+                fixed_slot,
+                depart_min=depart_min,
+                budget_min=budget_min,
+                commute_fn=commute_fn,
+                weights=weights,
+                money_budget=money_budget,
+                base_score=base_score,
             )
-            if candidate_schedule is None:
-                continue
-            margin = route_score(
-                [sv.visit for sv in candidate_schedule.scheduled], weights, money_budget
-            ) - base_score
-            if best is None or margin > best[2]:
-                best = (v, candidate_schedule, margin)
+            if best is None:
+                # 固定顺序对这个池子里所有候选都排不开——诚实退让到全排列
+                # （见上方 docstring「降级到全排列的边界」），不强凑一个不
+                # 可行的定序。只有退让之后确实选中了某个候选（下方 best is
+                # not None 分支）才算"真的发生了重排"，若全排列也一无所获，
+                # 这个槽位本就空着（既有"稀缺兜底"语义），不算重排。
+                used_fixed_position = False
+
+        if best is None:
+            best = _best_reordering_candidate(
+                pool,
+                kept,
+                depart_min=depart_min,
+                budget_min=budget_min,
+                commute_fn=commute_fn,
+                weights=weights,
+                money_budget=money_budget,
+                base_score=base_score,
+            )
+
         if best is not None:
             chosen, candidate_schedule, _margin = best
             kept.append(chosen)
             schedule = candidate_schedule
             pool.remove(chosen)
+            if fixed_slot is not None and not used_fixed_position:
+                reordered = True
 
+    if reordered and reorder_flag_out is not None:
+        reorder_flag_out["reordered"] = True
     return schedule
+
+
+def _best_reordering_candidate(
+    pool: list[Visit],
+    kept: list[Visit],
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: CommuteFn,
+    weights: PlanningWeights,
+    money_budget: float,
+    base_score: float,
+) -> Optional[tuple[Visit, RouteSchedule, float]]:
+    """现行为（`try_insert` 全排列重排，边际分最高者胜出）——`repair_route`
+    改动前的替补搜索循环体原样抽出（未改一行判定逻辑，只是给了个名字），供
+    固定顺序搜索找不到可行候选时降级复用，避免同一循环写两遍。"""
+    best: Optional[tuple[Visit, RouteSchedule, float]] = None
+    for v in pool:
+        candidate_schedule = try_insert(
+            kept, v, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+        )
+        if candidate_schedule is None:
+            continue
+        margin = route_score(
+            [sv.visit for sv in candidate_schedule.scheduled], weights, money_budget
+        ) - base_score
+        if best is None or margin > best[2]:
+            best = (v, candidate_schedule, margin)
+    return best
+
+
+def _best_fixed_position_candidate(
+    pool: list[Visit],
+    kept: list[Visit],
+    fixed_slot: int,
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: CommuteFn,
+    weights: PlanningWeights,
+    money_budget: float,
+    base_score: float,
+) -> Optional[tuple[Visit, RouteSchedule, float]]:
+    """位置保持替补搜索：每个候选按 `kept[:fixed_slot] + [v] + kept[fixed_slot:]`
+    这一个**固定顺序**用 `try_order_fixed` 求可行排程（不枚举、不重排），
+    "可行候选里边际分最高者胜出"的选优逻辑与 `_best_reordering_candidate`
+    对称——两者唯一的差异是可行性判据从"存在某个可行序"（`try_insert`）换成
+    "这一个序可行"（`try_order_fixed`），见 `repair_route` docstring
+    「`preserve_position`」节。`fixed_slot` 越界（理论上不会——`node_swap.py`
+    按 `kept` 实际长度换算）由 `list` 切片语义自然处理（切片不因越界抛异常，
+    只是不产生额外元素），不做额外校验。
+    """
+    best: Optional[tuple[Visit, RouteSchedule, float]] = None
+    for v in pool:
+        order = kept[:fixed_slot] + [v] + kept[fixed_slot:]
+        candidate_schedule = try_order_fixed(
+            order, depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn
+        )
+        if candidate_schedule is None:
+            continue
+        margin = route_score(
+            [sv.visit for sv in candidate_schedule.scheduled], weights, money_budget
+        ) - base_score
+        if best is None or margin > best[2]:
+            best = (v, candidate_schedule, margin)
+    return best

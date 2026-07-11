@@ -81,6 +81,14 @@ class AdvisoryCode(str, Enum):
     # 消息点名受累节点与新排定时刻，不承诺自动重新对齐（下单期的槽位交叉
     # 校验只做"合法才生效否则退 start_time"，没有重排能力）。
     SWAP_KEPT_TIME_SHIFTED = "swap_kept_time_shifted"
+    # 位置保持修复（2026-07-10）：换菜本该"只动这一格"——替补按原节点的序位
+    # 插回、其余保留节点位置不变（`route_builder.repair_route` 的
+    # `preserve_position` opt-in）。这一码是该定序在当前候选池下排不开时的
+    # 诚实退让告知：为了把替补排进去，方案退回了"整体重排选最优序"这一现有
+    # 行为（ADR-0009 min-conflicts 修复闭环本就允许的语义），其余节点的先后
+    # 顺序可能因此发生了变化——不静默地让用户以为"只换了那一格"，见
+    # `node_swap.py` 模块 docstring。
+    SWAP_REORDERED = "swap_reordered"
     # B2（"换个店铺"整轮换店/点名换店，chat 反馈路径）：用户点名要换的这一站
     # 恰好是本会话被赞锁定（`pinned_targets`）的实体——锁定语义是"必须保留"，
     # 优先级高于这一次点名换店的请求，不静默执行也不静默跳过，如实告知用户

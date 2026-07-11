@@ -21,6 +21,10 @@
   → `RouteSchedule | None`：核心入口，给定**恰好这一组**活动求排程或宣告不可行。
 - `try_insert(existing, new_visit, *, ...)` → `RouteSchedule | None`：D-4 贪心
   插入每一步问"把它加进来还排得开吗"的便捷封装。
+- `try_order_fixed(order, *, ...)` → `RouteSchedule | None`：换菜位置保持
+  （ADR-0013 F-1 换菜 bug 修复）需要的"钉死这个顺序，排不排得开"原语——
+  `_try_order` 的薄公开封装，不枚举、不重排，与 `schedule_route`/`try_insert`
+  的"允许重排"语义互补而非替代。见其自身 docstring。
 
 【纯函数契约（ADR 决策 5 "可孤立测"）】
 
@@ -361,6 +365,48 @@ def try_insert(
     """
     return schedule_route(
         list(existing) + [new_visit],
+        depart_min=depart_min,
+        budget_min=budget_min,
+        commute_fn=commute_fn,
+        home_id=home_id,
+    )
+
+
+def try_order_fixed(
+    order: Sequence[Visit],
+    *,
+    depart_min: int,
+    budget_min: int,
+    commute_fn: CommuteFn,
+    home_id: str = "home",
+) -> Optional[RouteSchedule]:
+    """给定**恰好这个顺序**（不枚举、不重排），推演时间轴求可行排程或 None。
+
+    【为什么需要这个，`schedule_route`/`try_insert` 为什么不够】
+
+    换菜场景（`route_builder.repair_route` 的 `preserve_position` 形参）需要
+    "替补插回原节点的序位、其余保留节点顺序原封不动"这一具体顺序的可行性，
+    而 `schedule_route` 的全排列枚举语义（判断点 1）是"给定一组活动，允许
+    重排"——两者是不同问题："这一组活动排不排得开"（本模块主入口回答的）
+    vs "这一组活动、钉死这个顺序，排不排得开"。`try_insert` 同样是"重排语义"
+    （其 docstring 原话"不保留 existing 原有顺序，允许整体重新排列"），换菜
+    场景不能拿它当"定序检查"用，否则正是 bug 的根因（详见 `route_builder.
+    repair_route` 的 `preserve_position` 参数 docstring）。
+
+    这不是新算法——`_try_order` 本就是 `schedule_route` 全排列枚举内部逐个
+    顺序调用的那个原语（"给定一个具体顺序，推演时间轴"，见其 docstring），
+    只是原来只在模块内部私有使用。本函数是它的薄公开封装（同一实现，不
+    拷贝/不改一行时间轴推演逻辑），供换菜场景需要"钉死顺序求可行"时复用，
+    不必新写第二份定序调度逻辑。
+
+    Returns:
+        `order` 为空 → 零活动的平凡可行排程（与 `schedule_route([])` 同语义）。
+        任一约束不满足（窗外/跨日/超预算）→ None。可行 → 恰好这一个顺序的
+        `RouteSchedule`（没有"多个可行顺序选一个"的 tie-break 问题，因为
+        顺序已经钉死，见判断点 2 只在"允许重排"时才需要 tie-break）。
+    """
+    return _try_order(
+        order,
         depart_min=depart_min,
         budget_min=budget_min,
         commute_fn=commute_fn,

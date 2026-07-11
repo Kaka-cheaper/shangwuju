@@ -843,3 +843,124 @@ def test_soft_constraint_unmet_with_default_provenance_produces_no_advisory():
     )
     assert result.success
     assert not any(a.code == AdvisoryCode.CONSTRAINT_RELAXED for a in result.advisories)
+
+
+# ============================================================
+# 15. 位置保持修复（2026-07-10）：换 1 号位不该把 2 号位保留节点换到别的位置
+# ============================================================
+#
+# 真机截图实证的 bug：两活动方案里换 1 号位节点，正确结果是"1 号位变成替补、
+# 2 号位保留节点原地不动"；根因是 route_builder.repair_route 修复缺口时对
+# kept 做全排列重排（route_scheduler.schedule_route 判断点 1 的既有语义），
+# 允许把"用户已经看过的顺序"整体打乱——成员级换对、位置级错位。见
+# node_swap.py 模块 docstring「位置保持修复」节的完整根因链。
+
+
+def test_swap_target_node_preserves_kept_node_position_not_just_membership():
+    """复现主场景：两活动方案（P1 目标在 1 号位、P2 保留在 2 号位），换 1 号位。
+    替补时长与原节点不同（更短）——不加 `preserve_position` 修复的话，
+    `schedule_route` 全排列会发现"P2 先走、替补后走"总 slack 更小，整个方案
+    变成 [P2, 替补]（成员对、位置错，见探针 `python -c` 复现记录）。修复后
+    必须是 [替补, P2]：替补落在 1 号位（目标原来的序位），P2 原地不动。
+    """
+    intent = _intent()
+    p1 = _poi(poi_id="P1", opening="08:00-22:00", suggested=90)
+    p2 = _poi(poi_id="P2", opening="08:00-22:00", suggested=90)
+    itinerary = _build_itinerary(intent, [p1, p2], depart_min=14 * 60)
+    assert _node_ids(itinerary) == ["home", "P1", "P2", "home"]
+
+    # 时长远短于原节点（90→15 分钟）——正是探针实锤过的"诱发全排列倒序"的条件。
+    p_new = _poi(poi_id="P_NEW", opening="08:00-22:00", suggested=15)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[p1, p2, p_new], restaurants=[], target_node_id="P1"
+    )
+    assert result.success, result.advisories
+    assert result.swapped_to == "P_NEW"
+    assert _node_ids(result.new_itinerary) == ["home", "P_NEW", "P2", "home"], (
+        "替补必须落在目标原来的 1 号位，P2 必须原地不动在 2 号位——"
+        "不能出现『P2 提前、替补垫后』的位置错位"
+    )
+    # 不应有 SWAP_REORDERED——固定序位在这个场景下本就排得开，不该走降级分支。
+    assert not any(a.code == AdvisoryCode.SWAP_REORDERED for a in result.advisories)
+
+
+def test_swap_falls_back_to_reorder_with_advisory_when_fixed_position_infeasible():
+    """降级场景：替补时长远超原节点，固定序位（插在保留节点 P2 之前）会把
+    P2 挤出它偏窄的营业窗——固定顺序不可行，必须诚实退回"全排列重排选最优"
+    的现行为，并产出 `SWAP_REORDERED` 告知用户顺序跟着变了。
+    """
+    intent = _intent()
+    # P1：仅早窗（08:00-09:00），天然排在 1 号位。
+    p1 = _poi(poi_id="P1", opening="08:00-09:00", suggested=30)
+    # P2：偏窄的窗（08:00-12:00）——可以排第一个也可以排第二个，但排不下
+    # "先等一个 200 分钟的活动、再轮到它"这么晚。
+    p2 = _poi(poi_id="P2", opening="08:00-12:00", suggested=60)
+    itinerary = _build_itinerary(intent, [p1, p2], depart_min=8 * 60, budget_min=600)
+    assert _node_ids(itinerary) == ["home", "P1", "P2", "home"]
+
+    # 替补：营业窗宽松（不挑时段），但时长长达 200 分钟——固定在 1 号位会把
+    # P2 的自然到达时刻推到 12:00 窗尾之后，固定顺序不可行；全排列重排把
+    # P2 挪到第一个、替补挪到第二个，反而排得开。
+    p_new = _poi(poi_id="P_NEW", opening="08:00-22:00", suggested=200)
+
+    result = node_swap.resolve_node_swap(
+        itinerary, intent, pois=[p1, p2, p_new], restaurants=[], target_node_id="P1"
+    )
+    assert result.success, result.advisories
+    assert result.swapped_to == "P_NEW"
+    reordered = [a for a in result.advisories if a.code == AdvisoryCode.SWAP_REORDERED]
+    assert reordered, result.advisories
+    assert reordered[0].message and reordered[0].message.strip()
+    # 退让后的真实顺序：P2 先（它的窄窗逼出来的），替补后——与目标原来的
+    # 1 号位不同，这正是"诚实退让"要如实告知的那件事。
+    assert _node_ids(result.new_itinerary) == ["home", "P2", "P_NEW", "home"]
+
+
+def test_repair_route_without_preserve_position_keeps_full_reorder_behavior():
+    """ILS 消费方无感回归：`ils_planner.plan_hybrid` 的 critic 修复闭环调用
+    `repair_route` 从不传 `preserve_position`/`reorder_flag_out`——直接调用
+    `repair_route`（不经 `node_swap`）验证不带这两个新形参时行为与本次改动
+    前逐字节一致：一样对 `kept` 做全排列重排，返回值仍是裸 `RouteSchedule`
+    （不是元组），P1/P2 谁先谁后由全排列的"总 slack 最小"决定，不被钉死。
+    与 `test_swap_target_node_preserves_kept_node_position_not_just_membership`
+    用同一组 fixture（同样的"替补更短会诱发倒序"条件）对照，直接验证"不传
+    opt-in 参数 = 旧行为原样保留"，不依赖 `test_planner_hybrid*.py` 间接佐证。
+    """
+    intent = _intent()
+    weights = get_planning_weights(intent, client=None)
+    profile = load_user_profile()
+    commute_fn = make_commute_fn(profile)
+
+    p1 = _poi(poi_id="P1", opening="08:00-22:00", suggested=90)
+    p2 = _poi(poi_id="P2", opening="08:00-22:00", suggested=90)
+    depart_min = 14 * 60
+    budget_min = 600
+    v1 = build_visit_from_poi(p1, intent, weights)
+    v2 = build_visit_from_poi(p2, intent, weights)
+    schedule = schedule_route([v1, v2], depart_min=depart_min, budget_min=budget_min, commute_fn=commute_fn)
+    assert schedule is not None
+    previous_scheduled = list(schedule.scheduled)
+
+    p_new = _poi(poi_id="P_NEW", opening="08:00-22:00", suggested=15)
+    v_new = build_visit_from_poi(p_new, intent, weights)
+
+    result = route_builder.repair_route(
+        previous_scheduled,
+        [v_new],
+        [],
+        weights,
+        depart_min=depart_min,
+        budget_min=budget_min,
+        commute_fn=commute_fn,
+        money_budget=profile.default_budget,
+        blacklist_poi={"P1"},
+        blacklist_rest=set(),
+        blacklist_rest_time=set(),
+    )
+    assert result is not None
+    assert not isinstance(result, tuple), "不传 preserve_position 时返回值必须是裸 RouteSchedule，不是元组"
+    # 旧行为（全排列重排）：更短的替补被全排列判定为"放在后面 slack 更小"，
+    # P2 被提前——与 test 15 的"位置保持"结果（[P_NEW, P2]）刻意相反，
+    # 证明 `preserve_position=None` 时行为确实还是老样子。
+    assert [sv.visit.target_id for sv in result.scheduled] == ["P2", "P_NEW"]
