@@ -23,6 +23,13 @@
  *   首轮的④ + 最后一轮的⑤，中间重复对被吞掉（见 `collapseRepeatedHealRounds`）。
  * - 总量 ~7 拍上限：①②③⑦是固定锚点，④⑤⑥ 预算 = 7 − 已出现的锚点数 − (⑦占1)；
  *   超预算时保留**最新**的几拍（冻结态窗口天然停在⑤⑥⑦，呼应 §七"时态"要求）。
+ *
+ * 修订（2026-07-10）：②拍检索收据芯片——`buildSearchPreviewChips` 是本文件新增
+ * 的第二个导出纯函数，从 store.toolCalls 里两个 fan-out 搜索 worker 的
+ * tool_call_end.output.preview（后端 `_top_rated_preview` 已排好的评分 top-3）
+ * 剪出芯片行数据。芯片**不是新的一拍**——它是②拍正文下挂的附件，七拍剪辑
+ * 纪律不变；渲染判定（动效/降级）留给 `components/TrustBelt.tsx`，本文件只管
+ * 数据剪辑（分组 + 去重 + 总数）。
  */
 
 import type { useChatStore } from "./store";
@@ -54,11 +61,36 @@ export interface TrustBeltBeat {
 
 type StoreState = ReturnType<typeof useChatStore.getState>;
 
+/** ②拍检索收据芯片单条（2026-07-10 新增，见路演PPT/信任带设计终稿.md 同日修订）。
+ * 字段与后端 `_top_rated_preview` 投影一一对应，不多不少。 */
+export interface SearchPreviewChip {
+  kind: "poi" | "restaurant";
+  name: string;
+  rating: number;
+}
+
+/**
+ * 一条 fan-out 搜索 worker 的 tool_call 记录——②拍锚点判定只需要 `tool`（既有
+ * 用法，见下方 SEARCH_TOOLS 判定），芯片提取额外需要 `arrivalIdx`（判断"最后
+ * 一组"）+ `output.preview`（取候选）。后两个字段设为可选：②拍存在性判定与
+ * 芯片提取是两件独立的事，只做②拍判定的调用方（如既有单测的 `{ tool }` 最小
+ * 夹具）不该被强制补齐芯片专用字段——`buildSearchPreviewChips` 内部对缺失的
+ * `arrivalIdx` 按 0 兜底（同一 tool 只有一条记录时不影响"取最后一条"的判定）。
+ * 用结构化最小接口而非 import store 内部的 `ToolCallRecord`——同 `TrustBeltInput.
+ * toolCalls` 既有的"只声明本文件需要的字段"手法。
+ */
+export interface TrustBeltToolCall {
+  tool: string;
+  arrivalIdx?: number;
+  output?: Record<string, unknown> | null;
+}
+
 export interface TrustBeltInput {
   /** intent?.understanding ?? ""——①拍来源。 */
   understanding: string;
-  /** store.toolCalls——②拍触发判定（search_pois/search_restaurants 命中一次即够）。 */
-  toolCalls: ReadonlyArray<{ tool: string }>;
+  /** store.toolCalls——②拍触发判定（search_pois/search_restaurants 命中一次即够）
+   * + 检索收据芯片数据源（本文件 `buildSearchPreviewChips` 消费 arrivalIdx/output）。 */
+  toolCalls: ReadonlyArray<TrustBeltToolCall>;
   /** store.thoughts——③拍来源（首个携带 planReason 的条目）。 */
   thoughts: ReadonlyArray<{ seq: number; planReason?: string | null }>;
   /** store.criticReport——④⑤⑥拍来源，复用 `buildCriticTimeline` 既有判定。 */
@@ -122,6 +154,101 @@ const DONE_FIXED_TEXT = "规划成功";
 const GIVE_UP_FIXED_TEXT = "试了几版都排不下，先保留这版方案";
 
 const SEARCH_TOOLS = new Set(["search_pois", "search_restaurants"]);
+
+// ============================================================
+// ②拍检索收据芯片（2026-07-10 新增，见路演PPT/信任带设计终稿.md 同日修订）
+// ============================================================
+
+const CHIPS_PER_KIND = 3;
+
+/** buildSearchPreviewChips 的返回形态：展示用芯片列表 + "+N" 徽章需要的余量。 */
+export interface SearchPreviewResult {
+  /** 已展示的芯片，餐厅组在前、POI 组在后，各自组内按后端已排好的评分降序。 */
+  chips: SearchPreviewChip[];
+  /** "+N" 徽章的 N；两类总召回数 − 已展示数；≤0 时前端不渲染徽章。 */
+  overflowCount: number;
+}
+
+const EMPTY_PREVIEW_RESULT: SearchPreviewResult = { chips: [], overflowCount: 0 };
+
+/**
+ * 从 store.toolCalls 里两个 fan-out 搜索 worker 的 tool_call_end.output.preview
+ * 剪出②拍芯片行数据。纯函数、不依赖 React（同本文件其余判定的分层纪律）。
+ *
+ * 剪辑规则（对应任务规格）：
+ * - 数据源＝后端已经算好的评分 top-3（`_top_rated_preview`），本函数不重新排序，
+ *   只做"分组 + 取最后一组 + 拼总数"。
+ * - 同名工具可能因反馈重规划再次触发检索（同一轮内）——store.toolCalls 是
+ *   PER-TURN 清空的，但同轮 refinement 仍可能追加新的 search 事件；取
+ *   **最后一条**該 tool 的 tool_call_end（按 arrivalIdx 最大）为准，同
+ *   `event-handlers.ts` "找最近一个匹配 tool 且未结束的记录"一贯的"最新覆盖"
+ *   语义对齐。
+ * - 总数（供 +N 徽章）＝该轮 poi/restaurant 两个 output.count 之和（不是
+ *   preview.length 之和——count 是真实召回总量，preview 只是展示切片）。
+ * - 召回为 0（两类 count 都是 0，或压根没有 search 事件）→ 返回空芯片 + 0，
+ *   调用方据此让整行芯片不出现。
+ */
+export function buildSearchPreviewChips(
+  toolCalls: ReadonlyArray<TrustBeltToolCall>,
+): SearchPreviewResult {
+  let latestPoi: TrustBeltToolCall | undefined;
+  let latestRestaurant: TrustBeltToolCall | undefined;
+
+  for (const call of toolCalls) {
+    if (!call.output) continue;
+    // 只认**带 preview 的**记录当收据（对抗审查修复，2026-07-10）：preview 只有
+    // fan-out 搜索 worker 产出；ILS/rule 兜底重查也发同名 tool 的 tool_call_end，
+    // 但 output 是完整 SearchPoisOutput（candidates，无 preview 无 count）——若按
+    // "arrivalIdx 最大者赢"不加区分，⑥换引擎重查会让它覆盖 fan-out 收据 →
+    // totalCount 归 0 → 芯片行在换引擎瞬间凭空塌掉（带高度跳变 + 已真实发生过
+    // 的检索收据蒸发）。Array.isArray 同时兜住线上数据形状（非数组不消费）。
+    if (!Array.isArray(call.output.preview) || call.output.preview.length === 0) {
+      continue;
+    }
+    const arrivalIdx = call.arrivalIdx ?? 0;
+    if (call.tool === "search_pois") {
+      if (!latestPoi || arrivalIdx >= (latestPoi.arrivalIdx ?? 0)) latestPoi = call;
+    } else if (call.tool === "search_restaurants") {
+      if (!latestRestaurant || arrivalIdx >= (latestRestaurant.arrivalIdx ?? 0)) {
+        latestRestaurant = call;
+      }
+    }
+  }
+
+  const restaurantPreview = (latestRestaurant?.output?.preview as SearchPreviewChip[]) ?? [];
+  const poiPreview = (latestPoi?.output?.preview as SearchPreviewChip[]) ?? [];
+  const restaurantCount = (latestRestaurant?.output?.count as number) ?? 0;
+  const poiCount = (latestPoi?.output?.count as number) ?? 0;
+
+  const totalCount = restaurantCount + poiCount;
+  if (totalCount <= 0) return EMPTY_PREVIEW_RESULT;
+
+  // 餐厅在前、POI 在后（任务规格排列顺序），各组各自截 top-3；展示名剥尾部
+  // 分店括号后缀（拍板 2026-07-10）——只改芯片显示，不动 store/后端数据。
+  const chips = [
+    ...restaurantPreview.slice(0, CHIPS_PER_KIND),
+    ...poiPreview.slice(0, CHIPS_PER_KIND),
+  ].map((c) => ({ ...c, name: chipDisplayName(String(c?.name ?? "")) }));
+  const overflowCount = totalCount - chips.length;
+
+  return { chips, overflowCount: Math.max(0, overflowCount) };
+}
+
+/** 尾部括号段（全角/半角），前置可有空白；只剥**尾部**，不动名中括号。 */
+const TRAILING_PAREN = /\s*[（(][^（）()]*[）)]\s*$/;
+
+/**
+ * 芯片展示名：反复剥掉尾部括号段——mock 数据店名带「(凯德MALL店)」「（望京店）」
+ * 这类分店后缀，7-8em 截断预算被括号吃掉一半、截出「绿茶餐厅(凯德…」的破相，
+ * 信息量还为零（评委不关心分店）。剥空（整名都是括号）回退原名，不显示空芯片。
+ */
+function chipDisplayName(name: string): string {
+  let out = name.trim();
+  while (TRAILING_PAREN.test(out)) {
+    out = out.replace(TRAILING_PAREN, "").trim();
+  }
+  return out || name.trim();
+}
 
 // ============================================================
 // 总量上限（§二剪辑规则）

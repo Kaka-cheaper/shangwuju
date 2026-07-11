@@ -7,11 +7,17 @@
  * - ⑥ 换引擎固定句 / ⑦ 定稿固定句 + give_up 诚实改口。
  * - 剪辑规则：3 次同违规合成"发现→压→换引擎"递进；总量 ~7 拍上限。
  * - §五 四种收尾：一次过（跳过④⑤⑥）/ 有自愈（完整七拍）。
+ * - buildSearchPreviewChips（2026-07-10 新增）：②拍检索收据芯片数据剪辑。
  */
 
 import { describe, expect, it } from "vitest";
 
-import { buildTrustBeltBeats, type TrustBeltInput } from "./trust-belt";
+import {
+  buildSearchPreviewChips,
+  buildTrustBeltBeats,
+  type TrustBeltInput,
+  type TrustBeltToolCall,
+} from "./trust-belt";
 import { emptyCriticReport } from "./store/types";
 import type { CriticReport } from "./store/types";
 
@@ -258,5 +264,169 @@ describe("buildTrustBeltBeats — 剪辑规则", () => {
     );
     expect(beats.length).toBeLessThanOrEqual(7);
     expect(beats[beats.length - 1].kind).toBe("done");
+  });
+});
+
+describe("buildSearchPreviewChips — ②拍检索收据芯片", () => {
+  function poiCall(
+    arrivalIdx: number,
+    preview: Array<{ name: string; rating: number }>,
+    count: number,
+  ): TrustBeltToolCall {
+    return {
+      tool: "search_pois",
+      arrivalIdx,
+      output: {
+        success: true,
+        count,
+        preview: preview.map((p) => ({ kind: "poi" as const, ...p })),
+      },
+    };
+  }
+
+  function restaurantCall(
+    arrivalIdx: number,
+    preview: Array<{ name: string; rating: number }>,
+    count: number,
+  ): TrustBeltToolCall {
+    return {
+      tool: "search_restaurants",
+      arrivalIdx,
+      output: {
+        success: true,
+        count,
+        preview: preview.map((p) => ({ kind: "restaurant" as const, ...p })),
+      },
+    };
+  }
+
+  it("零召回（无 search 事件）→ 空芯片 + 0 溢出", () => {
+    const result = buildSearchPreviewChips([]);
+    expect(result.chips).toEqual([]);
+    expect(result.overflowCount).toBe(0);
+  });
+
+  it("两类 count 都是 0（有 search 事件但召回为空）→ 空芯片", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [], 0),
+      restaurantCall(2, [], 0),
+    ]);
+    expect(result.chips).toEqual([]);
+    expect(result.overflowCount).toBe(0);
+  });
+
+  it("合并排序：餐厅组在前、POI 组在后，各自保持后端已排好的顺序", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "地点甲", rating: 4.5 }], 1),
+      restaurantCall(2, [{ name: "餐厅甲", rating: 4.2 }], 1),
+    ]);
+    expect(result.chips.map((c) => c.kind)).toEqual(["restaurant", "poi"]);
+    expect(result.chips.map((c) => c.name)).toEqual(["餐厅甲", "地点甲"]);
+  });
+
+  it("每类各自最多展示 3 条（top-3 截取，不越界多取）", () => {
+    const fourPois = [
+      { name: "地点1", rating: 4.9 },
+      { name: "地点2", rating: 4.8 },
+      { name: "地点3", rating: 4.7 },
+      { name: "地点4", rating: 4.6 },
+    ];
+    const result = buildSearchPreviewChips([poiCall(1, fourPois, 4)]);
+    expect(result.chips).toHaveLength(3);
+    expect(result.chips.map((c) => c.name)).toEqual(["地点1", "地点2", "地点3"]);
+  });
+
+  it("+N 徽章 = 两类总召回数 − 已展示数", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "地点1", rating: 4.5 }], 5),
+      restaurantCall(2, [{ name: "餐厅1", rating: 4.3 }], 4),
+    ]);
+    // 总召回 5+4=9，展示 1+1=2 → 溢出 7
+    expect(result.overflowCount).toBe(7);
+  });
+
+  it("总展示数 ≥ 总召回数时不产生负溢出（clamp 到 0）", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "地点1", rating: 4.5 }], 1),
+      restaurantCall(2, [{ name: "餐厅1", rating: 4.3 }], 1),
+    ]);
+    expect(result.overflowCount).toBe(0);
+  });
+
+  it("同轮内同 tool 多次调用（反馈重规划再次检索）→ 取最后一组（arrivalIdx 最大）", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "旧地点", rating: 4.9 }], 1),
+      poiCall(5, [{ name: "新地点", rating: 4.1 }], 1),
+    ]);
+    expect(result.chips.map((c) => c.name)).toEqual(["新地点"]);
+  });
+
+  it("只有一类召回（如 POI 为空、只有餐厅）→ 只展示存在的那类", () => {
+    const result = buildSearchPreviewChips([
+      restaurantCall(1, [{ name: "餐厅甲", rating: 4.0 }], 1),
+      poiCall(2, [], 0),
+    ]);
+    expect(result.chips.map((c) => c.kind)).toEqual(["restaurant"]);
+  });
+
+  it("非 search 工具调用（如 get_user_profile）不参与芯片提取", () => {
+    const result = buildSearchPreviewChips([
+      { tool: "get_user_profile", arrivalIdx: 1, output: { success: true, found: true } },
+    ]);
+    expect(result.chips).toEqual([]);
+    expect(result.overflowCount).toBe(0);
+  });
+
+  it("ILS/rule 兜底重查（同名 tool 但 output 无 preview）不覆盖 fan-out 收据（⑥换引擎时芯片不塌）", () => {
+    // ILS 的 tool_call_end.output 是完整 SearchPoisOutput（candidates，无 preview
+    // 无 count）——即便 arrivalIdx 更大，也不该让已展示的检索收据蒸发。
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "地点甲", rating: 4.5 }], 6),
+      {
+        tool: "search_pois",
+        arrivalIdx: 9,
+        output: { success: true, candidates: [{ id: "P001" }] },
+      },
+    ]);
+    expect(result.chips.map((c) => c.name)).toEqual(["地点甲"]);
+    expect(result.overflowCount).toBe(5);
+  });
+
+  it("展示名剥尾部分店括号后缀（全角/半角都剥，只剥尾部不动名中括号）", () => {
+    const result = buildSearchPreviewChips([
+      restaurantCall(
+        1,
+        [
+          { name: "绿茶餐厅(凯德MALL店)", rating: 4.0 },
+          { name: "真功夫（合生麒麟新天地）", rating: 3.9 },
+          { name: "老王(串都)烧烤", rating: 4.7 },
+        ],
+        3,
+      ),
+    ]);
+    expect(result.chips.map((c) => c.name)).toEqual([
+      "绿茶餐厅",
+      "真功夫",
+      "老王(串都)烧烤", // 名中括号不是分店后缀，不剥
+    ]);
+  });
+
+  it("整名都是括号段 → 剥空回退原名（不显示空芯片）", () => {
+    const result = buildSearchPreviewChips([
+      poiCall(1, [{ name: "（快闪展）", rating: 4.2 }], 1),
+    ]);
+    expect(result.chips.map((c) => c.name)).toEqual(["（快闪展）"]);
+  });
+
+  it("output.preview 非数组（异常线上数据）→ 不消费、不炸", () => {
+    const result = buildSearchPreviewChips([
+      {
+        tool: "search_restaurants",
+        arrivalIdx: 1,
+        output: { success: true, count: 3, preview: "garbage" },
+      },
+    ]);
+    expect(result.chips).toEqual([]);
+    expect(result.overflowCount).toBe(0);
   });
 });

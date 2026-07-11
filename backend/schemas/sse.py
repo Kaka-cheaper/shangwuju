@@ -73,6 +73,11 @@ class SseEvent(BaseModel):
     - INTENT_PARSED   payload = IntentExtraction.model_dump()
     - TOOL_CALL_START payload = {"tool": str, "input": dict}
     - TOOL_CALL_END   payload = {"tool": str, "output": dict, "duration_ms": int}
+      对 fan-out 搜索 worker（search_pois / search_restaurants），output 可选再带
+      "preview": [{"kind": "poi"|"restaurant", "name": str, "rating": float}, ...]
+      （信任带②拍检索收据芯片专用，2026-07-10 新增；评分 top-3，"无召回不加字段"——
+      get_user_profile worker 不产出这个键；见 `agent.graph._emit_handlers.
+      emit_fanout_worker` / `_top_rated_preview`）
     - REPLAN_TRIGGERED payload = {"reason": FailureReason.value, "from_tool": str}
     - CRITIC_VIOLATIONS payload = {"violations": [...], "fix_attempt": int}
     - CRITIC_FIX_ATTEMPT payload = {"attempt": int, "feedback_text": str}

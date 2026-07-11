@@ -84,12 +84,35 @@ _WORKER_TO_TOOL = {
 }
 
 
+def _top_rated_preview(entities: list[Any], kind: str, limit: int = 3) -> list[dict[str, Any]]:
+    """从召回列表取评分 top-N，只投影 {kind, name, rating} 三字段（信任带②拍
+    检索收据芯片专用，见路演PPT/信任带设计终稿.md 2026-07-10 修订）。
+
+    决策：
+    - 不塞全实体（Poi/Restaurant 字段远不止这三个，芯片只需要"查到了什么"的
+      最小证据，塞全字段是 payload 膨胀 + 泄露前端不该消费的内部字段）。
+    - 按 rating 降序排；rating 是必填字段（domain.py Poi/Restaurant 都
+      `rating: float = Field(..., ge=0, le=5)`），不存在缺失需要兜底排序的情况。
+    - 同分时保持稳定排序（Python sort 是 stable sort，`key=lambda e: -e.rating`
+      不改变同分元素的相对顺序，相对顺序即"召回列表原始顺序"——不额外引入
+      次级排序键，避免无证据的臆断排序规则）。
+    """
+    ranked = sorted(entities, key=lambda e: -e.rating)
+    return [
+        {"kind": kind, "name": e.name, "rating": e.rating}
+        for e in ranked[:limit]
+    ]
+
+
 def emit_fanout_worker(
     ctx: EmitContext, node_name: str, diff: dict[str, Any]
 ) -> list[SseEvent]:
     """3 个搜索 worker（fan-out 并行组）→ 合成 tool_call_start + tool_call_end。
 
     spec innovation-review R1：加 group_id 让前端可识别同 fan-out 组并横向并列展示。
+    信任带②拍检索收据芯片（2026-07-10）：poi/restaurant worker 的 end 事件额外带
+    `preview`——真实召回评分 top-3，让前端芯片行"真查到了什么"有据可依；
+    user_profile worker 不产出 preview（它不是列表召回，语义上没有"候选实体"）。
     """
     tool_name = _WORKER_TO_TOOL[node_name]
     out: list[SseEvent] = [
@@ -107,8 +130,14 @@ def emit_fanout_worker(
     out_summary: dict[str, Any] = {"success": True}
     if "pois" in diff:
         out_summary["count"] = len(diff["pois"])
+        preview = _top_rated_preview(diff["pois"], "poi")
+        if preview:
+            out_summary["preview"] = preview
     elif "restaurants" in diff:
         out_summary["count"] = len(diff["restaurants"])
+        preview = _top_rated_preview(diff["restaurants"], "restaurant")
+        if preview:
+            out_summary["preview"] = preview
     elif "user_profile" in diff:
         out_summary["found"] = diff["user_profile"] is not None
     # Step 6：tag relaxation 透传（split per worker key）

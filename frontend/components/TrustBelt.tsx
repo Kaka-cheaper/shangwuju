@@ -21,13 +21,21 @@
  *      reduced-motion 降级＝全拍瞬显（无动画，非只显示最新一拍）。
  *   3. 删除「查看全部」+ 手动滚动模式：全拍可见后无需滚动。header 只留
  *      "AI 幕后" + 规划中脉冲。
+ *
+ * 修订（2026-07-10，②拍检索收据芯片）：见下方 SearchPreviewChipRow 及其调用处
+ * 注释——芯片挂在②拍正文下方，不是新的一拍，七拍剪辑纪律不变。
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { Bot } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, MapPin, UtensilsCrossed } from "lucide-react";
 
 import { useChatStore } from "@/lib/store";
-import { buildTrustBeltBeats, type TrustBeltBeat } from "@/lib/trust-belt";
+import {
+  buildSearchPreviewChips,
+  buildTrustBeltBeats,
+  type SearchPreviewChip,
+  type TrustBeltBeat,
+} from "@/lib/trust-belt";
 import { cn } from "@/lib/utils";
 
 const MIN_DWELL_MS = 800;
@@ -74,6 +82,9 @@ export default function TrustBelt() {
     [intent, toolCalls, thoughts, criticReport, itinerary],
   );
 
+  // ②拍检索收据芯片（2026-07-10）：纯数据剪辑在 lib/trust-belt.ts，这里只取用。
+  const searchPreview = useMemo(() => buildSearchPreviewChips(toolCalls), [toolCalls]);
+
   const reducedMotion = usePrefersReducedMotion();
 
   // 修复"规划完成后从头到尾又演一遍":TrustBelt 在 ItineraryCard 的"规划中
@@ -86,6 +97,12 @@ export default function TrustBelt() {
   const [revealedCount, setRevealedCount] = useState(() =>
     itinerary != null ? beats.length : 0,
   );
+
+  // 芯片进场效果同样要遵守"挂载时方案已就绪＝瞬显不重演"（任务规格 §二"两个既有
+  // 行为必须保持"之一）：这个 ref 只在组件挂载的第一刻求值一次，记录"这个实例
+  // 是不是从就绪态诞生的"——不同于 `reducedMotion`（会话中途开关都要响应），
+  // 这是"这个实例的出身"，故意不放进依赖数组、不随后续 itinerary 变化更新。
+  const mountedReadyRef = useRef(itinerary != null);
 
   // 新一轮重跑：beats 变短（store 清空重来）时同步回退计数，不残留上一轮多出的拍。
   useEffect(() => {
@@ -126,21 +143,43 @@ export default function TrustBelt() {
           </div>
         ) : (
           <div className="space-y-1">
-            {revealed.map((beat, index) => (
-              <div
-                key={beat.id}
-                className={cn(
-                  "relative flex items-stretch gap-2.5",
-                  !reducedMotion && "animate-trust-belt-enter",
-                )}
-              >
-                <SequenceMarker
-                  accent={beat.amber}
-                  isLast={index === revealed.length - 1 && !showPending}
-                />
-                <BeatLine beat={beat} />
-              </div>
-            ))}
+            {revealed.map((beat, index) => {
+              const isLastRow = index === revealed.length - 1 && !showPending;
+              const withChips = beat.kind === "search" && searchPreview.chips.length > 0;
+              return (
+                <Fragment key={beat.id}>
+                  <div
+                    className={cn(
+                      "relative flex items-stretch gap-2.5",
+                      !reducedMotion && "animate-trust-belt-enter",
+                    )}
+                  >
+                    <SequenceMarker accent={beat.amber} isLast={isLastRow} />
+                    <BeatLine beat={beat} />
+                  </div>
+                  {/* ②拍检索收据芯片：**紧跟②拍正文下方**渲染（对抗审查修复
+                      2026-07-10：原实现把芯片行放在整个 revealed 列表之后，③④⑤⑦
+                      揭示后它会沉到带底部——附件必须钉在它所属的拍下面）。左侧
+                      占位列与 SequenceMarker 同宽让芯片行与拍正文左对齐；②拍
+                      不是最后一行时补一段连线，别让芯片行打断相邻拍之间的时间轴
+                      视觉（芯片是②拍附件，不是新的一拍，不占圆点不占序号）。 */}
+                  {withChips && (
+                    <div className="relative flex items-stretch gap-2.5">
+                      <span aria-hidden className="relative flex w-4 shrink-0 justify-center">
+                        {!isLastRow && (
+                          <span className="absolute bottom-[-0.25rem] top-[-0.25rem] w-px bg-gradient-to-b from-ink-300/70 via-ink-200/55 to-transparent" />
+                        )}
+                      </span>
+                      <SearchPreviewChipRow
+                        chips={searchPreview.chips}
+                        overflowCount={searchPreview.overflowCount}
+                        instant={reducedMotion || mountedReadyRef.current}
+                      />
+                    </div>
+                  )}
+                </Fragment>
+              );
+            })}
             {showPending && (
               <div className="relative flex min-h-6 items-center gap-2.5">
                 <PendingMarker />
@@ -211,5 +250,97 @@ function BeatLine({ beat }: { beat: TrustBeltBeat }) {
     >
       {beat.text}
     </p>
+  );
+}
+
+// ============================================================
+// ②拍检索收据芯片（2026-07-10）：真实召回候选的小药丸，让评委看见"它真查到了
+// 什么"。全程中性墨色——琥珀色是④⑤⑥自愈拍专属重音，这里不用。芯片不可点击
+// （v1 拍板），不加 hover 手型/态。
+// ============================================================
+
+const CHIP_STAGGER_START_MS = 300;
+const CHIP_STAGGER_STEP_MS = 70;
+
+function SearchPreviewChipRow({
+  chips,
+  overflowCount,
+  instant,
+}: {
+  chips: SearchPreviewChip[];
+  overflowCount: number;
+  instant: boolean;
+}) {
+  return (
+    <div className="min-w-0 flex-1 pb-1.5 pt-0.5">
+      <div className="flex flex-wrap gap-1.5">
+        {chips.map((chip, index) => (
+          <SearchPreviewChipPill
+            key={`${chip.kind}-${chip.name}-${index}`}
+            chip={chip}
+            delayMs={instant ? 0 : CHIP_STAGGER_START_MS + index * CHIP_STAGGER_STEP_MS}
+            instant={instant}
+          />
+        ))}
+        {overflowCount > 0 && (
+          <OverflowBadge
+            count={overflowCount}
+            delayMs={instant ? 0 : CHIP_STAGGER_START_MS + chips.length * CHIP_STAGGER_STEP_MS}
+            instant={instant}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SearchPreviewChipPill({
+  chip,
+  delayMs,
+  instant,
+}: {
+  chip: SearchPreviewChip;
+  delayMs: number;
+  instant: boolean;
+}) {
+  const Icon = chip.kind === "restaurant" ? UtensilsCrossed : MapPin;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center gap-1 rounded-full border border-black/[0.06] bg-white px-2",
+        !instant && "animate-trust-belt-chip-enter",
+      )}
+      style={instant ? undefined : { animationDelay: `${delayMs}ms` }}
+    >
+      <Icon className="h-3 w-3 shrink-0 text-ink-400" strokeWidth={2} aria-hidden />
+      {/* 长名截断：max-width ~7-8em（任务规格），em 相对 text-xs 自身字号，
+          比固定 rem 更贴合"这段文字能装几个字"的直觉。 */}
+      <span className="min-w-0 max-w-[7.5em] truncate text-xs font-medium text-ink-700">
+        {chip.name}
+      </span>
+      <span className="shrink-0 text-xs tabular-nums text-ink-400">{chip.rating.toFixed(1)}</span>
+    </span>
+  );
+}
+
+function OverflowBadge({
+  count,
+  delayMs,
+  instant,
+}: {
+  count: number;
+  delayMs: number;
+  instant: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-6 items-center rounded-full bg-ink-50 px-2 text-xs text-ink-500",
+        !instant && "animate-trust-belt-chip-enter",
+      )}
+      style={instant ? undefined : { animationDelay: `${delayMs}ms` }}
+    >
+      +{count}
+    </span>
   );
 }

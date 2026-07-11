@@ -1092,6 +1092,31 @@
   animation: drawerSlideUp 280ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+/* 信任带②拍检索收据芯片（2026-07-10，见 路演PPT/信任带设计终稿.md 同日修订）：
+   fade + 上浮 4px + scale 0.96→1，缓动曲线与 tailwind.config.ts 的
+   `trustBeltEnter`（beat 本身的进场动效）同一条 cubic-bezier(0.16,1,0.3,1)，
+   但多一个 scale 关键帧——芯片是小药丸，比整行文字更适合"长出来"的观感，
+   故意不复用 beat 的 keyframe（形状不同，硬复用会让 scale 缺失看起来像 bug）。
+   用 `animation-fill-mode: backwards` 让每个芯片在自己的 inline
+   `animationDelay`（见 components/TrustBelt.tsx::SearchPreviewChipRow，
+   300ms + index*70ms 错峰）到达前保持 0% 关键帧（不可见），而不是立即以
+   终态出现、只是普通 fade 各自触发——否则错峰节奏会被"全部瞬间可见"抵消。 */
+@keyframes trustBeltChipEnter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-trust-belt-chip-enter {
+  animation: trustBeltChipEnter 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: backwards;
+}
+
 .animate-shimmer-x {
   animation: shimmerX 1.65s ease-in-out infinite;
 }
