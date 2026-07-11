@@ -66,6 +66,7 @@
 
 **已完成**：
 
+- **2026-07-11 AdaptiveAppShell 统一入口分流**：新增界面模式唯一判定源，`/` 与 `/room` 按窄屏或触屏优先能力自动选择 Web/移动根视图，`/m` 保留强制移动兼容语义；两棵重组件按需加载且不同时挂载，根模式仅在进入页面时判定一次，避免旋转/缩放导致会话初始化重跑。验证：前端 127 tests 全过、typecheck/lint/build 通过；真浏览器 390px `/` 与 `/room` 命中移动界面且无横向溢出，1280px 同入口命中桌面界面。提交 `0ac46f2` + `44ab1ff`。
 - **2026-06-02 confirm 首字节超时修复**：根因是 `_graph_confirm` 首帧 `yield` 后立刻在事件循环里同步跑 `execute_finalize_node`，其中 confirm narrator / memory writer 会触发真实 LLM，导致 ASGI 小块无法及时 flush，前端 8s 内解析不到首条 SSE。已改为 `asyncio.to_thread(execute_finalize_node, ...)` 后台执行，并按 `FINALIZE_HEARTBEAT_S=1.5` 持续推 `agent_thought` 心跳；新增 `test_graph_confirm_heartbeat.py`。同时给 V3 `router_node` 补正向 planning fast path，典型 S1/S3 规划句不再被真实 LLM router 误判成 chitchat；新增 `test_router_node_planning_fast_path.py`。真实 HTTP 复测：`/chat/turn` 5.1s 出 `itinerary_ready`，`/chat/confirm` 0.001s 出首帧、1.5s 心跳、最终 done。
 - **2026-06-02 Tool 执行闭环补齐**：新增 `order_extra_service` Tool + `mock_data/extra_services.json`；V3 `execute_finalize_node` 修复 `ToolInvocationResult.output` 解析，确认后会真实回填餐厅预约 / 门票 / 蛋糕鲜花等附加服务 / 转发文案；`/chat/confirm` 在 `USE_LANGGRAPH=1` 时走真实 `_graph_confirm → execute_finalize_node`，仅 `USE_LANGGRAPH=0` fallback 到 `_stub_confirm`；前端确认预告同步展示附加服务；CodeSee `f-finalize-orders` 已 sync 并通过校验。
 - 项目代号确定：**晌午局**
