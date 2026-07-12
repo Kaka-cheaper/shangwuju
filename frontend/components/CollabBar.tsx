@@ -31,7 +31,7 @@ export default function CollabBar() {
       )}
     >
       {/* 左侧：成员头像 */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <span className="text-xs text-ink-500">协作中</span>
         <div className="flex -space-x-1">
           {members.map((m) => (
@@ -48,7 +48,7 @@ export default function CollabBar() {
           ))}
         </div>
         <span
-          className="text-xs text-ink-400"
+          className="min-w-0 truncate text-xs text-ink-400"
           title="实时统计：房间内在线成员数 · 已收集但还没合并到下次重规划的约束条数"
         >
           房间内 {onlineCount} 人
@@ -60,10 +60,12 @@ export default function CollabBar() {
         </span>
       </div>
 
-      {/* 中间：状态 */}
-      <div className="flex-1 text-center">
+      {/* 中间：状态。min-w-0 + block truncate——窄屏(移动端房间)+ 右侧长连接错误
+          文案挤压时，这段必须省略号截断，绝不能逐字竖排（真机 bug：断连时
+          "等待同行人提出偏好…"整段竖成一列）。 */}
+      <div className="flex-1 min-w-0 text-center">
         {planningActive ? (
-          <span className="text-amber-400 text-xs animate-pulse">
+          <span className="block truncate text-amber-400 text-xs animate-pulse">
             {planningTrigger === "constraint_added"
               ? `正在根据新约束重新规划…`
               : planningTrigger === "vote_dislike"
@@ -71,20 +73,20 @@ export default function CollabBar() {
                 : "规划中…"}
           </span>
         ) : lastConstraint ? (
-          <span className="text-ink-400 text-xs">
+          <span className="block truncate text-ink-400 text-xs">
             最新约束：{lastConstraint.nickname || lastConstraint.user_id}说「{lastConstraint.text}」
           </span>
         ) : (
-          <span className="text-ink-500 text-xs">
+          <span className="block truncate text-ink-500 text-xs">
             等待同行人提出偏好…
           </span>
         )}
       </div>
 
-      {/* 右侧：连接状态 */}
-      <div className="flex items-center gap-2">
+      {/* 右侧：连接状态。shrink-0 保住圆点；错误文案限宽截断，不吞掉中段空间。 */}
+      <div className="flex items-center gap-2 shrink-0 min-w-0">
         {connectionError && (
-          <span className="text-red-400 text-xs">{connectionError}</span>
+          <span className="truncate max-w-[7rem] text-red-400 text-xs">{connectionError}</span>
         )}
         <div
           className={cn(

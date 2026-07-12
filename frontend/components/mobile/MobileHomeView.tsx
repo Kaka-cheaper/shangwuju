@@ -409,15 +409,6 @@ function MobilePreferencesCard() {
   // 而「本次调整」归名台账是房间协商核心价值、必须可见，故房间模式保留本卡
   // （此时它天然只剩 画像 + 本次调整：学到的/清空 本就 !collabMode 隐藏）。
   if (!currentUserId || !collabMode) return null;
-  const persona = preferences?.persona;
-
-  const templateTags = persona
-    ? [
-        ...persona.default_tags.physical,
-        ...persona.default_tags.dietary,
-        ...persona.default_tags.experience,
-      ]
-    : [];
 
   const prefNote = collabMode ? null : preferenceNote(preferences?.top_priors ?? []);
   const distNote = collabMode ? null : distanceNote(preferences?.suggested_distance_max_km ?? null);
@@ -441,11 +432,16 @@ function MobilePreferencesCard() {
         aria-expanded={open}
       >
         <div className="min-w-0 text-left">
+          {/* bug2·A（用户拍板）：房间模式下去掉画像身份标题——多人房间里顶一个人的
+              画像「新手爸爸」既误导、又无处切换（房间切画像是假控件，右上角故意无
+              按钮）。本卡在房间里唯一职责是归名台账，标题直接是「本次调整」。 */}
           <div className="truncate text-base font-semibold tracking-tight text-ink-900">
-            {persona?.label ?? "偏好画像"}
+            本次调整
           </div>
           <div className="truncate text-xs text-ink-500">
-            {persona?.notes ?? "点击查看 Agent 已学到的偏好"}
+            {orderedLedger.length > 0
+              ? `房间里 ${orderedLedger.length} 条诉求都记在这`
+              : "房间里谁提了什么，都记在这"}
           </div>
         </div>
         {/* "已学 N" 绿色计数 chip 已删（用户拍板，同桌面端 PreferencesPanel.tsx
@@ -459,27 +455,10 @@ function MobilePreferencesCard() {
         </div>
       </button>
 
-      {open && persona && (
+      {open && (
         <div className="mt-3 max-h-[60vh] space-y-3 overflow-y-auto border-t border-black/[0.06] pt-3 animate-collapse-in">
-          {/* 区一：画像 */}
-          <div>
-            <div className="text-xs font-semibold text-ink-500">画像</div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {templateTags.slice(0, 5).map((t) => (
-                <span
-                  key={t}
-                  className="rounded-full border border-black/[0.08] bg-black/[0.03] px-2.5 py-1 text-xs font-medium text-ink-700"
-                >
-                  {t}
-                </span>
-              ))}
-              <span className="rounded-full border border-black/[0.07] bg-white/70 px-2.5 py-1 text-xs text-ink-600">
-                距离 {persona.default_distance_max_km}km
-              </span>
-            </div>
-          </div>
-
-          {/* 区二：这次对话学到的——房间模式整区隐藏 */}
+          {/* 区一「画像」已随 bug2·A 移除：房间里不再展示画像身份，只留台账。
+              区二「这次对话学到的」在房间模式本就整区隐藏（!collabMode 恒为假）。 */}
           {!collabMode && (
             <div>
               <div className="text-xs font-semibold text-ink-500">这次对话学到的</div>
@@ -2029,16 +2008,21 @@ function MobileActionRail() {
             >
               <span className="truncate">{confirmLabel}</span>
             </button>
-            <button
-              type="button"
-              className="grid h-11 w-11 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition active:scale-95"
-              onClick={() => setPreviewOpen((open) => !open)}
-              aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
-              aria-expanded={previewOpen}
-              title="查看确认后会发生什么"
-            >
-              <Info className="h-5 w-5" strokeWidth={2.5} />
-            </button>
+            {/* ⓘ「预约说明」只在能确认时给（房主 / 单人）。非房主等待态本就
+                点不了确认，这个图标既无用、又和"等待发起人确认"文字挤重叠
+                （真机 bug）——等待态直接不渲染它。 */}
+            {!blockedByOwnerGuard && (
+              <button
+                type="button"
+                className="grid h-11 w-11 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition active:scale-95"
+                onClick={() => setPreviewOpen((open) => !open)}
+                aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
+                aria-expanded={previewOpen}
+                title="查看确认后会发生什么"
+              >
+                <Info className="h-5 w-5" strokeWidth={2.5} />
+              </button>
+            )}
           </div>
         )}
         {itinerary && !hasOrders && !cancelled && (

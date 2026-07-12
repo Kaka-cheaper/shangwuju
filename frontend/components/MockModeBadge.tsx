@@ -73,10 +73,10 @@ export default function MockModeBadge({ compact = false }: { compact?: boolean }
         "backdrop-blur cursor-help transition-colors hover:border-accent-400/50 hover:bg-white/[0.88] hover:text-ink-900",
       )}
     >
-      {/* 去绿归色：这颗点纯粹是「跟隔壁徽章视觉区分」的差异化点，不是成功/在线
-          语义——emerald 游离于调色板外，改用中性灰（同 PlannerModeBadge 的
-          rule 态 ink-500，取更浅一档区分）。 */}
-      <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-ink-400/70" />
+      {/* 状态点改绿（2026-07-12 用户拍板）：这颗点表达「mock 数据源已载入、健康
+          可用」——是正向状态语义（同 CollabBar 的 emerald 连接/在线态），不是
+          之前判定的"纯视觉差异化点"。绿=就绪，让评委在下拉里一眼看出数据源在位。 */}
+      <span aria-hidden className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
       <span className="font-bold">mock 数据源</span>
     </span>
   );
