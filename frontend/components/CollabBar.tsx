@@ -218,7 +218,7 @@ export default function CollabBar() {
         </div>
       </button>
 
-      {open && mounted && panelPos
+      {(open && mounted && panelPos
         ? createPortal(
             <>
               {/* 点击外部关闭捕获层——`top: panelPos.catcherTop`（触发行
@@ -294,7 +294,7 @@ export default function CollabBar() {
             </>,
             document.body,
           )
-        : null}
+        : null) as React.ReactNode}
     </div>
   );
 }
