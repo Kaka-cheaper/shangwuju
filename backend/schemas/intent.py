@@ -85,13 +85,26 @@ class IntentExtraction(BaseModel):
     禁止顶层出现 scene_type / relation_type / is_family / is_friends 字段。
     `extra="forbid"` 配合 grep gate 双重防御。
 
-    【新增字段纪律（四条不变式批沉淀，2026-07-11）】任何新增字段必须同步
-    `agent/intent/prompts/refiner_prompt.py` 的 REFINER_FEW_SHOTS 全部示例
-    ——refiner 反馈轮对 intent 是**整体替换**（refiner.py 无字段保留逻辑），
+    【新增字段纪律（四条不变式批沉淀，2026-07-11；2026-07-12 补记见下）】
+    任何新增字段必须同步 `agent/intent/prompts/refiner_prompt.py` 的
+    REFINER_FEW_SHOTS 全部示例——refiner 反馈轮对 intent 是**整体替换**
+    （refiner.py 无字段级保留逻辑，靠 `_inherit_missing_keys` 守卫兜底），
     不在 few-shots 里的字段 LLM 大概率照猫画虎省略、Pydantic 默认值静默顶上，
     显式诉求在反馈轮被二次击穿且无报警（budget_per_person /
-    explicit_dining_requested 两次踩过同一雷）。同时评估是否需要
-    `refine_intent` 的缺键继承守卫（区分「LLM 忘写」与「显式改口」）。
+    explicit_dining_requested 两次踩过同一雷）。
+
+    【缺键继承守卫已落地（forge-intent-loss 收敛，2026-07-12）】上一版本
+    此处遗留"同时评估是否需要 `refine_intent` 的缺键继承守卫"——已落地为
+    `agent/intent/refiner.py::_inherit_missing_keys`（C1 通用守卫，收编原
+    explicit_dining_requested 专属补丁）。**新增字段时的检查项相应更新为**：
+    若新字段的 schema 默认值不是"语义空值"（即 duration_hours=[4,6]/
+    social_context="家庭日常" 这类"有意义的具体值"，而非 None/""/[]/
+    default_factory=list 那种"就是没设"的空语义），或字段本身是可选/自由
+    字段但键缺失会静默丢失 user_stated 诉求，需评估是否要把新字段加进
+    `_inherit_missing_keys` 的白名单（`_INHERITABLE_FIELDS`，逐字段显式
+    枚举，不接受"凡带 default 就继承"这类宽泛规则——理由见该函数所在模块的
+    大段设计注释）。必传字段（`Field(...)` 无默认值）键缺失会触发响亮的
+    ValidationError（现有错误回灌重试/兜底路径已覆盖），不需要加进守卫。
     """
 
     model_config = ConfigDict(extra="forbid")

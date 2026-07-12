@@ -106,6 +106,25 @@ def test_repair_handles_multiple_category_words_in_one_feedback():
     assert "烧烤" in repaired.preferred_poi_types
 
 
+def test_repair_does_not_re_add_a_category_the_feedback_explicitly_withdraws():
+    """撤回感知（forge-intent-loss 收敛批发现的联动缺口，2026-07-12）：反馈
+    原话否定了"烧烤"（"不吃烧烤了"），即使这个词字面出现在反馈里，本函数
+    也不该把它当"新提及的品类"补回 preferred_poi_types——否则会抵消
+    `_inherit_missing_keys` 的 null-on-removal 撤回信道（LLM 显式输出 []
+    撤回后，本函数字面匹配到"烧烤"又把它加回来，撤回等于白撤）。"""
+    intent = _business_tea_intent(preferred_poi_types=[])  # 模拟 LLM 已正确撤回
+    repaired = _repair_dictionary_drift(intent, "不吃烧烤了，随便逛逛就行")
+    assert "烧烤" not in repaired.preferred_poi_types
+
+
+def test_repair_still_adds_category_when_feedback_has_no_negation():
+    """对照组：反馈没有否定词，纯粹是新提及品类 → 正常补齐（防止撤回感知
+    过度拦截，把"想吃烧烤"这类正向新提及也误伤成撤回）。"""
+    intent = _business_tea_intent()
+    repaired = _repair_dictionary_drift(intent, "不喝茶了，想吃烧烤")
+    assert "烧烤" in repaired.preferred_poi_types
+
+
 # ============================================================
 # 2. _rule_fallback 路径（LLM 不可用时的降级路径）
 # ============================================================

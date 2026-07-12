@@ -4,6 +4,9 @@
 
 实现策略：
 - LLM 调用 1 次，response_format=json_object
+- 校验前跑 _inherit_missing_keys（C1 通用键缺失继承守卫，forge-intent-loss
+  收敛，2026-07-12）：白名单字段键缺失 → 按出处门控 + 矛盾检测从 original
+  继承，收编原 explicit_dining_requested 专属补丁——详见该函数 docstring
 - 围栏剥离 + Pydantic 二次校验（防漂移；pitfalls P2-预埋）
 - 若校验失败 → 错误回灌 LLM 1 次重试
 - 若 2 次都失败 → 走规则化兜底（_rule_fallback：根据反馈关键词调字段）
@@ -197,6 +200,212 @@ _LIST_PROVENANCE_FIELDS: tuple[str, ...] = (
 _REASSERT_CHECKABLE_SCALAR_FIELDS: frozenset[str] = frozenset({"social_context", "start_weekday"})
 
 
+# ============================================================
+# C1 通用「键缺失继承」守卫（forge-intent-loss 收敛，2026-07-12）
+# ============================================================
+#
+# 【命名问题 + prior art】refiner 反馈轮对 intent 是"整体替换"（STATE 架构：
+# LLM 每轮重新吐出完整对象），但语义上这本该是 partial update——RFC 7386
+# JSON Merge Patch 的核心纪律是"键缺失=不动、值显式 null=删除"，两者绝不能
+# 用同一种"缺省"表达；DST（对话状态追踪）文献同样确认"未变化的槽位应由外部
+# 机制 carryover，不该指望模型每轮重新生成"（Improving Long Distance Slot
+# Carryover, arXiv:1906.01149）。本函数是这条规范在 C1（渐进式、不改契约）
+# 路线下的落地：把 explicit_dining_requested 的专属"键缺失继承"补丁
+# （原 refiner.py:453-464，四条不变式批 C5a）推广为覆盖全部 9 个"静默默认
+# 或可选"需求字段的通用规则。
+#
+# 【为什么是这 9 个字段（逐字段 schema 审计，非 prompt 语义猜测）】
+# IntentExtraction 18 个字段按 `Field(...)` 签名分三类：
+# - A 响亮必传（start_time/companions/physical_constraints/dietary_constraints/
+#   experience_tags/parse_confidence/raw_input）：键缺失 → Pydantic
+#   ValidationError → 现有错误回灌重试 / _rule_fallback 兜底（从 original
+#   model_copy 恢复）——双重安全，本就无需守卫；且三类 tag 的"消失"正是
+#   `record_rejected` 的负反馈信号源（graph/nodes/refiner.py::_dropped_tags），
+#   无差别继承会让"LLM 忘写"和"用户真的不要"都变成"没消失"，悄悄吃掉负反馈
+#   信号——必传字段刻意不纳入本守卫。
+# - B 静默默认·语义要紧（duration_hours=[4,6] / distance_max_km=5.0 /
+#   social_context="家庭日常"）：默认值是"具体值"而非"空语义"，键缺失会
+#   静默把 user_stated 的值顶回这个默认值，且不被任何 record_rejected 逻辑
+#   接住——真实的静默丢失面，必须纳入。
+# - C 可选空默认（start_weekday/capacity_requirement/extra_services/
+#   preferred_poi_types/explicit_dining_requested/budget_per_person）：默认值
+#   本身就是"没设"的合法语义表达，但 user_stated 过的仍需守卫继承（否则同样
+#   静默丢失）。
+# 显式排除（虽也带 default，但继承是 bug，不是漏保护）：understanding（每轮
+# 必须重新生成，继承旧值=让用户看到上一轮的①拍文案）、ambiguous_fields
+# （描述抽取过程本身非用户诉求）、field_provenance（守卫跑完后由
+# `_propagate_field_provenance` 整体重算，不走继承逻辑）。
+#
+# 白名单必须是显式枚举，不能写成"凡带 default 就继承"——那会把 understanding
+# 也继承了。
+_INHERITABLE_FIELDS: tuple[str, ...] = (
+    # B 类：静默默认·语义要紧
+    "duration_hours",
+    "distance_max_km",
+    "social_context",
+    # C 类：可选空默认
+    "start_weekday",
+    "capacity_requirement",
+    "extra_services",
+    "preferred_poi_types",
+    "explicit_dining_requested",
+    "budget_per_person",
+)
+
+# 出处门控（T2）：哪些出处值"倾向继承"——user_stated 是用户亲口说的，理应
+# 保留；inferred/prior/default 是推断/画像/兜底，不该被"继承守卫"钉死，让
+# 本轮 LLM（哪怕键缺失落回 Pydantic 默认）自由覆盖，不强行继承一个连用户
+# 自己都没说过的旧推断值。
+_INHERIT_PRIORITY_PROVENANCE: frozenset[str] = frozenset({"user_stated"})
+
+# 无先验注入通道字段：门控在"缺 provenance 记录"时的默认值不能一刀切
+# ——必须按字段本身"除 user_stated 外还有没有别的产出路径"来定，这条判据
+# 复用 parser.py 已经拍板的同一份分类（`agent.intent.parser.compute_injected_priors`
+# 的 `InjectedPriors` 只覆盖 social_context/distance_max_km/三类 tag；
+# `_apply_provenance_correction` 对没有先验注入通道、也没有"随手给个默认
+# 数字"可比对的字段——start_time/start_weekday/capacity_requirement/
+# budget_per_person——明文规定"缺自报时一律兜底 user_stated"，理由是"这几个
+# 字段只要有值，几乎总是来自用户或明确推断，不存在被随手塞一个先验/默认值
+# 的情况"）。本守卫的 9 个白名单字段里同样成立这条判据的有：
+# - `explicit_dining_requested` / `preferred_poi_types`：**根本不在**
+#   `field_provenance` 覆盖范围内（schemas/intent.py 字段 docstring 明文
+#   排除），生产环境里这两个字段**永远不会有** provenance 记录——如果门控
+#   要求"必须查到 user_stated 才继承"，这两个字段会被门控**无条件拦死**，
+#   直接退化回"守卫形同虚设"，把 explicit_dining_requested 原有专属补丁
+#   （无条件继承，不查 provenance）的行为打回去了，这是需要修正的真实缺口，
+#   不是可以忽略的边界情况。
+# - `start_weekday` / `capacity_requirement` / `budget_per_person`：与 parser
+#   同款字段，无先验注入通道，parser 侧已确立"缺记录=按 user_stated 处理"。
+# - `extra_services`：parser 侧同样明文"无先验注入通道，只做自报兜底，不做
+#   prior 强制纠偏"——同一分类。
+# 这 6 个字段缺 provenance 记录时按 `user_stated` 处理（复用 parser 的既有
+# 结论，不是我自己另拍一个）；`duration_hours`/`distance_max_km`/
+# `social_context` **不**在这个集合里——它们在 `InjectedPriors`/
+# `_SCALAR_SCHEMA_DEFAULTS` 里有真实的 prior/inferred/default 产出路径，
+# 缺 provenance 记录时按"未知，不强行继承"处理，与 parser 侧
+# `_apply_provenance_correction` 的分野完全对称，不是新发明的例外。
+_NO_PRIOR_CHANNEL_FIELDS: frozenset[str] = frozenset(
+    {
+        "explicit_dining_requested",
+        "preferred_poi_types",
+        "start_weekday",
+        "capacity_requirement",
+        "budget_per_person",
+        "extra_services",
+    }
+)
+
+# 矛盾检测判据（T2 反例修复）：user_stated 不是无条件安全——若反馈原话对
+# 该值显式表达了否定/改口（"不吃烧烤了""不要预算限制了""换成……"），继承
+# 反而是错的（该撤回的被继承）。词表覆盖率无语料验证，是启发式兜底，不是
+# 精确解——漏判方向是"保守留旧值"，比原始 bug"该保留的被丢"温和一个量级，
+# 但不是零残余（R2/R3 已诚实记录）。
+_NEGATION_MARKERS: tuple[str, ...] = (
+    "不要", "不吃", "不去", "别", "不用", "算了", "取消", "换成", "改成", "不再",
+)
+
+# 列表/短语字段：值是可读中文短语，可能直接出现在反馈原话里，能做"邻近否定
+# 词"字面检测（同 `_REASSERT_CHECKABLE_SCALAR_FIELDS` 的"数字类标量子串匹配
+# 噪声太大，排除"同一条纪律的镜像——这里反过来，短语类才做检测）。
+_CONTRADICTION_CHECKABLE_LIST_FIELDS: frozenset[str] = frozenset(
+    {"preferred_poi_types", "extra_services"}
+)
+
+
+def _value_contradicted_by_feedback(value: object, feedback: str) -> bool:
+    """反馈原话是否显式否定/改口了这个（中文短语）值本身。
+
+    启发式：值本身出现在反馈里 + 反馈里存在否定词 → 判"很可能是在说不要这个
+    了"。不做真正的邻近窗口/句法分析（成本与本项目 hackathon 节奏不匹配），
+    命中即判——宁可少数误判"没矛盾"（继承没撤回的旧值，方向温和），也不做
+    过度复杂的语义分析。
+    """
+    if not isinstance(value, str) or not value or not feedback:
+        return False
+    if value not in feedback:
+        return False
+    return any(marker in feedback for marker in _NEGATION_MARKERS)
+
+
+def _inherit_missing_keys(
+    original: IntentExtraction,
+    refined_intent_data: dict,
+    feedback_text: str,
+) -> None:
+    """校验前拦 LLM 原始输出 dict：白名单字段键缺失 → 按出处门控 + 矛盾检测
+    从 original 继承（原地修改 `refined_intent_data`）。
+
+    机制（RFC-7386 键存在性语义）：
+    - 键**不在** dict 里 → LLM 忘写 → 按下方门控决定是否继承。
+    - 键**在** dict 里（哪怕值是 `null`/`[]`）→ LLM 显式表态（撤回或改写）
+      → 放行，不干预——这是 null-on-removal 撤回信道的技术基础：撤回时
+      LLM 应输出显式空值而非省略键，两者在 JSON 层面可区分（`in` 检查键
+      存在性，不检查值是否为 None/空）。
+
+    门控规则（T2，含 R4 修正）：
+    - `original` 该字段的出处若为 `user_stated` → 倾向继承，但先过矛盾检测
+      （`_value_contradicted_by_feedback` / budget_per_person 的显式撤回
+      信道）——反馈原话显式否定/撤回该值时不继承，让它落回 Pydantic 默认
+      （或走 `_rule_fallback` 关键词分支重新判断）。
+    - 出处明确记录为 `inferred`/`prior`/`default` → 放行，不继承（本轮 LLM
+      的判断，哪怕键缺失落回默认值，也不该被一个连用户自己都没说过的旧
+      推断值钉死）。
+    - **出处无记录**（`field_provenance` 里没有这个键）时的默认值不能一刀切
+      按"不继承"处理——`_NO_PRIOR_CHANNEL_FIELDS` 集合里的字段（同
+      `agent.intent.parser._apply_provenance_correction` 的既有分类：无
+      persona/memory 先验注入通道、也没有"随手给个默认值"可比对）本来就
+      只有 user_stated 一条产出路径，无记录时按 user_stated 处理（复用
+      parser 侧已拍板的同一条规则，不是新发明）——`explicit_dining_requested`
+      /`preferred_poi_types` 尤其关键：它们**根本不在** `field_provenance`
+      覆盖范围内（schema 字段 docstring 明文排除），生产环境永远不会有
+      provenance 记录，若按"无记录=不继承"处理，会让这两个字段的继承守卫
+      形同虚设（explicit_dining_requested 原专属补丁是无条件继承，不查
+      provenance——收编后的通用守卫如果因为查不到 provenance 就拒绝继承，
+      是行为倒退，不是行为对齐）。其余字段（duration_hours/distance_max_km/
+      social_context，真有 prior/inferred 产出路径）无记录时仍按"未知，
+      不强行继承"处理，与 parser 侧的分野对称。
+
+    列表字段（preferred_poi_types/extra_services）继承的是"没丢失"（0→不变）
+    的下限，不是"正确合并"——用户"再加个看展的"这类追加诉求若 LLM 忘写该键，
+    继承拿到的是旧值本身、不含追加的新元素（决策点 D，C1 的既知天花板，
+    C2 delta 架构才能原生解决，本次不做）。
+    """
+    old_prov = original.field_provenance or {}
+    fb = feedback_text or ""
+
+    for field in _INHERITABLE_FIELDS:
+        if field in refined_intent_data:
+            continue  # 键存在（哪怕值是 null/[]）= LLM 显式表态，不干预
+
+        old_value = getattr(original, field)
+        provenance = old_prov.get(field)
+
+        if provenance is None and field in _NO_PRIOR_CHANNEL_FIELDS:
+            # 无先验注入通道的字段，缺记录按 user_stated 处理（parser 侧
+            # 既有分类的直接复用，见上方 docstring）。
+            provenance = "user_stated"
+
+        if provenance not in _INHERIT_PRIORITY_PROVENANCE:
+            # inferred/prior/default/仍无记录（有先验通道的字段）：不继承，
+            # 放行给 Pydantic 默认值
+            continue
+
+        # user_stated：矛盾检测——反馈原话是否显式否定/撤回了这个值
+        if field in _CONTRADICTION_CHECKABLE_LIST_FIELDS and isinstance(old_value, list):
+            contradicted = any(
+                _value_contradicted_by_feedback(v, fb) for v in old_value
+            )
+            if contradicted:
+                continue  # 判显式撤回意图，不继承，宁可落空让 drift/兜底重新判
+        # 数字/枚举类标量（budget_per_person/duration_hours/distance_max_km/
+        # social_context/start_weekday/capacity_requirement）不做子串否定
+        # 检测（同 `_REASSERT_CHECKABLE_SCALAR_FIELDS` 排除数字标量的纪律：
+        # 假阳性噪声太大）——撤回信道完全依赖 null-on-removal（键存在+值
+        # null=撤回），不依赖否定词表。
+
+        refined_intent_data[field] = old_value
+
+
 def _repair_dictionary_drift(
     refined: IntentExtraction, feedback_text: str
 ) -> IntentExtraction:
@@ -223,7 +432,8 @@ def _repair_dictionary_drift(
     真相源，同一张表也是 `poi_desire_match`/prompt 例词对齐测试的依据）、
     且不在 `DIETARY_TAGS` 封闭词典内（词典内有对应词的走 dietary_constraints
     正常路径，不需要本函数插手）、且尚未出现在 `preferred_poi_types` 里
-    （幂等：parser 首轮已正确填的不重复加，也不覆盖 LLM 这轮自己正确填出的）
+    （幂等：parser 首轮已正确填的不重复加，也不覆盖 LLM 这轮自己正确填出的）、
+    且**反馈原话没有对这个词显式否定/撤回**（见下方"撤回感知"）
     → 自动补进 `preferred_poi_types`。
 
     词表来源刻意复用 `category_vocab.all_canonical_terms()`，不新拍一个
@@ -233,6 +443,18 @@ def _repair_dictionary_drift(
     产出（LLM 或 _rule_fallback 给出的 preferred_poi_types）视为已经正确，
     本函数只补漏，不覆盖——避免在"共享规则"之外再引入一次额外的字段级
     决策权，保持"最小必要介入"（同 refiner prompt 的"字段最小修改原则"）。
+
+    【撤回感知（forge-intent-loss 收敛批发现的联动缺口，2026-07-12）】
+    本函数原始版本对"词出现在反馈原话里"做纯字面匹配，不看这次提及是肯定
+    还是否定——这在 null-on-removal 撤回信道（`_inherit_missing_keys` 教
+    LLM 显式撤回时输出 `preferred_poi_types: []`）落地后会形成一个真实的
+    联动 bug：用户说"不吃烧烤了"，LLM 正确输出显式 `[]`（撤回生效），但
+    "烧烤"这个词仍然字面出现在反馈原话里——本函数不看否定词，会把刚撤回的
+    "烧烤"重新加回来，直接抵消撤回信道的效果。复用 `_inherit_missing_keys`
+    同款的 `_value_contradicted_by_feedback` 否定词检测（同一份判据，不
+    另拍一个近似版本——避免"否定检测"出现第二个真相源，同本函数"词表复用
+    all_canonical_terms()"的既有纪律）：命中"词本身 + 邻近否定词"就跳过
+    该词的补齐，让撤回真正生效。
     """
     fb = feedback_text or ""
     if not fb:
@@ -246,6 +468,8 @@ def _repair_dictionary_drift(
         if term in existing:
             continue  # 幂等：已经填过（parser 首轮或本轮 LLM 已正确产出）不重复加
         if term in fb:
+            if _value_contradicted_by_feedback(term, fb):
+                continue  # 撤回感知：反馈原话否定了这个词，不该被本函数补回来
             to_add.append(term)
             existing.add(term)
 
@@ -450,18 +674,13 @@ def _llm_refine(
         refined_intent_data["raw_input"] = _compose_raw_input(
             original.raw_input, feedback_text
         )
-        # I3 反馈轮存活守卫（四条不变式批 C5a；ADR-0015 决策 4「生成归 LLM、
-        # 验收归代码」）：explicit_dining_requested 键**不存在**（区别于显式
-        # 输出 null/false——改口是合法语义，few-shot 8 教过必须显式输出 false）
-        # → 从 original 继承。refiner 对 intent 是整体替换，不在 LLM 输出里的
-        # 字段会被 Pydantic 默认值（None）静默顶上——用户没在反馈里撤回吃饭
-        # 诉求，字段就不该因为 LLM 忘写而翻转（S5 反馈轮二次丢饭的根因）。
-        # few-shots 全量带该字段是第一道防线，本守卫是第二道；_rule_fallback
-        # 走 model_copy(update=...) 天然继承，无需守卫。
-        if "explicit_dining_requested" not in refined_intent_data:
-            refined_intent_data["explicit_dining_requested"] = (
-                original.explicit_dining_requested
-            )
+        # C1 通用键缺失继承守卫（forge-intent-loss 收敛，2026-07-12）：收编原
+        # explicit_dining_requested 专属补丁（四条不变式批 C5a），推广到 9 个
+        # 白名单字段（见 `_inherit_missing_keys` docstring）。必须在
+        # `model_validate` 之前跑——它直接操作 LLM 原始输出 dict 的键存在性，
+        # 校验后的 IntentExtraction 对象已经看不到"键缺不缺"这个信号（Pydantic
+        # 会把缺键字段静默填成默认值，届时无法区分"忘写"与"默认值恰好如此"）。
+        _inherit_missing_keys(original, refined_intent_data, feedback_text)
 
     refined_intent = IntentExtraction.model_validate(refined_intent_data)
 
