@@ -357,7 +357,7 @@ docstring）：
 | 方法 + 路径 | 返回 | 备注 |
 |---|---|---|
 | GET /personas | `{"personas": [Persona.model_dump(), ...]}` | `schemas/persona.py::Persona`；5 个 mock 身份档案 |
-| GET /preferences/{user_id} | **纯模板视图**（`compute_priors(user_id)`，无会话上下文故不含累积——6092223 起累积按 session_id 键控，端点拿不到会话键；前端偏好面板的累积区将显示为空，生产迁移换账号键后自动恢复合并视图） | persona 默认值，给前端偏好面板 |
+| GET /preferences/{user_id} | 支持可选 query 参数 `session_id`（`api/preferences.py:42-62`）：**缺省不传**时 `compute_priors(user_id, None)` 返回**纯模板视图**（memory 区恒为空计数，即诚实展示"这个画像模板长什么样"，是无会话上下文调用方的兼容路径，非本端点主用法）；**传入 `session_id`** 时返回**模板 + 累积（memory + recent_trips）合并视图**。前端 `store.ts::refreshPreferences` 会传当前 `sessionId`（含房间模式的房间会话键），故正常前端调用路径走的是合并视图，累积区不会显示为空 | persona 默认值 + 会话累积，给前端偏好面板 |
 | POST /preferences/{user_id}/reset | `{"status": "ok", "memory": {...}}` | 清空该 user_id 键下的 memory（会话键累积不受影响；演示清场语义弱化,见端点 docstring） |
 
 `Persona` 核心字段：`user_id` / `label` / `icon` / `notes` / `home_location` /

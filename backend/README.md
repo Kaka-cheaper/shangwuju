@@ -87,16 +87,15 @@ LLM_MODEL=deepseek-chat
 
 ## 3. 对外 API
 
-所有端点在 `main.py` 接入，按业务域分布在 8 个 router 模块（`api/*.py`）。SSE 端点返回 `text/event-stream`，WS 端点用 WebSocket 协议。
+所有端点在 `main.py` 接入，按业务域分布在 9 个 router 模块（`api/*.py`）。SSE 端点返回 `text/event-stream`，WS 端点用 WebSocket 协议。
 
 ### 业务核心：对话（`api/chat.py`）
 
 | 方法 | 路径 | 类型 | 作用 |
 |------|------|------|------|
-| POST | `/chat/turn` | **SSE** | **主入口（推荐）**：一句话 → 规划事件流；自动识别「新需求」vs「对已有方案的反馈」，跨 turn 持久上下文 |
-| POST | `/chat/confirm` | **SSE** | 用户确认方案 → 派发执行类工具（预约餐厅 / 买票 / 加购 / 生成转发文案），支持白名单防 hallucination |
-| POST | `/chat/refine` | **SSE** | 独立反馈：给定 session 的反馈文本 → refiner 合并约束 → 重新规划 |
-| POST | `/chat/stream` | **SSE** | 旧版主入口：一句话 → SSE 流式输出（保留供内部 e2e 测试；新接入用 `/chat/turn`） |
+| POST | `/chat/turn` | **SSE** | **唯一入口**：一句话 → 规划事件流；自动识别「新需求」vs「对已有方案的反馈」，跨 turn 持久上下文 |
+| POST | `/chat/confirm` | **SSE** | 用户确认方案 → 派发执行类工具（预约餐厅 / 买票 / 加购 / 生成转发文案） |
+| POST | `/chat/adjust` | **SSE** | 单人节点定向调整 / 具名备选（ADR-0013 F-4），不经过 LLM 路由，点击即生效 |
 
 ### 协作房间（`api/collab.py`）
 
@@ -183,19 +182,21 @@ START
 
 - `agent/intent/`：意图理解层——`router.py`（输入域分类）、`parser.py`（意图抽取）、`refiner.py`（反馈合并）、`narrator.py`（文案生成）。
 - `agent/planning/`：规划算法层——`planners/`（rule / ILS / LLM-first 等多种规划器）、`critic/`（方案校验规则）、`blueprint/`（行程蓝图）、`commute/`（通勤可达性）、`weights_llm.py`（权重）、`memory_writer.py`。
-- `agent/runtime/`：运行时层——`react_agent.py`（Pydantic AI ReAct Agent）、`orchestrator.py`（turn 路由与 ReAct 流式入口）、`conversation.py`（会话存储抽象，含 InMemory / Redis 两套实现）、`tool_provider.py`（数据源抽象）。
+- `agent/runtime/`：仅剩运行时工具适配层——`tools/search_adapter.py`；旧 ReAct 运行时（`react_agent.py` / `orchestrator.py` / `conversation.py` / `tool_provider.py`）已随 ADR-0012 决策 5 一并删除。
 - `agent/graph/`：LangGraph 编排层——`build.py`（拓扑）、`nodes/`（各节点实现）、`sse_adapter.py`（graph 事件 → SSE）、`state.py`（AgentState）。
 - `agent/core/`：基础设施——`llm_client.py`（OpenAI 兼容 LLM wrapper）、`llm_client_stub.py`（离线 stub）、`hedged_client.py`（主备双发治尾延迟）、`observability_init.py`（Logfire）、`injection_detector.py` / `prompt_guard.py`（防注入）。
 
-### 三层 fallback（demo 永不翻车）
+### 唯一路径：V3 LangGraph（ADR-0012 决策 5 退役旧双路径后）
 
-`/chat/turn` 按优先级尝试三条主路径，任一层不可用自动降级：
+`/chat/turn` **恒定走** 上述 StateGraph 全流程，无条件分支——graph build/import 失败直接同步返回
+`HTTP 500 langgraph_unavailable`，不存在任何 fallback。历史上曾有的 V1 自写规则规划 /
+V2 ReAct 单一 Agent（`USE_LANGGRAPH` / `USE_REACT_AGENT` 开关）、以及 V1 时代的
+`POST /chat/stream` + `POST /chat/refine` 两个端点，均已随 2026-07-02 的 ADR-0012
+决策 5 整体删除退役，这两个环境变量在当前代码里不再被读取。
 
-1. **LangGraph 主架构**（`USE_LANGGRAPH=1` 启用）：上述 StateGraph 全流程。
-2. **ReAct 单一 Agent**（`USE_REACT_AGENT=1`，默认 ON；LangGraph 关闭或不可用时走）：基于 Pydantic AI，让 LLM 看到全部 9 个工具自主决策，critic 兜底用 `ModelRetry` 让 LLM 自纠错。
-3. **rule planner**（最终兜底）：规则化 ReAct 主循环，纯算法零 LLM 调用，保证 demo 稳定。
-
-`PLANNER_MODE` 控制规划范式（`rule` 规则化 / `llm` LLM Function Calling），可经 HTTP header `X-Planner-Mode` 覆盖。
+`PLANNER_MODE` 控制的是 V3 图内 planner 节点的规划范式（`rule` 规则化 / `llm` LLM Function
+Calling），可经 HTTP header `X-Planner-Mode` 覆盖——这是唯一还在生效的模式开关，与已退役的
+架构层 fallback 开关是两回事。
 
 ---
 
@@ -223,12 +224,15 @@ START
 
 | 文件 | 规模 |
 |------|------|
-| `pois.json` | 51 个活动地点 |
-| `restaurants.json` | 51 家餐厅 |
-| `routes.json` | 288 条预算路线 |
+| `pois.json` | 95 个活动地点 |
+| `restaurants.json` | 120 家餐厅 |
+| `routes.json` | 215 条预算路线 |
 | `personas.json` | 5 个 persona 画像 |
 | `user_profiles.json` | 6 个用户画像 |
 | `extra_services.json` | 5 种附加服务 |
+
+评论共 430 条，内嵌在 POI/餐厅各条记录的 `.reviews` 字段里逐条求和得出，没有独立的
+`reviews.json` 文件（参见 `api/health.py::ready` 的 `mock_data` 检查项 docstring）。
 
 加载入口在 `data/loader.py`（带缓存）；用户偏好（persona prior + 累积 memory）在 `data/memory_store.py`。可用 `SHANGWUJU_MOCK_DIR` 覆盖 mock 目录。
 
@@ -257,8 +261,6 @@ START
 | `LLM_PROVIDER` | （自动推断） | 设 `stub` 走离线 fixture，不调真 LLM |
 | `AMAP_REST_KEY` | — | 高德服务端 REST API key（地理编码 / 路线） |
 | `AMAP_JS_CODE` | — | 高德 JS API 安全密钥，经 `/_AMapService` 代理注入 |
-| `USE_LANGGRAPH` | `0` | `1` 时 `/chat/turn` 优先走 LangGraph 主架构 |
-| `USE_REACT_AGENT` | `1` | LangGraph 关闭时是否走 ReAct 单一 Agent |
 | `PLANNER_MODE` | `rule` | 规划范式：`rule` / `llm`（可被 `X-Planner-Mode` header 覆盖） |
 | `DATA_PROVIDER` | `mock` | 行程数据源：`mock` / `gaode` / `dianping` |
 | `NEARBY_PROVIDER` | `mock` | 附近候选源：`mock` / `gaode` / `meituan` |
@@ -275,13 +277,12 @@ START
 ### Redis 持久化（`SESSION_STORE=redis`）
 
 默认 `memory`：单进程内存、零外部依赖、进程重启即清空——本地裸机开发 / 单实例 demo 足够。
-设 `SESSION_STORE=redis`（配合 `REDIS_URL`）后，三类跨 turn 状态分别外置到 Redis：
+设 `SESSION_STORE=redis`（配合 `REDIS_URL`）后，两类跨 turn 状态分别外置到 Redis：
 
 | 状态 | 落地方式 | Redis 要求 |
 |------|----------|-----------|
-| 跨 turn 对话上下文（LangGraph 主路径，`USE_LANGGRAPH=1`） | `AsyncRedisSaver` checkpointer（`thread_id=session_id`，启动时 `warm_up_graph()` 建索引） | **需 Redis Stack（RediSearch ≥ 2.10）** |
-| 会话快照（confirm / refine / 协作初始行程取用） | `api/_session_store.py` 写时镜像 + 启动 `warm_from_redis()` 预热 | 普通 Redis 即可 |
-| 对话仓库（ReAct 旧路径 `USE_REACT_AGENT=1`） | `RedisRepository`（`SET`/`GET` JSON envelope，TTL 24h，confirm 续期 7d） | 普通 Redis 即可 |
+| 跨 turn 对话上下文（唯一路径：LangGraph） | `AsyncRedisSaver` checkpointer（`thread_id=session_id`，启动时 `warm_up_graph()` 建索引） | **需 Redis Stack（RediSearch ≥ 2.10）** |
+| 会话快照（confirm / adjust / 协作初始行程取用） | `api/_session_store.py` 写时镜像 + 启动 `warm_from_redis()` 预热 | 普通 Redis 即可 |
 
 - **checkpointer 需 Redis Stack**（含 RediSearch 模块）。普通 `redis:7-alpine` 上 `asetup()` 会失败，此时自动**优雅降级**回 `InMemorySaver`（打 warning、不影响功能，但对话上下文不落 Redis）；要完整持久化用 `redis/redis-stack-server` 镜像。
 - **协作房间是单实例**：`collab/room.py` 的 `Room` 含 WebSocket 连接 / `asyncio.Task` 等进程内对象，不外置；多实例实时协作需额外 pub/sub 架构（不在当前范围）。
@@ -304,9 +305,9 @@ docker compose -f docker-compose.yml -f docker-compose.redis.yml up --build
 uv run pytest -q
 ```
 
-`tests/` 当前约 **65 个测试文件、620+ 个 test 函数**，覆盖 schema 契约、各 Tool、规划算法、critic、SSE 序列、会话存储、协作房间、Agent 各路径等。
+`tests/` 当前 **154 个测试文件、1876 条 test 用例**（`pytest --collect-only` 实测口径），覆盖 schema 契约、各 Tool、规划算法、critic、SSE 序列、会话存储、协作房间、Agent 各路径等。
 
-`scripts/` 下还有一批端到端 verify 脚本（如 `verify_schemas.py`、`verify_sse.py`、`verify_langgraph.py`、`verify_react_agent.py`、`verify_router.py`、`verify_planning.py`、`verify_tool_provider.py`、`verify_collab.py` 等），可单独运行验证某条链路：
+`scripts/` 下还有一批端到端 verify 脚本（如 `verify_schemas.py`、`verify_sse.py`、`verify_langgraph.py`、`verify_router.py`、`verify_planning.py`、`verify_collab.py` 等；`verify_react_agent.py` / `verify_tool_provider.py` 已随旧 ReAct 运行时一并删除），可单独运行验证某条链路：
 
 ```bash
 uv run python -m scripts.verify_schemas
@@ -319,13 +320,14 @@ uv run python -m scripts.verify_sse
 
 ```
 backend/
-├── main.py                # FastAPI 入口：实例化 app + 接入 8 个 router + Logfire 探针
+├── main.py                # FastAPI 入口：实例化 app + 接入 9 个 router + Logfire 探针
 ├── api_contract.md        # HTTP + SSE 接口契约（前后端共读权威）
 ├── pyproject.toml         # uv 包管理 + 依赖分组（core / runtime / dev）
 ├── .env.example           # 环境变量完整说明
 │
-├── api/                   # HTTP/SSE/WS 层：8 个 router 模块
-│   ├── chat.py            # /chat/turn|confirm|refine|stream（SSE）
+├── api/                   # HTTP/SSE/WS 层：9 个 router 模块
+│   ├── chat.py            # /chat/turn|confirm（SSE）
+│   ├── adjust.py          # /chat/adjust（SSE，ADR-0013 F-4 单人节点调整）
 │   ├── collab.py          # /room/* + WS /ws/{room_id}
 │   ├── scenarios.py       # /scenarios
 │   ├── preferences.py     # /personas, /preferences/*
@@ -355,5 +357,5 @@ backend/
 │
 ├── scripts/               # 端到端 verify 脚本 + mock 数据生成/迁移工具
 │
-└── tests/                 # pytest（约 65 文件 / 620+ 用例）
+└── tests/                 # pytest（154 文件 / 1876 用例，--collect-only 实测）
 ```
