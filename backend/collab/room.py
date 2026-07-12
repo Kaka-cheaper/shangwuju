@@ -1060,7 +1060,13 @@ class RoomManager:
     ) -> None:
         """广播消息给房间内所有在线成员。"""
         disconnected: list[str] = []
-        for uid, member in room.members.items():
+        # 遍历快照（并发安全，2026-07-12 压测实锤）：循环体内 `await ws.send_json`
+        # 是事件循环让出点，其间若有并发 join/leave 改动 room.members，直接遍历活
+        # dict 会抛 RuntimeError: dictionary changed size during iteration，整个 WS
+        # 处理器崩、连接 1006 掉线（路演"多人同时扫码进同一房"的真实场景）。快照
+        # 是一致的时点视图：漏掉的刚加入成员会收到后续广播，含进的刚离开成员
+        # send 失败走下面 disconnected 清理，均无害。
+        for uid, member in list(room.members.items()):
             if uid == exclude:
                 continue
             if member.ws is None:
