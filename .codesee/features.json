@@ -3485,7 +3485,7 @@
           "id": "send_snapshot",
           "name": "推全量快照",
           "role": "output",
-          "note": "新成员加入立即拿到 members + constraints + votes + itinerary + planning_events 历史",
+          "note": "新成员加入立即拿到 members + constraints + votes + itinerary + planning_events 历史；chat_state 同步发起者 currentUserId / personas / preferences，让协作者沿用发起者人物画像与头像",
           "refs": [
             {
               "file": "backend/collab/room.py",
@@ -3493,6 +3493,12 @@
                 165,
                 185
               ]
+            },
+            {
+              "file": "frontend/lib/collab-store.ts"
+            },
+            {
+              "file": "frontend/lib/collab-store.test.ts"
             }
           ]
         },
@@ -4090,13 +4096,24 @@
         {
           "id": "render_orders",
           "name": "渲染预留清单",
-          "role": "output"
+          "role": "output",
+          "note": "确认后在 Web 端独立的「已为您预留」卡片中展示订单，不再嵌入主行程方案卡；移动端保留原渲染。",
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx"
+            }
+          ]
         },
         {
           "id": "render_share",
           "name": "渲染转发文案",
           "role": "output",
-          "note": "一键复制；clipboard 不可用时 textarea 兜底"
+          "note": "确认后在 Web 端独立预留卡片中展示大圆角转发文案卡；支持一键复制，clipboard 不可用时 textarea 兜底。",
+          "refs": [
+            {
+              "file": "frontend/components/ItineraryCard.tsx"
+            }
+          ]
         },
         {
           "id": "action_buttons",
@@ -4549,13 +4566,13 @@
           "id": "draw_route",
           "name": "绘制驾车路线",
           "role": "compute",
-          "note": "AMap.Driving 真实路径；失败 fallback 直连 polyline",
+          "note": "AMap.Driving 真实路径；成功后提取道路坐标绘制统一描边实线并显示行进方向箭头，失败 fallback 直连 polyline 也沿用同款样式",
           "refs": [
             {
               "file": "frontend/components/MapOverlay.tsx",
               "lines": [
-                335,
-                410
+                631,
+                811
               ]
             }
           ]
@@ -5056,7 +5073,7 @@
           "id": "render_plan",
           "name": "展示移动行程卡",
           "role": "output",
-          "note": "用紧凑时间线展示通勤、活动、用餐和终点，并保留确认、反馈和取消动作。",
+          "note": "用紧凑时间线展示通勤、活动、用餐和终点；底部保留确认、反馈和取消动作，更多工具加号固定在右侧列，确认后不随按钮消失而左移。",
           "refs": [
             {
               "file": "frontend/components/mobile/MobileHomeView.tsx"

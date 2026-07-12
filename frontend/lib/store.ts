@@ -564,6 +564,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = (await resp.json()) as UserPreferenceView;
+      const latest = get();
+      const latestSessionId = sessionIdOverride ?? latest.sessionId;
+      if (latest.currentUserId !== userId || latestSessionId !== sessionId) {
+        return;
+      }
       set({ preferences: data });
     } catch {
       // 偏好失败不阻塞主流程

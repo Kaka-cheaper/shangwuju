@@ -929,6 +929,15 @@ describe("buildSpineNodes — 折叠脊柱节点投影", () => {
     return { id: `${kind}-1`, kind, text: "占位", seq: 0, amber };
   }
 
+  it("①理解拍：没有专属计数时显示 0", () => {
+    const nodes = buildSpineNodes([beat("understanding")], {
+      searchTotalCount: 0,
+      midNodeCount: 0,
+      checksRun: null,
+    });
+    expect(nodes[0].count).toBe(0);
+  });
+
   it("②检索拍：有真实召回总数时携带数字", () => {
     const nodes = buildSpineNodes([beat("search")], {
       searchTotalCount: 50,
@@ -938,13 +947,13 @@ describe("buildSpineNodes — 折叠脊柱节点投影", () => {
     expect(nodes[0]).toEqual({ id: "search-1", kind: "search", count: 50, amber: false });
   });
 
-  it("②检索拍：召回总数为 0 时不编数字（count=null，只显示图标）", () => {
+  it("②检索拍：召回总数为 0 时显示 0", () => {
     const nodes = buildSpineNodes([beat("search")], {
       searchTotalCount: 0,
       midNodeCount: 0,
       checksRun: null,
     });
-    expect(nodes[0].count).toBeNull();
+    expect(nodes[0].count).toBe(0);
   });
 
   it("③规划拍：携带最终方案活动节点数", () => {
@@ -954,6 +963,15 @@ describe("buildSpineNodes — 折叠脊柱节点投影", () => {
       checksRun: null,
     });
     expect(nodes[0].count).toBe(3);
+  });
+
+  it("③规划拍：活动节点数为 0 时显示 0", () => {
+    const nodes = buildSpineNodes([beat("planning")], {
+      searchTotalCount: 0,
+      midNodeCount: 0,
+      checksRun: null,
+    });
+    expect(nodes[0].count).toBe(0);
   });
 
   it("⑦定稿拍：携带质检收据数字（无则 null）", () => {
@@ -981,13 +999,13 @@ describe("buildSpineNodes — 折叠脊柱节点投影", () => {
     expect(nodes.every((n) => n.count === null)).toBe(true);
   });
 
-  it("①理解拍：无可靠数字来源，count 恒 null（不臆造）", () => {
+  it("①理解拍：折叠态恒显示 0", () => {
     const nodes = buildSpineNodes([beat("understanding")], {
       searchTotalCount: 99,
       midNodeCount: 99,
       checksRun: 99,
     });
-    expect(nodes[0].count).toBeNull();
+    expect(nodes[0].count).toBe(0);
   });
 
   it("同一 kind 出现多次（如④⑤各命中 2 轮）逐条投影，不合并", () => {

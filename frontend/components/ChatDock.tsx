@@ -29,7 +29,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, MessageCircle } from "lucide-react";
 
 import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
@@ -321,9 +321,9 @@ export default function ChatDock({ activated = true }: { activated?: boolean }) 
               aria-label="展开历史消息"
               title="展开历史消息"
             >
-              <Icons.spark
-                className="absolute left-2 top-2 h-[21px] w-[21px]"
-                strokeWidth={2.7}
+              <MessageCircle
+                className="absolute left-2 top-2 h-[22px] w-[22px]"
+                strokeWidth={2.35}
               />
               {totalCount > 0 && (
                 <span className="mono absolute bottom-1.5 right-2 text-[13px] font-black leading-none tabular-nums">
