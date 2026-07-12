@@ -111,15 +111,17 @@ export default function HomeView() {
       // 后续刷新：保持当前 session 在 localStorage 里
       upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
-    if (!personaResetOnLoadRef.current) {
+    if (!collabMode && !personaResetOnLoadRef.current) {
       personaResetOnLoadRef.current = true;
       clearUserIdCookie();
       useChatStore.setState({ currentUserId: "demo_user", preferences: null });
     }
     loadScenarios();
     loadPersonas();
-    refreshPreferences();
-  }, [loadScenarios, loadPersonas, refreshPreferences, sessionId]);
+    if (!collabMode) {
+      refreshPreferences();
+    }
+  }, [collabMode, loadScenarios, loadPersonas, refreshPreferences, sessionId]);
 
   // 滚动下沉：用 rAF 节流，过 12px 阈值切换
   useEffect(() => {

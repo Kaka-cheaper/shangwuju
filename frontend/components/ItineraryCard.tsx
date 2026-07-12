@@ -938,29 +938,18 @@ export default function ItineraryCard() {
         <MapOverlay visibleCount={visibleCount} />
       </div>
 
-      {/* 已为你预留：预约卡重设计（UI 修复批·纯前端）——多卡横向排一行，
-          暖金描边+中性文字（去掉游离于调色板外的 emerald 绿），字段全走
-          前端 join：时段/花费从时间线本就在渲染的 nodes/node_detail 反查，
-          不是新增数据源。见下方 OrderCards 组件 docstring。 */}
-      {hasOrders && (
-        <div className="px-4 pb-3">
-          <div className="section-title mb-1.5">已为你预留</div>
-          <OrderCards orders={itinerary.orders} nodes={itinerary.nodes} nodeDetail={nodeDetail} />
-        </div>
-      )}
-
-      {/* 转发文案 + 常驻工具行——"带走你的安排"分享簇（UI 修复批拍板方案A）：
-          海报/TTS 解除与 hasOrders 的连坐，归入这个簇，确认前后都能用。
-          见下方 ShareCluster 组件 docstring。 */}
-      {(itinerary.share_message || (hasOrders && !cancelled)) && (
-        <div className="px-4 pb-3">
-          <ShareCluster shareMessage={itinerary.share_message} showTools={hasOrders && !cancelled} />
-        </div>
-      )}
-
       <div className="h-4" aria-hidden />
         </div>
       </div>
+      {(hasOrders || itinerary.share_message) && (
+        <ReservationSummaryCard
+          orders={itinerary.orders}
+          nodes={itinerary.nodes}
+          nodeDetail={nodeDetail}
+          shareMessage={itinerary.share_message}
+          showTools={hasOrders && !cancelled}
+        />
+      )}
       {!hasOrders && !cancelled && (
         <PlanActionBar
           intent={intent}
@@ -975,6 +964,45 @@ export default function ItineraryCard() {
         />
       )}
     </div>
+  );
+}
+
+// ============================================================
+// ReservationSummaryCard —— Web 端确认后独立卡片
+//
+// 确认后的订单与转发文案不再塞回主行程卡，避免用户确认后自动定位到
+// 行程方案内部的某个尾部区域。单人/多人协作 Web 端都复用 ItineraryCard，
+// 因此这里一处调整同时覆盖两种模式；移动端有自己的 MobileHomeView，不动。
+// ============================================================
+
+function ReservationSummaryCard({
+  orders,
+  nodes,
+  nodeDetail,
+  shareMessage,
+  showTools,
+}: {
+  orders: Itinerary["orders"];
+  nodes: ActivityNode[];
+  nodeDetail: NodeDetailMap | null;
+  shareMessage?: string | null;
+  showTools: boolean;
+}) {
+  return (
+    <section className="card overflow-hidden rounded-[30px] border border-black/[0.06] bg-white px-5 py-4 shadow-[0_18px_46px_-38px_rgba(17,24,39,0.55)] md:px-6 md:py-5">
+      <div className="mb-4 flex items-center gap-2">
+        <Icons.success className="h-5 w-5 text-[#9a5b00]" strokeWidth={2.2} />
+        <h2 className="text-lg font-black tracking-tight text-ink-900">已为您预留</h2>
+      </div>
+      <div className="space-y-4">
+        {orders.length > 0 && (
+          <OrderCards orders={orders} nodes={nodes} nodeDetail={nodeDetail} />
+        )}
+        {(shareMessage || showTools) && (
+          <ShareCluster shareMessage={shareMessage} showTools={showTools} />
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1030,7 +1058,7 @@ function OrderCard({
 
   return (
     <li
-      className="relative overflow-hidden rounded-2xl border border-[#e6bc00]/25 bg-white px-3.5 py-2.5 animate-fade-in-up"
+      className="relative overflow-hidden rounded-[24px] border border-[#e6bc00]/30 bg-white px-4 py-3.5 animate-fade-in-up"
       style={{
         boxShadow: "0 1px 2px rgba(0,0,0,.03), 0 6px 20px rgba(180,140,0,.05)",
       }}
@@ -1042,13 +1070,13 @@ function OrderCard({
         className="absolute inset-y-2 left-0 w-[3px] rounded-full"
         style={{ background: "rgba(255,201,0,.35)" }}
       />
-      <div className="flex items-start justify-between gap-3 pl-2">
+      <div className="flex items-start justify-between gap-4 pl-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[15px] font-semibold tracking-tight text-ink-900">
-            <Icons.success className="h-3.5 w-3.5 shrink-0 text-[#9a5b00]" strokeWidth={2.2} />
+          <div className="flex items-center gap-1.5 text-base font-bold tracking-tight text-ink-900">
+            <Icons.success className="h-4 w-4 shrink-0 text-[#9a5b00]" strokeWidth={2.2} />
             <span className="truncate">{order.target_name}</span>
           </div>
-          <div className="mt-0.5 text-xs text-ink-500">
+          <div className="mt-1 text-sm font-medium text-ink-500">
             {order.kind}
             {timeRange && <span> · {timeRange}</span>}
             {countText && <span> · {countText}</span>}
@@ -1056,8 +1084,8 @@ function OrderCard({
         </div>
         {priceText && (
           <div className="shrink-0 text-right">
-            <div className="mono text-lg font-bold leading-none text-ink-900">{priceText}</div>
-            <div className="mt-1 text-[11px] text-ink-400">预估花费</div>
+            <div className="mono text-xl font-bold leading-none text-ink-900">{priceText}</div>
+            <div className="mt-1 text-xs font-medium text-ink-400">预估花费</div>
           </div>
         )}
       </div>
@@ -1110,24 +1138,24 @@ function ShareCluster({
   showTools: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {shareMessage && <ShareMessage text={shareMessage} />}
       {showTools && (
         <div>
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <Icons.share className="h-3.5 w-3.5 text-ink-500" strokeWidth={2} />
-            <span className="text-xs font-medium tracking-tight text-ink-800">
+          <div className="mb-2 flex items-center gap-2">
+            <Icons.share className="h-4 w-4 text-ink-500" strokeWidth={2} />
+            <span className="text-base font-bold tracking-tight text-ink-900">
               带走你的安排
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <TtsPlayer
               compact
-              className="h-10 rounded-full border border-ink-300 bg-white px-3 text-sm font-semibold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
+              className="h-12 rounded-full border border-ink-300 bg-white px-4 text-base font-bold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
             />
             <PosterGenerator
               compact
-              className="h-10 rounded-full border border-ink-300 bg-white px-3 text-sm font-semibold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
+              className="h-12 rounded-full border border-ink-300 bg-white px-4 text-base font-bold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
             />
           </div>
         </div>
@@ -1161,26 +1189,26 @@ function ShareMessage({ text }: { text: string }) {
 
   return (
     <div
-      className="rounded-md border border-black/[0.08] p-3 backdrop-blur-sm"
+      className="rounded-[24px] border border-black/[0.06] bg-white px-4 py-4 shadow-[0_12px_34px_-28px_rgba(17,24,39,0.45)] backdrop-blur-sm md:px-5"
       style={{
         background:
-          "linear-gradient(135deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.008) 100%)",
+          "linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(255,253,245,0.82) 100%)",
       }}
     >
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1.5">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
           <Icons.share
-            className="w-3.5 h-3.5 text-ink-500"
+            className="h-4 w-4 text-ink-500"
             strokeWidth={2}
           />
-          <span className="text-xs font-medium text-ink-800 tracking-tight">
+          <span className="text-base font-bold tracking-tight text-ink-900">
             转发文案
           </span>
         </div>
         <button
           onClick={copy}
           className={cn(
-            "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors",
+            "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold transition-colors",
             copied
               ? "bg-accent-500 text-white"
               : "bg-black/[0.04] text-ink-700 border border-black/[0.08] hover:bg-black/[0.06] hover:text-ink-900",
@@ -1188,18 +1216,18 @@ function ShareMessage({ text }: { text: string }) {
         >
           {copied ? (
             <>
-              <Icons.success className="w-3 h-3" strokeWidth={2.5} />
+              <Icons.success className="h-4 w-4" strokeWidth={2.5} />
               <span>已复制</span>
             </>
           ) : (
             <>
-              <Icons.copy className="w-3 h-3" strokeWidth={2} />
+              <Icons.copy className="h-4 w-4" strokeWidth={2} />
               <span>复制</span>
             </>
           )}
         </button>
       </div>
-      <div className="text-sm leading-relaxed text-ink-800 whitespace-pre-wrap tracking-tight">
+      <div className="whitespace-pre-wrap text-base leading-7 tracking-tight text-ink-800">
         {text}
       </div>
     </div>

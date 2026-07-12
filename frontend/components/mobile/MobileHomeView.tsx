@@ -79,6 +79,7 @@ export default function MobileHomeView() {
   const previousItinerary = useChatStore((s) => s.previousItinerary);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const startNewSession = useChatStore((s) => s.startNewSession);
+  const collabMode = useCollabStore((s) => s.collabMode);
   const roomId = useCollabStore((s) => s.roomId);
 
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -104,15 +105,17 @@ export default function MobileHomeView() {
     } else {
       upsertSession({ id: sessionId, lastMessageAt: Date.now() });
     }
-    if (!personaResetOnLoadRef.current) {
+    if (!collabMode && !personaResetOnLoadRef.current) {
       personaResetOnLoadRef.current = true;
       clearUserIdCookie();
       useChatStore.setState({ currentUserId: "demo_user", preferences: null });
     }
     loadScenarios();
     loadPersonas();
-    refreshPreferences();
-  }, [loadScenarios, loadPersonas, refreshPreferences, sessionId]);
+    if (!collabMode) {
+      refreshPreferences();
+    }
+  }, [collabMode, loadScenarios, loadPersonas, refreshPreferences, sessionId]);
 
   return (
     <div className="min-h-screen bg-[#fffdf6] text-ink-900">
@@ -365,18 +368,14 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
   return (
     <section
       className={cn(
-        "relative overflow-hidden rounded-[28px] border border-[#FFD100]/[0.34] bg-white/[0.9]",
-        "shadow-[0_24px_64px_-46px_rgba(17,24,39,0.72),inset_0_1px_0_rgba(255,255,255,0.92)] backdrop-blur-2xl",
+        "relative overflow-hidden rounded-[28px] border border-black/[0.06] bg-white",
+        "shadow-[0_20px_56px_-44px_rgba(17,24,39,0.62),0_1px_3px_rgba(0,0,0,0.04)] backdrop-blur-2xl",
         compact ? "px-3.5 py-3.5" : "px-4 py-4",
       )}
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-[#FFD100]/[0.13] blur-2xl"
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute left-8 top-0 h-px w-32 bg-gradient-to-r from-transparent via-[#FFD100]/[0.55] to-transparent"
+        className="pointer-events-none absolute left-8 top-0 h-px w-32 bg-gradient-to-r from-transparent via-[#FFD100]/[0.32] to-transparent"
       />
       <div className="relative z-10 mb-3 flex items-end justify-between gap-3">
         <div>
@@ -406,8 +405,9 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               disabled={streaming}
               onClick={() => sendScenario(scenario.input, scenario.id)}
               className={cn(
-                "snap-start rounded-[22px] border border-[#FFD100]/[0.36] bg-gradient-to-br from-white via-white to-[#fff8d8]/70 text-center",
-                "shadow-[0_14px_30px_-24px_rgba(17,24,39,0.72),inset_0_1px_0_rgba(255,255,255,0.96)] transition active:scale-[0.98]",
+                "snap-start rounded-[22px] border-2 border-[#FFD100]/70 bg-white text-center",
+                "shadow-none transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out active:scale-[0.98]",
+                "hover:border-[#e6bc00] hover:bg-[#fffdf2] hover:shadow-sm",
                 "disabled:cursor-not-allowed disabled:opacity-55",
                 compact
                   ? "flex min-h-[62px] min-w-[116px] flex-col items-center justify-center gap-1.5 px-2.5 py-2"
@@ -416,10 +416,10 @@ function MobileScenarioRail({ compact }: { compact: boolean }) {
               title={scenario.input}
             >
               <ScenarioIcon
-                className={cn("text-amber-600", compact ? "h-[18px] w-[18px]" : "h-6 w-6")}
-                strokeWidth={2}
+                className={cn("text-ink-600", compact ? "h-[18px] w-[18px]" : "h-6 w-6")}
+                strokeWidth={1.75}
               />
-              <span className={cn("block font-semibold leading-tight tracking-tight text-ink-900", compact ? "text-sm" : "text-base")}>
+              <span className={cn("block font-semibold leading-tight tracking-tight text-ink-700", compact ? "text-sm" : "text-base")}>
                 {scenario.title}
               </span>
             </button>
@@ -1830,11 +1830,11 @@ function MobileActionRail() {
           两者并排常驻——不再共用「+」抽屉承载取消。「Agent思考链路」触发
           按钮随三个遗留思考面板一起删除（单思考面已收口到「AI 幕后」信任
           带，这里不再需要入口）。 */}
-      <div className="pointer-events-auto mx-auto flex max-w-[480px] items-center gap-2">
+      <div className="pointer-events-auto mx-auto grid max-w-[480px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-2">
         {itinerary && !hasOrders && !cancelled && (
           <div
             className={cn(
-              "flex min-h-11 min-w-0 flex-1 overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition",
+              "col-start-1 flex min-h-11 min-w-0 overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition",
               !canConfirm && "opacity-60",
             )}
           >
@@ -1871,7 +1871,7 @@ function MobileActionRail() {
         {itinerary && !hasOrders && !cancelled && (
           <button
             type="button"
-            className="min-h-11 min-w-0 flex-1 rounded-full border border-red-500/15 bg-white/[0.72] px-2 text-sm font-semibold text-red-500 shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400"
+            className="col-start-2 min-h-11 min-w-0 rounded-full border border-red-500/15 bg-white/[0.72] px-2 text-sm font-semibold text-red-500 shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400"
             disabled={streaming}
             onClick={() => {
               setExpanded(false);
@@ -1894,7 +1894,7 @@ function MobileActionRail() {
           <button
             type="button"
             className={cn(
-              "grid h-11 w-11 shrink-0 place-items-center rounded-full border text-sm font-semibold shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400",
+              "col-start-3 grid h-11 w-11 shrink-0 place-items-center rounded-full border text-sm font-semibold shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400",
               expanded
                 ? "border-accent-600/45 bg-accent-500 text-white"
                 : "border-white/[0.74] bg-white/[0.72] text-ink-700",

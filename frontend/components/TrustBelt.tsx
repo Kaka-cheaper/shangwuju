@@ -60,6 +60,8 @@ import {
   Bookmark,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   MapPin,
   MessageCircle,
   RefreshCw,
@@ -147,7 +149,18 @@ type SpinePhase = "live" | "collapsing" | "spine" | "expanded";
 const SPINE_COLLAPSE_DELAY_MS = 1000;
 const SPINE_COLLAPSE_TRANSITION_MS = 350;
 
-/** 拍种 → 脊柱图标（中性墨色图标，amber 由外层容器上色，不靠图标本身换色）。 */
+/** 拍种 → 折叠态二字标签，替代图标，让摘要读成「搜索10 / 校验2」。 */
+const SPINE_LABEL_BY_KIND: Record<TrustBeltBeatKind, string> = {
+  understanding: "理解",
+  search: "搜索",
+  planning: "规划",
+  discover: "发现",
+  fix: "修正",
+  fallback: "降级",
+  done: "校验",
+};
+
+/** 拍种 → 折叠态图标，放在二字标签前保留快速识别。 */
 const SPINE_ICON_BY_KIND: Record<TrustBeltBeatKind, LucideIcon> = {
   understanding: MessageCircle,
   search: Search,
@@ -318,29 +331,21 @@ export default function TrustBelt() {
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
     >
-      <TrustBeltHeader streaming={streaming} />
+      <TrustBeltHeader
+        streaming={streaming}
+        phase={phase}
+        canToggle={isSpine || phase === "expanded"}
+        onToggle={() => setPhase(isSpine ? "expanded" : "spine")}
+      />
 
       {isSpine ? (
         <SpineRow
           nodes={spineNodes}
           reducedMotion={reducedMotion}
-          onExpand={() => setPhase("expanded")}
           memorySuccess={memoryPersisted?.success ?? false}
         />
       ) : (
       <div className="py-2.5 pl-5 pr-3.5">
-        {phase === "expanded" && (
-          <div className="mb-1.5 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setPhase("spine")}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-ink-400 transition-colors hover:bg-black/[0.03] hover:text-ink-700"
-              title="收起为脊柱视图"
-            >
-              收起
-            </button>
-          </div>
-        )}
         {!hasRows ? (
           <div className="flex h-10 items-center gap-2 text-base font-semibold leading-snug text-ink-900">
             <span
@@ -499,68 +504,69 @@ function AttachmentRow({
 function SpineRow({
   nodes,
   reducedMotion,
-  onExpand,
   memorySuccess,
 }: {
   nodes: TrustBeltSpineNode[];
   reducedMotion: boolean;
-  onExpand: () => void;
   memorySuccess: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onExpand}
-      title="点击展开完整思考过程"
+    <div
       className={cn(
         "flex w-full items-center gap-2 overflow-x-auto px-4 py-2.5 text-left",
-        "transition-colors duration-200 hover:bg-black/[0.015]",
         !reducedMotion && "animate-trust-belt-enter",
       )}
     >
-      {nodes.map((node, index) => (
-        <Fragment key={node.id}>
-          {index > 0 && <span aria-hidden className="h-px w-3 shrink-0 bg-ink-200/70" />}
-          <SpineNodeChip node={node} />
-        </Fragment>
+      {nodes.map((node) => (
+        <SpineNodeChip key={node.id} node={node} />
       ))}
       {memorySuccess && (
-        <>
-          {nodes.length > 0 && <span aria-hidden className="h-px w-3 shrink-0 bg-ink-200/70" />}
-          <span
-            className={cn(
-              "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-black/[0.06] bg-white",
-              !reducedMotion && "animate-trust-belt-enter",
-            )}
-          >
-            <Bookmark className="h-3 w-3 text-ink-400" strokeWidth={2} aria-hidden />
+        <span
+          className={cn(
+            "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-black/[0.06] bg-white",
+            !reducedMotion && "animate-trust-belt-enter",
+          )}
+        >
+          <Bookmark className="h-3 w-3 text-ink-400" strokeWidth={2} aria-hidden />
           </span>
-        </>
       )}
-    </button>
+    </div>
   );
 }
 
 function SpineNodeChip({ node }: { node: TrustBeltSpineNode }) {
+  const label = SPINE_LABEL_BY_KIND[node.kind];
   const Icon = SPINE_ICON_BY_KIND[node.kind];
   return (
     <span
       className={cn(
-        "inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2",
+        "inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-full border px-2",
         node.amber
           ? "border-[#d89a00]/25 bg-[#fff5bf]/55 text-[#9a5b00]"
           : "border-black/[0.06] bg-white text-ink-500",
       )}
     >
       <Icon className="h-3 w-3 shrink-0" strokeWidth={2} aria-hidden />
+      <span className="min-w-0 truncate text-xs font-semibold leading-none tracking-tight">{label}</span>
       {node.count != null && (
-        <span className="text-xs font-semibold tabular-nums">{node.count}</span>
+        <span className="shrink-0 text-xs font-semibold tabular-nums">{node.count}</span>
       )}
     </span>
   );
 }
 
-function TrustBeltHeader({ streaming }: { streaming: boolean }) {
+function TrustBeltHeader({
+  streaming,
+  phase,
+  canToggle,
+  onToggle,
+}: {
+  streaming: boolean;
+  phase: SpinePhase;
+  canToggle: boolean;
+  onToggle: () => void;
+}) {
+  const expanded = phase === "expanded";
   return (
     <div className="flex h-11 w-full items-center gap-2 border-b border-black/[0.06] px-4">
       <Bot className={cn("h-5 w-5 shrink-0", streaming ? "text-accent-600" : "text-ink-600")} strokeWidth={2} />
@@ -570,6 +576,22 @@ function TrustBeltHeader({ streaming }: { streaming: boolean }) {
           className="ml-0.5 inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500"
           aria-label="正在思考"
         />
+      )}
+      {canToggle && (
+        <button
+          type="button"
+          className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-full border border-black/[0.06] bg-white text-ink-500 transition hover:bg-black/[0.03] hover:text-ink-800 active:scale-95"
+          onClick={onToggle}
+          aria-label={expanded ? "收起 AI 幕后" : "展开 AI 幕后"}
+          aria-expanded={expanded}
+          title={expanded ? "收起 AI 幕后" : "展开 AI 幕后"}
+        >
+          {expanded ? (
+            <ChevronUp className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          ) : (
+            <ChevronDown className="h-4 w-4" strokeWidth={2.2} aria-hidden />
+          )}
+        </button>
       )}
     </div>
   );

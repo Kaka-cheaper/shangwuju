@@ -13,6 +13,10 @@ beforeEach(() => {
     streaming: false,
     streamError: null,
     streamPhase: "idle",
+    currentUserId: "demo_user",
+    personas: [],
+    personasLoaded: false,
+    preferences: null,
     messages: [],
     intent: null,
     toolCalls: [],
@@ -104,6 +108,50 @@ describe("collab store helpers", () => {
         feedbackText: "change",
         changedFields: ["time"],
       },
+      currentUserId: "u_dad",
+      personas: [
+        {
+          user_id: "u_dad",
+          label: "New dad",
+          icon: "baby",
+          notes: "nearby and family-friendly",
+          home_location: "home",
+          default_distance_max_km: 3,
+          default_budget: 200,
+          default_tags: {
+            physical: ["low_walk"],
+            dietary: [],
+            experience: ["kid_friendly"],
+            suitable_for_priority: ["family"],
+          },
+        } as any,
+      ],
+      personasLoaded: true,
+      preferences: {
+        persona: {
+          user_id: "u_dad",
+          label: "New dad",
+          icon: "baby",
+          notes: "nearby and family-friendly",
+          home_location: "home",
+          default_distance_max_km: 3,
+          default_budget: 200,
+          default_tags: {
+            physical: ["low_walk"],
+            dietary: [],
+            experience: ["kid_friendly"],
+            suitable_for_priority: ["family"],
+          },
+        },
+        memory: {
+          user_id: "u_dad",
+          accepted_tags: { counts: {} },
+          rejected_tags: { counts: {} },
+          distance_history: [],
+        },
+        top_priors: ["nearby"],
+        recent_trips: [],
+      } as any,
       chitchatReplies: [
         {
           id: "c1",
@@ -119,6 +167,9 @@ describe("collab store helpers", () => {
     expect(snapshot.previousItinerary?.summary).toBe("previous");
     expect(snapshot.narration?.stage).toBe("confirm");
     expect(snapshot.lastRefinement?.changedFields).toEqual(["time"]);
+    expect(snapshot.currentUserId).toBe("u_dad");
+    expect(snapshot.personasLoaded).toBe(true);
+    expect(snapshot.preferences?.persona.user_id).toBe("u_dad");
     expect(snapshot.chitchatReplies).toHaveLength(1);
   });
 
@@ -242,6 +293,83 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     });
 
     expect(useChatStore.getState().demandLedger).toEqual([ledgerEntry]);
+  });
+
+  it("room_state hydrates the owner's persona snapshot for late joiners", () => {
+    const persona = {
+      user_id: "u_dad",
+      label: "New dad",
+      icon: "baby",
+      notes: "nearby and family-friendly",
+      home_location: "home",
+      default_distance_max_km: 3,
+      default_budget: 200,
+      default_tags: {
+        physical: ["low_walk"],
+        dietary: [],
+        experience: ["kid_friendly"],
+        suitable_for_priority: ["family"],
+      },
+    };
+
+    handleWsMessage(set, get, {
+      type: "room_state",
+      owner_id: "owner1",
+      members: [],
+      constraints: [],
+      votes: {},
+      locked_stages: [],
+      itinerary: null,
+      previous_itinerary: null,
+      intent: null,
+      planning_events: [],
+      chat_messages: [],
+      chat_state: {
+        currentUserId: "u_dad",
+        personas: [persona],
+        personasLoaded: true,
+        preferences: {
+          persona,
+          memory: {
+            user_id: "u_dad",
+            accepted_tags: { counts: {} },
+            rejected_tags: { counts: {} },
+            distance_history: [],
+          },
+          top_priors: ["nearby"],
+          recent_trips: [],
+        },
+      } as any,
+      planning_active: false,
+      demand_ledger: [],
+    });
+
+    const hydrated = useChatStore.getState();
+    expect(hydrated.currentUserId).toBe("u_dad");
+    expect(hydrated.personas).toEqual([persona]);
+    expect(hydrated.personasLoaded).toBe(true);
+    expect(hydrated.preferences?.persona.user_id).toBe("u_dad");
+  });
+
+  it("room_state uses owner_id as the room persona when chat_state has no user id", () => {
+    handleWsMessage(set, get, {
+      type: "room_state",
+      owner_id: "u_biz",
+      members: [],
+      constraints: [],
+      votes: {},
+      locked_stages: [],
+      itinerary: null,
+      previous_itinerary: null,
+      intent: null,
+      planning_events: [],
+      chat_messages: [],
+      chat_state: {},
+      planning_active: false,
+      demand_ledger: [],
+    });
+
+    expect(useChatStore.getState().currentUserId).toBe("u_biz");
   });
 
   it("room_state hydrates the shared nodeActions field from the room snapshot (late-joiner fix)", () => {

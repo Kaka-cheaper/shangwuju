@@ -150,7 +150,8 @@ export default function PreferencesPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, roomSessionId, refreshPreferences]);
 
-  const currentAvatar = currentUserId ? avatarMap[currentUserId] : null;
+  const personaUserId = preferences?.persona?.user_id ?? currentUserId;
+  const currentAvatar = personaUserId ? avatarMap[personaUserId] : null;
 
   // 「本次调整」台账：房间/单人共用同一 store 字段。只显生效中/已满足，
   // 被顶替的条目砍掉（不是"折叠"，是不渲染——本面板的台账价值是"当下

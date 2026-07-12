@@ -771,9 +771,11 @@ export function buildSpineNodes(
 ): TrustBeltSpineNode[] {
   return beats.map((beat) => {
     let count: number | null = null;
-    if (beat.kind === "search" && ctx.searchTotalCount > 0) {
+    if (beat.kind === "understanding") {
+      count = 0;
+    } else if (beat.kind === "search") {
       count = ctx.searchTotalCount;
-    } else if (beat.kind === "planning" && ctx.midNodeCount > 0) {
+    } else if (beat.kind === "planning") {
       count = ctx.midNodeCount;
     } else if (beat.kind === "done" && ctx.checksRun != null) {
       count = ctx.checksRun;

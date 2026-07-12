@@ -90,6 +90,10 @@ export type CollabChatStateSnapshot = Partial<
     | "streaming"
     | "streamError"
     | "streamPhase"
+    | "currentUserId"
+    | "personas"
+    | "personasLoaded"
+    | "preferences"
     | "messages"
     | "intent"
     | "toolCalls"
@@ -237,10 +241,11 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
   switch (type) {
     case "room_state": {
       const members = (msg.members as CollabMember[]) || [];
+      const ownerId = msg.owner_id as string;
       const myUserId = get().myUserId;
       const myMember = members.find((m) => m.user_id === myUserId);
       set({
-        ownerId: msg.owner_id as string,
+        ownerId,
         members,
         constraints: (msg.constraints as CollabConstraint[]) || [],
         votes: (msg.votes as Record<number, Record<string, VoteAction>>) || {},
@@ -250,10 +255,14 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       // 如果有行程，同步到主 store
       const chatState = msg.chat_state as CollabChatStateSnapshot | null;
       if (chatState) {
-        hydrateChatStateSnapshot(chatState);
+        hydrateChatStateSnapshot({
+          ...chatState,
+          currentUserId: chatState.currentUserId ?? ownerId,
+        });
       } else {
         resetArrival();
         useChatStore.setState({
+          currentUserId: ownerId,
           streaming: Boolean(msg.planning_active),
           streamError: null,
           streamPhase: Boolean(msg.planning_active) ? "stream" : "idle",
@@ -599,10 +608,15 @@ function finishCollabStream(): void {
 
 function hydrateChatStateSnapshot(snapshot: CollabChatStateSnapshot): void {
   resetArrival();
+  const current = useChatStore.getState();
   useChatStore.setState({
     streaming: Boolean(snapshot.streaming),
     streamError: snapshot.streamError ?? null,
     streamPhase: snapshot.streamPhase ?? "idle",
+    currentUserId: snapshot.currentUserId ?? current.currentUserId,
+    personas: snapshot.personas ?? current.personas,
+    personasLoaded: snapshot.personasLoaded ?? current.personasLoaded,
+    preferences: snapshot.preferences ?? current.preferences,
     messages: snapshot.messages ?? [],
     intent: snapshot.intent ?? null,
     toolCalls: snapshot.toolCalls ?? [],
@@ -625,6 +639,10 @@ export function buildCollabChatStateSnapshot(state: ChatState): CollabChatStateS
     streaming: false,
     streamError: state.streamError,
     streamPhase: "idle" as const,
+    currentUserId: state.currentUserId,
+    personas: state.personas,
+    personasLoaded: state.personasLoaded,
+    preferences: state.preferences,
     messages: state.messages,
     intent: state.intent,
     toolCalls: state.toolCalls,

@@ -28,21 +28,20 @@
  *
  * 路径连法：
  *   - 编号站之间：按 visible nodes 顺序两两相连，实线
- *   - 家↔首尾站（通勤壳）：虚线，同一套 Driving/fallback 降级逻辑，只是
- *     样式参数不同（见 drawSegment 的 style 入参 / RouteStyle）——ADR-0016
- *     决策 2 明确「不另造第二套」
+ *   - 家↔首尾站（通勤壳）：与站间路线共用同一套实线高亮样式和
+ *     Driving/fallback 降级逻辑，避免浅色底图上的黄色虚线不明显
  *   - hops 信息（如 hop.minutes）当前仅用于 InfoWindow 文案；路线渲染仍走 Driving / fallback
  *
  * 编舞（ADR-0016 决策 3）：
  *   - 家 pin：地图初始化即刻就位，不参与站点 stagger 悬念
- *   - 去程虚线（家→首站）：随 1 号站一起画出
- *   - 返程虚线（末站→家）：末站落定（markersRef 全量出齐）后才画，作为闭环的收束动作
+ *   - 去程路线（家→首站）：随 1 号站一起画出
+ *   - 返程路线（末站→家）：末站落定（markersRef 全量出齐）后才画，作为闭环的收束动作
  *
  * 降级：
  *   - 没 NEXT_PUBLIC_AMAP_KEY → 渲染文字列表
  *   - 高德 SDK 加载失败 → 渲染文字列表
  *   - 当前 node 无坐标 → 在文字列表中标注「位置待定」
- *   - home 节点缺坐标 → 静默不画家 pin、不画虚线腿（console.warn 留诊断），不崩
+ *   - home 节点缺坐标 → 静默不画家 pin、不画通勤路线（console.warn 留诊断），不崩
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -206,7 +205,7 @@ function buildNodeCoords(itinerary: Itinerary): NodeWithCoord[] {
  *   （出发 n0 / 回家 n_last），两者坐标恒相同（同一 user_profile.home_location）
  *   —— 只画一个 pin，不会叠两个。
  * - 缺 lat/lng（画像没配 home_location，或 mock 数据缺角）→ 返回 null，
- *   调用方据此静默降级：不画家 pin、不画虚线腿，仅 console.warn 留诊断
+ *   调用方据此静默降级：不画家 pin、不画通勤路线，仅 console.warn 留诊断
  *   （ADR-0016 决策 4：地图绝不能因此崩）。
  * - displayName 优先取 node.address（_resolve_target_meta 里 home 分支填的
  *   是 user_profile.home_location.name，即画像里的真实地名，如「望京数字创意
@@ -217,7 +216,7 @@ function resolveHomeAnchor(itinerary: Itinerary): HomeAnchor | null {
   if (!homeNode || homeNode.lat == null || homeNode.lng == null) {
     if (typeof window !== "undefined") {
       console.warn(
-        "[MapOverlay] home 节点缺坐标，静默降级：不画家 pin / 通勤壳虚线",
+        "[MapOverlay] home 节点缺坐标，静默降级：不画家 pin / 通勤壳路线",
         homeNode
           ? { target_kind: homeNode.target_kind, target_id: homeNode.target_id }
           : "itinerary.nodes 中无 home 节点",
@@ -275,7 +274,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
   const markersRef = useRef<any[]>([]);
   // routeOverlaysRef：存所有路线段（每段可能是 Driving 渲染的多 polyline 或 fallback 直连 polyline）
   const routeOverlaysRef = useRef<any[]>([]);
-  // ADR-0016：家锚点 pin + 两段通勤壳虚线独立于编号站的 refs/生命周期——
+  // ADR-0016：家锚点 pin + 两段通勤路线独立于编号站的 refs/生命周期——
   // 家 pin 即刻就位（不随 visibleCount 增减重建），通勤壳按「去程随 1 号站、
   // 返程收尾」各自的时机画一次，不参与站间 routeOverlaysRef 的整体清空重绘。
   const homeMarkerRef = useRef<any>(null);
@@ -384,7 +383,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
         }
       });
       routeOverlaysRef.current = [];
-      // 新方案 → 家 pin + 两段通勤壳虚线也要清掉重来（旧方案的家坐标/路线不能沿用）
+      // 新方案 → 家 pin + 两段通勤路线也要清掉重来（旧方案的家坐标/路线不能沿用）
       if (homeMarkerRef.current) {
         try {
           homeMarkerRef.current.setMap(null);
@@ -517,9 +516,9 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       });
     }
 
-    // ADR-0016 决策 3：去程虚线随 1 号站一起画出——只在「1 号站 marker 已上屏
+    // ADR-0016 决策 3：去程路线随 1 号站一起画出——只在「1 号站 marker 已上屏
     // 且还没画过去程」时画一次，复用 drawSegment 同一套 Driving/fallback
-    // 降级逻辑，只是传入 COMMUTE_ROUTE_STYLE（虚线、稍细）。
+    // 降级逻辑，与站间路线共用同一套高亮实线样式。
     if (
       homeAnchor &&
       markersRef.current.length >= 1 &&
@@ -535,7 +534,7 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
       );
     }
 
-    // ADR-0016 决策 3：返程虚线在最后一站落定后才画——收束闭环的最后一笔。
+    // ADR-0016 决策 3：返程路线在最后一站落定后才画——收束闭环的最后一笔。
     // 复用与「全部站点出齐 → setFitView」同一个判断（markersRef 长度 ===
     // nodeCoords.length），只画一次（returnCommuteDrawnRef 防重复）。
     const allStationsSettled =
@@ -632,17 +631,13 @@ export default function MapOverlay({ visibleCount = -1 }: MapOverlayProps) {
 // ============================================================
 // 路线渲染：优先 AMap.Driving 真实驾车路线；失败 fallback 直连 Polyline
 //
-// ADR-0016 决策 2：家↔首尾站两段通勤壳走「同一套」降级逻辑，只是样式（实线/
-// 虚线、线宽）不同——不新造第二套渲染路径。样式差异靠 RouteStyle 参数化：
-//   - 站间（STATION_ROUTE_STYLE）：Driving 成功时用 AMap 默认样式自动渲染
-//     （维持现状不动），失败 fallback 到本来就有的橙色虚线直连
-//   - 通勤壳（COMMUTE_ROUTE_STYLE）：Driving 成功也不能用 AMap 默认样式（那
-//     是实线），必须手动从 Driving 结果提取坐标点、自己用 AMap.Polyline 画
-//     虚线——这是高德官方文档 / 社区方案里「自定义驾车路线样式」的标准做法
-//     （AMap.Driving 本身不暴露 outlineColor/strokeStyle 之类的线型参数）
+// 所有路线段（站间 + 家↔首尾站）共用同一套自定义 Polyline 样式：
+//   - Driving 成功：从 result.routes[0].steps[].path 提取真实道路坐标后手动画线
+//   - Driving 失败：退化为直连 Polyline，但仍套用同样的颜色、线宽和描边
+// 这样既保留真实路径，又能让出发/回家两段不再是浅黄色虚线，视觉上和行程路线一致。
 // ============================================================
 
-/** 路线渲染样式：区分「站间实线（默认）」与「通勤壳虚线」。 */
+/** 路线渲染样式：所有行程段共用，保证站间与家↔首尾站一致。 */
 interface RouteStyle {
   /** true → 即使 Driving 成功也不用 AMap 自动渲染，手动提取路径画自定义样式 */
   forceCustomRender: boolean;
@@ -650,25 +645,27 @@ interface RouteStyle {
   strokeWeight: number;
   strokeStyle: "solid" | "dashed";
   strokeOpacity: number;
+  arrowColor: string;
+  haloColor: string;
+  haloWeight: number;
+  haloOpacity: number;
 }
 
-/** 站间默认样式：不强制自定义渲染，维持 AMap.Driving 现状（成功=默认实线自动渲染）。 */
+/** 统一路线样式：深蓝实线 + 白色描边，在浅色高德底图上更清楚。 */
 const STATION_ROUTE_STYLE: RouteStyle = {
-  forceCustomRender: false,
-  strokeColor: "#fb923c",
-  strokeWeight: 3,
-  strokeStyle: "dashed", // 仅 fallback 直连时生效，维持原有视觉
-  strokeOpacity: 0.7,
+  forceCustomRender: true,
+  strokeColor: "#2f5f9f",
+  strokeWeight: 5,
+  strokeStyle: "solid",
+  strokeOpacity: 0.92,
+  arrowColor: "#ffffff",
+  haloColor: "#ffffff",
+  haloWeight: 10,
+  haloOpacity: 0.9,
 };
 
-/** 通勤壳样式（ADR-0016 决策 2）：同色系、稍细、虚线——即使 Driving 成功也要强制这套样式。 */
-const COMMUTE_ROUTE_STYLE: RouteStyle = {
-  forceCustomRender: true,
-  strokeColor: "#fb923c",
-  strokeWeight: 2,
-  strokeStyle: "dashed",
-  strokeOpacity: 0.6,
-};
+/** 家↔首尾站与站间路线完全同款，单独常量保留调用语义。 */
+const COMMUTE_ROUTE_STYLE: RouteStyle = STATION_ROUTE_STYLE;
 
 /** from/to 的坐标形状：NodeWithCoord 与 HomeAnchor 共用（都只需要 lat/lng）。 */
 interface LatLng {
@@ -719,11 +716,11 @@ function drawSegment(
         return;
       }
       if (!style.forceCustomRender) {
-        // 站间：维持现状，AMap 已经把默认实线路线自动渲染到 map 上
+        // 兼容旧配置：AMap 已经把默认实线路线自动渲染到 map 上
         return;
       }
-      // 通勤壳：成功也要强制虚线——从 result.routes[0].steps[].path 拼出完整
-      // 坐标序列，自己画 Polyline（高德官方路线规划文档记录的标准提取方式）
+      // 自定义高亮路线：从 result.routes[0].steps[].path 拼出完整坐标序列，
+      // 自己画 Polyline，保证每一段都用同一套描边实线样式。
       try {
         const route = result?.routes?.[0];
         const path: any[] = [];
@@ -731,23 +728,13 @@ function drawSegment(
           if (Array.isArray(step?.path)) path.push(...step.path);
         }
         if (path.length >= 2) {
-          const polyline = new AMap.Polyline({
-            path,
-            strokeColor: style.strokeColor,
-            strokeWeight: style.strokeWeight,
-            strokeStyle: style.strokeStyle,
-            strokeOpacity: style.strokeOpacity,
-            lineJoin: "round",
-            lineCap: "round",
-          });
-          polyline.setMap(map);
-          overlayBucket.push(polyline);
+          drawStyledPolyline(AMap, map, path, overlayBucket, style);
         } else {
-          // 提取不到坐标点（result 形状异常）→ 退直连，保证虚线仍然画出来
+          // 提取不到坐标点（result 形状异常）→ 退直连，保证路线仍然画出来
           drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
         }
       } catch (e) {
-        console.warn("[MapOverlay] 通勤壳自定义渲染失败，fallback 直连:", e);
+        console.warn("[MapOverlay] 自定义路线渲染失败，fallback 直连:", e);
         drawFallbackPolyline(AMap, map, from, to, overlayBucket, style);
       }
     },
@@ -763,23 +750,55 @@ function drawFallbackPolyline(
   style: RouteStyle = STATION_ROUTE_STYLE,
 ): void {
   try {
-    const polyline = new AMap.Polyline({
-      path: [
+    drawStyledPolyline(
+      AMap,
+      map,
+      [
         [from.lng, from.lat],
         [to.lng, to.lat],
       ],
-      strokeColor: style.strokeColor,
-      strokeWeight: style.strokeWeight,
-      strokeStyle: style.strokeStyle,
-      strokeOpacity: style.strokeOpacity,
-      lineJoin: "round",
-      lineCap: "round",
-    });
-    polyline.setMap(map);
-    overlayBucket.push(polyline);
+      overlayBucket,
+      style,
+    );
   } catch (e) {
     console.warn("[MapOverlay] fallback polyline 失败:", e);
   }
+}
+
+function drawStyledPolyline(
+  AMap: any,
+  map: any,
+  path: any[],
+  overlayBucket: any[],
+  style: RouteStyle,
+): void {
+  const halo = new AMap.Polyline({
+    path,
+    strokeColor: style.haloColor,
+    strokeWeight: style.haloWeight,
+    strokeStyle: "solid",
+    strokeOpacity: style.haloOpacity,
+    lineJoin: "round",
+    lineCap: "round",
+    zIndex: 48,
+  });
+  halo.setMap(map);
+  overlayBucket.push(halo);
+
+  const polyline = new AMap.Polyline({
+    path,
+    strokeColor: style.strokeColor,
+    strokeWeight: style.strokeWeight,
+    strokeStyle: style.strokeStyle,
+    strokeOpacity: style.strokeOpacity,
+    showDir: true,
+    dirColor: style.arrowColor,
+    lineJoin: "round",
+    lineCap: "round",
+    zIndex: 52,
+  });
+  polyline.setMap(map);
+  overlayBucket.push(polyline);
 }
 
 // ============================================================

@@ -93,4 +93,33 @@ describe("refreshPreferences / resetUserMemory session_id 传参", () => {
     );
     expect(String(refreshCall?.[0])).toContain("session_id=collab_roomABC");
   });
+
+  it("ignores stale refreshPreferences responses after persona changes", async () => {
+    let resolveFetch!: (value: Response) => void;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const pending = useChatStore.getState().refreshPreferences("collab_room123");
+    useChatStore.setState({ currentUserId: "u_biz", preferences: null });
+
+    resolveFetch(
+      new Response(
+        JSON.stringify({
+          persona: { user_id: "u_dad", label: "New dad", icon: "baby", notes: "", home_location: "", default_distance_max_km: 5, default_budget: 300, default_tags: { physical: [], dietary: [], experience: [], suitable_for_priority: [] } },
+          memory: { user_id: "sess", accepted_tags: { counts: {} }, rejected_tags: { counts: {} }, distance_history: [] },
+          top_priors: [],
+          suggested_distance_max_km: null,
+          recent_trips: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await pending;
+
+    expect(useChatStore.getState().preferences).toBeNull();
+  });
 });
