@@ -91,11 +91,11 @@ const LEDGER_PREVIEW_N = 5;
 const TRIPS_PREVIEW_N = 3;
 
 const avatarMap: Record<string, string> = {
-  u_dad: buildAppPath("/avatars/xinshoubaba.png"),
-  u_biz: buildAppPath("/avatars/shangwubailing.png"),
-  u_grandma: buildAppPath("/avatars/xiaoshunernv.png"),
-  u_solo: buildAppPath("/avatars/dujuqingnian.png"),
-  u_couple: buildAppPath("/avatars/qinglvdang.png"),
+  u_dad: buildAppPath("/avatars/xinshoubaba.webp"),
+  u_biz: buildAppPath("/avatars/shangwubailing.webp"),
+  u_grandma: buildAppPath("/avatars/xiaoshunernv.webp"),
+  u_solo: buildAppPath("/avatars/dujuqingnian.webp"),
+  u_couple: buildAppPath("/avatars/qinglvdang.webp"),
 };
 
 export default function PreferencesPanel() {

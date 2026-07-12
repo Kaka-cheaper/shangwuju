@@ -33,6 +33,8 @@ import { createPortal } from "react-dom";
 
 import { useCollabStore } from "@/lib/collab-store";
 import { Icons, personaIconFromEmoji } from "@/lib/icon-map";
+import { ledgerEntryLine } from "@/lib/ledger-copy";
+import { preferenceNote } from "@/lib/preference-notes";
 import { useChatStore } from "@/lib/store";
 import { buildAppPath, cn } from "@/lib/utils";
 
@@ -103,11 +105,11 @@ const MATCH_OPTIONS: MatchOption[] = [
 ];
 
 const PERSONA_AVATARS: Record<string, string> = {
-  u_dad: buildAppPath("/avatars/xinshoubaba.png"),
-  u_biz: buildAppPath("/avatars/shangwubailing.png"),
-  u_grandma: buildAppPath("/avatars/xiaoshunernv.png"),
-  u_solo: buildAppPath("/avatars/dujuqingnian.png"),
-  u_couple: buildAppPath("/avatars/qinglvdang.png"),
+  u_dad: buildAppPath("/avatars/xinshoubaba.webp"),
+  u_biz: buildAppPath("/avatars/shangwubailing.webp"),
+  u_grandma: buildAppPath("/avatars/xiaoshunernv.webp"),
+  u_solo: buildAppPath("/avatars/dujuqingnian.webp"),
+  u_couple: buildAppPath("/avatars/qinglvdang.webp"),
 };
 
 function personaAvatarSrc(userId: string | null | undefined): string | null {
@@ -126,6 +128,10 @@ export default function UserSwitcher({
   const loadPersonas = useChatStore((s) => s.loadPersonas);
   const preferences = useChatStore((s) => s.preferences);
   const resetUserMemory = useChatStore((s) => s.resetUserMemory);
+  // 「这次对话学到的」+「本次调整」从移动端内联卡搬入本弹窗（2026-07-12）：
+  // 同订阅 demandLedger + itinerary（台账人话化需要 itinerary 解节点名）。
+  const demandLedger = useChatStore((s) => s.demandLedger);
+  const itinerary = useChatStore((s) => s.itinerary);
   // 闭环审计 P1（用户偏好面板全环方案任务书裁决）：房间内切画像是 no-op
   // 假控件——`setCurrentUserId` 改的是 `useChatStore.currentUserId`，房间
   // 成员身份是 `collab-store.myUserId`，两者不同步（§8 坐实的既有错位），
@@ -142,6 +148,8 @@ export default function UserSwitcher({
   const [blocking, setBlocking] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedTraits, setSelectedTraits] = useState<string[]>([]);
+  const [tripsExpanded, setTripsExpanded] = useState(false);
+  const [ledgerExpanded, setLedgerExpanded] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -240,19 +248,21 @@ export default function UserSwitcher({
     isCurrentDetail && (preferences?.top_priors ?? []).length > 0
       ? preferences!.top_priors
       : selectedOption.traits;
-  const detailMemory = isCurrentDetail ? preferences?.memory : null;
-  const acceptedCount = detailMemory
-    ? Object.values(detailMemory.accepted_tags.counts).reduce((a, b) => a + b, 0)
-    : 0;
-  const acceptedTop = detailMemory
-    ? Object.entries(detailMemory.accepted_tags.counts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+  // 「这次对话学到的」（人话版，替掉旧「已学到 X×n / 少安排 X×n」原始计数）+
+  // 「本次调整」台账——均只对当前生效画像展示（isCurrentDetail）。距离不在此重复
+  // （上方「建议距离」已承担，去重）。
+  const learnedPrefNote = isCurrentDetail ? preferenceNote(preferences?.top_priors ?? []) : null;
+  const recentTrips = isCurrentDetail ? preferences?.recent_trips ?? [] : [];
+  const visibleTrips = tripsExpanded ? recentTrips : recentTrips.slice(0, 3);
+  const hiddenTripsCount = recentTrips.length - visibleTrips.length;
+  const learnedIsEmpty = !learnedPrefNote && recentTrips.length === 0;
+  const visibleLedger = isCurrentDetail
+    ? (demandLedger ?? []).filter((e) => e.status !== "superseded")
     : [];
-  const rejectedTop = detailMemory
-    ? Object.entries(detailMemory.rejected_tags.counts)
-        .filter(([, n]) => n > 0)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-    : [];
+  const orderedLedger = [...visibleLedger].reverse();
+  const visibleLedgerRows = ledgerExpanded ? orderedLedger : orderedLedger.slice(0, 5);
+  const hiddenLedgerCount = orderedLedger.length - visibleLedgerRows.length;
+  const canClearMemory = isCurrentDetail && (!learnedIsEmpty || orderedLedger.length > 0);
   const panelTitle =
     step === "detail"
       ? selectedLabel
@@ -631,30 +641,79 @@ export default function UserSwitcher({
                       </span>
                     </div>
                   )}
-                  {isCurrentDetail && (acceptedTop.length > 0 || rejectedTop.length > 0) && (
-                    <div className="rounded-2xl border border-black/[0.06] bg-white/[0.78] px-3 py-2.5 text-xs leading-relaxed text-ink-600">
-                      {acceptedTop.length > 0 && (
-                        <div>
-                          <span className="font-semibold text-ink-900">已学到 </span>
-                          {acceptedTop.map(([t, n], i) => (
-                            <span key={t}>
-                              {i > 0 && "、"}
-                              {t}
-                              <span className="text-ink-400">×{n}</span>
-                            </span>
+                  {/* 这次对话学到的（人话版，从移动端内联卡搬入）——只对当前生效画像
+                      展示；诚实空态，不硬编造。距离已由上方「建议距离」承担，此处只留
+                      偏好 + 去过，避免重复。 */}
+                  {isCurrentDetail && (
+                    <div>
+                      <div className="text-xs font-semibold text-ink-500">这次对话学到的</div>
+                      {learnedIsEmpty ? (
+                        <div className="mt-1.5 text-xs text-ink-400">还没学到新偏好，继续聊聊看</div>
+                      ) : (
+                        <div className="mt-1.5 space-y-1">
+                          {learnedPrefNote && (
+                            <div className="text-xs text-ink-600">
+                              <span className="text-ink-400">偏好 · </span>
+                              {learnedPrefNote}
+                            </div>
+                          )}
+                          {visibleTrips.map((trip, i) => (
+                            <div key={`${trip.timestamp}-${i}`} className="text-xs text-ink-600">
+                              <span className="text-ink-400">去过 · </span>
+                              {trip.summary}
+                            </div>
                           ))}
+                          {hiddenTripsCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setTripsExpanded(true)}
+                              className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
+                            >
+                              查看全部 {recentTrips.length} 条
+                            </button>
+                          )}
                         </div>
                       )}
-                      {rejectedTop.length > 0 && (
-                        <div className="mt-1">
-                          <span className="font-semibold text-ink-900">少安排 </span>
-                          {rejectedTop.map(([t, n], i) => (
-                            <span key={t}>
-                              {i > 0 && "、"}
-                              {t}
-                              <span className="text-ink-400">×{n}</span>
-                            </span>
+                    </div>
+                  )}
+
+                  {/* 本次调整（归名台账，从移动端内联卡搬入）——生效中/已满足，≤5+N 折叠。 */}
+                  {isCurrentDetail && (
+                    <div>
+                      <div className="text-xs font-semibold text-ink-500">本次调整</div>
+                      {orderedLedger.length === 0 ? (
+                        <div className="mt-1.5 text-xs text-ink-400">还没有调整过，换个菜试试</div>
+                      ) : (
+                        <div className="mt-1.5 space-y-1">
+                          {visibleLedgerRows.map((entry, i) => (
+                            <div key={`${entry.created_at}-${i}`} className="flex items-start gap-1.5 text-xs">
+                              <span
+                                className={cn(
+                                  "shrink-0 inline-flex items-center gap-0.5 rounded border px-1.5 py-0 text-[11px] font-medium leading-[1.4]",
+                                  entry.status === "satisfied"
+                                    ? "border-ink-300 bg-ink-200 text-ink-500"
+                                    : "border-amber-400/30 bg-amber-400/15 text-amber-700",
+                                )}
+                              >
+                                {entry.status === "satisfied" && (
+                                  <Icons.success className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                                )}
+                                {entry.status === "satisfied" ? "已满足" : "生效中"}
+                              </span>
+                              <span className="text-ink-600 break-all">
+                                {ledgerEntryLine(entry, itinerary)}
+                              </span>
+                            </div>
                           ))}
+                          {hiddenLedgerCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setLedgerExpanded(true)}
+                              className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
+                            >
+                              查看更多 {hiddenLedgerCount} 条
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -666,13 +725,14 @@ export default function UserSwitcher({
                   >
                     更换人物画像
                   </button>
-                  {isCurrentDetail && acceptedCount > 0 && (
+                  {canClearMemory && (
                     <button
                       type="button"
                       onClick={() => void resetUserMemory()}
                       className="w-full text-xs font-medium text-ink-500 underline decoration-dotted underline-offset-4 transition-colors hover:text-rose-500"
+                      title="清空当前会话累积的学到的记忆和本次调整（画像不受影响）"
                     >
-                      清空记忆
+                      清空学到的记忆
                     </button>
                   )}
                 </div>

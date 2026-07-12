@@ -141,12 +141,10 @@ export default function MobileHomeView() {
         {/* A8 根治：SSE 流错误——移动端此前零订阅 streamError，完全静默失败。 */}
         <MobileStreamErrorBanner />
 
-        {/* B3：偏好画像面板——紧凑折叠卡，默认收起，不占初始态视觉焦点。
-            用户偏好面板全环方案 §8 边注坐实：本组件此前定义了却从未挂载
-            （死代码），是移动端"学到的偏好"长期不可见的直接原因——本批
-            补上挂载点，并把内容对齐桌面 PreferencesPanel.tsx 的三区结构
-            （画像/这次对话学到的/本次调整，同订阅 preferences+demandLedger，
-            同房间降级规则）。 */}
+        {/* B3：偏好画像面板——紧凑折叠卡。2026-07-12 收口：单人模式下整块内容
+            已搬进右上角画像弹窗（UserSwitcher detail），本卡只在房间模式渲染
+            （承载「本次调整」归名台账——房间里画像弹窗隐藏，台账必须留在首页）。
+            组件内部 early-return 已按 !collabMode 自锁，此处保持单一挂载点。 */}
         <MobilePreferencesCard />
 
         {/* C4：评委证据徽章——桌面端默认 hidden md:/lg: 在移动端窄容器里天经
@@ -405,7 +403,12 @@ function MobilePreferencesCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId, roomSessionId, refreshPreferences]);
 
-  if (!currentUserId) return null;
+  // 房间专用（2026-07-12 收口）：单人模式下「画像/这次对话学到的/本次调整/清空」
+  // 已整体搬进右上角画像弹窗（UserSwitcher detail），首页不再挂这张内联大卡——
+  // 手机屏窄，同一份信息只留一处。但房间模式下画像弹窗整体隐藏（切画像是假控件），
+  // 而「本次调整」归名台账是房间协商核心价值、必须可见，故房间模式保留本卡
+  // （此时它天然只剩 画像 + 本次调整：学到的/清空 本就 !collabMode 隐藏）。
+  if (!currentUserId || !collabMode) return null;
   const persona = preferences?.persona;
 
   const templateTags = persona
@@ -845,6 +848,12 @@ function MobilePlanCard() {
     .map((entry, entryIndex) => ({ entry, entryIndex }))
     .filter(({ entry }) => entry.entry_kind === "node");
   const hasOrders = itinerary.orders.length > 0;
+  // 端点钟点（方案A·钟点前置）：首个可见 entry 的 start = 离开望京的时刻，末个
+  // entry 的 end = 回到望京的时刻——首/末段通勤 hop 自带 [start,end]，无 hop 时
+  // 降级到首/末节点的起止钟点，让时间轴首尾也落在同一条"钟点前置"读法上。
+  const dayStart = visibleEntries[0]?.start ?? null;
+  const dayEnd =
+    visibleEntries.length > 0 ? visibleEntries[visibleEntries.length - 1].end : null;
 
   return (
     <div className="mt-3 space-y-3">
@@ -917,6 +926,7 @@ function MobilePlanCard() {
         <MobileWebBookend
           kind="start"
           nodeCount={noteItems.length}
+          time={dayStart}
           hop={
             noteItems[0]
               ? hopEntryAt(visibleEntries, noteItems[0].entryIndex - 1)
@@ -937,7 +947,7 @@ function MobilePlanCard() {
             />
           );
         })}
-        <MobileWebBookend kind="end" nodeCount={noteItems.length} />
+        <MobileWebBookend kind="end" nodeCount={noteItems.length} time={dayEnd} />
       </ol>
 
       {/* 预约卡重设计（UI 修复批·纯前端）：同 Web 端 ItineraryCard 的
@@ -1385,10 +1395,12 @@ function MobileWebBookend({
   kind,
   hop,
   nodeCount,
+  time,
 }: {
   kind: "start" | "end";
   hop?: ScheduleEntry | null;
   nodeCount: number;
+  time?: string | null;
 }) {
   const isStart = kind === "start";
   const firstTone = nodeCount > 0 ? mobileStageTone(0) : MOBILE_HOME_STAGE_TONE;
@@ -1412,8 +1424,17 @@ function MobileWebBookend({
         </div>
       </div>
       <div className="min-w-0 pt-2">
-        <div className="text-base font-black tracking-tight text-ink-700">
-          {isStart ? "从望京出发" : "结束行程，返回望京"}
+        {/* 钟点前置（方案A）：家 bookend 也带钟点，和节点卡同款 clock 图标，但
+            用中性灰（HOME 语义，不抢主活动），让左侧时间尺首尾闭合——15:27 出发
+            → … → 19:10 到家，把"一个下午"从头框到尾。 */}
+        <div className="flex items-center gap-1.5 text-base font-black tracking-tight text-ink-700">
+          {time && (
+            <span className="inline-flex items-center gap-1 tabular-nums text-ink-500">
+              <Icons.clock className="h-[15px] w-[15px] shrink-0" strokeWidth={2} />
+              {time}
+            </span>
+          )}
+          <span>{isStart ? "从望京出发" : "回到望京"}</span>
         </div>
         {isStart && <MobileWebHopPill hop={hop ?? null} />}
       </div>
@@ -1492,10 +1513,10 @@ function MobileWebTimelineItem({
         <div className="node-card relative min-w-0 px-4 py-3.5 transition-transform active:scale-[0.99]">
           <div className="mb-2 flex items-start justify-between gap-2">
             <span
-              className="inline-flex min-w-0 items-center gap-1.5 text-[19px] font-black leading-none tabular-nums"
+              className="inline-flex min-w-0 items-center gap-1.5 text-[17px] font-black leading-none tabular-nums"
               style={{ color: tone.color }}
             >
-              <Icons.clock className="h-[18px] w-[18px] shrink-0" strokeWidth={2} />
+              <Icons.clock className="h-4 w-4 shrink-0" strokeWidth={2} />
               <span>{entry.start} - {entry.end}</span>
             </span>
             {!isLocked && <NodeHeadline detail={detail} className="pt-0" />}
@@ -1516,7 +1537,7 @@ function MobileWebTimelineItem({
               <span className="h-6 w-36 shrink-0 rounded shimmer-skeleton" aria-hidden />
             ) : (
               <span
-                className="node-title-wavy min-w-0 max-w-full text-[22px] font-black leading-tight text-ink-900"
+                className="node-title-wavy min-w-0 max-w-full text-[19px] font-black leading-tight text-ink-900"
                 title={fullTitle}
               >
                 {entry.title}
@@ -1824,12 +1845,14 @@ function MobileAlternativeButton({
       onClick={onClick}
       title={`换成「${alt.name}」（${alt.category} · ${alt.rating.toFixed(1)} 分 · ${alt.distance_km.toFixed(1)}km）`}
       className={cn(
-        "inline-flex min-h-[40px] items-center gap-1 rounded-full bg-black/[0.03] px-2.5 py-1 text-[12.5px] font-medium tracking-tight text-ink-600",
+        "flex min-h-[40px] w-full items-center gap-1.5 rounded-full bg-black/[0.03] px-3.5 py-1 text-[12.5px] font-medium tracking-tight text-ink-600",
         "transition-colors active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40",
       )}
     >
-      <ArrowLeftRight className="h-3 w-3 shrink-0" strokeWidth={2} />
-      <span className="max-w-[6rem] truncate">{primaryStoreName(alt.name)}</span>
+      <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+      {/* 全宽行 + flex-1：换菜候选店名用满可用宽度（≤2 条纵向铺开），不再被
+          max-w-[6rem] 早早截成"朴家一头猪(合…"，只有极长名才 truncate 兜底。 */}
+      <span className="min-w-0 flex-1 truncate text-left">{primaryStoreName(alt.name)}</span>
     </button>
   );
 }
@@ -1926,39 +1949,10 @@ function MobileActionRail() {
 
   if (!itinerary && !streaming) return null;
 
-  if (streaming) {
-    return (
-      <div className="pointer-events-none fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom,0px))] z-40 px-4">
-        {/* 移动端遗留思考面板清理批：此前这张卡是可点按钮（onOpenTrace 打开
-            「Agent 思考链路」sheet），sheet 连同三个 tab 面板已整体删除
-            （单思考面收口到「AI 幕后」信任带），卡片降级为纯态展示——不再
-            可点，去掉 ChevronRight 这个暗示"可展开/可点击"的箭头，也去掉了
-            「N/M 调用」这行工具调用计数（同一批用户拍板：只留标题 + 副
-            文案）。 */}
-        <div
-          className={cn(
-            "pointer-events-auto mx-auto block w-full max-w-[480px] rounded-[24px] border border-accent-500/40 px-4 py-3 text-left",
-            "bg-white/[0.70] shadow-[0_18px_48px_-30px_rgba(17,24,39,0.82),0_0_34px_-22px_rgba(245,158,11,0.55)] backdrop-blur-2xl backdrop-saturate-150",
-          )}
-        >
-          <div className="flex items-center gap-2.5">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-500/20 text-accent-700">
-              <Loader2 className="h-4 w-4 animate-spin" />
-            </div>
-            <div className="min-w-0 text-sm font-semibold tracking-tight text-ink-900">
-              Agent 正在思考
-            </div>
-          </div>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-accent-500/15">
-            <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-accent-500/40 via-accent-500 to-accent-500/40 animate-shimmer-x" />
-          </div>
-          <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-600">
-            正在拆解需求、查找候选并拼装行程~
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // 规划中：底部不再另起一张「Agent 正在思考」进度卡——与上方「AI 幕后」信任带
+  // （AI 正在思考中 + 拼装骨架）语义重复（用户 2026-07-12 拍板）。规划态的进度
+  // 表达统一收口到「AI 幕后」+ 输入框占位文案，底部固定层此时留空。
+  if (streaming) return null;
 
   const hasOrders = itinerary?.orders.length ?? 0;
 

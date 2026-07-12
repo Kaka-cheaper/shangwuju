@@ -167,6 +167,13 @@ export default function ItineraryCard() {
       }));
   })();
 
+  // 端点钟点（方案A·钟点前置）：首个可见 entry 的 start = 离开望京的时刻，末个
+  // entry 的 end = 回到望京的时刻——首/末段通勤 hop 自带 [start,end]，无 hop 时
+  // 降级到首/末节点起止钟点，让时间轴首尾也落在同一条"钟点前置"读法上。
+  const dayStart = visibleEntries[0]?.start ?? null;
+  const dayEnd =
+    visibleEntries.length > 0 ? visibleEntries[visibleEntries.length - 1].end : null;
+
   const [visibleCount, setVisibleCount] = useState(0);
   const [animating, setAnimating] = useState(false);
   // R1：时间轴 stagger 动画期间也禁用确认按钮——用 extraGate 叠加到共享的
@@ -576,8 +583,16 @@ export default function ItineraryCard() {
           {/* 内容列：纯文字，pl-4 对齐节点卡的内边距（.node-card px-4），
               让起终点/自由休息这些过渡文字和卡内「用餐/主
               活动」标签左边对齐（不再贴脊柱右边）。 */}
-          <div className="flex-1 min-w-0 pl-4 text-base font-semibold text-ink-600">
-            从望京出发
+          {/* 钟点前置（方案A）：家 bookend 也带钟点，同节点卡的 Clock 图标但用
+              中性灰（HOME 语义），让左侧时间尺首尾闭合，把"一个下午"框到头。 */}
+          <div className="flex-1 min-w-0 pl-4 flex items-center gap-2 text-base font-semibold text-ink-600">
+            {dayStart && (
+              <span className="inline-flex items-center gap-1 tabular-nums text-ink-500">
+                <Clock className="h-4 w-4 shrink-0" strokeWidth={2} />
+                {dayStart}
+              </span>
+            )}
+            <span>从望京出发</span>
           </div>
         </li>
           );
@@ -902,8 +917,14 @@ export default function ItineraryCard() {
             </div>
           </div>
           <div className="w-4 shrink-0" aria-hidden />
-          <div className="flex-1 min-w-0 pl-4 text-base font-semibold text-ink-600">
-            结束行程，返回望京
+          <div className="flex-1 min-w-0 pl-4 flex items-center gap-2 text-base font-semibold text-ink-600">
+            {dayEnd && (
+              <span className="inline-flex items-center gap-1 tabular-nums text-ink-500">
+                <Clock className="h-4 w-4 shrink-0" strokeWidth={2} />
+                {dayEnd}
+              </span>
+            )}
+            <span>回到望京</span>
           </div>
         </li>
           );
