@@ -3,10 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowLeftRight,
-  ArrowRightLeft,
-  Bot,
   ChevronDown,
-  ChevronRight,
   Ellipsis,
   ArrowRight as ArrowRightIcon,
   Info,
@@ -14,11 +11,9 @@ import {
   type LucideIcon,
   Plus,
   Route,
-  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   Users,
-  Wrench,
   X,
 } from "lucide-react";
 
@@ -29,7 +24,6 @@ import {
   useCollabStore,
 } from "@/lib/collab-store";
 import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
-import { buildCriticTimeline } from "@/lib/critic-timeline";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
@@ -38,7 +32,6 @@ import { distanceNote, preferenceNote } from "@/lib/preference-notes";
 import { useChatStore } from "@/lib/store";
 import type {
   AlternativeOption,
-  DecisionTrace,
   HopMode,
   Itinerary,
   NodeChip,
@@ -50,11 +43,8 @@ import type {
 import {
   clearUserIdCookie,
   cn,
-  FAILURE_REASON_LABEL,
   generateSessionId,
-  PLAN_FALLBACK_STAGE_LABEL,
   primaryStoreName,
-  TOOL_LABEL,
   upsertSession,
 } from "@/lib/utils";
 
@@ -70,13 +60,10 @@ import PlannerModeBadge from "../PlannerModeBadge";
 import PosterGenerator from "../PosterGenerator";
 import ShareModal from "../ShareModal";
 import ToastStack from "../ToastStack";
-import ToolTracePanel from "../ToolTracePanel";
 import TrustBelt from "../TrustBelt";
 import TtsPlayer from "../TtsPlayer";
 import UserSwitcher from "../UserSwitcher";
 import VoteButtons from "../VoteButtons";
-
-type SheetKind = "trace" | null;
 
 // B9：预约成功烟花——移动端是单栏居中布局（非桌面两栏），行程卡大致落在
 // 屏幕中上部，默认的桌面坐标（70%/38%，两栏布局右侧偏上）在手机上会飞出
@@ -97,7 +84,6 @@ export default function MobileHomeView() {
   const startNewSession = useChatStore((s) => s.startNewSession);
   const roomId = useCollabStore((s) => s.roomId);
 
-  const [sheet, setSheet] = useState<SheetKind>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const personaResetOnLoadRef = useRef(false);
   const activated = messages.length > 0 || streaming || itinerary != null;
@@ -189,23 +175,10 @@ export default function MobileHomeView() {
         )}
       </main>
 
-      <MobileActionRail onOpenTrace={() => setSheet("trace")} />
+      <MobileActionRail />
       <MobileComposer />
       <ToastStack />
       <Confetti origin={MOBILE_CONFETTI_ORIGIN} />
-
-      <MobileSheet
-        open={sheet === "trace"}
-        title="Agent 思考链路"
-        icon={<Bot className="h-4 w-4" />}
-        onClose={() => setSheet(null)}
-        showHeader={false}
-      >
-        <MobileAgentInsightTabs
-          decisionTrace={itinerary?.decision_trace}
-          onClose={() => setSheet(null)}
-        />
-      </MobileSheet>
 
       {roomId && (
         <ShareModal
@@ -1964,17 +1937,10 @@ function MobileInlineCompare({
   );
 }
 
-function MobileActionRail({
-  onOpenTrace,
-}: {
-  onOpenTrace: () => void;
-}) {
+function MobileActionRail() {
   const itinerary = useChatStore((s) => s.itinerary);
   const streaming = useChatStore((s) => s.streaming);
   const cancelled = useChatStore((s) => s.cancelled);
-  const toolCalls = useChatStore((s) => s.toolCalls);
-  const replans = useChatStore((s) => s.replans);
-  const thoughts = useChatStore((s) => s.thoughts);
   const cancel = useChatStore((s) => s.cancel);
   const [expanded, setExpanded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -1986,48 +1952,38 @@ function MobileActionRail({
   const { canConfirm, handleConfirm, confirmLabel, blockedByOwnerGuard } =
     useConfirmAction();
 
-  const hasTrace = Boolean(toolCalls.length || replans.length || thoughts.length);
-  if (!itinerary && !streaming && !hasTrace) return null;
-
-  const latestThought = thoughts[thoughts.length - 1]?.text;
-  const doneCount = toolCalls.filter((t) => t.endedAtSeq != null).length;
+  if (!itinerary && !streaming) return null;
 
   if (streaming) {
     return (
       <div className="pointer-events-none fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom,0px))] z-40 px-4">
-        <button
-          type="button"
-          onClick={onOpenTrace}
+        {/* 移动端遗留思考面板清理批：此前这张卡是可点按钮（onOpenTrace 打开
+            「Agent 思考链路」sheet），sheet 连同三个 tab 面板已整体删除
+            （单思考面收口到「AI 幕后」信任带），卡片降级为纯态展示——不再
+            可点，去掉 ChevronRight 这个暗示"可展开/可点击"的箭头，也去掉了
+            「N/M 调用」这行工具调用计数（同一批用户拍板：只留标题 + 副
+            文案）。 */}
+        <div
           className={cn(
             "pointer-events-auto mx-auto block w-full max-w-[480px] rounded-[24px] border border-accent-500/40 px-4 py-3 text-left",
             "bg-white/[0.70] shadow-[0_18px_48px_-30px_rgba(17,24,39,0.82),0_0_34px_-22px_rgba(245,158,11,0.55)] backdrop-blur-2xl backdrop-saturate-150",
-            "transition-all duration-300 ease-out animate-drawer-slide-up active:scale-[0.99]",
           )}
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-500/20 text-accent-700">
-                <Loader2 className="h-4 w-4 animate-spin" />
-              </div>
-              <div className="min-w-0">
-                <div className="text-sm font-semibold tracking-tight text-ink-900">
-                  Agent 正在思考
-                </div>
-                <div className="mt-0.5 text-xs font-medium text-ink-500">
-                  {doneCount}/{toolCalls.length || 1} 调用
-                  {replans.length > 0 ? ` · ${replans.length} 次重规划` : ""}
-                </div>
-              </div>
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-accent-500/20 text-accent-700">
+              <Loader2 className="h-4 w-4 animate-spin" />
             </div>
-            <ChevronRight className="h-4 w-4 shrink-0 text-ink-400" />
+            <div className="min-w-0 text-sm font-semibold tracking-tight text-ink-900">
+              Agent 正在思考
+            </div>
           </div>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-accent-500/15">
             <div className="h-full w-1/2 rounded-full bg-gradient-to-r from-accent-500/40 via-accent-500 to-accent-500/40 animate-shimmer-x" />
           </div>
           <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-ink-600">
-            {latestThought ?? "正在拆解需求、查找候选并拼装行程~"}
+            正在拆解需求、查找候选并拼装行程~
           </p>
-        </button>
+        </div>
       </div>
     );
   }
@@ -2036,11 +1992,12 @@ function MobileActionRail({
 
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-[calc(82px+env(safe-area-inset-bottom,0px))] z-40 px-4">
-      {/* 展开抽屉：语音播报 / 一键生成海报 / 取消方案——2026-07-06 收口：
-          「开多人房间」已挪到顶栏持久位置（MobileTopBar），「说说哪不对」
-          已删（反馈走下方聊天框即可），抽屉里只留这三个次级工具，同桌面端
-          ItineraryCard「安静工具行」一个意思，只是移动端沿用既有的收纳
-          抽屉承载而不是常驻一行（屏窄，收纳比常驻更合适）。 */}
+      {/* 展开抽屉：语音播报 / 一键生成海报——2026-07-06 收口：「开多人房间」
+          已挪到顶栏持久位置（MobileTopBar），「说说哪不对」已删（反馈走下方
+          聊天框即可）；移动端清理批：「取消方案」已从这个抽屉摘出、放到下方
+          底栏与「确认并预约」并排常驻（确认左/取消右），抽屉里现在只留这两个
+          次级工具，同桌面端 ItineraryCard「安静工具行」一个意思，只是移动端
+          沿用既有的收纳抽屉承载而不是常驻一行（屏窄，收纳比常驻更合适）。 */}
       {previewOpen && itinerary && !hasOrders && !cancelled && (
         <div className="pointer-events-auto mx-auto mb-2 max-w-[480px] animate-drawer-slide-up overflow-hidden rounded-[28px] border border-white/[0.86] bg-white p-2 shadow-[0_24px_70px_-42px_rgba(17,24,39,0.82)] ring-1 ring-black/[0.035]">
           <div className="flex items-center justify-between gap-3 px-3 py-2">
@@ -2063,10 +2020,9 @@ function MobileActionRail({
       {/* 抽屉本身解连坐（UI 修复批 + 用户移动端纠正）：海报/TTS 与"是否已
           下单"无关（两个组件自身都没有 hasOrders 相关守卫），此前整个抽屉
           随 hasOrders 一起消失，确认后海报/TTS 彻底够不着。现在抽屉容器
-          不再依赖 hasOrders——只要展开过、有方案、没取消就渲染；"取消方案"
-          这一项本身仍只在 !hasOrders 时渲染（不能取消一个已下单的方案，
-          这条业务规则不变，也是用户说的"确认/取消按钮布局不要动"的延伸：
-          取消按钮的门控逻辑保持原样，只是不再连带把 TTS/Poster 一起关掉）。 */}
+          不再依赖 hasOrders——只要展开过、有方案、没取消就渲染。移动端清理批：
+          「取消方案」已摘出这个抽屉，挪到下方底栏与确认并排常驻，抽屉现在
+          只装语音播报 + 海报两个次级工具。 */}
       {expanded && itinerary && !cancelled && (
         <div className="pointer-events-auto mx-auto mb-2 flex max-w-[480px] justify-end">
           <div className="flex w-[190px] flex-col gap-2 rounded-[24px] border border-white/[0.74] bg-white/[0.72] p-2 shadow-[0_18px_44px_-30px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 animate-drawer-slide-up">
@@ -2079,35 +2035,14 @@ function MobileActionRail({
             variant="mobile"
             className="!h-10 !rounded-full !text-sm !font-semibold"
           />
-          {!hasOrders && (
-            <button
-              type="button"
-              className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-red-500/15 bg-white/[0.78] px-3 text-sm font-semibold text-red-500 transition active:scale-[0.98] disabled:text-ink-400"
-              disabled={streaming}
-              onClick={() => {
-                setExpanded(false);
-                setPreviewOpen(false);
-                cancel();
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-              <span>取消方案</span>
-            </button>
-          )}
           </div>
         </div>
       )}
+      {/* 底栏重排（移动端清理批，用户拍板）：确认并预约在左，取消方案在右，
+          两者并排常驻——不再共用「+」抽屉承载取消。「Agent思考链路」触发
+          按钮随三个遗留思考面板一起删除（单思考面已收口到「AI 幕后」信任
+          带，这里不再需要入口）。 */}
       <div className="pointer-events-auto mx-auto flex max-w-[480px] items-center gap-2">
-        {(hasTrace || itinerary) && (
-          <button
-            type="button"
-            onClick={onOpenTrace}
-            disabled={!hasTrace}
-            className="min-h-11 min-w-0 flex-1 rounded-full border border-white/[0.74] bg-white/[0.72] px-2 text-sm font-semibold text-ink-700 shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400"
-          >
-            Agent思考链路
-          </button>
-        )}
         {itinerary && !hasOrders && !cancelled && (
           <div
             className={cn(
@@ -2140,15 +2075,28 @@ function MobileActionRail({
             </button>
           </div>
         )}
+        {itinerary && !hasOrders && !cancelled && (
+          <button
+            type="button"
+            className="min-h-11 min-w-0 flex-1 rounded-full border border-red-500/15 bg-white/[0.72] px-2 text-sm font-semibold text-red-500 shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400"
+            disabled={streaming}
+            onClick={() => {
+              setExpanded(false);
+              setPreviewOpen(false);
+              cancel();
+            }}
+          >
+            取消方案
+          </button>
+        )}
         {/* "+"展开抽屉触发按钮——解连坐（UI 修复批 + 用户移动端纠正）：此前
             和上面的确认/取消按钮组共用同一个 `!hasOrders` 门控 fragment，
             确认后整个 fragment（含这个触发按钮）一起从 DOM 消失，导致抽屉
             里的海报/TTS 确认后再也打不开、够不着（诊断稿问题4同款"一个变量
             身兼两个不同粒度门控"病灶，移动端版本）。这里只解开触发按钮自己
-            的门控（不再依赖 hasOrders），确认/取消按钮组的门控不动（用户
-            明确要求"不要动移动端的确认/取消按钮布局"，那部分留给另一批）。
-            抽屉本身（下方 `expanded && ...` 块）的 hasOrders 门控一并解除，
-            两处要对应着改，否则触发按钮能点开但抽屉内容还是不渲染。 */}
+            的门控（不再依赖 hasOrders）——抽屉触发按钮和海报/TTS 的可达性
+            与「是否已下单」解绑，确认后仍可达；取消方案按钮本身仍按业务规则
+            只在 !hasOrders 时渲染（不能取消一个已下单的方案）。 */}
         {itinerary && !cancelled && (
           <button
             type="button"
@@ -2354,661 +2302,6 @@ function MobileComposer() {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-type AgentInsightTab = "trace" | "thought" | "decision";
-
-function MobileAgentInsightTabs({
-  decisionTrace,
-  onClose,
-}: {
-  decisionTrace: DecisionTrace | null | undefined;
-  onClose: () => void;
-}) {
-  const itinerary = useChatStore((s) => s.itinerary);
-  const toolCalls = useChatStore((s) => s.toolCalls);
-  const thoughts = useChatStore((s) => s.thoughts);
-  const replans = useChatStore((s) => s.replans);
-  const streaming = useChatStore((s) => s.streaming);
-  // A1：质检与自愈时间线也算"有值得看的思考内容"——同 ThoughtPanel.tsx 的
-  // render-guard 判据（criticCount>0 时不该判定为空态），否则某一轮只触发过
-  // critic 自愈、没有普通 agent_thought 时，"Agent在想什么" tab 会误判为空。
-  const criticCount = useChatStore((s) => buildCriticTimeline(s.criticReport).length);
-  const [activeTab, setActiveTab] = useState<AgentInsightTab>("trace");
-
-  const tabs: Array<{ id: AgentInsightTab; label: string }> = [
-    { id: "trace", label: "Agent思考链路" },
-    { id: "thought", label: "Agent在想什么" },
-    { id: "decision", label: "决策链路" },
-  ];
-
-  const hasThoughts =
-    thoughts.length > 0 || replans.length > 0 || streaming || criticCount > 0;
-  const hasDecisionTrace =
-    !isDecisionTraceEmpty(decisionTrace) ||
-    Boolean(itinerary || toolCalls.length || thoughts.length || replans.length);
-
-  return (
-    <div className="space-y-2.5">
-      <div className="flex items-center gap-2">
-        <div className="grid min-w-0 flex-1 grid-cols-3 gap-1 rounded-full border border-black/[0.06] bg-black/[0.025] p-1">
-          {tabs.map((tab) => {
-            const selected = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                className={cn(
-                  "min-h-9 rounded-full px-1.5 text-[12px] font-semibold tracking-tight transition active:scale-[0.98]",
-                  selected
-                    ? "bg-accent-500 text-white shadow-[0_8px_20px_-16px_rgba(245,158,11,0.95)]"
-                    : "text-ink-500 hover:bg-white/[0.72] hover:text-ink-800",
-                )}
-                onClick={() => setActiveTab(tab.id)}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-black/[0.04] text-ink-600 transition hover:bg-black/[0.07] active:scale-95"
-          aria-label="关闭"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="[&_.card]:mt-0 [&_.card]:rounded-[22px] [&_.card]:border-black/[0.06] [&_.card]:bg-white/[0.82] [&_.card]:shadow-sm">
-        {activeTab === "trace" && <ToolTracePanel />}
-
-        {activeTab === "thought" && (
-          hasThoughts ? (
-            <MobileThoughtTimeline />
-          ) : (
-            <MobileInsightEmpty text="这一轮还没有思考过程，发起规划后这里会显示 Agent 的推理节奏。" />
-          )
-        )}
-
-        {activeTab === "decision" && (
-          hasDecisionTrace ? (
-            <MobileDecisionTrace trace={decisionTrace} />
-          ) : (
-            <MobileInsightEmpty text="生成带决策解释的方案后，这里会显示规划思路、修正历史和候选取舍。" />
-          )
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MobileInsightEmpty({ text }: { text: string }) {
-  return (
-    <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.76] px-4 py-5 text-sm leading-relaxed text-ink-500 shadow-sm">
-      {text}
-    </div>
-  );
-}
-
-function MobileThoughtTimeline() {
-  const thoughts = useChatStore((s) => s.thoughts);
-  const replans = useChatStore((s) => s.replans);
-  const streaming = useChatStore((s) => s.streaming);
-  // A1：质检与自愈时间线——此前 MobileThoughtTimeline 只读 thoughts/replans，
-  // criticReport（critic_violations/critic_fix_attempt/plan_fallback 三事件）
-  // 完全没有落地，"系统自愈过程可视化"这个卖点在手机上等于不存在。
-  const criticReport = useChatStore((s) => s.criticReport);
-  const itinerary = useChatStore((s) => s.itinerary);
-  const criticTimeline = useMemo(() => buildCriticTimeline(criticReport), [criticReport]);
-
-  // 单思考面（信任带设计终稿 §修订4）：AI 幕后（TrustBelt）是唯一思考面，
-  // 这里不再铺原始 thought.text 列表（那是带权重/冗长 rationale 的未加工
-  // 重复面）——重规划事件是结构化的自愈信号（非自由文本 rationale），保留。
-  const items = replans.map((replan) => ({
-    kind: "replan" as const,
-    seq: replan.seq,
-    text: `${FAILURE_REASON_LABEL[replan.reason] ?? replan.reason} · ${replan.fromTool}`,
-  }));
-  const showThinkingPulse = streaming && thoughts.length > 0;
-
-  return (
-    <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.82] px-3 py-3 shadow-sm">
-      <div className="mb-2 flex items-center justify-between gap-3 px-1">
-        <div className="text-sm font-bold tracking-tight text-ink-900">
-          Agent 在想什么
-        </div>
-        <div className="text-xs font-semibold text-ink-500">
-          {replans.length > 0 ? `${replans.length} 次重规划` : ""}
-        </div>
-      </div>
-
-      {showThinkingPulse ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-black/[0.025] px-3 py-3 text-sm text-ink-500">
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent-500" aria-hidden />
-          AI 正在思考……
-        </div>
-      ) : items.length === 0 && streaming ? (
-        <div className="flex items-center gap-2 rounded-2xl bg-black/[0.025] px-3 py-3 text-sm text-ink-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          等待 Agent 开始思考……
-        </div>
-      ) : (
-        items.length > 0 && (
-          <ol className="space-y-2">
-            {items.map((item) => (
-              <li
-                key={`${item.kind}-${item.seq}`}
-                className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
-              >
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-ink-500">重规划</span>
-                </div>
-                {item.text}
-              </li>
-            ))}
-          </ol>
-        )
-      )}
-
-      {/* A1：质检与自愈——独立小节，不与上面的自由文本思考叙事混排（同
-          ThoughtPanel.tsx 的分工：叙事 vs. 结构化质检结果是两种粒度的信息）。
-          措辞口吻＝系统能力的展示，不是错误道歉。 */}
-      {criticTimeline.length > 0 && (
-        <div className="mt-3 border-t border-black/[0.06] pt-2.5">
-          <div className="mb-2 flex items-center gap-1.5 px-1">
-            <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-amber-500" strokeWidth={2} />
-            <span className="text-sm font-bold tracking-tight text-ink-900">
-              质检与自愈
-            </span>
-            <span className="text-xs font-semibold text-ink-500">{criticTimeline.length}</span>
-          </div>
-          <ol className="space-y-2">
-            {criticTimeline.map((item, idx) => {
-              const isFrontier = idx === criticTimeline.length - 1 && streaming && itinerary == null;
-              if (item.kind === "violations") {
-                return (
-                  <MobileViolationRoundItem
-                    key={`violations-${item.data.seq}`}
-                    data={item.data}
-                    isFrontier={isFrontier}
-                    hasLaterEvent={idx < criticTimeline.length - 1}
-                  />
-                );
-              }
-              if (item.kind === "fix_attempt") {
-                return (
-                  <MobileFixAttemptItem
-                    key={`fix-${item.data.seq}`}
-                    data={item.data}
-                    isFrontier={isFrontier}
-                  />
-                );
-              }
-              return <MobileFallbackHopItem key={`fallback-${item.data.seq}`} data={item.data} />;
-            })}
-          </ol>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 一轮 critic 违规判定：拦下的问题逐条人话展示 + 是否已被后续事件接住
- * （返工/降级）的状态标记。照 ThoughtPanel.tsx 的 ViolationRoundItem 移植。 */
-function MobileViolationRoundItem({
-  data,
-  isFrontier,
-  hasLaterEvent,
-}: {
-  data: { fixAttempt: number; violations: { message: string; field_path: string }[] };
-  isFrontier: boolean;
-  hasLaterEvent: boolean;
-}) {
-  const shown = data.violations.slice(0, 6);
-  const overflow = data.violations.length - shown.length;
-  // violations=[] 是"这稿压根没生成出方案"（候选为空/蓝图生成失败），不是
-  // "零问题"——文案不说"拦下 0 个问题"制造矛盾感（同 ThoughtPanel 注释）。
-  const noBlueprintProduced = data.violations.length === 0;
-  return (
-    <li className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.08] px-3 py-2.5">
-      <div className="flex items-center gap-1.5">
-        <ShieldAlert className="h-3 w-3 shrink-0 text-amber-600" strokeWidth={2} />
-        <span className="text-sm font-semibold text-amber-800">
-          {noBlueprintProduced
-            ? `第 ${data.fixAttempt} 稿未能生成有效方案`
-            : `质检拦下 ${data.violations.length} 个问题（第 ${data.fixAttempt} 稿）`}
-        </span>
-      </div>
-      {shown.length > 0 && (
-        <ul className="mt-1.5 ml-[20px] list-disc space-y-1 marker:text-amber-500">
-          {shown.map((v, i) => (
-            <li key={i} className="text-sm leading-relaxed text-ink-700">
-              {v.message}
-            </li>
-          ))}
-          {overflow > 0 && <li className="text-xs text-ink-400">还有 {overflow} 项…</li>}
-        </ul>
-      )}
-      <div className="mt-1.5 ml-[20px]">
-        {isFrontier ? (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700">
-            <Loader2 className="h-3 w-3 animate-spin" strokeWidth={2} />
-            AI 正在修正……
-          </span>
-        ) : hasLaterEvent ? (
-          <span className="text-xs font-medium text-emerald-600">已自动返工</span>
-        ) : null}
-      </div>
-    </li>
-  );
-}
-
-/** critic backprompt 重做中：正在按质检反馈重写第 N 稿。照 ThoughtPanel.tsx
- * 的 FixAttemptItem 移植——不直接展示后端 feedback_text（常是内部占位文案）。 */
-function MobileFixAttemptItem({
-  data,
-  isFrontier,
-}: {
-  data: { attempt: number };
-  isFrontier: boolean;
-}) {
-  return (
-    <li className="flex items-center gap-1.5 rounded-2xl px-1 py-1 text-sm">
-      {isFrontier ? (
-        <Loader2 className="h-3 w-3 shrink-0 animate-spin text-amber-600" strokeWidth={2} />
-      ) : (
-        <Wrench className="h-3 w-3 shrink-0 text-ink-500" strokeWidth={2} />
-      )}
-      <span className={isFrontier ? "font-medium text-amber-700" : "text-ink-600"}>
-        第 {data.attempt} 稿{isFrontier ? "返工中……" : "已重新生成"}
-      </span>
-    </li>
-  );
-}
-
-/** 4 级降级链跳变：LLM 首次规划 → LLM 重新生成 → ILS 算法引擎 → 规则引擎兜底。
- * 照 ThoughtPanel.tsx 的 FallbackHopItem 移植。 */
-function MobileFallbackHopItem({
-  data,
-}: {
-  data: { from: string; to: string; reason: string };
-}) {
-  const fromLabel = PLAN_FALLBACK_STAGE_LABEL[data.from] ?? data.from;
-  const toLabel = PLAN_FALLBACK_STAGE_LABEL[data.to] ?? data.to;
-  return (
-    <li className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-      <div className="flex items-center gap-1.5">
-        <ArrowRightLeft className="h-3 w-3 shrink-0 text-amber-600" strokeWidth={2} />
-        <span className="text-sm font-medium text-amber-700">换算法引擎重排</span>
-      </div>
-      <div className="mt-0.5 ml-[18px] text-sm text-ink-700">{data.reason}</div>
-      <div className="mt-0.5 ml-[18px] text-xs text-ink-500">
-        {fromLabel} → {toLabel}
-      </div>
-    </li>
-  );
-}
-
-function MobileDecisionTrace({
-  trace,
-}: {
-  trace: DecisionTrace | null | undefined;
-}) {
-  if (isDecisionTraceEmpty(trace)) {
-    return <MobileDecisionFallbackTrace />;
-  }
-
-  const t = trace as DecisionTrace;
-
-  return (
-    <div className="space-y-3">
-      <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.82] px-4 py-3 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-bold tracking-tight text-ink-900">
-            决策链路
-          </div>
-          <span className="rounded-full border border-accent-500/40 bg-accent-500/[0.14] px-2.5 py-1 text-xs font-semibold text-ink-700">
-            {formatStrategy(t.final_strategy)}
-          </span>
-        </div>
-        {(t.blueprint_rationale || t.weights_explanation) && (
-          <div className="mt-3 space-y-2 text-sm leading-relaxed text-ink-700">
-            {t.blueprint_rationale && (
-              <p>{t.blueprint_rationale}</p>
-            )}
-            {t.weights_explanation && (
-              <p className="rounded-2xl bg-black/[0.025] px-3 py-2 text-xs text-ink-500">
-                {t.weights_explanation}
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {t.critic_attempts.length > 0 && (
-        <TraceSection title="Critic 修正">
-          {t.critic_attempts.map((attempt) => (
-            <div
-              key={`critic-${attempt.attempt_n}`}
-              className="rounded-2xl border border-black/[0.05] bg-white/[0.72] px-3 py-2.5"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-ink-800">
-                  第 {attempt.attempt_n} 次
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-xs font-semibold",
-                    attempt.resolved
-                      ? "bg-emerald-500/10 text-emerald-700"
-                      : "bg-red-500/10 text-red-600",
-                  )}
-                >
-                  {attempt.resolved ? "已修正" : "待处理"}
-                </span>
-              </div>
-              {attempt.feedback_summary && (
-                <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
-                  {attempt.feedback_summary}
-                </p>
-              )}
-              {attempt.violation_codes.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {attempt.violation_codes.map((code) => (
-                    <span
-                      key={`${attempt.attempt_n}-${code}`}
-                      className="rounded-full bg-black/[0.04] px-2 py-0.5 text-[11px] font-medium text-ink-500"
-                    >
-                      {code}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </TraceSection>
-      )}
-
-      {t.alternatives_considered.length > 0 && (
-        <TraceSection title="候选取舍">
-          {t.alternatives_considered.map((candidate) => (
-            <div
-              key={`${candidate.target_kind}-${candidate.target_id}-${candidate.rank}`}
-              className="rounded-2xl border border-black/[0.05] bg-white/[0.72] px-3 py-2.5"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-ink-800">
-                  {candidate.target_name}
-                </span>
-                <span className="text-xs font-semibold text-ink-400">
-                  #{candidate.rank}
-                </span>
-              </div>
-              <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
-                {candidate.reason_rejected}
-              </p>
-            </div>
-          ))}
-        </TraceSection>
-      )}
-
-      {t.fallback_chain.length > 0 && (
-        <TraceSection title="Fallback 链路">
-          {t.fallback_chain.map((hop, index) => (
-            <div
-              key={`${hop.from_stage}-${hop.to_stage}-${index}`}
-              className="rounded-2xl border border-black/[0.05] bg-white/[0.72] px-3 py-2.5"
-            >
-              <div className="text-sm font-semibold text-ink-800">
-                {formatStrategy(hop.from_stage)} → {formatStrategy(hop.to_stage)}
-              </div>
-              <p className="mt-1.5 text-sm leading-relaxed text-ink-600">
-                {hop.reason}
-              </p>
-            </div>
-          ))}
-        </TraceSection>
-      )}
-    </div>
-  );
-}
-
-function MobileDecisionFallbackTrace() {
-  const itinerary = useChatStore((s) => s.itinerary);
-  const toolCalls = useChatStore((s) => s.toolCalls);
-  const replans = useChatStore((s) => s.replans);
-
-  const visibleEntries = itinerary ? getVisibleEntries(itinerary) : [];
-  const activityEntries = visibleEntries.filter(
-    (entry) => entry.entry_kind === "node" && entry.title,
-  );
-  // 单思考面（信任带设计终稿 §修订4）：不再在此铺原始 thought.text
-  // （"关键判断"曾直读 thoughts.slice(-4) 逐条展示自由文本 rationale，
-  // 与 AI 幕后信任带重复）——AI 幕后是唯一思考面，这里只留结构化的工具证据
-  // 与修正链路。
-  const finishedTools = toolCalls
-    .filter((tool) => tool.endedAtSeq != null || tool.success != null)
-    .slice(-6);
-
-  if (
-    !itinerary &&
-    finishedTools.length === 0 &&
-    replans.length === 0
-  ) {
-    return (
-      <MobileInsightEmpty text="生成方案后，这里会把本轮规划依据、工具证据和修正链路整理出来。" />
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {itinerary && (
-        <div className="rounded-[22px] border border-black/[0.06] bg-white/[0.82] px-4 py-3 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-bold tracking-tight text-ink-900">
-              本轮决策依据
-            </div>
-            <span className="rounded-full border border-accent-500/40 bg-accent-500/[0.14] px-2.5 py-1 text-xs font-semibold text-ink-700">
-              当前方案
-            </span>
-          </div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-700">
-            {itinerary.summary}
-            {itinerary.total_minutes > 0
-              ? `，约 ${(itinerary.total_minutes / 60).toFixed(1)} 小时`
-              : ""}
-          </p>
-          {activityEntries.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {activityEntries.slice(0, 4).map((entry) => (
-                <span
-                  key={`${entry.entry_kind}-${entry.ref_id}`}
-                  className="rounded-full border border-black/[0.06] bg-black/[0.025] px-2.5 py-1 text-xs font-semibold text-ink-600"
-                >
-                  {entry.start} {entry.title}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {finishedTools.length > 0 && (
-        <TraceSection title="工具证据">
-          {finishedTools.map((tool) => (
-            <div
-              key={`decision-tool-${tool.id}`}
-              className="rounded-2xl border border-black/[0.05] bg-white/[0.72] px-3 py-2.5"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-ink-800">
-                  {TOOL_LABEL[tool.tool] ?? tool.tool}
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-xs font-semibold",
-                    tool.success === false
-                      ? "bg-red-500/10 text-red-600"
-                      : "bg-emerald-500/10 text-emerald-700",
-                  )}
-                >
-                  {tool.success === false ? "未采用" : "已完成"}
-                </span>
-              </div>
-              {tool.durationMs != null && (
-                <div className="mt-1 text-xs font-medium text-ink-400">
-                  {tool.durationMs}ms
-                </div>
-              )}
-            </div>
-          ))}
-        </TraceSection>
-      )}
-
-      {replans.length > 0 && (
-        <TraceSection title="修正链路">
-          {replans.map((replan) => (
-            <div
-              key={`decision-replan-${replan.seq}`}
-              className="rounded-2xl border border-amber-300/35 bg-accent-500/[0.10] px-3 py-2.5 text-sm leading-relaxed text-amber-800"
-            >
-              {FAILURE_REASON_LABEL[replan.reason] ?? replan.reason}
-              <span className="text-amber-700/70">
-                {" "}
-                · 来自 {TOOL_LABEL[replan.fromTool] ?? replan.fromTool}
-              </span>
-            </div>
-          ))}
-        </TraceSection>
-      )}
-    </div>
-  );
-}
-
-function TraceSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-[22px] border border-black/[0.06] bg-black/[0.018] px-3 py-3">
-      <div className="mb-2 px-1 text-xs font-bold tracking-tight text-ink-500">
-        {title}
-      </div>
-      <div className="space-y-2">{children}</div>
-    </section>
-  );
-}
-
-function isDecisionTraceEmpty(trace: DecisionTrace | null | undefined): boolean {
-  if (!trace) return true;
-  return (
-    !trace.blueprint_rationale &&
-    !trace.weights_explanation &&
-    (trace.critic_attempts ?? []).length === 0 &&
-    (trace.alternatives_considered ?? []).length === 0 &&
-    (trace.fallback_chain ?? []).length === 0
-  );
-}
-
-function formatStrategy(strategy: string): string {
-  const labels: Record<string, string> = {
-    llm_first: "LLM 直出",
-    llm_backprompt: "LLM 修正",
-    ils: "ILS 兜底",
-    rule: "规则兜底",
-    give_up: "保留方案",
-  };
-  return labels[strategy] ?? strategy;
-}
-
-function MobileSheet({
-  open,
-  title,
-  icon,
-  onClose,
-  children,
-  tall = false,
-  showHeader = true,
-}: {
-  open: boolean;
-  title: string;
-  icon: React.ReactNode;
-  onClose: () => void;
-  children: React.ReactNode;
-  tall?: boolean;
-  showHeader?: boolean;
-}) {
-  // N6：sheet 打开时背景可滚动穿透——锁定 body 滚动，关闭/卸载时恢复。同一
-  // 时刻只会挂载一个 open=true 的 MobileSheet 实例（本文件仅一处调用点），
-  // 不需要引用计数，简单还原上一次的 inline overflow 值即可。
-  useEffect(() => {
-    if (!open || typeof document === "undefined") return;
-    const { body } = document;
-    const previousOverflow = body.style.overflow;
-    body.style.overflow = "hidden";
-    return () => {
-      body.style.overflow = previousOverflow;
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/[0.24] backdrop-blur-[2px]"
-        onClick={onClose}
-        aria-label="关闭弹层"
-      />
-      <section
-        className={cn(
-          "absolute inset-x-4 bottom-[calc(18px+env(safe-area-inset-bottom,0px))] mx-auto max-w-[448px] overflow-hidden rounded-[30px] border border-white/[0.78] bg-white/[0.94] shadow-[0_26px_70px_-34px_rgba(17,24,39,0.88)] backdrop-blur-2xl backdrop-saturate-150",
-          "animate-drawer-slide-up",
-          tall ? "max-h-[84vh]" : "max-h-[72vh]",
-        )}
-      >
-        {showHeader && (
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-black/[0.06] bg-white/[0.86] px-4 py-3 backdrop-blur-xl">
-          <div className="flex items-center gap-2 text-base font-semibold tracking-tight text-ink-900">
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-black/[0.05] text-ink-600">
-              {icon}
-            </span>
-            {title}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.04] text-ink-600"
-            aria-label="关闭"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        )}
-        <div
-          className={cn(
-            "overflow-y-auto px-4",
-            showHeader ? "py-4" : "pt-3 pb-4",
-            showHeader
-              ? tall
-                ? "max-h-[calc(84vh-62px)]"
-                : "max-h-[calc(72vh-62px)]"
-              : tall
-                ? "max-h-[84vh]"
-                : "max-h-[72vh]",
-          )}
-        >
-          {children}
-        </div>
-      </section>
     </div>
   );
 }
