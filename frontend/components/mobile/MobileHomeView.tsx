@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowLeftRight,
+  ChevronDown,
   Ellipsis,
   ArrowRight as ArrowRightIcon,
   Info,
@@ -452,6 +453,11 @@ function MobileConversation() {
   const messages = useChatStore((s) => s.messages);
   const chitchatReplies = useChatStore((s) => s.chitchatReplies);
   const streaming = useChatStore((s) => s.streaming);
+  // 收纳（2026-07-12）：反馈多轮后聊天堆成一堵墙，把方案卡顶到屏幕下方。只敞开
+  // "最新一轮"，更早的折进一个"更早的 N 轮调整"条，点开可回看（收纳、不丢弃——
+  // 旧的 slice(-6) 是直接砍掉、回看不到）。单人/多人共用本组件（多人下别人的
+  // 反馈也经 collab-store 进 messages），同一套折叠逻辑覆盖两种模式。
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   // A7 根治：chitchat 气泡此前被压平成纯文本（只取 payload.reply_text），
   // 丢了 cta_chips / tone——手机收到"要不要确认预约？"这类气泡时没按钮可点。
@@ -477,15 +483,59 @@ function MobileConversation() {
 
   if (!timeline.length && !streaming) return null;
 
+  // "最新一轮" = 从最后一条 user 消息起到末尾（该诉求 + 它之后的 agent 回应/
+  // 气泡）。之前的全部收纳。单人=你自己上一句；多人=最后发话者那句（都算最新
+  // 一轮，更早的折起来）。没有 user 消息、或它就是第一条时不折叠。
+  let lastUserIdx = -1;
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const it = timeline[i];
+    if (it.kind === "message" && it.role === "user") {
+      lastUserIdx = i;
+      break;
+    }
+  }
+  const canCollapse = lastUserIdx > 0;
+  const collapsed = canCollapse ? timeline.slice(0, lastUserIdx) : [];
+  const latest = canCollapse ? timeline.slice(lastUserIdx) : timeline;
+  const collapsedRounds = collapsed.filter(
+    (it) => it.kind === "message" && it.role === "user",
+  ).length;
+  const collapseLabel = historyExpanded
+    ? "收起更早"
+    : collapsedRounds > 0
+      ? `更早的 ${collapsedRounds} 轮调整`
+      : "更早的对话";
+
+  const renderItem = (item: (typeof timeline)[number]) =>
+    item.kind === "message" ? (
+      <MobileBubble key={item.id} role={item.role} text={item.text} />
+    ) : (
+      <MobileChitchatBubble key={item.id} payload={item.payload} />
+    );
+
   return (
     <section className="mt-3 space-y-2.5">
-      {timeline.slice(-6).map((item) =>
-        item.kind === "message" ? (
-          <MobileBubble key={item.id} role={item.role} text={item.text} />
-        ) : (
-          <MobileChitchatBubble key={item.id} payload={item.payload} />
-        ),
+      {canCollapse && (
+        <>
+          <button
+            type="button"
+            onClick={() => setHistoryExpanded((v) => !v)}
+            aria-expanded={historyExpanded}
+            className="flex w-full items-center justify-center gap-1.5 rounded-full border border-black/[0.06] bg-white/[0.68] px-3 py-1.5 text-xs font-semibold text-ink-500 shadow-sm backdrop-blur-xl active:scale-[0.99]"
+          >
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 transition-transform duration-200",
+                historyExpanded && "rotate-180",
+              )}
+              strokeWidth={2.4}
+            />
+            <span>{collapseLabel}</span>
+          </button>
+          {historyExpanded && collapsed.map(renderItem)}
+        </>
       )}
+      {latest.map(renderItem)}
     </section>
   );
 }
