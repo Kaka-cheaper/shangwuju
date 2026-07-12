@@ -72,13 +72,13 @@ export default function RoomClient({ roomIdFromPath }: RoomClientProps) {
       <RoomShell>
         {connectionError ? (
           <>
-            <p className="text-red-400 text-sm mb-2">{connectionError}</p>
+            <p className="text-red-500 text-sm font-medium mb-2">{connectionError}</p>
             <p className="text-ink-500 text-xs">请检查链接是否正确，或刷新重试</p>
           </>
         ) : (
           <>
-            <p className="text-ink-400 text-sm mb-2">正在加入房间...</p>
-            <p className="text-ink-600 text-xs">房间 ID：{roomId}</p>
+            <p className="text-ink-700 text-sm mb-2">正在加入房间...</p>
+            <p className="text-ink-400 text-xs">房间 ID：{roomId}</p>
           </>
         )}
       </RoomShell>
@@ -90,9 +90,17 @@ export default function RoomClient({ roomIdFromPath }: RoomClientProps) {
 
 export function RoomShell({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#08080d]">
+    <div
+      className="min-h-screen flex items-center justify-center px-4"
+      style={{
+        // 与主 app 一致的暖色亮调（白底 + 暖黄光晕），不再是全 app 唯一的黑屏
+        // ——评委扫码进房间视觉连贯，还是那个暖暖的晌午局（2026-07-12 重主题）。
+        background:
+          "radial-gradient(circle at 28% 18%, rgb(255 209 0 / 0.20), transparent 55%), radial-gradient(circle at 78% 88%, rgb(245 158 11 / 0.15), transparent 60%), #fffdf7",
+      }}
+    >
       <div className="text-center">
-        <div className="text-2xl mb-3">☕</div>
+        <div className="text-3xl mb-3">☕</div>
         {children}
       </div>
     </div>
@@ -102,8 +110,8 @@ export function RoomShell({ children }: { children: ReactNode }) {
 // ============================================================
 // NicknameEntryCard —— ADR-0013 决策 6：进房卡片
 // URL 无 nickname（非扫码深链）时，先让用户填昵称再进房，而不是拿「参与者」
-// 默认值直接连进去。复用 RoomShell 的暗色壳，卡片本身也走暗色语言（RoomShell
-// 背景是 #08080d，仓库里唯一的 .card 全局类是浅色主题，套在这里会跳色）。
+// 默认值直接连进去。卡片走与主 app 一致的暖色亮调（亮玻璃卡 + 焦糖描边 +
+// 金色 btn-primary），配合 RoomShell 的暖色背景（2026-07-12 从黑屏重主题）。
 // ============================================================
 
 function NicknameEntryCard({
@@ -124,10 +132,10 @@ function NicknameEntryCard({
 
   return (
     <RoomShell>
-      <div className="w-[280px] rounded-xl border border-white/10 bg-white/[0.04] backdrop-blur-sm px-5 py-6 text-left">
-        <p className="text-ink-100 text-sm font-medium mb-1">加入房间</p>
-        <p className="text-ink-500 text-xs mb-4">房间 ID：{roomId}</p>
-        <label htmlFor="room-nickname-input" className="block text-ink-400 text-xs mb-1.5">
+      <div className="w-full max-w-[320px] rounded-[20px] border border-black/[0.08] bg-white/90 backdrop-blur-xl px-5 py-6 text-left shadow-[0_24px_60px_-40px_rgba(17,24,39,0.4)]">
+        <p className="text-ink-900 text-base font-bold tracking-tight mb-1">加入房间</p>
+        <p className="text-ink-400 text-xs mb-4">房间 ID：{roomId}</p>
+        <label htmlFor="room-nickname-input" className="block text-ink-500 text-xs mb-1.5">
           你的昵称
         </label>
         <input
@@ -140,7 +148,7 @@ function NicknameEntryCard({
           }}
           maxLength={12}
           placeholder="1-12 字，例如「老婆」"
-          className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-ink-100 placeholder:text-ink-600 focus:outline-none focus:ring-1 focus:ring-accent-500/50 mb-3"
+          className="w-full rounded-lg border border-black/[0.1] bg-white px-3 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-2 focus:ring-accent-400/40 mb-3"
         />
         <button
           type="button"
