@@ -27,7 +27,7 @@ import {
   sessionLabelFromText,
 } from "./utils";
 import { resetArrival } from "./store/arrival-counter";
-import { handleEvent } from "./store/event-handlers";
+import { handleEvent, shortHandoffText } from "./store/event-handlers";
 import { initialState } from "./store/initial-state";
 import { emptyCriticReport } from "./store/types";
 import type {
@@ -159,9 +159,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const itin = get().itinerary;
             const narr = get().narration;
             if (narr?.text || itin) {
-              const text = itin
-                ? `排好了——${itin.summary}。细节和提醒都在方案卡上。`
-                : "方案排好了，细节在方案卡上。";
+              const text = shortHandoffText(itin, "stream");
               if (text) {
                 set((s) => ({
                   messages: [
@@ -263,9 +261,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           // **之前**先清后填，不依赖 confirm 是否清过。
           const narr = get().narration;
           const itin = get().itinerary;
-          const text = itin
-            ? `都订好了——${itin.summary}。凭证和安排都在卡片里。`
-            : "都订好了，凭证和安排都在卡片里。";
+          const text = shortHandoffText(itin, "confirm");
           set((s) => ({
             streaming: false,
             streamPhase: "idle",

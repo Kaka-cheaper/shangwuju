@@ -199,10 +199,54 @@ def test_adjust_alternative_swaps_to_exactly_chosen_target_and_does_not_record_l
         new_ids = [n["target_id"] for n in room.current_itinerary_dict["nodes"]]
         assert "R017" in new_ids
         assert "R001" not in new_ids
-        assert room.demand_ledger == [], "具名备选是「选定」不是「诉求」，不记账（同 F-4 口径）"
+        assert room.demand_ledger == [], "具名备选是「选定」不是「诉求」，不记进台账（同 F-4 口径；台账要求可判定谓词，指名换店没有）"
 
         narration = _planning_event_payloads(ws, "agent_narration")[0]
         assert "发起人" in narration["text"]
+
+    asyncio.run(scenario())
+
+
+def test_adjust_alternative_records_constraint_stream_note_with_attribution_and_advances_watermark():
+    """协作房间约束流合并 A1：具名备选换菜成功后，不进台账（上一测试钉住），
+    但要往 `room.constraints` 记一笔——归名 + 内容="换成了「新店名」"，source
+    标记为 `alternative_swap`，让合并展示流"谁提了什么"覆盖到这一种此前唯一
+    没有留痕的入口。同时钉住这条记录不会污染未来的反馈合并（见
+    `test_room_constraint_watermark.py` 的水位线机制）：append 后水位线必须
+    立刻推进覆盖它，否则下一次任何人触发真实反馈重排时，`_merge_constraints_
+    text` 会把这条"换成了X店"的记录当成用户刚说的话重播进 refiner 上下文。
+    """
+    async def scenario():
+        manager, room = _seed_room("owner_alt_wm_test")
+        ws = _FakeWebSocket()
+        await manager.join(room, "owner_alt_wm_test", "发起人", ws)
+        ws.sent.clear()
+
+        assert room.constraints == []
+        assert room.constraints_consumed_watermark == 0
+
+        action = AdjustActionAlternative(target_id="R017")
+        await manager.adjust(room, "owner_alt_wm_test", "R001", action)
+
+        assert len(room.constraints) == 1, "指名换店成功应记一条约束流条目"
+        note = room.constraints[0]
+        assert note.source == "alternative_swap"
+        assert note.user_id == "owner_alt_wm_test"
+        assert "R017" not in note.text, "展示文案应是人话店名，不是裸 target_id"
+        assert note.text.startswith("换成了"), f"文案应明确说明换成了哪家，实际={note.text!r}"
+
+        # 水位线必须覆盖这条新记录，未来反馈合并不会重播它。
+        assert room.constraints_consumed_watermark == len(room.constraints) == 1
+
+        # 全房广播：其它/新加入成员也能看到（constraint_added 同款事件形状，
+        # is_constraint=True 让前端把它塞进合并展示流，同真实约束一视同仁）。
+        broadcast = [
+            m for m in ws.sent
+            if m.get("type") == "constraint_added" and m.get("source") == "alternative_swap"
+        ]
+        assert len(broadcast) == 1
+        assert broadcast[0]["nickname"] == "发起人"
+        assert broadcast[0]["is_constraint"] is True
 
     asyncio.run(scenario())
 

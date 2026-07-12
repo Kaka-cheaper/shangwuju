@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 import ChatDock from "./ChatDock";
 import CollabBar from "./CollabBar";
 import Confetti from "./Confetti";
-import ConstraintFeed from "./ConstraintFeed";
 import ItineraryCard from "./ItineraryCard";
 import MockModeBadge from "./MockModeBadge";
 import OfflineReadyBadge from "./OfflineReadyBadge";
@@ -255,15 +254,11 @@ export default function HomeView() {
       </header>
       <div className="h-14" aria-hidden />
 
-      {/* 协作状态条 */}
+      {/* 协作状态条——约束流合并 A1（2026-07-12）：房间约束流+诉求台账已
+          收编进本组件顶栏那行摘要的下拉展开（CollabBar.tsx 内部
+          `mergeCollabFeed`），独立的 `ConstraintFeed` 约束栏已删除
+          （原挂载点，见该组件删除说明）。 */}
       <CollabBar />
-
-      {/* §八布局：约束栏移到顶部而非侧栏（原侧栏已随三技术面板合并为信任带一并
-          取消）。ConstraintFeed 自身按"房间模式+有约束"或"有诉求台账"两个
-          条件独立 return null，非房间态/无内容时零渲染，放最外层不会占空间。 */}
-      <div className="relative-content mx-auto max-w-7xl px-4 sm:px-6">
-        <ConstraintFeed />
-      </div>
 
       {/* ============================================================
           初始态：偏好画像 + 演示场景 + 输入栏 垂直居中

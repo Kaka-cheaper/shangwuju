@@ -232,3 +232,55 @@ def test_empty_slice_skips_phantom_replan():
         for e in room.planning_events_history
     ]
     assert types_ == ["done"], f"空切片应空转收尾（done 必达），实际={types_}"
+
+
+# ============================================================
+# 6. 协作房间约束流合并 A1：指名换店留痕不得污染未来的反馈合并
+# ============================================================
+
+
+def test_alternative_swap_note_is_watermarked_and_never_replayed_into_refiner_feedback():
+    """`RoomManager._resolve_and_broadcast_adjust` 的 `AdjustActionAlternative`
+    成功分支直接向 `room.constraints` append 一条 `source="alternative_swap"`
+    的留痕记录（绕开 `add_constraint()`/`route_turn`，不烧 LLM、不触发重排——
+    见该分支实现注释）。这条记录必须被水位线立即"预先消化"：它只是"记一笔"
+    展示用，不是真实用户反馈，`_merge_constraints_text` 未来任何一次真实
+    重排切片都绝不能把它当成"用户刚说的话"重播进 refiner——那会让 refiner
+    看到一句"换成了「XX」"却误当成本轮新增的自由文本诉求。
+
+    与本文件 `test_watermark_advances_to_slice_end_after_round` 同一族安全
+    保证，验证角度不同：那条测的是"重排完成后"水位线状态，本条直接验证
+    "指名换店发生后、下一次真实反馈重排"这条端到端路径的合并文本里确实
+    不含换店记录。
+    """
+    from api._streams.models import AdjustActionAlternative
+
+    owner = "owner_wm_swap_note"
+    manager, room = _seed_room(owner)
+    ws_stub = type("_Ws", (), {"send_json": staticmethod(lambda *_a, **_k: None)})()
+
+    async def scenario() -> list[str]:
+        # member.ws 留 None（同 test_room_persistent_resume.py 既有先例，
+        # broadcast 对离线成员静默跳过，不需要真实 WS）。
+        await manager.join(room, owner, "发起人", None)
+        await manager.adjust(
+            room, owner, "R001", AdjustActionAlternative(target_id="R017"),
+        )
+        assert len(room.constraints) == 1, "指名换店应先落一条约束流记录"
+        assert room.constraints[0].source == "alternative_swap"
+        assert room.constraints_consumed_watermark == 1, "记录后水位线应立即覆盖它"
+
+        captured = _spy_replan(manager)
+        # 换店之后，任何人再触发一次真实反馈——这是水位线要保护的场景：
+        # 切片必须只含这条新反馈，不能把上面那条换店记录也重播进去。
+        await _add_and_drain(manager, room, owner, FEEDBACK_1)
+        return captured
+
+    captured = asyncio.run(scenario())
+
+    assert captured == [f"【最新·最高优先】发起人说：{FEEDBACK_1}"], (
+        "指名换店记录不得混进下一次反馈重排的合并文本，"
+        f"实际={captured}"
+    )
+    assert "换成了" not in captured[0], f"换店记录字样泄露进 refiner 反馈文本：{captured[0]!r}"
+    _ = ws_stub  # 仅占位说明此处不需要真实 WS 断言，join 的 ws 形参传 None 即可

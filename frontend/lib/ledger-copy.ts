@@ -1,8 +1,11 @@
 /**
- * 诉求台账人话化 helper——供 PreferencesPanel（桌面/移动共用）"本次调整"区
- * 消费，`ConstraintFeed.tsx` 的房间约束栏渲染不复用本文件（那边是纯房间
- * 约束栏，见该文件顶部 docstring；本次改动把台账收编进偏好面板，
- * `ConstraintFeed.tsx` 删除 demandLedger 渲染分支，退回纯房间约束栏）。
+ * 诉求台账人话化 helper——供 `PreferencesPanel.tsx`/`UserSwitcher.tsx`"本次
+ * 调整"区消费；约束流合并 A1（2026-07-12）起，`CollabBar.tsx` 的合并展示流
+ * （`lib/collab-feed.ts::mergeCollabFeed`）也直接调用本文件的 `ledgerEntryLine`
+ * 渲染台账来源的行——同一份人话化逻辑三处复用，不重复实现（原先独立的
+ * `ConstraintFeed.tsx` 约束栏组件已随 A1 删除，其"纯房间约束栏、不消费
+ * demandLedger"的旧职责边界描述随之作废，见 `CollabBar.tsx`/`HomeView.tsx`
+ * 的删除说明）。
  *
  * 【这是什么问题】
  * `DemandLedgerEntry.value` 对 PRICE/DISTANCE 两个方向词维度是英文方向词
@@ -27,8 +30,8 @@
  * 变成新实体、旧 id 从当前方案里彻底消失），台账历史行依然显示"当初是哪个
  * 店"，不退化成裸 id（如 `WJP062`）——这是台账"不压扁历史"的产品承诺真正
  * 兑现的地方。`title` 为 `null`（本字段新增前已落盘的旧条目，没有快照）时才
- * 退回旧路径：反查当前 `itinerary.nodes`（`ConstraintFeed.tsx::nodeTitleByTargetId`
- * 同一先例），查不到再兜底显示原始 target_id，不留空。
+ * 退回旧路径：反查当前 `itinerary.nodes`（本文件 `nodeNameByTargetId` 的既有
+ * 反查语义），查不到再兜底显示原始 target_id，不留空。
  */
 
 import type { DemandLedgerEntry, Itinerary, NodeAdjustmentDimension, NodeRef } from "./types";
@@ -64,8 +67,7 @@ export function ledgerValuePhrase(entry: DemandLedgerEntry): string {
   return `${label}「${entry.value}」`;
 }
 
-/** 按 target_id 查节点店名/标题；查不到兜底原始 id（同 ConstraintFeed.tsx
- * 既有先例 `nodeTitleByTargetId`，不重复但保持同一语义）。仅作 `node_ref.title`
+/** 按 target_id 查节点店名/标题；查不到兜底原始 id。仅作 `node_ref.title`
  * 快照缺失（旧数据）时的退路——见本文件顶部 docstring。 */
 export function nodeNameByTargetId(
   itinerary: Itinerary | null | undefined,

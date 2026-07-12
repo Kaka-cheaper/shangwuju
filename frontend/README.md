@@ -181,9 +181,9 @@ ComparisonView        新旧方案对比视图
 MapOverlay            高德地图行程标注（无 key 时降级文字列表）
 PosterGenerator       一键生成行程海报（modern-screenshot）
 ShareModal            分享 / 建协作房弹窗
-ConstraintFeed        协作约束流
 VoteButtons           协作分段投票
-CollabBar             协作房间成员 / 状态栏
+CollabBar             协作房间成员/状态栏 + 约束流+台账合并展示下拉
+                      （原独立 ConstraintFeed 约束流组件已收编进本组件）
 PlannerModeBadge      rule / llm 模式切换
 MockModeBadge         mock 模式标记
 OfflineReadyBadge     离线就绪标记

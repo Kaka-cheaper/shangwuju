@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ArrowLeftRight,
-  ChevronDown,
   Ellipsis,
   ArrowRight as ArrowRightIcon,
   Info,
@@ -27,8 +26,6 @@ import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
-import { ledgerEntryLine } from "@/lib/ledger-copy";
-import { distanceNote, preferenceNote } from "@/lib/preference-notes";
 import { useChatStore } from "@/lib/store";
 import type {
   AlternativeOption,
@@ -51,7 +48,6 @@ import {
 import CollabBar from "../CollabBar";
 import ComparisonView from "../ComparisonView";
 import Confetti, { type ConfettiOrigin } from "../Confetti";
-import ConstraintFeed from "../ConstraintFeed";
 import MapOverlay from "../MapOverlay";
 import MockModeBadge from "../MockModeBadge";
 import NodeFactPanel, { NodeHeadline } from "../NodeFactPanel";
@@ -131,7 +127,12 @@ export default function MobileHomeView() {
               : "pb-[calc(112px+env(safe-area-inset-bottom,0px))]",
         )}
       >
-        {/* A10：协作状态条（成员/在线/规划触发/连接态）。CollabBar 内部已按
+        {/* A10：协作状态条（成员/在线/规划触发/连接态）+ 约束流合并 A1
+            （2026-07-12）——房间约束流+诉求台账收编进 CollabBar 顶栏那行
+            摘要的下拉展开（`lib/collab-feed.ts::mergeCollabFeed`），独立的
+            `ConstraintFeed` 约束栏与 `MobilePreferencesCard` 房间态「本次
+            调整」台账卡均已删除（demandLedger 数据管线本身不动，只删这两处
+            纯展示，避免"同一份协作信息挂三处"）。CollabBar 内部已按
             collabMode 自 return null，非房间态零渲染。-mx-4 抵消 main 的左右
             padding，做到与桌面端一致的"边到边"横条视觉。 */}
         <div className="-mx-4">
@@ -141,25 +142,12 @@ export default function MobileHomeView() {
         {/* A8 根治：SSE 流错误——移动端此前零订阅 streamError，完全静默失败。 */}
         <MobileStreamErrorBanner />
 
-        {/* B3：偏好画像面板——紧凑折叠卡。2026-07-12 收口：单人模式下整块内容
-            已搬进右上角画像弹窗（UserSwitcher detail），本卡只在房间模式渲染
-            （承载「本次调整」归名台账——房间里画像弹窗隐藏，台账必须留在首页）。
-            组件内部 early-return 已按 !collabMode 自锁，此处保持单一挂载点。 */}
-        <MobilePreferencesCard />
-
         {/* C4：评委证据徽章——桌面端默认 hidden md:/lg: 在移动端窄容器里天经
             地义不可见，用 compact prop 摘掉这层限制。flex-wrap 而非固定高度
             一行，窄屏（iPhone SE 等）挤不下时自然换行，不会裁切。 */}
         <MobileScenarioRail compact={activated} />
 
         <MobileConversation />
-
-        {/* A11：约束流（房间模式自由文字广播，见 ConstraintFeed.tsx 顶部
-            docstring）——诉求台账已收编进上方 MobilePreferencesCard「本次
-            调整」区，本组件不再消费 demandLedger。 */}
-        <div className="mt-3 [&_.card]:mb-0 [&_.card]:rounded-[22px] [&_.card]:border-black/[0.06] [&_.card]:bg-white/[0.82] [&_.card]:shadow-sm [&_.card]:backdrop-blur-xl">
-          <ConstraintFeed />
-        </div>
 
         <MobilePlanCard />
 
@@ -344,216 +332,15 @@ function MobileTopBar({
   );
 }
 
-/**
- * B3：偏好画像面板（三区：画像 / 这次对话学到的 / 本次调整）——移动端紧凑版。
- *
- * 桌面端 PreferencesPanel.tsx 假设有一块「大头像图 + 文字右对齐」的横向空间
- * （96px 头像图、pr-20 让位），480px 宽的手机容器放不下同一套布局，这里
- * 按移动端已有的圆角卡片语言重写渲染，但读同一份 store 字段/同一套折叠态
- * 持久化 key（shangwuju.preferences.open）+ 同一套三区业务规则（用户偏好
- * 面板全环方案 §3/§8 边注，本批新增）：
- *   - 「画像」：persona 模板 tag + 默认距离，随画像切换。
- *   - 「这次对话学到的」：偏好笔记（`lib/preference-notes.ts::preferenceNote`，
- *     取 top_priors 首位生成一句，无计数）+ 距离笔记 + 去过（recent_trips
- *     ≤3 最新在前）+ 诚实空态；**房间模式整区隐藏**（同桌面端 §13 理由：
- *     房间累积键全房间共享，显示会有混合口味困惑）。
- *   - 「本次调整」：`demandLedger`（同订阅字段，人话化用
- *     `lib/ledger-copy.ts`，只显生效中/已满足、被顶替砍掉，≤5 条 + N 折叠）。
- * 房间模式下清空按钮同样隐藏（清空全房间共享键不该被单个成员静默触发）。
- */
-function MobilePreferencesCard() {
-  const currentUserId = useChatStore((s) => s.currentUserId);
-  const preferences = useChatStore((s) => s.preferences);
-  const demandLedger = useChatStore((s) => s.demandLedger);
-  const itinerary = useChatStore((s) => s.itinerary);
-  const refreshPreferences = useChatStore((s) => s.refreshPreferences);
-  const resetUserMemory = useChatStore((s) => s.resetUserMemory);
-  const collabMode = useCollabStore((s) => s.collabMode);
-  const roomId = useCollabStore((s) => s.roomId);
-  const [open, _setOpen] = useState(false);
-  const [tripsExpanded, setTripsExpanded] = useState(false);
-  const [ledgerExpanded, setLedgerExpanded] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      _setOpen(window.localStorage.getItem("shangwuju.preferences.open") === "true");
-    } catch {
-      /* 隐私模式 / 配额异常时忽略 */
-    }
-  }, []);
-
-  const setOpen = (next: boolean) => {
-    _setOpen(next);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("shangwuju.preferences.open", next ? "true" : "false");
-    } catch {
-      /* 隐私模式 / 配额异常时忽略 */
-    }
-  };
-
-  const roomSessionId = collabMode && roomId ? `collab_${roomId}` : undefined;
-
-  // 进/退房间时重刷一次（顶层 MobileHomeView 的 mount-only refreshPreferences
-  // 不会在房间生命周期变化时重跑）——同桌面端 PreferencesPanel.tsx 的同款
-  // effect，读对房间会话键（collab_{roomId}）而不是恒读个人 sessionId。
-  useEffect(() => {
-    if (currentUserId) refreshPreferences(roomSessionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUserId, roomSessionId, refreshPreferences]);
-
-  // 房间专用（2026-07-12 收口）：单人模式下「画像/这次对话学到的/本次调整/清空」
-  // 已整体搬进右上角画像弹窗（UserSwitcher detail），首页不再挂这张内联大卡——
-  // 手机屏窄，同一份信息只留一处。但房间模式下画像弹窗整体隐藏（切画像是假控件），
-  // 而「本次调整」归名台账是房间协商核心价值、必须可见，故房间模式保留本卡
-  // （此时它天然只剩 画像 + 本次调整：学到的/清空 本就 !collabMode 隐藏）。
-  if (!currentUserId || !collabMode) return null;
-
-  const prefNote = collabMode ? null : preferenceNote(preferences?.top_priors ?? []);
-  const distNote = collabMode ? null : distanceNote(preferences?.suggested_distance_max_km ?? null);
-  const recentTrips = collabMode ? [] : preferences?.recent_trips ?? [];
-  const visibleTrips = tripsExpanded ? recentTrips : recentTrips.slice(0, 3);
-  const hiddenTripsCount = recentTrips.length - visibleTrips.length;
-  const learnedIsEmpty = !prefNote && !distNote && recentTrips.length === 0;
-
-  // 「本次调整」：只显生效中/已满足，被顶替的条目砍掉（同桌面端）。
-  const visibleLedger = (demandLedger ?? []).filter((e) => e.status !== "superseded");
-  const orderedLedger = [...visibleLedger].reverse();
-  const visibleLedgerRows = ledgerExpanded ? orderedLedger : orderedLedger.slice(0, 5);
-  const hiddenLedgerCount = orderedLedger.length - visibleLedgerRows.length;
-
-  return (
-    <section className="rounded-[22px] border border-black/[0.06] bg-white/[0.80] px-4 py-3 shadow-sm backdrop-blur-xl">
-      <button
-        type="button"
-        className="flex w-full items-center justify-between gap-2"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-      >
-        <div className="min-w-0 text-left">
-          {/* bug2·A（用户拍板）：房间模式下去掉画像身份标题——多人房间里顶一个人的
-              画像「新手爸爸」既误导、又无处切换（房间切画像是假控件，右上角故意无
-              按钮）。本卡在房间里唯一职责是归名台账，标题直接是「本次调整」。 */}
-          <div className="truncate text-base font-semibold tracking-tight text-ink-900">
-            本次调整
-          </div>
-          <div className="truncate text-xs text-ink-500">
-            {orderedLedger.length > 0
-              ? `房间里 ${orderedLedger.length} 条诉求都记在这`
-              : "房间里谁提了什么，都记在这"}
-          </div>
-        </div>
-        {/* "已学 N" 绿色计数 chip 已删（用户拍板，同桌面端 PreferencesPanel.tsx
-            折叠态）：副标题本身已经承担"里面有内容"的引导语义，不需要数字
-            强调；折叠态只留标题/副标题/箭头。 */}
-        <div className="flex shrink-0 items-center gap-2">
-          <ChevronDown
-            className={cn("h-4 w-4 text-ink-400 transition-transform duration-200", open && "rotate-180")}
-            strokeWidth={2.5}
-          />
-        </div>
-      </button>
-
-      {open && (
-        <div className="mt-3 max-h-[60vh] space-y-3 overflow-y-auto border-t border-black/[0.06] pt-3 animate-collapse-in">
-          {/* 区一「画像」已随 bug2·A 移除：房间里不再展示画像身份，只留台账。
-              区二「这次对话学到的」在房间模式本就整区隐藏（!collabMode 恒为假）。 */}
-          {!collabMode && (
-            <div>
-              <div className="text-xs font-semibold text-ink-500">这次对话学到的</div>
-              {learnedIsEmpty ? (
-                <div className="mt-1.5 text-xs text-ink-400">还没学到新偏好，继续聊聊看</div>
-              ) : (
-                <div className="mt-1.5 space-y-1">
-                  {prefNote && (
-                    <div className="text-xs text-ink-600">
-                      <span className="text-ink-400">偏好 · </span>
-                      {prefNote}
-                    </div>
-                  )}
-                  {distNote && (
-                    <div className="text-xs text-ink-600">
-                      <span className="text-ink-400">距离 · </span>
-                      {distNote}
-                    </div>
-                  )}
-                  {visibleTrips.map((trip, i) => (
-                    <div key={`${trip.timestamp}-${i}`} className="text-xs text-ink-600">
-                      <span className="text-ink-400">去过 · </span>
-                      {trip.summary}
-                    </div>
-                  ))}
-                  {hiddenTripsCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setTripsExpanded(true)}
-                      className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
-                    >
-                      查看全部 {recentTrips.length} 条
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 区三：本次调整——房间模式照常显示（归名台账是房间协商核心价值） */}
-          <div>
-            <div className="text-xs font-semibold text-ink-500">本次调整</div>
-            {orderedLedger.length === 0 ? (
-              <div className="mt-1.5 text-xs text-ink-400">还没有调整过，换个菜试试</div>
-            ) : (
-              <div className="mt-1.5 space-y-1">
-                {visibleLedgerRows.map((entry, i) => (
-                  <div key={`${entry.created_at}-${i}`} className="flex items-start gap-1.5 text-xs">
-                    <span
-                      className={cn(
-                        "shrink-0 inline-flex items-center gap-0.5 rounded border px-1.5 py-0 text-[11px] font-medium leading-[1.4]",
-                        entry.status === "satisfied"
-                          ? "border-ink-300 bg-ink-200 text-ink-500"
-                          : "border-amber-400/30 bg-amber-400/15 text-amber-700",
-                      )}
-                    >
-                      {entry.status === "satisfied" && (
-                        <Icons.success className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
-                      )}
-                      {entry.status === "satisfied" ? "已满足" : "生效中"}
-                    </span>
-                    <span className="text-ink-600 break-all">
-                      {ledgerEntryLine(entry, itinerary)}
-                    </span>
-                  </div>
-                ))}
-                {hiddenLedgerCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setLedgerExpanded(true)}
-                    className="text-xs text-ink-500 underline decoration-dotted underline-offset-2"
-                  >
-                    查看更多 {hiddenLedgerCount} 条
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* 清空按钮——房间模式隐藏（清空全房间共享键不该被单个成员静默触发） */}
-          {!collabMode && (
-            <button
-              type="button"
-              onClick={() => void resetUserMemory(roomSessionId)}
-              className="text-xs text-ink-500 underline decoration-dotted underline-offset-2 transition-colors hover:text-rose-500"
-              title="清空当前会话累积的学到的记忆和本次调整（画像不受影响）"
-            >
-              清空学到的记忆
-            </button>
-          )}
-        </div>
-      )}
-    </section>
-  );
-}
+// B3 的 `MobilePreferencesCard`（房间态「本次调整」台账折叠卡）已随约束流
+// 合并 A1（2026-07-12）删除——它在删除前已经是 100% 房间专属组件
+// （`if (!currentUserId || !collabMode) return null;` 是函数体第一行，
+// 单人模式恒不渲染；"画像"/"这次对话学到的"两区也早已 `!collabMode` 门控，
+// 房间态下实际只剩"本次调整"这一区在渲染），该区展示职责已经收编进
+// `CollabBar.tsx` 顶栏摘要的下拉展开（`lib/collab-feed.ts::
+// mergeCollabFeed` 把这里的 demandLedger 与约束流合并成一条流），不是
+// "留一个空壳组件"——整份删除，避免留下恒定死代码。demandLedger 数据
+// 管线本身（store 字段、后端广播、refiner 消费）不受影响。
 
 function MobileScenarioRail({ compact }: { compact: boolean }) {
   const scenarios = useChatStore((s) => s.scenarios);

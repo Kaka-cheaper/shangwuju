@@ -346,6 +346,53 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     expect(constraintMsg!.createdAt).toBeLessThan(chitchatReplies[0].receivedAtMs);
   });
 
+  // 约束流合并 A1 回归：指名换店留痕（source="alternative_swap"）要进
+  // constraints 数组（喂给 CollabBar.tsx 的合并展示流），但**不该**像真实
+  // 约束那样回显进聊天气泡——它不是任何人打的字，是换菜按钮点击的留痕，
+  // 混进 messages 会让人以为对方在打字说"我：换成了X店"这种奇怪的话。
+  it("constraint_added（source=alternative_swap）进 constraints 但不回显进聊天气泡", () => {
+    useChatStore.setState({ messages: [] });
+    useCollabStore.setState({ myUserId: "other_user" });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "constraint_added",
+      user_id: "owner1",
+      nickname: "发起人",
+      text: "换成了「泡芙工坊」",
+      source: "alternative_swap",
+      timestamp: 123,
+      is_constraint: true,
+    });
+
+    const { constraints } = useCollabStore.getState();
+    expect(constraints).toHaveLength(1);
+    expect(constraints[0].source).toBe("alternative_swap");
+    expect(constraints[0].text).toBe("换成了「泡芙工坊」");
+
+    // 核心断言：即便发送者不是当前用户（myUserId="other_user" !== "owner1"，
+    // 真实约束在这个条件下会被回显进聊天气泡，见上面 constraint_added case
+    // 的既有分支），alternative_swap 来源仍然不进 messages。
+    expect(useChatStore.getState().messages).toHaveLength(0);
+  });
+
+  it("对照组：真实约束（source=text）非本人发送时仍照常回显进聊天气泡", () => {
+    useChatStore.setState({ messages: [] });
+    useCollabStore.setState({ myUserId: "other_user" });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "constraint_added",
+      user_id: "owner1",
+      nickname: "发起人",
+      text: "不要辣的",
+      source: "text",
+      timestamp: 123,
+      is_constraint: true,
+    });
+
+    expect(useChatStore.getState().messages).toHaveLength(1);
+    expect(useChatStore.getState().messages[0].text).toContain("不要辣的");
+  });
+
   it("room_state without node_actions (no plan yet / assembly failed) resets nodeActions to null", () => {
     useChatStore.setState({
       nodeActions: {
@@ -451,5 +498,88 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     expect((useChatStore.getState().previousItinerary as any).summary).toBe(
       "方案B（换菜后）",
     );
+  });
+
+  // 协作口播去重回归：finishCollabStream 此前直接把 narration.text（口播
+  // 全文，同时是 ItineraryCard 顶部 NarrationBlock 的正文）塞进聊天气泡，
+  // 只在反馈轮加"已根据反馈重新规划——"前缀——与方案卡重复展示同一段文字。
+  // 单人模式 sendMessage()/confirm() 两处 onDone 早就用 shortHandoffText
+  // 堵过这个洞，本用例钉住协作路径现在也复用同一份短句、不再重播全文。
+  const LONG_NARRATION_TEXT =
+    "这是一段很长的口播全文，讲了为什么选这几个地方、怎么取舍距离和预算——" +
+    "这段话已经完整展示在方案卡顶部的 NarrationBlock 里了，不该在聊天气泡里再出现一遍。";
+
+  it("finishCollabStream（regular replan）推短交接句，不重播 narration 全文", () => {
+    const plan = {
+      schema_version: "edge_v1",
+      summary: "和室友唱K",
+      nodes: [],
+      hops: [],
+      schedule: [],
+      orders: [],
+      total_minutes: 168,
+    };
+    useChatStore.setState({ messages: [], streamPhase: "refine" });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "itinerary_ready",
+        seq: 1,
+        payload: plan,
+        timestamp_ms: Date.now(),
+      },
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "agent_narration",
+        seq: 2,
+        payload: { text: LONG_NARRATION_TEXT, stage: "stream" },
+        timestamp_ms: Date.now(),
+      },
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: { type: "done", seq: 3, payload: {}, timestamp_ms: Date.now() },
+    });
+
+    const { messages } = useChatStore.getState();
+    const last = messages[messages.length - 1];
+    expect(last?.text).toBe("排好了——和室友唱K。细节和提醒都在方案卡上。");
+    expect(last?.text).not.toContain(LONG_NARRATION_TEXT);
+    expect(last?.text).not.toContain("已根据反馈重新规划");
+  });
+
+  it("finishCollabStream（confirm 收尾）推短交接句，不重播 narration 全文", () => {
+    const plan = {
+      schema_version: "edge_v1",
+      summary: "和室友唱K",
+      nodes: [],
+      hops: [],
+      schedule: [],
+      orders: [{ order_id: "o1", kind: "reserve", target_id: "R001", target_name: "K歌房", detail: "4人" }],
+      total_minutes: 168,
+    };
+    useChatStore.setState({ messages: [], streamPhase: "confirm", itinerary: plan as any });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "agent_narration",
+        seq: 1,
+        payload: { text: LONG_NARRATION_TEXT, stage: "confirm" },
+        timestamp_ms: Date.now(),
+      },
+    });
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: { type: "done", seq: 2, payload: {}, timestamp_ms: Date.now() },
+    });
+
+    const { messages } = useChatStore.getState();
+    const last = messages[messages.length - 1];
+    expect(last?.text).toBe("都订好了——和室友唱K。凭证和安排都在卡片里。");
+    expect(last?.text).not.toContain(LONG_NARRATION_TEXT);
   });
 });

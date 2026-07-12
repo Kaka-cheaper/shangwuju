@@ -64,6 +64,35 @@ function commitItinerary(set: Setter, get: Getter, newItinerary: Itinerary): voi
 }
 
 /**
+ * 卡片放全文，聊天放交接句（单人 sendMessage()/confirm() 两处 onDone 原有
+ * 手法，见 store.ts 对应注释"口播全文已经是 ItineraryCard 顶部 NarrationBlock
+ * 的正文，聊天气泡若再推一遍一字不差的全文，多轮后就是文字墙"）——抽成
+ * 共享 helper 供协作房间路径复用（collab-store.ts::finishCollabStream），
+ * 而不是让协作路径另起一套措辞：协作房间此前直接把 `narration.text`
+ * 全文塞进聊天气泡（`finishCollabStream` 只在前面加"已根据反馈重新规划——"
+ * 前缀，不是替换成短句），与方案卡的 NarrationBlock 重复展示同一段文字——
+ * 单人模式这个口子已经堵过，协作路径当初新增 `finishCollabStream` 时漏堵。
+ *
+ * `stage`：`AgentNarrationPayload.stage`（"stream"=规划/反馈轮刚出炉；
+ * "confirm"=确认下单后）——两种收尾场景各自的短句用词不同（"排好了"
+ * vs "都订好了"，"细节和提醒都在方案卡上" vs "凭证和安排都在卡片里"），
+ * 与单人两处 onDone 的措辞逐字对齐，不新造第三套话术。
+ */
+export function shortHandoffText(
+  itinerary: Itinerary | null,
+  stage: "stream" | "confirm",
+): string {
+  if (stage === "confirm") {
+    return itinerary
+      ? `都订好了——${itinerary.summary}。凭证和安排都在卡片里。`
+      : "都订好了，凭证和安排都在卡片里。";
+  }
+  return itinerary
+    ? `排好了——${itinerary.summary}。细节和提醒都在方案卡上。`
+    : "方案排好了，细节在方案卡上。";
+}
+
+/**
  * 惰性清空（Bug 修复）：只有收到「重跑信号」(intent_parsed / refinement_start) 时，
  * 才把主页面清空腾位给新一轮。提问 / 确认 / 预约 / 闲聊只发 chitchat_reply，
  * 收不到这两个信号 → awaitingReplan 一直为 true、主页面纹丝不动。

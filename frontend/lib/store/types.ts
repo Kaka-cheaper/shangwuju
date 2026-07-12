@@ -219,7 +219,10 @@ export interface ChatState {
    * 缺省时保留上一版直到下一次真正刷新；重跑清空时机也与 nodeActions 一致，
    * 见 event-handlers.ts::clearForReplanIfPending）。 */
   nodeDetail: NodeDetailMap | null;
-  /** ADR-0013 F-4：诉求台账展示投影（单人 ConstraintFeed 面板消费）。 */
+  /** ADR-0013 F-4：诉求台账展示投影——单人 `PreferencesPanel.tsx`/
+   * `UserSwitcher.tsx`「本次调整」区消费；房间模式同一字段还额外喂给
+   * `CollabBar.tsx` 的合并展示流（约束流合并 A1，`lib/collab-feed.ts::
+   * mergeCollabFeed`）。 */
   demandLedger: DemandLedgerEntry[] | null;
   /** ADR-0013 F-4：正在处理换菜请求的节点 id（ActivityNode.target_id）；
    * 非 null 时该节点整行 Shimmer + 按钮禁用，done/error 时解锁。 */

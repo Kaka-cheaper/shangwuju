@@ -58,10 +58,15 @@ class Member:
 
 @dataclass
 class Constraint:
-    """一条约束（来自某个成员的文本输入或投票翻译）。"""
+    """一条约束（来自某个成员的文本输入、投票翻译，或指名换店的留痕记录）。"""
     user_id: str
     text: str
-    source: str  # "text" | "vote_dislike"
+    # "text"（自由打字，经 route_turn 判定为 feedback 义务）| "vote_dislike"
+    # （点踩翻译）| "alternative_swap"（协作房间约束流合并 A1：指名换店成功
+    # 后的留痕记录，见 RoomManager._resolve_and_broadcast_adjust 对应分支——
+    # 这条不经 add_constraint()/route_turn，直接 append，绕开 LLM 分类与
+    # 重排触发，只是"记一笔"）。
+    source: str
     timestamp: float = field(default_factory=time.time)
     parsed_fields: dict[str, Any] = field(default_factory=dict)
 
@@ -901,6 +906,64 @@ class RoomManager:
         sync_snapshot(session_id, itinerary=new_itinerary.model_dump())
 
         new_title = node_title(new_itinerary, result.swapped_to or "")
+
+        # 协作房间约束流合并 A1（2026-07-12）：「指名换店」成功后往约束流里
+        # 记一笔——归名 + 已满足状态，让合并展示流"谁提了什么、满足没满足"
+        # 一眼全在，覆盖③按钮/②具名备选三入口里此前唯一没有留痕的一种
+        # （AdjustActionAdjust 已经走 record_demand 进台账；AdjustActionAlternative
+        # 此前两条腿——单人 graph_adjust.py、房间这里——都不留痕，见两文件
+        # 模块 docstring"`adjust`：`adjustment` 原样透传；同时记账"暗示的既有
+        # 设计边界：本批只补房间这一侧，单人不动，见任务范围）。
+        #
+        # 为什么不塞进 demand_ledger：`LedgerEntry.adjustment: NodeAdjustment`
+        # 必填，6 个受控维度里最松的 `cuisine_or_type` 语义是"目标菜系/类型"，
+        # 不是店名——`resolve_node_swap._adjustment_satisfied` 会把它当作
+        # "候选该字段必须等于这个值"的可判定谓词消费（`active_adjustments`
+        # 喂给下一次同节点 `resolve_node_swap` 的 `ledger_slice`）。硬塞店名
+        # 进这个维度会让下一次点踩/调整这个节点时静默继承一条"类型必须等于
+        # XX店名"的幽灵约束，永远匹配不上，悄悄拖垮候选池——不报错、不留痕，
+        # 是隐蔽的数据污染，比"记录不完整"更糟。指名换店没有可满足谓词
+        # （"我要这一家"不是"要更近/更符合某标签"这种方向性诉求），不该
+        # 塞进为可判定谓词设计的台账。
+        #
+        # 为什么不走 add_constraint()/route_turn：那条入口 (1) 无条件调用
+        # LLM 做义务分类（`route_turn(..., client=get_llm_client(), ...)`），
+        # (2) `outcome.kind == "feedback"` 时会中断在跑规划 + 触发
+        # `_trigger_replan`——指名换店是用户已经拍板的直接换店操作，绝不能
+        # 二次触发 LLM 分类或重新规划（任务书明文红线）。
+        #
+        # 为什么直接 `.append()` 进 `room.constraints` 是安全的：这里绕开了
+        # `add_constraint()`，所以上面两条风险天然不存在；但 `room.constraints`
+        # 还有第三个消费者——`_merge_constraints_text`（下一次任何人触发真实
+        # 反馈重排时，会把 `constraints[watermark:]` 整段合并成一句话喂给
+        # refiner，不区分 source）。若不处理，这条"换成了X店"的记录会在未来
+        # 某次重排时被当成"用户刚说的话"重播进 LLM 上下文，制造误导。解法
+        # 复用已有先例（`_trigger_fresh_plan` 同样在写入后立即推进水位线，
+        # 见该函数）：append 后立刻把 `constraints_consumed_watermark` 推进
+        # 到覆盖这条新记录，`_merge_constraints_text` 的未来切片永远不会
+        # 再看到它——但它仍在 `room.constraints`/`get_state_snapshot()` 里
+        # 完整可见，广播、展示、新成员加入回放都不受影响，只是不参与合并。
+        if isinstance(action, AdjustActionAlternative):
+            swap_note = Constraint(
+                user_id=user_id,
+                text=f"换成了「{new_title}」",
+                source="alternative_swap",
+                timestamp=time.time(),
+            )
+            room.constraints.append(swap_note)
+            room.constraints_consumed_watermark = max(
+                room.constraints_consumed_watermark, len(room.constraints)
+            )
+            await self.broadcast(room, {
+                "type": "constraint_added",
+                "user_id": user_id,
+                "nickname": nickname,
+                "text": swap_note.text,
+                "source": "alternative_swap",
+                "timestamp": swap_note.timestamp,
+                "is_constraint": True,
+            })
+
         base_text = self._build_room_narration(action, nickname, old_title, new_title, adjustment)
         # 文案修缮批（G1 实锤，房间侧同款）：降级换菜时确认句+最接近告知合并
         # 成一句诚实告知（归名版），店名不再说两遍——与单人 SSE 路径共用同一

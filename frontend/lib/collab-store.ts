@@ -12,7 +12,7 @@ import { create } from "zustand";
 import { createWsClient, type WsClient, type WsMessage } from "./ws";
 import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
-import { handleEvent } from "./store/event-handlers";
+import { handleEvent, shortHandoffText } from "./store/event-handlers";
 import { emptyCriticReport } from "./store/types";
 import type { AdjustAction, DemandLedgerEntry, NodeActionsMap, NodeDetailMap, SseEvent } from "./types";
 import { API_BASE } from "./utils";
@@ -32,7 +32,12 @@ export interface CollabConstraint {
   user_id: string;
   nickname?: string;
   text: string;
-  source: "text" | "vote_dislike";
+  // "alternative_swap"（协作房间约束流合并 A1）：指名换店成功后的留痕记录
+  // （`RoomManager._resolve_and_broadcast_adjust` 直接 append，绕开
+  // `add_constraint()`/`route_turn`，不烧 LLM、不触发重排——见 collab/room.py
+  // 对应分支注释）。前端据此渲染出与真实约束不同的展示（已满足徽标，
+  // 不进聊天气泡），见 CollabBar.tsx 合并下拉。
+  source: "text" | "vote_dislike" | "alternative_swap";
   timestamp: number;
 }
 
@@ -290,8 +295,10 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       // ADR-0013 F-5：诉求台账数据源永远是房间快照本身（room.demand_ledger 的
       // `ledger_for_display` 投影）——房间是"谁提的"归名记录的唯一真相源，不随
       // `chat_state` 是否存在而分支（`chat_state` 只是单人转房间时的一次性前端
-      // 本地态迁移载体，不携带房间侧台账）。喂给 `ConstraintFeed`（读现状对齐：
-      // 单人模式已经读 `useChatStore.demandLedger`，房间模式复用同一个字段）。
+      // 本地态迁移载体，不携带房间侧台账）。喂给 `CollabBar.tsx` 的合并展示流
+      // （`lib/collab-feed.ts::mergeCollabFeed`，约束流合并 A1，2026-07-12：
+      // 读现状对齐——单人模式已经读 `useChatStore.demandLedger`，房间模式
+      // 复用同一个字段）。
       useChatStore.setState({ demandLedger: (msg.demand_ledger as DemandLedgerEntry[]) || [] });
       // 评委体验修复（2026-07-03）：node_actions 数据源同上——房间快照本身
       // （`Room.get_state_snapshot()` 有方案时现算的顶层字段，见该方法
@@ -377,13 +384,15 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       const constraintText = msg.text as string;
       // 问题①展示分流修复：is_constraint 由后端 room.py 广播（=
       // outcome.kind == "feedback"，即这条发言是否真进了 room.constraints）。
-      // 只有真约束才塞进约束流面板（ConstraintFeed 的"N个约束待合并"计数只
-      // 该数真约束）；闲聊（"你好"/"我是谁"）不再进这个数组——它本来就已经
-      // 进了下面的 messages/chat_messages 气泡里，不需要在约束流里重复展示、
-      // 更不该在约束流里展示（那会让用户误以为闲聊也在驱动规划）。
+      // 只有真约束才塞进约束流数组（CollabBar.tsx 顶栏摘要"N个约束待合并"
+      // 计数只该数真约束）；闲聊（"你好"/"我是谁"）不再进这个数组——它本来
+      // 就已经进了下面的 messages/chat_messages 气泡里，不需要在合并展示流
+      // 里重复展示、更不该展示（那会让用户误以为闲聊也在驱动规划）。
       // 历史消息/旧后端不带这个字段时按"未知当约束"兜底（!== false），
       // 避免新老版本混跑时突然把原本能看到的内容全部隐藏。
       const isConstraint = msg.is_constraint !== false;
+      const constraintSource =
+        (msg.source as "text" | "vote_dislike" | "alternative_swap") || "text";
       if (isConstraint) {
         set((s) => ({
           constraints: [
@@ -392,7 +401,7 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
               user_id: constraintUserId,
               nickname: constraintNickname,
               text: constraintText,
-              source: (msg.source as "text" | "vote_dislike") || "text",
+              source: constraintSource,
               timestamp: (msg.timestamp as number) || Date.now() / 1000,
             },
           ],
@@ -400,9 +409,16 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
       }
       // 同步到主 store 的 messages（让所有窗口的 ChatPanel 显示这条发言，
       // 无论是否算约束——聊天气泡对所有发言一视同仁，是纯展示语义）。
-      // 只有非自己发的才追加（自己发的在 ChatDock.submit 里已经追加了）
+      // 只有非自己发的才追加（自己发的在 ChatDock.submit 里已经追加了）。
+      //
+      // 协作房间约束流合并 A1：alternative_swap 是「指名换店成功」的留痕
+      // 记录，不是任何人打的字——不该套用"发言"这套聊天气泡语义（连发起
+      // 换菜的那个人自己也不该在聊天里看到"我：换成了X店"这句话，他刚才
+      // 点的是换菜按钮，不是在打字说话）。这条记录的展示位置是合并下拉
+      // （CollabBar.tsx），不是聊天气泡——无条件跳过本段回显，与是否
+      // `constraintUserId !== myId` 无关。
       const myId = get().myUserId;
-      if (constraintUserId !== myId) {
+      if (constraintSource !== "alternative_swap" && constraintUserId !== myId) {
         // 问题②消息乱序修复：createdAt 曾用 Date.now()（客户端接收时刻的
         // 本地钟），而 chitchatReplies 用 event-handlers.ts 里的服务器
         // timestamp_ms（见该文件 ev.timestamp_ms 用法）。两把不同的钟比大小
@@ -527,20 +543,39 @@ function dispatchPlanningEvent(event: SseEvent): void {
   );
 }
 
+/**
+ * 协作口播去重（2026-07-12）：此前这里直接把 `narration.text`（口播全文，
+ * 已经是 ItineraryCard 顶部 NarrationBlock 的正文）塞进聊天气泡，只在反馈轮
+ * 加一句"已根据反馈重新规划——"前缀——单人模式 `sendMessage()`/`confirm()`
+ * 两处 onDone 早就堵过这同一个洞（口播全文只留方案卡，聊天只放短交接句，
+ * 见 store.ts 对应注释），协作路径新增 `finishCollabStream` 时没有对齐，
+ * 于是房间里每个人都会在聊天气泡和方案卡里看到同一段口播重复两遍。
+ *
+ * 复用 `shortHandoffText`（event-handlers.ts）而不是协作路径自己再写一套
+ * 措辞——`streamPhase` 在这里等价于单人侧的 `narration.stage`
+ * （"confirm"=确认下单收尾，见上方 "planning_started" case 对 trigger===
+ * "confirm" 的置位；其余规划/反馈轮走 "refine"→对应 shortHandoffText 的
+ * "stream" 分支）。
+ *
+ * 只在 narration?.text 或 itinerary 存在时才推（同旧逻辑的门槛不变）——
+ * 纯粹的"这一轮到底有没有产出内容"判断，与文案本身无关。
+ */
 function finishCollabStream(): void {
   const state = useChatStore.getState();
-  const text =
-    state.narration?.text ||
-    (state.itinerary ? `已为你规划：${state.itinerary.summary}` : "");
+  const hasContent = Boolean(state.narration?.text || state.itinerary);
 
-  if (text) {
+  if (hasContent) {
+    const text = shortHandoffText(
+      state.itinerary,
+      state.streamPhase === "confirm" ? "confirm" : "stream",
+    );
     useChatStore.setState((s) => ({
       messages: [
         ...s.messages,
         {
           id: `a-${Date.now()}`,
           role: "agent",
-          text: state.streamPhase === "refine" ? `已根据反馈重新规划——${text}` : text,
+          text,
           createdAt: Date.now(),
         },
       ],
