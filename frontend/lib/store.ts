@@ -247,10 +247,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
             streamError: formatStreamError(err.reason, err.detail),
           }),
         onDone: () => {
-          // confirm 是终态：意图解析 / 思考链路 / 执行动画都让位给「已预约」结果。
-          // 清掉规划过程展示，保留方案卡（itinerary 已带订单）+ 暖心收尾文案（"都搞定了"）。
-          // 卡片放全文，聊天放交接句：narr.text 全文已在 ItineraryCard 顶部展示，
-          // 聊天气泡只推一句"标题级 + 指向卡片"的短交接句，避免与卡片一字不差重复。
+          // 信任带确认态保持（用户拍板）：信任带只因**规划动作**改变，确认预约
+          // 不是规划动作，不该动它——之前这里连带清空 intent/thoughts/toolCalls/
+          // replans/lastRefinement/criticReport，这些恰恰是 buildTrustBeltBeats
+          // 的数据源（见 lib/trust-belt.ts 头部 docstring 七拍映射），清空后信任
+          // 带塌成只剩⑦「定稿」一条，"这版方案怎么规划出来的"全部记录被抹掉。
+          // confirm onDone 只做终态收尾杂务：streaming/streamPhase 复位、推一句
+          // 交接句、异步刷偏好——不碰规划过程的展示状态。
+          //
+          // 安全性：不清空不会脏到下一轮——下一次真正的规划动作已经各自有独立
+          // 的清空路径：refine() 开头同步清 toolCalls/replans/thoughts/criticReport
+          // （见 refine() 内注释"自己的同步清空"）；sendMessage() 惰性清空，
+          // 在收到 intent_parsed/refinement_start 时由 clearForReplanIfPending
+          // （lib/store/event-handlers.ts）统一清空——两条路径都在新一轮数据到达
+          // **之前**先清后填，不依赖 confirm 是否清过。
           const narr = get().narration;
           const itin = get().itinerary;
           const text = itin
@@ -259,14 +269,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           set((s) => ({
             streaming: false,
             streamPhase: "idle",
-            intent: null,
-            thoughts: [],
-            toolCalls: [],
-            replans: [],
-            lastRefinement: null,
-            // Step 2：criticReport 同 toolCalls/thoughts 一样是规划过程的痕迹——
-            // confirm 终态让位给「已预约」结果时一并清掉，不留上一轮的自愈记录。
-            criticReport: emptyCriticReport(),
             messages:
               narr?.text && narr.stage === "confirm"
                 ? [
