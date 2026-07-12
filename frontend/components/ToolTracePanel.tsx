@@ -440,13 +440,15 @@ function ToolItem({ index, call }: { index: number; call: ToolCall }) {
         ? Icons.fail
         : Icons.success;
 
+  // 去绿归色：调用成功是"成功"语义，和 CTA 一脉相承走暖金（accent），不用
+  // 游离调色板外的 emerald。
   const iconClass = inProgress
     ? "text-accent-600 animate-spin"
     : replaced
       ? "text-ink-500"
       : isFail
         ? "text-rose-400"
-        : "text-emerald-400";
+        : "text-accent-500";
 
   const textClass = replaced ? "text-ink-500" : "text-ink-900";
 

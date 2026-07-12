@@ -1196,7 +1196,7 @@ function ShareMessage({ text }: { text: string }) {
           className={cn(
             "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors",
             copied
-              ? "bg-emerald-500 text-white"
+              ? "bg-accent-500 text-white"
               : "bg-black/[0.04] text-ink-700 border border-black/[0.08] hover:bg-black/[0.06] hover:text-ink-900",
           )}
         >
@@ -1249,11 +1249,14 @@ function NarrationBlock({
     <div
       className="relative overflow-hidden rounded-[18px] px-4 py-3.5 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
       style={{
+        // 去绿归色（配色克制设计终稿）：确认态是"成功/已预约"语义，和 CTA
+        // 一脉相承的暖金，不是自成一路的 emerald 绿——用比 stream 态更浓的
+        // 暖金渐变/边框区分"已确认"的分量。
         background: isConfirm
-          ? "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.03) 100%)"
+          ? "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.05) 100%)"
           : "linear-gradient(135deg, rgba(0,0,0,0.025) 0%, rgba(0,0,0,0.01) 100%)",
         borderColor: isConfirm
-          ? "rgba(16,185,129,0.24)"
+          ? "rgba(217,119,6,0.32)"
           : "rgba(0,0,0,0.06)",
         color: "rgb(31 41 55 / 0.92)",
       }}
@@ -1262,7 +1265,7 @@ function NarrationBlock({
         <Icons.spark
           className={cn(
             "w-4 h-4 mt-1 shrink-0",
-            isConfirm ? "text-emerald-400" : "text-accent-600",
+            isConfirm ? "text-accent-700" : "text-accent-600",
           )}
           strokeWidth={2}
         />
@@ -1470,24 +1473,26 @@ function MemoryPersistedBadge({
 }) {
   return (
     <div
-      className="rounded-md border border-emerald-500/24 bg-emerald-500/6 px-3 py-2 text-xs text-emerald-700/95 animate-fade-in backdrop-blur-sm flex items-start gap-2"
+      // 去绿归色：这是"已写入记忆库"的成功/确认通知，和 CTA 一脉相承走暖金
+      // （accent），不再用游离于调色板外的 emerald 绿。
+      className="rounded-md border border-accent-500/24 bg-accent-500/6 px-3 py-2 text-xs text-accent-700/95 animate-fade-in backdrop-blur-sm flex items-start gap-2"
       style={{
         background:
-          "linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(16,185,129,0.04) 100%)",
+          "linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(245,158,11,0.04) 100%)",
       }}
     >
       <Icons.spark
-        className="w-3.5 h-3.5 mt-0.5 shrink-0 text-emerald-400"
+        className="w-3.5 h-3.5 mt-0.5 shrink-0 text-accent-500"
         strokeWidth={2}
       />
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-emerald-600 tracking-tight">
+        <div className="font-medium text-accent-700 tracking-tight">
           已写入「{socialContext || "本"}」场景的跨 session 召回库
         </div>
-        <div className="text-emerald-700/75 text-xs mt-0.5 line-clamp-1">
+        <div className="text-accent-700/75 text-xs mt-0.5 line-clamp-1">
           {summaryPreview}
-          <span className="text-emerald-500/60 ml-1">·</span>
-          <span className="text-emerald-500/60 ml-1">
+          <span className="text-accent-500/60 ml-1">·</span>
+          <span className="text-accent-500/60 ml-1">
             user_profile.json 自然语言记忆，与「偏好画像」的 tag 统计互补
           </span>
         </div>

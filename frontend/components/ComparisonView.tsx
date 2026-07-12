@@ -373,7 +373,9 @@ function StageRow({
       return (
         <PlaceholderRow
           label="新增"
-          colorClass="bg-emerald-500/10 border-emerald-500/30 text-emerald-600"
+          // 去绿归色：调整后新增的行是"新版本"高亮，不是"成功"——改用暖金
+          // （accent），与信息栏其余"变更/当前"强调同色系。
+          colorClass="bg-accent-500/10 border-accent-500/30 text-accent-600"
         />
       );
     }

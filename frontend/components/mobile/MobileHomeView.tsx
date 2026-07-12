@@ -527,12 +527,15 @@ function MobilePreferencesCard() {
                   <div key={`${entry.created_at}-${i}`} className="flex items-start gap-1.5 text-xs">
                     <span
                       className={cn(
-                        "shrink-0 rounded border px-1.5 py-0 text-[11px] font-medium leading-[1.4]",
+                        "shrink-0 inline-flex items-center gap-0.5 rounded border px-1.5 py-0 text-[11px] font-medium leading-[1.4]",
                         entry.status === "satisfied"
-                          ? "border-emerald-500/30 bg-emerald-500/12 text-emerald-700"
+                          ? "border-ink-300 bg-ink-200 text-ink-500"
                           : "border-amber-400/30 bg-amber-400/15 text-amber-700",
                       )}
                     >
+                      {entry.status === "satisfied" && (
+                        <Icons.success className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                      )}
                       {entry.status === "satisfied" ? "已满足" : "生效中"}
                     </span>
                     <span className="text-ink-600 break-all">
@@ -755,7 +758,8 @@ function MobileChitchatBubble({ payload }: { payload: ChitchatReplyPayload }) {
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold tracking-tight transition duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55",
                     isBooked
-                      ? "border-emerald-500/30 bg-emerald-500/12 text-emerald-700 active:scale-100"
+                      ? // 已预约：暖金淡底（去绿归色，与桌面端 ChitchatBubble 同语义）
+                        "border-accent-500/30 bg-accent-500/12 text-accent-700 active:scale-100"
                       : isConfirm
                         ? "border-[#F6C400] bg-[#FFD100] text-ink-950 shadow-sm shadow-[#FFD100]/20 hover:bg-[#FFE15A]"
                         : "border-black/[0.08] bg-black/[0.035] text-ink-700 hover:border-black/[0.14] hover:bg-black/[0.055] hover:text-ink-900",
@@ -1033,9 +1037,11 @@ function MobileNarrationBlock({
   return (
     <div
       className={cn(
+        // 去绿归色：确认态是"成功/已确认"，与桌面端 NarrationBlock 同语义，
+        // 走暖金（accent）而非游离调色板外的 emerald。
         "rounded-[22px] border px-4 py-3.5 text-[15px] leading-relaxed shadow-sm backdrop-blur-xl animate-fade-in",
         isConfirm
-          ? "border-emerald-400/25 bg-emerald-500/[0.06]"
+          ? "border-accent-400/25 bg-accent-500/[0.06]"
           : "border-black/[0.06] bg-white/[0.90]",
       )}
     >
@@ -1043,7 +1049,7 @@ function MobileNarrationBlock({
         <Sparkles
           className={cn(
             "mt-0.5 h-4 w-4 shrink-0",
-            isConfirm ? "text-emerald-500" : "text-ink-500",
+            isConfirm ? "text-accent-600" : "text-ink-500",
           )}
           strokeWidth={2}
         />
@@ -1066,13 +1072,15 @@ function MobileMemoryBadge({
   summaryPreview: string;
 }) {
   return (
-    <div className="flex items-start gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] px-3.5 py-2.5 text-sm text-emerald-700/95 shadow-sm backdrop-blur-xl animate-fade-in">
-      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" strokeWidth={2} />
+    // 去绿归色：同桌面端 MemoryPersistedBadge——"已写入记忆库"是成功/确认通知，
+    // 走暖金（accent），不用游离调色板外的 emerald。
+    <div className="flex items-start gap-2 rounded-2xl border border-accent-500/25 bg-accent-500/[0.06] px-3.5 py-2.5 text-sm text-accent-700/95 shadow-sm backdrop-blur-xl animate-fade-in">
+      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-500" strokeWidth={2} />
       <div className="min-w-0 flex-1">
-        <div className="font-medium tracking-tight text-emerald-600">
+        <div className="font-medium tracking-tight text-accent-600">
           已写入「{socialContext || "本"}」场景的跨 session 召回库
         </div>
-        <div className="mt-0.5 line-clamp-1 text-xs text-emerald-700/75">
+        <div className="mt-0.5 line-clamp-1 text-xs text-accent-700/75">
           {summaryPreview}
         </div>
       </div>
@@ -1246,7 +1254,7 @@ function MobileShareMessage({ text }: { text: string }) {
           className={cn(
             "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
             copied
-              ? "bg-emerald-500 text-white"
+              ? "bg-accent-500 text-white"
               : "border border-black/[0.08] bg-white/70 text-ink-700",
           )}
         >
@@ -2137,8 +2145,11 @@ function TimelineEndpoint({
         <span
           className={cn(
             "h-[22px] w-[22px] rounded-full border-[4px] border-white shadow-[0_8px_18px_-13px_rgba(17,24,39,0.75)]",
+            // 去绿归色：起止点不是"成功"语义，本就该同 MobileWebBookend 的
+            // 中性暖灰基调（该函数当前是未被调用的旧实现，颜色仍按去绿归色
+            // 统一改，避免留一份调色板外的孤立配色）。
             tone === "start"
-              ? "bg-emerald-500 ring-1 ring-emerald-500/18"
+              ? "bg-ink-500 ring-1 ring-ink-500/18"
               : "bg-red-500 ring-1 ring-red-500/18",
           )}
         />
@@ -2146,7 +2157,7 @@ function TimelineEndpoint({
       <span
         className={cn(
           "text-base font-semibold tracking-tight",
-          tone === "start" ? "text-emerald-700" : "text-red-600",
+          tone === "start" ? "text-ink-700" : "text-red-600",
         )}
       >
         {label}

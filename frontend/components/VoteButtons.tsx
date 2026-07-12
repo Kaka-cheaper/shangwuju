@@ -47,9 +47,11 @@ export default function VoteButtons({ stageIndex }: VoteButtonsProps) {
         onClick={() => sendVote(stageIndex, "like")}
         className={cn(
           "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs transition-all",
+          // 去绿归色：赞是积极/正向反馈，和 CTA 一脉相承走暖金（accent），与
+          // 下方"踩"的红对称但不再用游离调色板外的 emerald。
           myVote === "like"
-            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-            : "bg-black/[0.03] text-ink-500 hover:bg-emerald-500/10 hover:text-emerald-400 border border-transparent",
+            ? "bg-accent-500/20 text-accent-700 border border-accent-500/30"
+            : "bg-black/[0.03] text-ink-500 hover:bg-accent-500/10 hover:text-accent-700 border border-transparent",
         )}
         title={likeCount > 0 ? `赞：${getVoterNames("like")}` : "赞（保留这段）"}
       >

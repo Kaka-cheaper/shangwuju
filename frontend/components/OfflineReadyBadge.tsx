@@ -14,7 +14,8 @@
  *
  * 视觉范式：
  *   - 与 MockModeBadge / PlannerModeBadge 同样的低饱和 chip 风格
- *   - 状态点用暖琥珀色（amber），区别于 mock 徽章的 emerald
+ *   - 状态点用暖琥珀色（amber），区别于 mock 徽章的中性灰（去绿归色后
+ *     MockModeBadge 的点已从 emerald 改为 ink，两枚徽章仍靠色相区分）
  *   - hover tooltip 解释「断网验证」演示玩法
  *
  * C4：默认 `hidden lg:inline-flex`——移动端顶栏塞不下时天经地义隐藏。

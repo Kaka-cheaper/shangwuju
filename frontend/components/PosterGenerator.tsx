@@ -410,7 +410,7 @@ function PreviewModal({
                 className={cn(
                   "flex h-11 items-center justify-center gap-1.5 rounded-full border px-3 text-sm font-semibold transition active:scale-[0.98]",
                   textCopied
-                    ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-600"
+                    ? "border-accent-500/30 bg-accent-500/15 text-accent-600"
                     : "border-black/[0.08] bg-white/[0.78] text-ink-700",
                 )}
               >
@@ -552,7 +552,7 @@ function PreviewModal({
               className={cn(
                 "py-2.5 rounded-full text-xs font-semibold",
                 textCopied
-                  ? "bg-emerald-500/15 border border-emerald-500/30 text-emerald-600"
+                  ? "bg-accent-500/15 border border-accent-500/30 text-accent-600"
                   : "bg-black/[0.03] hover:bg-black/[0.05] border border-black/[0.08] hover:border-black/[0.12] text-ink-700 hover:text-ink-900",
                 "transition-colors flex items-center justify-center gap-1.5",
               )}

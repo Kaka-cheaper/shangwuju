@@ -495,9 +495,11 @@ function LearnedSection({
 // 区三：本次调整（诉求台账收编）
 // ============================================================
 
-const _STATUS_THEME: Record<string, { label: string; className: string }> = {
+// 去绿归色（配色克制设计终稿）：已满足 = 完成的事，隐退成沉静中性灰 + 勾，
+// 和「生效中」的琥珀金形成"进行中(暖) vs 已完成(静)"的对比，不再抢注意力。
+const _STATUS_THEME: Record<string, { label: string; className: string; showCheck?: boolean }> = {
   active: { label: "生效中", className: "bg-amber-400/15 text-amber-700 border-amber-400/30" },
-  satisfied: { label: "已满足", className: "bg-emerald-500/12 text-emerald-700 border-emerald-500/30" },
+  satisfied: { label: "已满足", className: "bg-ink-200 text-ink-500 border-ink-300", showCheck: true },
 };
 
 /** 空区不显示（三列并排重排拍板）：台账为空时列直接不渲染（`useMarkLedgerSeen`
@@ -537,10 +539,13 @@ function LedgerSection({
                   三列布局下依然是台账"一览生效状态"核心价值的正确顺序。 */}
               <span
                 className={cn(
-                  "shrink-0 px-1.5 py-0 rounded border text-[11px] leading-[1.4] font-medium",
+                  "shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 rounded border text-[11px] leading-[1.4] font-medium",
                   theme.className,
                 )}
               >
+                {theme.showCheck && (
+                  <Icons.success className="w-2.5 h-2.5 shrink-0" strokeWidth={2.5} />
+                )}
                 {theme.label}
               </span>
               <span className="text-ink-600 break-all">

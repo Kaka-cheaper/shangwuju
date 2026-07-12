@@ -87,7 +87,7 @@ export default function ShareModal({ open, onClose, roomId }: ShareModalProps) {
             className={cn(
               "px-4 py-2.5 rounded-full text-sm sm:text-xs font-semibold transition-all",
               copied
-                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                ? "bg-accent-500/20 text-accent-600 border border-accent-500/30"
                 : "bg-black/[0.04] text-ink-700 border border-black/[0.08] hover:bg-black/[0.06]",
             )}
           >

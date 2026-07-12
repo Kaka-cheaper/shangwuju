@@ -4,16 +4,19 @@ import { Icons } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+// 去绿归色（配色克制设计终稿）：success 是"成功/确认"语义，和 CTA 一脉相承
+// 走暖金（accent），不用游离调色板外的 emerald——success 用 accent-700/深金渐
+// 变，info 沿用既有 accent-500 浅色系，两者色相相同、深浅有别以保持可辨识。
 const KIND_STYLES = {
   success:
-    "border-emerald-500/30 text-emerald-700",
+    "border-accent-600/35 text-accent-800",
   info: "border-accent-500/30 text-accent-700",
   warn: "border-amber-500/30 text-amber-700",
 } as const;
 
 const KIND_GRADIENT = {
   success:
-    "linear-gradient(135deg, rgba(16,185,129,0.10) 0%, rgba(16,185,129,0.04) 100%)",
+    "linear-gradient(135deg, rgba(217,119,6,0.14) 0%, rgba(217,119,6,0.05) 100%)",
   info: "linear-gradient(135deg, rgba(245,158,11,0.10) 0%, rgba(251,191,36,0.04) 100%)",
   warn: "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(245,158,11,0.04) 100%)",
 } as const;
@@ -25,7 +28,7 @@ const KIND_ICONS = {
 } as const;
 
 const KIND_ICON_TINT = {
-  success: "text-emerald-500",
+  success: "text-accent-700",
   info: "text-accent-600",
   warn: "text-amber-500",
 } as const;

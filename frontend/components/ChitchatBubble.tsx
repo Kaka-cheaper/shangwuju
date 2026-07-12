@@ -49,10 +49,12 @@ const TONE_THEMES: Record<ReplyTone, ToneTheme> = {
     label: "陪伴",
   },
   playful: {
+    // 去绿归色（配色克制设计终稿）：闲聊语气不是"成功"语义，emerald 绿游离于
+    // 项目暖色调色板——改用中性暖（浅暖灰渐变 + ink 文字），不引入新色相。
     gradient:
-      "linear-gradient(135deg, rgba(16,185,129,0.12) 0%, rgba(20,184,166,0.08) 100%)",
-    border: "border-emerald-500/30",
-    accent: "text-emerald-600",
+      "linear-gradient(135deg, rgba(0,0,0,0.035) 0%, rgba(0,0,0,0.012) 100%)",
+    border: "border-black/[0.08]",
+    accent: "text-ink-700",
     Icon: Sparkles,
     label: "玩笑",
   },
@@ -135,8 +137,9 @@ export default function ChitchatBubble({ payload }: { payload: ChitchatReplyPayl
                     "transition-colors duration-150 active:scale-[0.98]",
                     "disabled:cursor-not-allowed",
                     isBooked
-                      ? // 已预约：绿色淡底 + 不可点（去掉 hover / active 反馈）
-                        "px-3 py-1.5 font-semibold bg-emerald-500/12 border border-emerald-500/30 text-emerald-700 cursor-default active:scale-100"
+                      ? // 已预约：暖金淡底 + 不可点（去绿归色：与 CTA 亮黄一脉相承，
+                        // 去掉 hover / active 反馈）
+                        "px-3 py-1.5 font-semibold bg-accent-500/12 border border-accent-500/30 text-accent-700 cursor-default active:scale-100"
                       : isConfirm
                         ? // 主行动按钮：实心黄 + lucide Check（精致，不双对钩 / 不塑料）
                           "px-3 py-1.5 font-semibold bg-brand-500 border border-brand-600 text-black shadow-sm hover:bg-brand-400 disabled:opacity-50"
