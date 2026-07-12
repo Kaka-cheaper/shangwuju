@@ -154,24 +154,12 @@ def test_weights_llm_guarded_and_thinking_disabled() -> None:
 
 
 # ============================================================
-# A5：soft_constraint_sniffer.sniff_llm —— BRIEF 角色锁定 + 隔离 + 关思考
+# A5：soft_constraint_sniffer.sniff_llm —— 已随对话轮路由规则层重构
+# （2026-07-12）整体删除。软约束嗅探器的路由角色被移除（BLOCK 1 决策 #2/B'：
+# 不建独立安全网，"提约束"判定改由路由脑子少样本承接），`sniff_llm` 这个
+# LLM 调用位连同整个 `soft_constraint_sniffer.py` 模块一起删除，本节回归钉
+# 随之退役——它防护的调用位已不存在，没有对象可钉。
 # ============================================================
-
-
-def test_sniff_llm_guarded_and_thinking_disabled() -> None:
-    from agent.core.prompt_guard import ROLE_LOCK_NOTICE_BRIEF
-    from agent.core.soft_constraint_sniffer import sniff_llm
-
-    client = _CaptureClient(content='{"tags": ["安静聊天"]}')
-    hits = sniff_llm("今天脑袋嗡嗡的想找个没人打扰的地方", client)
-    assert hits and hits[0].tags == ("安静聊天",)
-
-    call = client.calls[0]
-    assert ROLE_LOCK_NOTICE_BRIEF in _system_of(call), (
-        "嗅探器守 prompt 精简纪律，用 BRIEF 版角色锁定"
-    )
-    _assert_wrapped(_last_user_of(call), "今天脑袋嗡嗡的想找个没人打扰的地方")
-    _assert_thinking_disabled(call)
 
 
 # ============================================================

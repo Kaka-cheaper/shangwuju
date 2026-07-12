@@ -2,9 +2,11 @@
 「版本志 + 台账生效条目」切片（已知窗口的闭合证明）。
 
 【这是什么窗口】用户点了某个节点的定向调整按钮（如「更便宜的」，经
-/chat/adjust 记进诉求台账），随后又说"太远了，重新帮我规划一下"这类全量
-反馈——refiner 走 LLM 整体重解 intent，在本改动之前完全看不到台账，刚点的
-诉求等于白点（全量重排不认账）。E-2-b 让 refiner_node 经会话上下文打包器
+/chat/adjust 记进诉求台账），随后又说"太远了，近点"这类全量反馈（对话轮
+路由规则层重构后 `_FEEDBACK_INPUT` 换用的表达模式更收敛的等价句，见下方
+常量定义处说明）——refiner 走 LLM 整体重解 intent，在本改动之前完全看不到
+台账，刚点的诉求等于白点（全量重排不认账）。E-2-b 让 refiner_node 经会话
+上下文打包器
 （`agent.context.pack_routing_context` + `render_demand_recap`）取切片喂进
 refine_intent 的 LLM prompt。
 
@@ -47,9 +49,16 @@ from schemas.sse import SseEvent  # noqa: E402
 # 壳2 canonical 字面短路确定性直达 planning（同 test_e2a_session_log 选型理由）。
 _PLANNING_INPUT = DEMO_SCENARIOS[1]["input"]
 
-# "太远" 命中 feedback 强信号（Layer 1 确定性判 feedback，不依赖 stub LLM），
-# 语义上正是"重新帮我规划"式的全量反馈——已知窗口的触发形态。
-_FEEDBACK_INPUT = "太远了，重新帮我规划一下"
+# "太远"+"近点" 命中 feedback 强信号（Layer 1 确定性判 feedback，不依赖
+# stub LLM），语义上是"全量重排"式的反馈——已知窗口的触发形态。
+#
+# 对话轮路由规则层重构（2026-07-12）：looks_like_feedback_strong 套用覆盖度闸
+# 后，原句"太远了，重新帮我规划一下"里"重新规划"是覆盖度闸判据下的非空
+# 残余（它是独立的第二个诉求，不是"太远"的填充性复述），不再确定性命中
+# Layer 1——会改落壳3 保守地板（clarify），本测试恰恰需要这一轮确定性进入
+# feedback/refiner 路径（`events2` 断言 itinerary_ready 经 `_rule_fallback`
+# 产出），故换用一句表达模式更收敛、仍是"全量重排"语义的等价反馈句。
+_FEEDBACK_INPUT = "太远了，近点"
 
 _CLICK_SOURCE_TEXT = "更便宜的"
 

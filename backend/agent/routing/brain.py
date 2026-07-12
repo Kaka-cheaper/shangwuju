@@ -58,6 +58,7 @@ from agent.core.llm_client import (
     strip_json_fence,
 )
 from agent.core.prompt_guard import wrap_user_input
+from agent.core.soft_constraint_tags import build_chip_send, sniff_tags
 from agent.intent.prompts.router_prompt import FLOOR_CLARIFY_CTAS, PRIMARY_CTAS
 from agent.intent.router import fallback_decision
 from agent.routing.brain_prompt import BRAIN_FEW_SHOTS, BRAIN_SYSTEM_PROMPT
@@ -213,6 +214,54 @@ def _apply_label_chip_policy(judgment: RouteJudgment) -> RouteJudgment:
     return judgment
 
 
+def _apply_soft_constraint_chip_enrichment(
+    judgment: RouteJudgment, *, user_input: str, has_itinerary: bool
+) -> RouteJudgment:
+    """clarify + 有方案 + 原始输入含词典软约束关键词 → 追加一颗代码拼的
+    「换成X的」chip（对话轮路由规则层重构，2026-07-12；BLOCK 1 决策 #2/B'）。
+
+    这是软约束嗅探器已删除的**路由角色**的替代 UX：原版在规则层直接短路成
+    气泡（不问脑子）；新版由脑子的少样本先判断"这是提约束但没说改、该问一句
+    而不是闷头重规划"这件事本身（label=clarify），本函数只负责**追加 chip
+    内容**——独立对 `user_input`（不是 LLM 输出）跑关键词规则表
+    （`agent.core.soft_constraint_tags.sniff_tags`），命中即在 LLM 已给出的
+    chips 前面插入一颗按代码模板拼出的 chip。
+
+    send 纪律（`schemas/router.py:54`）：LLM 完全不参与这颗 chip 的 send 文本
+    ——本函数在 LLM 调用**之后**、用纯 Python 字符串模板生成，且这些固定
+    模板字符串已在模块加载时注册进 `agent.routing.canonical_shortcut` 的
+    exact-match 集合（见该模块 `_SOFT_CONSTRAINT_CHIP_SENDS`），保证用户点击
+    后回传能被壳2 字面短路以 FP≈0 的确定性直接送 feedback，不必依赖
+    `looks_like_feedback_strong` 关键词二次辨认（BLOCK 1 决策 #4：chip 的
+    send 归 canonical_shortcut 精确相等层）。
+
+    只在 clarify + has_itinerary 时才生效——无方案时"换成X的"没有方案可换，
+    不适用（clarify 无方案分支走的是"问同伴/时长"的地板问题，不涉及软约束）。
+    """
+    if judgment.label != "clarify" or not has_itinerary:
+        return judgment
+    hits = sniff_tags(user_input)
+    if not hits:
+        return judgment
+    chip = _build_soft_constraint_chip(hits[0])
+    if chip is None:
+        return judgment
+    # 追加在 LLM 已给的 chips 前面（用户最先看到最贴切的那颗），仍守 ≤4 上限。
+    merged = [chip] + [c for c in judgment.cta_chips if c.send != chip.send]
+    return judgment.model_copy(update={"cta_chips": merged[:4]})
+
+
+def _build_soft_constraint_chip(hit: Any) -> Optional[CtaChip]:
+    if not hit.tags:
+        return None
+    send = build_chip_send(hit)
+    label = f"换成{hit.tags[0]}的"
+    try:
+        return CtaChip(label=label[:24], send=send[:200])
+    except ValidationError:
+        return None
+
+
 # ============================================================
 # 主入口（seam function）
 # ============================================================
@@ -282,6 +331,9 @@ def classify_turn(
         judgment, user_input=user_input, has_itinerary=has_itinerary
     )
     judgment = _apply_label_chip_policy(judgment)
+    judgment = _apply_soft_constraint_chip_enrichment(
+        judgment, user_input=user_input, has_itinerary=has_itinerary
+    )
     return judgment
 
 

@@ -2,15 +2,22 @@
 
 `classify_dialogue_act`/`DialogueAct`/`DialogueActResult` 已随"Layer 2 + Layer 3
 塌缩为一次脑子调用"整体退役（见 `agent/core/dialogue_acts.py` 模块 docstring）：
-- 提问（QUESTION）/ 提约束（SOFT_CONSTRAINT）本就是各自模块（itinerary_qa /
-  soft_constraint_sniffer）的规则判定，现直接从 `route_turn.py` 调用；
+- 提问（QUESTION）本就是 itinerary_qa 的规则判定，现直接从 `route_turn.py` 调用；
+- 提约束（SOFT_CONSTRAINT）的路由角色已在对话轮路由规则层重构（2026-07-12）
+  删除——原软约束嗅探器规则表命中即返的行为不再存在，这类输入现在规则层
+  全数放行、落到脑子少样本判定（见 `agent/routing/brain_prompt.py`
+  BRAIN_FEW_SHOTS），本文件的
+  `test_route_turn_soft_constraint_no_longer_short_circuits_reaches_brain`
+  钉住这个新契约；
 - 预约（BOOKING）/ 确认（CONFIRM）仍留在本模块，是本模块现在唯一"自己拥有"的
-  逻辑，两者现在都路由到 "confirm"（ADR-0011 决策 1，不再是旧世界的 "chitchat"）。
+  逻辑，两者现在都路由到 "confirm"（ADR-0011 决策 1，不再是旧世界的 "chitchat"），
+  且两者的排除逻辑已收口成 `agent.core.coverage_gate` 的 per-rule 覆盖度闸
+  （见 `agent/core/dialogue_acts.py` 模块 docstring 的收口说明）。
 
 原"提问 > 预约 > 确认 > 提约束"优先级顺序现直接编码在 `route_turn.py` 的
 Layer 1.8 级联里（不再有一个居中的 `classify_dialogue_act` 函数可单独测试
 "顺序"），故行为契约测试改为直接驱动 `route_turn.route_turn()` 集成断言——
-这也顺带验证这 4 个规则命中时确实不会触达脑子调用（省一次 LLM）。
+这也顺带验证 BOOKING/CONFIRM 规则命中时确实不会触达脑子调用（省一次 LLM）。
 """
 
 from __future__ import annotations
@@ -208,10 +215,44 @@ def test_route_turn_question_runs_before_booking_confirm():
     assert "人均" in out.decision.reply_text
 
 
-def test_route_turn_soft_constraint_runs_before_brain():
-    out = _route("我妈膝盖不好走不远", _itin())
-    assert out.kind == "chitchat"
-    assert any("适合老人" in c.label for c in out.decision.cta_chips)
+def test_route_turn_soft_constraint_no_longer_short_circuits_reaches_brain():
+    """对话轮路由规则层重构（2026-07-12）：软约束嗅探器的路由角色已删除
+    （BLOCK 1 决策 #2/B'——不建独立安全网，"提约束·没说改"的判定改由脑子
+    少样本承接，见 `agent/routing/brain_prompt.py` BRAIN_FEW_SHOTS）。
+
+    "我妈膝盖不好走不远"曾经是软约束嗅探器规则表命中"膝盖/走不远"关键词、
+    在脑子调用之前就短路出"换成适合老人的"气泡的场景（见本测试文件被替换前
+    的旧版本）。规则层删除后，这句话既不含 Layer 1 强反馈词、不含预约/确认
+    锚点，也不是提问，规则层全数放行——本用例只验证它确实到达了脑子（不再
+    被任何规则层短路吞掉），脑子本身如何判（clarify + 代码拼"换成X的" chip，
+    还是别的）由 `test_routing_brain_real_llm.py` 真 LLM 冒烟验证，这里只
+    垫桩钉住"规则层放行、请求真的传到了脑子"这一件事。
+    """
+
+    def _fake_brain(context_text, user_input, has_itinerary, *, client):
+        assert user_input == "我妈膝盖不好走不远"
+        assert has_itinerary is True
+        return RouteJudgment(
+            label="clarify",
+            confidence=0.75,
+            reply_text="要不要把这版换成更适合老人的？",
+            tone="empathetic",
+            cta_chips=[],
+        )
+
+    state = make_initial_state(user_input="我妈膝盖不好走不远", session_id="s4")
+    state["itinerary"] = _itin()
+    out = route_turn(
+        "我妈膝盖不好走不远",
+        _itin(),
+        state.get("user_id"),
+        client=object(),
+        context_source=GraphStateSource(state),
+        classify_fn=_fake_brain,
+    )
+    assert out.kind == "clarify", (
+        f"规则层不该再短路这句话，应交脑子判定，实际 {out.kind}"
+    )
 
 
 def test_route_turn_no_dialogue_act_rule_reaches_brain():

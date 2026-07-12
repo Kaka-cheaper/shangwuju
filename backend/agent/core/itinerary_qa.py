@@ -41,7 +41,7 @@ from schemas.router import InputKind, RouterDecision
 
 from .llm_client import LLMClient, LLMMessage, MIMO_THINKING_DISABLED_EXTRA_BODY
 from .prompt_guard import ROLE_LOCK_NOTICE, wrap_user_input
-from .soft_constraint_sniffer import looks_like_explicit_revise
+from .revise_cues import looks_like_explicit_revise
 
 logger = logging.getLogger("agent.core.itinerary_qa")
 

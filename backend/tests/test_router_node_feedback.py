@@ -1,10 +1,11 @@
 """router_node 三层反馈识别集成测试（spec feedback-routing-fix Task 3 / R1 R3 R4 R6；
-ADR-0011 决策 2 / E-1 行为反转 + E-2-c 统一脑子塌缩均已同步到本文件）。
+ADR-0011 决策 2 / E-1 行为反转 + E-2-c 统一脑子塌缩 + 对话轮路由规则层重构
+（2026-07-12，覆盖度闸收口）均已同步到本文件）。
 
 用垫桩脑子判定（mock `classify_turn`）隔离 LLM 不确定性，专测 router_node 的
 规则级联：
-- R1：has_itinerary + 长反馈 → feedback（Layer 1 强信号词典命中，不依赖归并，
-  也不触达脑子）
+- R1：has_itinerary + 表达收敛的强信号短句 → feedback（Layer 1 强信号词典
+  命中，不依赖归并，也不触达脑子）
 - R6.4：无 itinerary → 行为与原逻辑一致（不进新分支）
 
 ADR-0011 决策 2（E-1）删除了 route_turn.py 原 :300-302 的兜底归并
@@ -12,6 +13,15 @@ ADR-0011 决策 2（E-1）删除了 route_turn.py 原 :300-302 的兜底归并
 "问"，实测被硬猜重规划违反 L0 禁令 1。本文件里**纯靠归并**才成立的用例已删除
 或翻转（见各用例内联说明）；**靠 Layer 1 强信号词典**命中的用例不受影响
 （Layer 1 在归并之前、且未被 E-1/E-2-c 触碰）。
+
+对话轮路由规则层重构（2026-07-12）：`looks_like_feedback_strong` 套用
+per-rule 覆盖度闸（`agent.core.coverage_gate`）后，"命中强信号词"不再单独
+够格短路——句子除锚点词 + 冻结填充集外还有其他实义内容（如"整体节奏对孩子
+来说太赶了"里的"整体节奏对孩子来说"）时，规则层弃权交回脑子。原
+`_LONG_FEEDBACK_STRONG_SIGNAL` 两句因此改归类（见
+`test_long_feedback_with_embedded_strong_signal_no_longer_short_circuits`），
+新增 `_SHORT_FEEDBACK_STRONG_SIGNAL` 钉住"表达收敛的强信号仍确定性短路"
+这条不变的核心行为。
 
 E-2-c 迁移：`classify_input`（RouterDecision 形状）→ `classify_turn`
 （RouteJudgment 形状），旧 "ambiguous" 标签改名 "clarify"，"meta"/"off_topic"
@@ -45,27 +55,59 @@ def _state_with_itinerary(user_input: str):
     return st
 
 
-# ---- R1：has_itinerary + 长反馈 → feedback（Layer 1 强信号词典命中）----
+# ---- R1：has_itinerary + 短句强信号 → feedback（Layer 1 强信号词典命中）----
 
-# 这 2 句都含 _STRONG_FEEDBACK_KEYWORDS 里的强信号词（"太赶"/"便宜点"），
-# Layer 1 在脑子调用之前就直接判 feedback——不依赖已删除的兜底归并，
-# 无论脑子判什么都不影响结果（下面刻意仍 mock 成 clarify，证明这条路径确实是
-# Layer 1 短路，不是靠归并才凑出来的 feedback）。
-_LONG_FEEDBACK_STRONG_SIGNAL = [
-    "整体节奏对孩子来说太赶了",
-    "这个预算有点超了，能不能找便宜点的",
+# 这 2 句都含 _STRONG_FEEDBACK_KEYWORDS 里的强信号词（"太赶"/"便宜点"），且
+# 表达模式收敛（锚点 + 冻结填充集覆盖整句，无残余实义）——覆盖度闸下仍确定性
+# 短路，Layer 1 在脑子调用之前就直接判 feedback，不依赖已删除的兜底归并
+# （下面刻意仍 mock 成 clarify，证明这条路径确实是 Layer 1 短路，不是靠归并
+# 才凑出来的 feedback）。
+_SHORT_FEEDBACK_STRONG_SIGNAL = [
+    "太赶了",
+    "便宜点吧",
 ]
 
 
-@pytest.mark.parametrize("text", _LONG_FEEDBACK_STRONG_SIGNAL)
-def test_long_feedback_with_strong_signal_routes_to_feedback(monkeypatch, text):
-    """R1：已有方案 + 含强信号词的长反馈 → feedback（Layer 1 命中，不调脑子）。"""
+@pytest.mark.parametrize("text", _SHORT_FEEDBACK_STRONG_SIGNAL)
+def test_short_feedback_with_strong_signal_routes_to_feedback(monkeypatch, text):
+    """R1：已有方案 + 表达收敛的强信号短句 → feedback（Layer 1 命中，不调脑子）。"""
     monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
     monkeypatch.setattr(
         router_mod, "classify_turn", lambda *a, **k: _make_judgment("clarify")
     )
     out = router_mod.router_node(_state_with_itinerary(text))
     assert out["route_kind"] == "feedback", f"{text!r} 应路由为 feedback"
+
+
+# 对话轮路由规则层重构（2026-07-12）新增：长句里嵌了强信号词，但句子还带着
+# 其他实义内容（"整体节奏对孩子来说"/"这个预算有点超了，能不能找"）——
+# looks_like_feedback_strong 套用覆盖度闸后，这类句子的残余非空，不再无条件
+# 拍板成 feedback，而是弃权交给脑子（BLOCK 1 决策 #1：规则只在"没有其他话"
+# 时短路，复杂表达交 brain）。这两句原先被本文件当作"R1 短路生效"的例证，
+# 現在正确的分类是"表达不收敛 → 落到脑子"，行为并入下面
+# `test_long_feedback_without_strong_signal_routes_to_clarify` 同一契约
+# （脑子垫桩判 clarify 时，就该停在 clarify，不再被规则层强行短路）。
+_LONG_FEEDBACK_EMBEDDED_STRONG_SIGNAL = [
+    "整体节奏对孩子来说太赶了",
+    "这个预算有点超了，能不能找便宜点的",
+]
+
+
+@pytest.mark.parametrize("text", _LONG_FEEDBACK_EMBEDDED_STRONG_SIGNAL)
+def test_long_feedback_with_embedded_strong_signal_no_longer_short_circuits(
+    monkeypatch, text
+):
+    """覆盖度闸收口后：强信号词嵌在长句里、句子还有其他实义内容 → 不再是
+    Layer 1 确定性短路对象，弃权交回脑子判定（脑子这里垫桩判 clarify，
+    验证规则层确实放行、没有强行拍板成 feedback）。"""
+    monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
+    monkeypatch.setattr(
+        router_mod, "classify_turn", lambda *a, **k: _make_judgment("clarify")
+    )
+    out = router_mod.router_node(_state_with_itinerary(text))
+    assert out["route_kind"] == "clarify", (
+        f"{text!r} 表达不收敛，规则层应弃权交脑子，实际 {out['route_kind']}"
+    )
 
 
 # ADR-0011 决策 2（E-1）行为反转：这 2 句不含任何强信号词/壳2 canonical 文本，
@@ -203,13 +245,21 @@ def test_question_tail_with_strong_keyword_not_layer1_feedback(monkeypatch):
 
 
 def test_rhetorical_ba_with_question_mark_still_feedback(monkeypatch):
-    """护栏不误伤附加问（tag question）：「这也太远了吧？」句尾"吧"是揣测语气
-    不是求信息，仍应走 Layer 1 强反馈（与 itinerary_qa「"吧"不算问」同一判据）。"""
+    """护栏不误伤附加问（tag question）：「太远了吧？」句尾"吧"是揣测语气
+    不是求信息，仍应走 Layer 1 强反馈（与 itinerary_qa「"吧"不算问」同一判据）。
+
+    对话轮路由规则层重构（2026-07-12）：looks_like_feedback_strong 套用覆盖度
+    闸后，原句"这也太远了吧？"里"这也"（指示代词+副词，剥掉锚点"太远"+
+    填充集后仍是非空残余）不再确定性命中 Layer 1——覆盖度闸判据下"这也"
+    不算填充词（铁律：填充集冻结，不因个别句式加词），故换一句去掉这两个
+    字、语义等价的附加问句：「太远了吧？」锚点"太远"+填充集（了/吧/？）
+    覆盖整句，仍确定性命中。
+    """
     monkeypatch.setattr(router_mod, "get_llm_client", lambda *a, **k: object())
     monkeypatch.setattr(
         router_mod, "classify_turn", lambda *a, **k: _make_judgment("clarify")
     )
-    out = router_mod.router_node(_state_with_itinerary("这也太远了吧？"))
+    out = router_mod.router_node(_state_with_itinerary("太远了吧？"))
     assert out["route_kind"] == "feedback", "『吧？』附加问是陈述性抱怨，强反馈不受护栏影响"
 
 

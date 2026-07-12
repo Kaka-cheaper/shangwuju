@@ -201,7 +201,12 @@ def test_strong_feedback_routes_through_refiner():
     session_id = "e2c_feedback_refiner"
     _seed_plan(session_id)
 
-    events = _drive_turn(user_input="太远了，帮我换近一点的地方", session_id=session_id)
+    # 对话轮路由规则层重构（2026-07-12）：looks_like_feedback_strong 套用覆盖度闸
+    # 后，"太远了，近点"（锚点"太远"+"近点"与冻结填充集覆盖整句）仍确定性命中
+    # Layer 1；原句"太远了，帮我换近一点的地方"的"帮我换"/"地方"是非空残余，
+    # 会改落壳3 保守地板（clarify），不再适合验证"Layer 1 强信号直达 refiner"
+    # 这条路径，换一句表达模式更收敛的等价反馈句。
+    events = _drive_turn(user_input="太远了，近点", session_id=session_id)
     types_ = [e.type.value for e in events]
     assert "refinement_start" in types_, f"反馈应先推 refinement_start，events={types_}"
     assert "itinerary_ready" in types_, f"反馈应产出调整后的新方案，events={types_}"

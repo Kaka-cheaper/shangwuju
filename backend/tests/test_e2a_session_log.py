@@ -53,9 +53,13 @@ from schemas.sse import SseEvent, SseEventType  # noqa: E402
 # 确定性直达 planning，不依赖 stub LLM（同 test_e0a_graph_confirm_writeback 选型理由）。
 _PLANNING_INPUT = DEMO_SCENARIOS[1]["input"]
 
-# 强信号反馈（"太远"/"近一点"命中 agent.core.feedback_detector 强信号子集，
-# Layer 1 直接判 feedback，不经 stub LLM）。
-_FEEDBACK_INPUT = "太远了，帮我换近一点的地方"
+# 强信号反馈（对话轮路由规则层重构 2026-07-12：looks_like_feedback_strong 套用
+# 覆盖度闸后，短句"太远了，近点"锚点"太远"+"近点"与冻结填充集覆盖整句，仍
+# 确定性命中 Layer 1，不经 stub LLM；原句"太远了，帮我换近一点的地方"因
+# "帮我换"/"地方"是覆盖度闸判据下的非空残余，改落壳3 保守地板——是本批引入
+# 覆盖度闸的结构性推论，换用一句表达模式更收敛的等价反馈句以保持本文件验证
+# "消息日志基础设施"这一意图不变）。
+_FEEDBACK_INPUT = "太远了，近点"
 
 # 普通闲聊：不含任何注入/反馈/canonical 字面信号，stub 模式下 classify_input
 # 必然异常 → fallback_decision(has_itinerary=False) → kind=chitchat（保守地板）。

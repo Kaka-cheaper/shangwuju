@@ -5,7 +5,7 @@ FP≈0 精确字面匹配「系统自己发出的 chips send 文本」→ 对应
 误吞面大，见 ADR-0011 背景 3）。壳2反过来只认"系统自己吐出来、用户点击后原样
 回传的确定字面"，不做任何语义/关键词猜测——FP 天然趋零。
 
-三个来源（单一真相源，谁都别在别处再抄一份）：
+四个来源（单一真相源，谁都别在别处再抄一份）：
   ① PRIMARY_CTAS（agent/intent/prompts/router_prompt.py）—— router LLM 分类结果
      附带的引导 chip 白名单，点击 = 发起对应场景的完整规划请求。
   ② FLOOR_CLARIFY_CTAS（同上文件）—— fallback_decision 保守地板"有方案"分支发的
@@ -16,14 +16,21 @@ FP≈0 精确字面匹配「系统自己发出的 chips send 文本」→ 对应
      己维护一份）—— /scenarios 端点的 8 个演示场景 input 文案。这是断网/stub
      演示下"任意输入→引导气泡→点场景 chip→正常规划"的规划可达通道：LLM 挂了
      不要紧，只要用户点了场景卡片，canonical 文本能确定性把规划步骤打开。
+  ④ 「换成X的」软约束 chip send（`agent.routing.brain._build_soft_constraint_chip`
+     模板，对话轮路由规则层重构 2026-07-12 新增）——brain 判 clarify 时代码拼
+     的固定模板字符串，全组合在模块加载期从 `agent.core.soft_constraint_tags`
+     的规则表穷举好（有限的关键词×tag 组合，非用户自由文本），点击后应确定性
+     命中 feedback（BLOCK 1 决策 #4：chip 的 send 归本模块精确相等层管，不再
+     依赖 `looks_like_feedback_strong` 二次辨认）。只在 has_itinerary=True 时
+     短路，同②的道理——这颗 chip 只会在"已有方案"语境下由脑子发出。
 
-设计取舍（为什么①③不管 has_itinerary，②要管）：
+设计取舍（为什么①③不管 has_itinerary，②④要管）：
     ①③ 是完整、自洽的规划请求文案，无论会话中期还是首轮命中都应直接开规划
     （会话中期命中即等价于"重新规划一个"——ADR-0011 决策 2 已删掉"有方案+
     planning/ambiguous→强行归并 feedback"的兜底，这条路径本就该可达，不必
-    再靠 has_itinerary 分支特判）。②天生只在"有方案"语境下才有意义（地板气泡
-    只在 has_itinerary=True 时才会发出这三个 chip），锁 has_itinerary 是防御性
-    校验，不是功能依赖。
+    再靠 has_itinerary 分支特判）。②④天生只在"有方案"语境下才有意义（地板
+    气泡 / 软约束 chip 只在 has_itinerary=True 时才会发出），锁 has_itinerary
+    是防御性校验，不是功能依赖。
 
 不负责：路由脑子调用（agent/routing/brain.py）、降级地板语义构造（同上
 fallback_decision）、对话行为规则判定（agent/core/dialogue_acts.py，跑在壳2
@@ -34,6 +41,7 @@ fallback_decision）、对话行为规则判定（agent/core/dialogue_acts.py，
 from __future__ import annotations
 
 from agent.core.dialogue_acts import build_confirm_decision
+from agent.core.soft_constraint_tags import all_possible_chip_sends
 from agent.intent.prompts.router_prompt import FLOOR_CLARIFY_CTAS, PRIMARY_CTAS
 from agent.intent.router import make_planning_decision
 from agent.routing.outcome import RouteOutcome
@@ -105,6 +113,10 @@ _PLANNING_LITERALS: frozenset[str] = frozenset(
 
 _FLOOR_CLARIFY_SENDS: frozenset[str] = frozenset(c["send"] for c in FLOOR_CLARIFY_CTAS)
 
+_SOFT_CONSTRAINT_CHIP_SENDS: frozenset[str] = all_possible_chip_sends()
+"""④ 「换成X的」chip send 穷举集（见模块 docstring ④）——点击回传直接短路成
+feedback，不依赖 looks_like_feedback_strong 二次辨认（BLOCK 1 决策 #4）。"""
+
 
 def canonical_shortcut_decision(
     user_input: str, *, has_itinerary: bool
@@ -137,6 +149,12 @@ def canonical_shortcut_decision(
                 # 但 route_kind 会跟 decision.input_kind 不一致，误导任何按 route_kind
                 # 做统计/日志的下游。
                 return RouteOutcome(kind="confirm", decision=decision)
+
+    if has_itinerary and text in _SOFT_CONSTRAINT_CHIP_SENDS:
+        # 「换成X的」chip 回传——直接判 feedback，decision=None（同 Layer 1
+        # 强信号反馈的既定纪律，见 route_turn.py `_judgment_to_outcome`：
+        # feedback 从不携带 decision，refiner 直接消化原始文本里的 tag 词）。
+        return RouteOutcome(kind="feedback", decision=None)
 
     return None
 

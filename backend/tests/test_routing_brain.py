@@ -6,6 +6,9 @@
 - 低置信度 → 归并 clarify（有方案/无方案两条地板文案）；已经是 clarify 不重复降级
 - cta_chips 白名单校验（发明的 send 被丢弃）
 - confirm 标签强制钉死唯一确认 chip；planning/feedback 强制清空 chips
+- 软约束 chip enrichment（对话轮路由规则层重构 2026-07-12 新增）：clarify +
+  有方案 + 原始输入含词典软约束关键词 → 代码拼「换成X的」chip，且该 chip 的
+  send 已注册进 canonical_shortcut 的 exact-match 集合
 - 失败路径 → 哨兵 None：坏 JSON / 非 JSON 对象 / schema 校验失败 / 空响应 / LLM 抛异常
 
 真 LLM 冒烟见 test_routing_brain_real_llm.py（仿 test_refiner_real_llm.py 先例）。
@@ -254,6 +257,101 @@ def test_planning_feedback_force_empty_chips(label: str) -> None:
         )
     )
     judgment = classify_turn(CONTEXT_TEXT, "今天下午带娃出去玩", False, client=client)
+    assert judgment is not None
+    assert judgment.cta_chips == []
+
+
+# ============================================================
+# 软约束 chip enrichment（对话轮路由规则层重构，2026-07-12）
+# ============================================================
+# 软约束嗅探器的路由角色已删除，"提约束·没说改 → 主动问 + 换成X的 chip"改由
+# 脑子判 clarify 之后，代码独立对 user_input 跑关键词规则表
+# （agent.core.soft_constraint_tags.sniff_tags）追加 chip——不依赖 LLM 输出内容，
+# 见 agent/routing/brain.py::_apply_soft_constraint_chip_enrichment。
+
+
+def test_clarify_with_itinerary_and_soft_constraint_keyword_gets_chip() -> None:
+    client = _FakeClient(
+        json.dumps(
+            _payload(label="clarify", confidence=0.8, cta_chips=[]),
+            ensure_ascii=False,
+        )
+    )
+    judgment = classify_turn(
+        CONTEXT_TEXT, "我妈膝盖不好，走不远", True, client=client
+    )
+    assert judgment is not None
+    assert judgment.label == "clarify"
+    assert len(judgment.cta_chips) == 1
+    chip = judgment.cta_chips[0]
+    assert "适合老人" in chip.label
+    assert "换成适合老人" in chip.send
+    assert "帮我换成" in chip.send, "send 应含祈使替换词，点击回传后能被壳2/Layer1识别"
+
+
+def test_clarify_chip_send_is_registered_in_canonical_shortcut() -> None:
+    """chip 的 send 必须精确落在 canonical_shortcut 的 exact-match 集合里
+    （BLOCK 1 决策 #4）——保证点击回传后 FP≈0 确定性短路成 feedback，不依赖
+    looks_like_feedback_strong 二次辨认。"""
+    from agent.routing.canonical_shortcut import canonical_shortcut_decision
+
+    client = _FakeClient(
+        json.dumps(
+            _payload(label="clarify", confidence=0.8, cta_chips=[]),
+            ensure_ascii=False,
+        )
+    )
+    judgment = classify_turn(
+        CONTEXT_TEXT, "我妈膝盖不好，走不远", True, client=client
+    )
+    assert judgment is not None
+    chip = judgment.cta_chips[0]
+
+    outcome = canonical_shortcut_decision(chip.send, has_itinerary=True)
+    assert outcome is not None, f"chip.send={chip.send!r} 应被壳2 canonical 精确识别"
+    assert outcome.kind == "feedback"
+
+
+def test_clarify_without_itinerary_no_chip_enrichment() -> None:
+    """无方案时"换成X的"没有方案可换，不适用——即使命中关键词也不追加 chip。"""
+    client = _FakeClient(
+        json.dumps(
+            _payload(label="clarify", confidence=0.8, cta_chips=[]),
+            ensure_ascii=False,
+        )
+    )
+    judgment = classify_turn(
+        CONTEXT_TEXT, "我妈膝盖不好，走不远", False, client=client
+    )
+    assert judgment is not None
+    assert judgment.cta_chips == []
+
+
+def test_clarify_no_soft_constraint_keyword_no_chip_enrichment() -> None:
+    """没有命中软约束关键词的 clarify（如信息不足类澄清）不该凭空长出 chip。"""
+    client = _FakeClient(
+        json.dumps(
+            _payload(label="clarify", confidence=0.8, cta_chips=[]),
+            ensure_ascii=False,
+        )
+    )
+    judgment = classify_turn(CONTEXT_TEXT, "这个不太好", True, client=client)
+    assert judgment is not None
+    assert judgment.cta_chips == []
+
+
+def test_non_clarify_label_no_chip_enrichment() -> None:
+    """非 clarify 标签不触发本机制（即使原始输入含软约束关键词），避免
+    feedback/chitchat 等其他标签被意外插入这颗 chip。"""
+    client = _FakeClient(
+        json.dumps(
+            _payload(label="chitchat", confidence=0.9, cta_chips=[]),
+            ensure_ascii=False,
+        )
+    )
+    judgment = classify_turn(
+        CONTEXT_TEXT, "我妈膝盖不好，走不远", True, client=client
+    )
     assert judgment is not None
     assert judgment.cta_chips == []
 

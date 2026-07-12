@@ -15,18 +15,25 @@ graph/nodes/router.py 退薄为 adapter，体内只剩"调 route_turn → 展平
          系统自己发出的精确全串确定性高于启发式信号，先于 Layer 1（深审修正，E-1）。
     Layer 1   强信号反馈（不调 LLM）→ RouteOutcome(feedback, None)
     Layer 1.7 用户画像问答（规则，不调 LLM）→ RouteOutcome(chitchat, PersonaDecision)
-    Layer 1.8 会话内规则判定（has_itinerary 时才跑，不调 LLM 主判定；仅 QA 弃答/
-              软约束隐晦兜底各自可能带一次窄范围 LLM 调用，跟"路由脑子"是两回事）：
-              提问 → chitchat；预约指令 → confirm；纯确认 → confirm；提约束没说
-              改 → chitchat。这四个判定原属 C2 时期的 `classify_dialogue_act`
-              （旧 Layer 3），当时排在"Layer 2 LLM 分类"**之后**、但命中即无条件
-              覆盖 Layer 2 结果——前移到这里（脑子调用之前）是行为不变的优化：
-              反正命中就覆盖，不命中才要走脑子，没理由让命中的情形多烧一次
-              LLM（见 `agent/core/dialogue_acts.py` 模块 docstring）。
+    Layer 1.8 会话内规则判定（has_itinerary 时才跑，不调 LLM 主判定；仅 QA 弃答
+              可能带一次窄范围 LLM 调用，跟"路由脑子"是两回事）：
+              提问 → chitchat；预约指令 → confirm；纯确认 → confirm。这三个判定
+              原属 C2 时期的 `classify_dialogue_act`（旧 Layer 3），当时排在
+              "Layer 2 LLM 分类"**之后**、但命中即无条件覆盖 Layer 2 结果——
+              前移到这里（脑子调用之前）是行为不变的优化：反正命中就覆盖，
+              不命中才要走脑子，没理由让命中的情形多烧一次 LLM（见
+              `agent/core/dialogue_acts.py` 模块 docstring）。
     脑子      统一路由脑子（`agent.routing.brain.classify_turn`）：一次 LLM 调用，
               吃 `RoutingContext.render_text()` + 本轮输入 + has_itinerary，出
               6 标签 + 槽位 + 置信度。失败（网络异常/坏 JSON/schema 校验失败）
-              → 返回 None → 壳3。低置信度已在 brain 内部归并为 clarify。
+              → 返回 None → 壳3。低置信度已在 brain 内部归并为 clarify。「提约束
+              没说改」（"我妈膝盖不好"类隐性硬约束）此前由软约束嗅探器规则层
+              承接，对话轮路由规则层重构（2026-07-12）已删除其路由角色——嗅探器
+              规则表覆盖度低、误判无兜底且与"过敏"类安全级硬约束的边界纠缠不清
+              （见 `agent/core/feedback_detector.py` 的强信号词表），现改由脑子
+              的少样本承接同一 UX（判 clarify + 代码拼「换成X的」chip，见
+              `agent/routing/brain_prompt.py` BRAIN_FEW_SHOTS），不再是零成本
+              规则短路，但保留了"听懂但不擅自改、主动问"的产品语义。
     壳3       LLM/脑子不可用 → 保守地板：无方案→陪聊引导；有方案→澄清引导。
               绝不默认规划/重规划（`fallback_decision`，ADR-0011 决策 2 / E-1）。
 
@@ -34,7 +41,8 @@ graph/nodes/router.py 退薄为 adapter，体内只剩"调 route_turn → 展平
 旧 :300-302）已在 E-1 删除；旧"Layer 2 `classify_input` + Layer 3
 `classify_dialogue_act` 两次 LLM 调用"已在本批（E-2-c）塌缩为一次脑子调用，
 `_ACT_TO_ROUTE_KIND` 缝合表随之删除（`classify_dialogue_act` 已退役，其规则
-子判定前移见上）。
+子判定前移见上）。软约束嗅探器的路由角色已在对话轮路由规则层重构
+（2026-07-12）删除，见上方 Layer 1.8 / 脑子小节说明。
 """
 
 from __future__ import annotations
@@ -51,7 +59,6 @@ from agent.core.feedback_detector import looks_like_feedback_strong
 from agent.core.injection_detector import detect_injection
 from agent.core.itinerary_qa import build_question_decision
 from agent.core.dialogue_acts import build_booking_decision, build_confirm_decision
-from agent.core.soft_constraint_sniffer import build_soft_constraint_decision
 from agent.core.persona_qa import build_persona_decision
 
 # ── 会话上下文打包器（ADR-0011 决策 3；脑子的唯一上下文来源，禁止自拼）
@@ -264,12 +271,6 @@ def route_turn(
         confirm_decision = build_confirm_decision(utterance)
         if confirm_decision is not None:
             return RouteOutcome(kind="confirm", decision=confirm_decision)
-
-        soft_decision = build_soft_constraint_decision(
-            utterance, has_itinerary=True, client=client
-        )
-        if soft_decision is not None:
-            return RouteOutcome(kind="chitchat", decision=soft_decision)
 
     # ---- 脑子：一次 LLM 调用（吃打包器产出的会话上下文）----
     context_text = pack_routing_context(context_source).render_text()
