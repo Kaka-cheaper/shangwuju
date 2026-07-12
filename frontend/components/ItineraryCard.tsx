@@ -471,19 +471,14 @@ export default function ItineraryCard() {
         />
       )}
 
-      {/* Refinement summary banner */}
-      {lastRefinement && lastRefinement.changedFields.length > 0 && (
-        <div className="px-4 pt-3">
-          <RefinementSummaryBanner
-            fields={lastRefinement.changedFields}
-            note={lastRefinement.refinerNote}
-          />
-        </div>
-      )}
-
       {/* Agent 暖心开场白——唯一的叙事声音（2026-07-06 收口：删掉与这段正文
           重复的「为你考虑了」intent chips 与「查看全部取舍说明」折叠，见
-          下方 NarrationBlock docstring）。 */}
+          下方 NarrationBlock docstring）。
+          2026-07-12 收口：删掉「已根据反馈调整」RefinementSummaryBanner——它
+          的 changedFields 芯片与①调整对比重复、refinerNote 与③口播开头重复
+          （一屏三个声音说同一件"改了什么"）；口播直接借用它那张卡的规整外壳
+          （白底/边框/圆角/阴影，不带 header），一举把"漂亮的壳"留下、"重复的
+          内容"删掉。 */}
       {narration?.text && (
         <div className="px-4 pt-3">
           <NarrationBlock text={narration.text} stage={narration?.stage ?? "stream"} />
@@ -960,38 +955,6 @@ export default function ItineraryCard() {
   );
 }
 
-function RefinementSummaryBanner({
-  fields,
-  note,
-}: {
-  fields: string[];
-  note?: string | null;
-}) {
-  return (
-    <div className="animate-fade-in rounded-[28px] border border-black/[0.06] bg-white px-4 py-3 text-sm shadow-[0_18px_46px_-38px_rgba(17,24,39,0.55)]">
-      <div className="mb-2 flex items-center gap-2 font-black tracking-tight text-ink-900">
-        <Icons.refine className="h-4 w-4 text-[#d97706]" strokeWidth={2.2} />
-        <span>已根据反馈调整</span>
-      </div>
-      <ul className="flex flex-wrap gap-2">
-        {fields.map((f, i) => (
-          <li
-            key={i}
-            className="rounded-full border border-[#FFD100]/35 bg-[#fff9df]/70 px-3 py-1 text-sm font-semibold text-[#9a5b00]"
-          >
-            {f}
-          </li>
-        ))}
-      </ul>
-      {note && (
-        <div className="mt-2 text-base leading-relaxed text-ink-700">
-          {note}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ============================================================
 // OrderCards —— 预约卡重设计（UI 修复批·纯前端，零后端）
 //
@@ -1247,20 +1210,12 @@ function NarrationBlock({
 
   return (
     <div
-      className="relative overflow-hidden rounded-[18px] px-4 py-3.5 text-base leading-relaxed tracking-tight animate-fade-in backdrop-blur-sm border"
-      style={{
-        // 去绿归色（配色克制设计终稿）：确认态是"成功/已预约"语义，和 CTA
-        // 一脉相承的暖金，不是自成一路的 emerald 绿——用比 stream 态更浓的
-        // 暖金渐变/边框区分"已确认"的分量。
-        background: isConfirm
-          ? "linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(217,119,6,0.05) 100%)"
-          : "linear-gradient(135deg, rgba(0,0,0,0.025) 0%, rgba(0,0,0,0.01) 100%)",
-        borderColor: isConfirm
-          ? "rgba(217,119,6,0.32)"
-          : "rgba(0,0,0,0.06)",
-        color: "rgb(31 41 55 / 0.92)",
-      }}
+      className="animate-fade-in rounded-[28px] border border-black/[0.06] bg-white px-4 py-3.5 leading-relaxed tracking-tight shadow-[0_18px_46px_-38px_rgba(17,24,39,0.55)]"
+      style={{ color: "rgb(31 41 55 / 0.92)" }}
     >
+      {/* 外壳借用原「已根据反馈调整」卡的规整样式（白底/边框/圆角/阴影，无
+          header）；确认态与 stream 态的区分收到 spark 图标深浅一层，不再靠
+          背景色分家（用户拍板 2026-07-12：只要那张卡的外壳）。 */}
       <div className="flex items-start gap-2">
         <Icons.spark
           className={cn(

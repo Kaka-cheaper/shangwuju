@@ -882,17 +882,9 @@ function MobilePlanCard() {
         </div>
       </div>
 
-      {/* B2：Refine 摘要横幅——lastRefinement.changedFields 此前只当布尔闸用
-          （只决定要不要显示 ComparisonView），内容本身从没展示过，toast 一闪
-          即逝兜不住。 */}
-      {lastRefinement && lastRefinement.changedFields.length > 0 && (
-        <div className="px-4 pt-1">
-          <MobileRefinementBanner
-            fields={lastRefinement.changedFields}
-            note={lastRefinement.refinerNote}
-          />
-        </div>
-      )}
+      {/* 2026-07-12 收口（同桌面端）：删「已根据反馈调整」横幅——芯片与①对比
+          重复、note 与③口播开头重复；口播直接借它那张卡的规整外壳（白底/边框/
+          圆角/阴影，无 header）。 */}
 
       {/* B1：narration 暖心文案——此前只显示裸 itinerary.summary，从没消费
           narration，手机用户看到的正是被替代掉的旧套话。2026-07-06 收口：
@@ -990,32 +982,6 @@ function MobilePlanCard() {
 }
 
 // ============================================================
-// B2：Refine 摘要横幅——照 ItineraryCard.tsx 的 RefinementSummaryBanner 移植。
-// ============================================================
-
-function MobileRefinementBanner({
-  fields,
-  note,
-}: {
-  fields: string[];
-  note?: string | null;
-}) {
-  return (
-    <div className="rounded-2xl border border-accent-500/30 bg-accent-500/[0.06] px-3.5 py-2.5 text-sm text-accent-800 shadow-sm backdrop-blur-xl animate-fade-in">
-      <div className="mb-1 flex items-center gap-1.5 font-semibold text-accent-700">
-        <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
-        <span>已根据反馈调整</span>
-      </div>
-      <ul className="ml-5 list-disc list-outside space-y-0.5 text-accent-900/90">
-        {fields.map((f, i) => (
-          <li key={i}>{f}</li>
-        ))}
-      </ul>
-      {note && <div className="mt-1 ml-5 text-accent-700/75">{note}</div>}
-    </div>
-  );
-}
-
 // ============================================================
 // B1：Agent 暖心开场白 + intent 命中可视化（narration + "为你考虑了" chips +
 // D-7 取舍说明）。照 ItineraryCard.tsx:752-851（NarrationBlock）+ :993-1066
@@ -1037,12 +1003,10 @@ function MobileNarrationBlock({
   return (
     <div
       className={cn(
-        // 去绿归色：确认态是"成功/已确认"，与桌面端 NarrationBlock 同语义，
-        // 走暖金（accent）而非游离调色板外的 emerald。
-        "rounded-[22px] border px-4 py-3.5 text-[15px] leading-relaxed shadow-sm backdrop-blur-xl animate-fade-in",
-        isConfirm
-          ? "border-accent-400/25 bg-accent-500/[0.06]"
-          : "border-black/[0.06] bg-white/[0.90]",
+        // 外壳借用原「已根据反馈调整」卡的规整样式（白底/边框/圆角/阴影，无
+        // header），与桌面端 NarrationBlock 一致；确认态与 stream 态的区分收到
+        // spark 图标深浅一层，不再靠背景色分家（用户拍板 2026-07-12）。
+        "rounded-[22px] border border-black/[0.06] bg-white px-4 py-3.5 text-[15px] leading-relaxed shadow-sm backdrop-blur-xl animate-fade-in",
       )}
     >
       <div className="flex items-start gap-2">
