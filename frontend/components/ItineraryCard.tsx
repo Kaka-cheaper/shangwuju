@@ -33,7 +33,7 @@ import NodeFactPanel, { NodeHeadline } from "./NodeFactPanel";
 import NumberTicker from "./NumberTicker";
 import PosterGenerator from "./PosterGenerator";
 import ShimmerStripe from "./ShimmerStripe";
-import ComparisonView from "./ComparisonView";
+import ComparisonView, { shouldShowComparison } from "./ComparisonView";
 import MapOverlay from "./MapOverlay";
 import TrustBelt from "./TrustBelt";
 import TtsPlayer from "./TtsPlayer";
@@ -470,8 +470,10 @@ export default function ItineraryCard() {
         </div>
       </div>
 
-      {/* T7/R3: Refine 前后对比视图（仅在有 lastRefinement + previousItinerary 时显示） */}
-      {lastRefinement && previousItinerary && itinerary && (
+      {/* 调整对比视图（有 lastRefinement + previousItinerary + 结构延续时显示；
+          shouldShowComparison：全是删+加的整份重排不挂卡，由新方案卡兜底） */}
+      {lastRefinement && previousItinerary && itinerary &&
+        shouldShowComparison(previousItinerary, itinerary) && (
         <ComparisonView
           oldItinerary={previousItinerary}
           newItinerary={itinerary}

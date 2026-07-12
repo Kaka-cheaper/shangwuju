@@ -582,9 +582,11 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     expect(last?.text).not.toContain(LONG_NARRATION_TEXT);
   });
 
-  // 真异步竞态回归（forge round2/round3 T1/T4）：本地 itinerary 落后（null）时，
-  // planning_started 广播带的后端权威 previous_itinerary 仍被采用，不退化成 0 调整。
-  it("真异步竞态回归：本地 itinerary 落后（置 null）时，planning_started 广播的 previous_itinerary 仍被正确采用，而非退化成 0 调整", () => {
+  // 数据源改为"前端本地即真相"（2026-07-12，拆掉 ② 后端 previous_itinerary 耦合）：
+  // 本地 itinerary 为空的成员（刚进房 / 上一轮取消未恢复）在 planning_started 时
+  // 抓不到本地快照 → previousItinerary 保持 null，不再从后端广播兜——他没经历那次
+  // 改动，本就不该看到"调整对比"，由 shouldShowComparison gate 掉；新方案本身照常到达。
+  it("本地 itinerary 为空：planning_started 不再从后端 previous_itinerary 兜，previousItinerary 保持 null（对比卡由 gate 兜底）", () => {
     const planBeforeReplan = {
       schema_version: "edge_v1" as const,
       summary: "重规划前的真实方案",
@@ -629,10 +631,8 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
       previous_itinerary: planBeforeReplan,
     });
 
-    expect(useChatStore.getState().previousItinerary).not.toBeNull();
-    expect((useChatStore.getState().previousItinerary as any).summary).toBe(
-      "重规划前的真实方案",
-    );
+    // 本地为空 → 不从后端兜 → previousItinerary 保持 null。
+    expect(useChatStore.getState().previousItinerary).toBeNull();
 
     handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
       type: "planning_event",
@@ -644,13 +644,9 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
       },
     });
 
+    // 新方案照常到达；previousItinerary 仍为 null（该成员不显示对比卡）。
     const { itinerary, previousItinerary } = useChatStore.getState();
     expect((itinerary as any).nodes).toHaveLength(2);
-    expect((previousItinerary as any).nodes).toHaveLength(1);
-    expect((previousItinerary as any).nodes[0].target_id).toBe("R001");
-    const newTargetIds = (itinerary as any).nodes.map((n: any) => n.target_id);
-    const oldTargetIds = (previousItinerary as any).nodes.map((n: any) => n.target_id);
-    const addedIds = newTargetIds.filter((id: string) => !oldTargetIds.includes(id));
-    expect(addedIds.length).toBeGreaterThan(0);
+    expect(previousItinerary).toBeNull();
   });
 });

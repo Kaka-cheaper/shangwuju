@@ -1,26 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { diffStages, nodesToDiffStages, type DiffStage } from "@/components/ComparisonView";
+import {
+  diffStages,
+  nodesToDiffStages,
+  shouldShowComparison,
+  type DiffEntry,
+} from "@/components/ComparisonView";
 import type { ActivityNode, Itinerary } from "./types";
 
 /**
- * ComparisonView diffStages 身份对齐算法回归（forge round1/round2/round3.md
- * DP1/T2/T3 收敛结论）。
+ * ComparisonView 三趟对齐算法回归。
  *
- * 根因：旧实现按数组下标逐位比较（zip 对齐），插入/删除会让下标错位——
- * "良子健身"被插入的"管氏翅吧"往后挤了一位，位置比较器认不出它是同一个
- * 实体，误判成"整体替换"。新实现按 ActivityNode.target_id 身份配对，
- * 覆盖 forge 材料枚举的全部边界：插入/删除/替换/时移/真互换/同名不同店。
+ * 问题命名：结构化短序列 diff，需要 UPDATE 操作（换店=原地改，而非删+加）。
+ * 纯 target_id 精确配对是文本级 diff（只有增/删/保留），把换店拆成"删旧店+
+ * 加新店"——用户报告的 #100"换两个店画成 4 件事 + 4 个幽灵框"的根。
  *
- * 不设独立 moved 类（round3.md T2 拍板结论）：同身份且四字段全同，即便
- * 相对顺序变了，仍归为 unchanged——因为本业务时间轴下"纯移动不改时间"
- * 几乎不发生，真移动几乎总伴随 start/end 变化，天然落入 modified。
+ * 三趟对齐（GumTree/ChangeDistilling 两阶段匹配的裁剪版）：
+ *   Pass 1 精确锚点（target_id 相同）→ unchanged/modified；
+ *   Pass 2 角色补配（剩余按 kind 分组、同 kind 按时间贪心配对）→ modified +
+ *          entitySwapped（换店认成一次修改）；
+ *   Pass 3 剩余 → added / removed。
+ *
+ * 注意：本文件里多条"换店"用例的期望，相对旧实现是**翻转**的——旧实现判
+ * removed+added，新实现判 modified(entitySwapped)，这正是本次要修的行为。
  */
 
-function node(overrides: Partial<ActivityNode> & Pick<ActivityNode, "target_id">): ActivityNode {
+function node(
+  overrides: Partial<ActivityNode> & Pick<ActivityNode, "target_id">,
+): ActivityNode {
   return {
     node_id: `n_${overrides.target_id}`,
-    kind: "餐饮",
+    kind: "用餐",
     target_kind: "restaurant",
     start_time: "12:00",
     duration_min: 60,
@@ -41,130 +51,162 @@ function itineraryWith(nodes: ActivityNode[]): Itinerary {
   } as unknown as Itinerary;
 }
 
-function diff(oldNodes: ActivityNode[], newNodes: ActivityNode[]) {
+function diff(oldNodes: ActivityNode[], newNodes: ActivityNode[]): DiffEntry[] {
   return diffStages(
     nodesToDiffStages(itineraryWith(oldNodes)),
     nodesToDiffStages(itineraryWith(newNodes)),
   );
 }
 
-function kindsByTargetId(diffs: ReturnType<typeof diff>): Record<string, string> {
-  const out: Record<string, string> = {};
+function byId(diffs: DiffEntry[]): Record<string, DiffEntry> {
+  const out: Record<string, DiffEntry> = {};
   for (const d of diffs) {
-    const id = (d.newStage ?? d.oldStage) as DiffStage;
-    out[id.targetId] = d.kind;
+    const id = (d.newStage ?? d.oldStage)!.targetId;
+    out[id] = d;
   }
   return out;
 }
 
-describe("diffStages — 身份对齐（target_id），非数组下标对齐", () => {
-  it("插入一个节点：本例用户场景——旧[良子健身]、新[管氏翅吧, 良子健身]", () => {
-    // 这是用户拍定的验收场景：插入一顿饭（管氏翅吧）不应把良子健身误判成
-    // "被换成了管氏翅吧"——良子健身内容没变，只是被插入的节点挤到了后面。
-    const liangzi = node({ target_id: "L_良子健身", title: "良子健身" });
-    const guanshi = node({ target_id: "G_管氏翅吧", title: "管氏翅吧" });
+describe("Pass 1 — 精确锚点（target_id 身份配对，与位置无关）", () => {
+  it("插入一个节点（不同 kind）：旧[良子健身]、新[管氏翅吧, 良子健身]", () => {
+    const liangzi = node({ target_id: "L", title: "良子健身", kind: "主活动" });
+    const guanshi = node({ target_id: "G", title: "管氏翅吧", kind: "用餐" });
 
-    const result = diff([liangzi], [guanshi, liangzi]);
-    const kinds = kindsByTargetId(result);
+    const d = byId(diff([liangzi], [guanshi, liangzi]));
 
-    expect(kinds["G_管氏翅吧"]).toBe("added");
-    expect(kinds["L_良子健身"]).toBe("unchanged");
-    // 不应出现任何 removed——旧方案里唯一的实体（良子健身）在新方案里还在。
-    expect(result.some((d) => d.kind === "removed")).toBe(false);
+    expect(d["L"].kind).toBe("unchanged");
+    expect(d["G"].kind).toBe("added");
   });
 
-  it("删除一个节点：旧[A,B]、新[A] → B 判 removed，A 不受影响", () => {
-    const a = node({ target_id: "A" });
-    const b = node({ target_id: "B" });
-
-    const result = diff([a, b], [a]);
-    const kinds = kindsByTargetId(result);
-
-    expect(kinds["A"]).toBe("unchanged");
-    expect(kinds["B"]).toBe("removed");
+  it("删除一个节点：旧[A,B]、新[A] → B removed，A 不受影响", () => {
+    const d = byId(diff([node({ target_id: "A" }), node({ target_id: "B" })], [node({ target_id: "A" })]));
+    expect(d["A"].kind).toBe("unchanged");
+    expect(d["B"].kind).toBe("removed");
   });
 
-  it("整表替换（换场景，target_id 全变）：全部 removed + 全部 added", () => {
-    const oldA = node({ target_id: "OLD_A" });
-    const oldB = node({ target_id: "OLD_B" });
-    const newA = node({ target_id: "NEW_A" });
-    const newB = node({ target_id: "NEW_B" });
-
-    const result = diff([oldA, oldB], [newA, newB]);
-
-    expect(result.filter((d) => d.kind === "removed")).toHaveLength(2);
-    expect(result.filter((d) => d.kind === "added")).toHaveLength(2);
-    expect(result.some((d) => d.kind === "unchanged" || d.kind === "modified")).toBe(false);
-  });
-
-  it("只改时间（同 target_id）：判 modified，changedFields 含 time", () => {
+  it("只改时间（同 target_id）：modified、changedFields 含 time、非换店", () => {
     const before = node({ target_id: "R001", start_time: "12:00", duration_min: 60 });
     const after = node({ target_id: "R001", start_time: "14:00", duration_min: 60 });
 
     const result = diff([before], [after]);
-
     expect(result).toHaveLength(1);
     expect(result[0].kind).toBe("modified");
+    expect(result[0].entitySwapped).toBe(false);
     expect(result[0].changedFields).toContain("time");
-    expect(result[0].changedFields).not.toContain("title");
   });
 
-  it("新增+删除同时发生（旧[A,B]→新[A,C]，B删C增）：A 不受干扰判 unchanged", () => {
-    const a = node({ target_id: "A" });
-    const b = node({ target_id: "B" });
-    const c = node({ target_id: "C" });
-
-    const result = diff([a, b], [a, c]);
-    const kinds = kindsByTargetId(result);
-
-    expect(kinds["A"]).toBe("unchanged");
-    expect(kinds["B"]).toBe("removed");
-    expect(kinds["C"]).toBe("added");
-  });
-
-  it("真互换（旧[A,B]→新[B,A]，且时间跟着互换）：两者均因 time 变化判 modified", () => {
-    // 本业务时间轴下，两个节点真的交换先后时，start/end 几乎总跟着变
-    // （否则两个节点同时段重叠没有意义）——round3.md T2 结论：这类真移动
-    // 天然落入 modified 的 time 高亮，不需要独立的 moved 视觉类。
+  it("真互换（旧[A,B]→新[B,A] 且时间互换）：两者均因 time 变判 modified，非换店", () => {
     const a1 = node({ target_id: "A", start_time: "12:00" });
     const b1 = node({ target_id: "B", start_time: "14:00" });
     const a2 = node({ target_id: "A", start_time: "14:00" });
     const b2 = node({ target_id: "B", start_time: "12:00" });
 
-    const result = diff([a1, b1], [b2, a2]);
-    const kinds = kindsByTargetId(result);
-
-    expect(kinds["A"]).toBe("modified");
-    expect(kinds["B"]).toBe("modified");
-    expect(result.every((d) => d.changedFields.includes("time"))).toBe(true);
+    const d = byId(diff([a1, b1], [b2, a2]));
+    expect(d["A"].kind).toBe("modified");
+    expect(d["B"].kind).toBe("modified");
+    expect(d["A"].entitySwapped).toBe(false);
+    expect(d["B"].entitySwapped).toBe(false);
   });
+});
 
-  it("同名不同店（target_id 不同，title 相同）：判 removed 一个 + added 一个，不误判 unchanged", () => {
-    const branch1 = node({ target_id: "STORE_001", title: "同名连锁店" });
-    const branch2 = node({ target_id: "STORE_002", title: "同名连锁店" });
-
-    const result = diff([branch1], [branch2]);
-    const kinds = kindsByTargetId(result);
-
-    // 即使 title 字符串相同，target_id 不同就是不同实体——正确判断是换了
-    // 一家店（removed+added），不能因为标题相同就当作 unchanged。
-    expect(kinds["STORE_001"]).toBe("removed");
-    expect(kinds["STORE_002"]).toBe("added");
-  });
-
-  it("换菜后 target_id 变化（graph_adjust.py 坐实的换菜语义）：判 removed+added，而非 modified", () => {
-    // 换菜前后 target_id 必变（graph_adjust.py:422 注释）——身份配对下无法
-    // 区分"换菜替换"与"删A插B"，两者 target_id 变化模式相同，这是已知的
-    // 前端侧固有局限（round2.md T3③），不是本次要修的范围。这里锁死的是
-    // "至少不会因为位置凑巧对齐就误判成 modified"这一底线正确性。
-    const before = node({ target_id: "R001", title: "老店" });
-    const after = node({ target_id: "R099", title: "新换的店" });
+describe("Pass 2 — 角色补配：换店认成一次修改（本次修复核心）", () => {
+  it("换一家店（同 kind，target_id 变）：modified + entitySwapped，而非 removed+added", () => {
+    // 旧实现在此判 removed(管氏翅吧)+added(肉串汪)——正是用户看到的车祸。
+    const before = node({ target_id: "R001", title: "管氏翅吧", kind: "用餐" });
+    const after = node({ target_id: "R099", title: "肉串汪", kind: "用餐" });
 
     const result = diff([before], [after]);
-    const kinds = kindsByTargetId(result);
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe("modified");
+    expect(result[0].entitySwapped).toBe(true);
+    expect(result[0].oldStage?.title).toBe("管氏翅吧");
+    expect(result[0].newStage?.title).toBe("肉串汪");
+    expect(result.some((r) => r.kind === "removed" || r.kind === "added")).toBe(false);
+  });
 
-    expect(kinds["R001"]).toBe("removed");
-    expect(kinds["R099"]).toBe("added");
-    expect(result.some((d) => d.kind === "modified")).toBe(false);
+  it("#100 换两个店：旧[良子健身(主活动), 管氏翅吧(用餐)]→新[纯K(主活动), 肉串汪(用餐)] → 2 modified 换店，0 增删", () => {
+    const oldNodes = [
+      node({ target_id: "L", title: "良子健身", kind: "主活动", start_time: "15:44" }),
+      node({ target_id: "G", title: "管氏翅吧", kind: "用餐", start_time: "17:30" }),
+    ];
+    const newNodes = [
+      node({ target_id: "C", title: "纯K", kind: "主活动", start_time: "14:37" }),
+      node({ target_id: "R", title: "肉串汪", kind: "用餐", start_time: "17:30" }),
+    ];
+
+    const result = diff(oldNodes, newNodes);
+    expect(result.filter((r) => r.kind === "modified" && r.entitySwapped)).toHaveLength(2);
+    expect(result.filter((r) => r.kind === "added" || r.kind === "removed")).toHaveLength(0);
+
+    // 主活动 与 用餐 各自同 kind 配对，不会跨类错配。
+    const d = byId(result);
+    expect(d["C"].oldStage?.title).toBe("良子健身");
+    expect(d["R"].oldStage?.title).toBe("管氏翅吧");
+  });
+
+  it("常见·只换餐店：旧[咖啡,健身,管氏翅吧]→新[咖啡,健身,肉串汪] → 2 unchanged + 1 换店", () => {
+    const coffee = node({ target_id: "CF", title: "咖啡", kind: "咖啡", start_time: "09:30" });
+    const gym = node({ target_id: "GY", title: "健身", kind: "主活动", start_time: "11:30" });
+    const oldMeal = node({ target_id: "M1", title: "管氏翅吧", kind: "用餐", start_time: "17:30" });
+    const newMeal = node({ target_id: "M2", title: "肉串汪", kind: "用餐", start_time: "17:30" });
+
+    const result = diff([coffee, gym, oldMeal], [coffee, gym, newMeal]);
+    expect(result.filter((r) => r.kind === "unchanged")).toHaveLength(2);
+    const swaps = result.filter((r) => r.kind === "modified" && r.entitySwapped);
+    expect(swaps).toHaveLength(1);
+    expect(swaps[0].oldStage?.title).toBe("管氏翅吧");
+    expect(swaps[0].newStage?.title).toBe("肉串汪");
+  });
+
+  it("跨 kind 不配对（已知边界）：旧[健身(主活动)]→新[肉串汪(用餐)] → removed + added，不当换店", () => {
+    const before = node({ target_id: "GY", title: "健身", kind: "主活动" });
+    const after = node({ target_id: "R", title: "肉串汪", kind: "用餐" });
+
+    const d = byId(diff([before], [after]));
+    expect(d["GY"].kind).toBe("removed");
+    expect(d["R"].kind).toBe("added");
+    expect(d["R"].entitySwapped).toBe(false);
+  });
+});
+
+describe("排序 — 从早到晚，不是新增排前删除甩后", () => {
+  it("新增站按时间插到正确位置", () => {
+    const dinner = node({ target_id: "D", title: "晚餐", kind: "用餐", start_time: "18:00" });
+    const noon = node({ target_id: "N", title: "午间活动", kind: "主活动", start_time: "10:00" });
+
+    // 旧[晚餐]、新[午间活动, 晚餐]：午间活动 added(10:00)、晚餐 unchanged(18:00)。
+    const result = diff([dinner], [noon, dinner]);
+    expect(result[0].newStage?.start).toBe("10:00"); // 早的排前
+    expect(result[1].newStage?.start).toBe("18:00");
+  });
+});
+
+describe("shouldShowComparison — 有结构延续才挂卡", () => {
+  it("换店（有延续）→ 挂", () => {
+    const before = itineraryWith([node({ target_id: "R001", title: "管氏翅吧", kind: "用餐" })]);
+    const after = itineraryWith([node({ target_id: "R099", title: "肉串汪", kind: "用餐" })]);
+    expect(shouldShowComparison(before, after)).toBe(true);
+  });
+
+  it("#99 零重合（两活动删到只剩一餐）→ 不挂（continuity=0）", () => {
+    const before = itineraryWith([
+      node({ target_id: "P1", title: "私人健身管家", kind: "主活动", start_time: "14:04" }),
+      node({ target_id: "P2", title: "良子健身", kind: "主活动", start_time: "15:40" }),
+    ]);
+    const after = itineraryWith([
+      node({ target_id: "R", title: "肉串汪", kind: "用餐", start_time: "17:30" }),
+    ]);
+
+    // 数据层面：2 removed + 1 added（跨 kind 不配对）。
+    const result = diffStages(nodesToDiffStages(before), nodesToDiffStages(after));
+    expect(result.filter((r) => r.kind === "removed")).toHaveLength(2);
+    expect(result.filter((r) => r.kind === "added")).toHaveLength(1);
+    // 判定层面：无结构延续 → 不挂对比卡（由新方案卡兜底）。
+    expect(shouldShowComparison(before, after)).toBe(false);
+  });
+
+  it("完全没变 → 不挂", () => {
+    const same = itineraryWith([node({ target_id: "A" })]);
+    expect(shouldShowComparison(same, itineraryWith([node({ target_id: "A" })]))).toBe(false);
   });
 });

@@ -46,7 +46,7 @@ import {
 } from "@/lib/utils";
 
 import CollabBar from "../CollabBar";
-import ComparisonView from "../ComparisonView";
+import ComparisonView, { shouldShowComparison } from "../ComparisonView";
 import Confetti, { type ConfettiOrigin } from "../Confetti";
 import MapOverlay from "../MapOverlay";
 import MockModeBadge from "../MockModeBadge";
@@ -83,7 +83,12 @@ export default function MobileHomeView() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const personaResetOnLoadRef = useRef(false);
   const activated = messages.length > 0 || streaming || itinerary != null;
-  const canCompare = Boolean(previousItinerary && itinerary && lastRefinement);
+  const canCompare = Boolean(
+    previousItinerary &&
+      itinerary &&
+      lastRefinement &&
+      shouldShowComparison(previousItinerary, itinerary),
+  );
 
   // A9 根治：planner 模式的 cookie/health 校准不再依赖 PlannerModeBadge 是否
   // 挂载——移动端此前压根不挂那个徽章组件，plannerMode 永远停在硬编码的

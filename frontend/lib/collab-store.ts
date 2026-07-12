@@ -265,7 +265,10 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           // criticReport 会导致本地残留的上一轮自愈记录被回放内容重复追加。
           criticReport: emptyCriticReport(),
           itinerary: (msg.itinerary as any) || null,
-          previousItinerary: (msg.previous_itinerary as any) || null,
+          // 新加入者不从后端快照带 previousItinerary——他没经历房间里那次改动，
+          // 不该看到"调整对比"（数据源已改为前端本地快照，见 planning_started
+          // 分支）。置 null → shouldShowComparison 判定不挂对比卡。
+          previousItinerary: null,
           intent: (msg.intent as any) || null,
           narration: null,
           // narrationMessages 绑定 narration 这一版（见 store/types.ts）——没有
@@ -468,15 +471,12 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
         });
       } else {
         const currentItinerary = useChatStore.getState().itinerary;
-        // ComparisonView 0 调整竞态修复（forge round2/round3.md T1 方向A）：
-        // 后端在 `_trigger_replan`/`_trigger_fresh_plan` 里于任何 await 之前
-        // 同步赋值了 `room.previous_itinerary_dict`（重规划前展示给成员的那份，
-        // 无竞态），现在随这条 `planning_started` 广播一并带下来。优先读它——
-        // 它不依赖"此刻前端本地 state 是否已追上最新一轮"，从根上消除"参与者
-        // 消息处理滞后导致 previousItinerary 读到 null/旧版本"这个竞态窗口
-        // （症状=用户报告的"间歇 0 调整"）。旧后端不带这个字段时退回原来的
-        // 本地兜底（向后兼容）。
-        const backendPrevious = msg.previous_itinerary as Itinerary | null | undefined;
+        // ComparisonView 数据源（前端本地即真相）：换菜/反馈时前端本地本就握着
+        // "改之前那份方案"——在此刻（清空 itinerary 前）就地快照 currentItinerary
+        // 作为对比的"调整前"，不再从后端搬 previous_itinerary（与单人模式
+        // event-handlers.ts::commitItinerary 同一手法）。本地为空的成员（刚进房 /
+        // 上一轮取消未恢复）拿不到快照 → previousItinerary=null → 由
+        // shouldShowComparison 判定不挂对比卡（他没经历那次改动，本就不该看）。
         resetArrival();
         // 清空主 store 的中间过程（新一轮规划开始），同时保留旧方案快照供对比视图使用
         useChatStore.setState({
@@ -488,8 +488,7 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           // 既有清空手法，房间模式这里是它的对应版本）。
           criticReport: emptyCriticReport(),
           itinerary: null,
-          previousItinerary:
-            backendPrevious ?? (currentItinerary ? cloneForCollab(currentItinerary) : null),
+          previousItinerary: currentItinerary ? cloneForCollab(currentItinerary) : null,
           narration: null,
           // 同 store.ts refine() 的既有清空手法——新一轮规划开始，上一轮
           // narration 的展开列表不该挂在这一轮还没产出内容的 narration 上。
