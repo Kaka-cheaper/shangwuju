@@ -13,10 +13,20 @@
  * 分流就是"房间里打字消息不广播、不进约束池"的静默 bug。抽成一个不依赖
  * 具体 UI 的 hook，三处调用方从根上不可能再漏。
  *
- * 行为契约（与抽出前的 ChatDock.submit / ChitchatBubble.handleChipClick 逐字
- * 等价）：
- *   - collabMode=true：sendConstraint(text.trim()) + 本地乐观追加 user 消息
- *   - collabMode=false：sendMessage(text)（内部自己 trim + 空值兜底）
+ * 演示场景同源（2026-07-12）：`QuickScenarios`（web）与 `MobileScenarioRail`
+ * （移动）的场景按钮此前直接调单人 `useChatStore.sendScenario` → 打单人 HTTP
+ * `/chat/turn`，是**最后一个绕过协作分流的入口**——房间里点场景只更新点击者
+ * 本地、不经 WS 广播，其他成员界面不同步（用户报告：只有反馈重规划才同步）。
+ * 收进本 hook 的 `sendScenario`：协作模式把场景输入当"一句完整规划请求"发进
+ * 房间（WS `constraint`），后端 `route_turn` 判为 planning → `_trigger_fresh_plan`
+ * 全房全新规划广播（见 backend/collab/room.py add_constraint 义务分发表）；
+ * scenario_id 是单人上下文种子（房间无单一归属，见 context/sources.py:120），
+ * 协作路径不透传，本就正确。
+ *
+ * 行为契约：
+ *   - sendUserInput(text)：collab → sendConstraint + 本地乐观追加；solo → sendMessage
+ *   - sendScenario(input, id)：collab → 同 sendUserInput（发进房间广播）；
+ *                              solo → 单人 sendScenario（开新 session + scenario_id）
  */
 
 import { useCallback } from "react";
@@ -29,39 +39,62 @@ export interface UseCollabDispatchResult {
   collabMode: boolean;
   /** 统一入口：非协作走 HTTP sendMessage，协作走 WS constraint + 本地乐观追加。 */
   sendUserInput: (text: string) => void;
+  /** 演示场景点击的分流入口：协作走房间广播（全房全新规划），单人走 sendScenario。 */
+  sendScenario: (input: string, scenarioId: string) => void;
 }
 
 export function useCollabDispatch(): UseCollabDispatchResult {
   const collabMode = useCollabStore((s) => s.collabMode);
   const sendConstraint = useCollabStore((s) => s.sendConstraint);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const sendScenario = useChatStore((s) => s.sendScenario);
+
+  // 协作发送：WS constraint 广播 + 本地乐观追加 user 消息（自己发的不经
+  // constraint_added 回显）。sendUserInput 与 sendScenario 的 collab 分支共用。
+  const collabSend = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      sendConstraint(trimmed);
+      useChatStore.setState((s) => ({
+        messages: [
+          ...s.messages,
+          {
+            id: `u-${Date.now()}`,
+            role: "user" as const,
+            text: trimmed,
+            createdAt: Date.now(),
+          },
+        ],
+      }));
+    },
+    [sendConstraint],
+  );
 
   const sendUserInput = useCallback(
     (text: string) => {
       if (collabMode) {
-        const trimmed = text.trim();
-        if (!trimmed) return;
-        sendConstraint(trimmed);
-        // 本地也追加一条用户消息到 messages（WS 广播会同步给其他人；自己这份
-        // 不会经 constraint_added 回显，需要本地乐观追加——同 ChatDock 既有先例）。
-        useChatStore.setState((s) => ({
-          messages: [
-            ...s.messages,
-            {
-              id: `u-${Date.now()}`,
-              role: "user" as const,
-              text: trimmed,
-              createdAt: Date.now(),
-            },
-          ],
-        }));
+        collabSend(text);
         return;
       }
       // sendMessage 内部自己 trim + 空值兜底，这里不需要重复处理
       void sendMessage(text);
     },
-    [collabMode, sendConstraint, sendMessage],
+    [collabMode, collabSend, sendMessage],
   );
 
-  return { collabMode, sendUserInput };
+  const dispatchScenario = useCallback(
+    (input: string, scenarioId: string) => {
+      if (collabMode) {
+        // 房间共享一个方案：场景点击 = 把这条完整规划请求发进房间，触发全房
+        // 全新规划广播（scenario_id 不透传，房间无单一归属）。
+        collabSend(input);
+        return;
+      }
+      void sendScenario(input, scenarioId);
+    },
+    [collabMode, collabSend, sendScenario],
+  );
+
+  return { collabMode, sendUserInput, sendScenario: dispatchScenario };
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { scenarioIcon } from "@/lib/icon-map";
 import { useChatStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -19,7 +20,8 @@ export default function QuickScenarios({
 }) {
   const scenarios = useChatStore((s) => s.scenarios);
   const streaming = useChatStore((s) => s.streaming);
-  const sendScenario = useChatStore((s) => s.sendScenario);
+  // collab 分流：房间里点场景走 WS 广播（全房同步），单人走 sendScenario。
+  const { sendScenario } = useCollabDispatch();
   const dockRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const [pointer, setPointer] = useState<ScenarioCenter | null>(null);
