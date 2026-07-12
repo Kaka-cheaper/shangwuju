@@ -109,12 +109,16 @@ def test_strong_subset_still_hits_real_jindian() -> None:
 
 
 # ============================================================
-# 「过敏」进强信号子集（点火前小修批 任务 2；K11 探针实锤）
+# 「过敏」在覆盖度闸下的路由行为（决策 #2 = B'，2026-07-12 路由重构）
 # ============================================================
-# 实锤：房间成员说「我海鲜过敏」不在 Layer 1 强信号词表——LLM 挂掉时安全级
-# 硬约束静默落闲聊地板（K11 stub 实测）。按 9eecef0 精度契约过词目审查后收进
-# 强信号子集；否定形（"不过敏"）经剔噪不触发；问句形（"有没有海鲜过敏的？"）
-# 由 route_turn B2 问句尾护栏在上层挡（见 test_allergy_question_guard_interplay）。
+# 覆盖度闸上线后，点名过敏原的句子（"我海鲜过敏"）残余非空（过敏原名词"海鲜"
+# 不在冻结填充集里），故 `looks_like_feedback_strong` 不再 Layer-1 拍板，改弃权
+# 交给带上下文的路由脑子——这是覆盖度闸的直接推论，也是决策 B' 明确接受的：
+#   · 演示态（脑子在线）：过敏照样被脑子判去 feedback/clarify，"无牛肉"照进 refiner；
+#     "海鲜"本就装不下 DietaryTag Literal（既有限制，非本次引入）。
+#   · 代价：脑子挂了（stub/降级）时过敏不再有确定性兜底——正是 B' 本轮决定不建的
+#     那个正交安全网。真安全网（自由排除字段 + 防御层确定性抽取）另开票。
+# 高召回粗筛 `looks_like_feedback`（refiner 内部依赖，路由重构不动它）仍识别过敏。
 
 
 _ALLERGY_FEEDBACK = [
@@ -125,10 +129,11 @@ _ALLERGY_FEEDBACK = [
 
 
 @pytest.mark.parametrize("text", _ALLERGY_FEEDBACK)
-def test_allergy_is_strong_feedback(text: str) -> None:
-    """过敏陈述句 = 安全级硬约束，必须进强信号子集（不靠 LLM 拍板）。"""
-    assert looks_like_feedback_strong(text) is True, f"{text!r} 应是强信号反馈"
-    assert looks_like_feedback(text) is True, f"{text!r} 高召回粗筛也应命中"
+def test_allergy_named_allergen_abstains_to_brain(text: str) -> None:
+    """决策 B'：点名过敏原的句子残余非空 → 覆盖度闸弃权到脑子，不再 Layer-1 拍板。
+    高召回粗筛仍识别（refiner 内部逻辑不受影响）。"""
+    assert looks_like_feedback_strong(text) is False, f"{text!r} 应弃权交脑子（B'）"
+    assert looks_like_feedback(text) is True, f"{text!r} 高召回粗筛仍应命中"
 
 
 _NEGATED_ALLERGY = [
@@ -145,20 +150,21 @@ def test_negated_allergy_not_strong(text: str) -> None:
     assert looks_like_feedback_strong(text) is False, f"{text!r} 不应触发强信号"
 
 
-def test_negation_plus_real_allergy_still_triggers() -> None:
-    """半句否定半句肯定：剔噪只摘掉否定形，真过敏诉求仍在。"""
-    assert looks_like_feedback_strong("对海鲜不过敏，但花生过敏") is True
+def test_compound_allergy_abstains_to_brain() -> None:
+    """决策 B'：多子句过敏句（"对海鲜不过敏，但花生过敏"）残余非空 → 覆盖度闸弃权
+    交脑子。旧 `_STRONG_SCAN_NOISE` 否定剔噪已随覆盖度闸删除（不再逐词打补丁）。"""
+    assert looks_like_feedback_strong("对海鲜不过敏，但花生过敏") is False
 
 
-def test_allergy_question_guard_interplay() -> None:
-    """问句尾护栏互动：问「有没有…过敏的？」是在收集信息不是在提约束，
-    不得被 Layer 1 直接拍板送重排（B2 护栏对新词目同样生效）。"""
+def test_allergy_routing_abstains_under_coverage_gate() -> None:
+    """决策 B'：点名过敏原的陈述句在覆盖度闸下弃权交脑子（不再 Layer-1 拍板）；
+    问句形一如既往不拍板。两条路径最终都汇到带上下文的脑子。"""
     from agent.routing.route_turn import _looks_like_feedback_strong_from_state
 
     itin = {"nodes": [{"target_kind": "poi", "target_id": "P001"}]}
-    # 陈述句：拍板反馈
-    assert _looks_like_feedback_strong_from_state("我海鲜过敏", itin) is True
-    # 问句形：护栏放行到 QA/脑子
+    # 陈述句：残余"我海鲜"非空 → 弃权交脑子（B'，不再 Layer-1 直接拍板）
+    assert _looks_like_feedback_strong_from_state("我海鲜过敏", itin) is False
+    # 问句形：本就不拍板
     assert _looks_like_feedback_strong_from_state("大家有没有海鲜过敏的？", itin) is False
     assert _looks_like_feedback_strong_from_state("这家有过敏原标注吗？", itin) is False
     # 无方案：Layer 1 前提不满足
