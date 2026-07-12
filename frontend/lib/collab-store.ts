@@ -14,7 +14,7 @@ import { useChatStore, type ChatState } from "./store";
 import { nextArrival, resetArrival } from "./store/arrival-counter";
 import { handleEvent, shortHandoffText } from "./store/event-handlers";
 import { emptyCriticReport } from "./store/types";
-import type { AdjustAction, DemandLedgerEntry, NodeActionsMap, NodeDetailMap, SseEvent } from "./types";
+import type { AdjustAction, DemandLedgerEntry, Itinerary, NodeActionsMap, NodeDetailMap, SseEvent } from "./types";
 import { API_BASE } from "./utils";
 
 // ============================================================
@@ -468,6 +468,15 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
         });
       } else {
         const currentItinerary = useChatStore.getState().itinerary;
+        // ComparisonView 0 调整竞态修复（forge round2/round3.md T1 方向A）：
+        // 后端在 `_trigger_replan`/`_trigger_fresh_plan` 里于任何 await 之前
+        // 同步赋值了 `room.previous_itinerary_dict`（重规划前展示给成员的那份，
+        // 无竞态），现在随这条 `planning_started` 广播一并带下来。优先读它——
+        // 它不依赖"此刻前端本地 state 是否已追上最新一轮"，从根上消除"参与者
+        // 消息处理滞后导致 previousItinerary 读到 null/旧版本"这个竞态窗口
+        // （症状=用户报告的"间歇 0 调整"）。旧后端不带这个字段时退回原来的
+        // 本地兜底（向后兼容）。
+        const backendPrevious = msg.previous_itinerary as Itinerary | null | undefined;
         resetArrival();
         // 清空主 store 的中间过程（新一轮规划开始），同时保留旧方案快照供对比视图使用
         useChatStore.setState({
@@ -479,7 +488,8 @@ export function handleWsMessage(set: Setter, get: Getter, msg: WsMessage): void 
           // 既有清空手法，房间模式这里是它的对应版本）。
           criticReport: emptyCriticReport(),
           itinerary: null,
-          previousItinerary: currentItinerary ? cloneForCollab(currentItinerary) : null,
+          previousItinerary:
+            backendPrevious ?? (currentItinerary ? cloneForCollab(currentItinerary) : null),
           narration: null,
           // 同 store.ts refine() 的既有清空手法——新一轮规划开始，上一轮
           // narration 的展开列表不该挂在这一轮还没产出内容的 narration 上。

@@ -500,11 +500,10 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     );
   });
 
-  // 协作口播去重回归：finishCollabStream 此前直接把 narration.text（口播
-  // 全文，同时是 ItineraryCard 顶部 NarrationBlock 的正文）塞进聊天气泡，
-  // 只在反馈轮加"已根据反馈重新规划——"前缀——与方案卡重复展示同一段文字。
-  // 单人模式 sendMessage()/confirm() 两处 onDone 早就用 shortHandoffText
-  // 堵过这个洞，本用例钉住协作路径现在也复用同一份短句、不再重播全文。
+  // 协作口播去重回归：finishCollabStream 此前直接把 narration.text（口播全文，
+  // 同时是 ItineraryCard 顶部 NarrationBlock 的正文）塞进聊天气泡——与方案卡
+  // 重复。单人 sendMessage()/confirm() 早用 shortHandoffText 堵过，本用例钉住
+  // 协作路径现在也复用同一份短句、不再重播全文。
   const LONG_NARRATION_TEXT =
     "这是一段很长的口播全文，讲了为什么选这几个地方、怎么取舍距离和预算——" +
     "这段话已经完整展示在方案卡顶部的 NarrationBlock 里了，不该在聊天气泡里再出现一遍。";
@@ -581,5 +580,77 @@ describe("handleWsMessage — F-5 房间生命周期/换菜下行消息", () => 
     const last = messages[messages.length - 1];
     expect(last?.text).toBe("都订好了——和室友唱K。凭证和安排都在卡片里。");
     expect(last?.text).not.toContain(LONG_NARRATION_TEXT);
+  });
+
+  // 真异步竞态回归（forge round2/round3 T1/T4）：本地 itinerary 落后（null）时，
+  // planning_started 广播带的后端权威 previous_itinerary 仍被采用，不退化成 0 调整。
+  it("真异步竞态回归：本地 itinerary 落后（置 null）时，planning_started 广播的 previous_itinerary 仍被正确采用，而非退化成 0 调整", () => {
+    const planBeforeReplan = {
+      schema_version: "edge_v1" as const,
+      summary: "重规划前的真实方案",
+      nodes: [
+        {
+          node_id: "n_0",
+          kind: "餐饮",
+          target_kind: "restaurant" as const,
+          target_id: "R001",
+          start_time: "12:00",
+          duration_min: 90,
+          title: "良子健身",
+        },
+      ],
+      hops: [],
+      schedule: [],
+      orders: [],
+      total_minutes: 90,
+    };
+    const planAfterReplan = {
+      ...planBeforeReplan,
+      summary: "重规划后的新方案",
+      nodes: [
+        {
+          node_id: "n_0",
+          kind: "餐饮",
+          target_kind: "restaurant" as const,
+          target_id: "G002",
+          start_time: "12:00",
+          duration_min: 90,
+          title: "管氏翅吧",
+        },
+        ...planBeforeReplan.nodes,
+      ],
+    };
+
+    useChatStore.setState({ itinerary: null, previousItinerary: null });
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_started",
+      trigger: "constraint_added",
+      previous_itinerary: planBeforeReplan,
+    });
+
+    expect(useChatStore.getState().previousItinerary).not.toBeNull();
+    expect((useChatStore.getState().previousItinerary as any).summary).toBe(
+      "重规划前的真实方案",
+    );
+
+    handleWsMessage(useCollabStore.setState, useCollabStore.getState, {
+      type: "planning_event",
+      event: {
+        type: "itinerary_ready",
+        seq: 1,
+        payload: planAfterReplan,
+        timestamp_ms: Date.now(),
+      },
+    });
+
+    const { itinerary, previousItinerary } = useChatStore.getState();
+    expect((itinerary as any).nodes).toHaveLength(2);
+    expect((previousItinerary as any).nodes).toHaveLength(1);
+    expect((previousItinerary as any).nodes[0].target_id).toBe("R001");
+    const newTargetIds = (itinerary as any).nodes.map((n: any) => n.target_id);
+    const oldTargetIds = (previousItinerary as any).nodes.map((n: any) => n.target_id);
+    const addedIds = newTargetIds.filter((id: string) => !oldTargetIds.includes(id));
+    expect(addedIds.length).toBeGreaterThan(0);
   });
 });

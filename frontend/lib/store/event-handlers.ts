@@ -296,6 +296,31 @@ export function handleEvent(set: Setter, get: Getter, ev: SseEvent): void {
     }
 
     case "itinerary_ready": {
+      // 换菜后错误亮起对比卡修复（DP4/forge round3.md T1，协作侧）：房间版
+      // 换菜广播（collab/room.py::_resolve_and_broadcast_adjust）在这条
+      // itinerary_ready 事件顶层（非 payload 内）带一个 "source": "adjust"
+      // 标记——显式信号，不靠"这条事件序列里没有 refinement_done"之类的
+      // 隐式约定。命中时清空 lastRefinement：换菜不是 refinement，若上一轮
+      // 反馈残留的 lastRefinement 没清，会让 ItineraryCard/MobileHomeView 的
+      // 三元 AND（previousItinerary && itinerary && lastRefinement）意外成立，
+      // 错误展示"换菜前后对比"却挂着上一次反馈的摘要文案。
+      //
+      // 单人换菜路径（store.ts::sendAdjust onDone）已经有对称的清空——那条
+      // 路径的 SSE 事件走真正的 pydantic SseEvent（extra="forbid"），不能
+      // 也不需要携带这个标记，onDone 是它自己的 action 私有钩子，足够干净。
+      // 这里只服务协作换菜——它的结果走通用 planning_event 通道，没有对称的
+      // 私有钩子，只能在这个共享分发点识别标记。
+      //
+      // 新成员加入回放（buildCollabPlanningEvents 或 room 历史回放）：两条
+      // 回放路径都不会意外触发这里——`chat_state` 快照存在时，回放整段跳过
+      // （collab-store.ts room_state case），lastRefinement 由快照本身的
+      // 最终值直接 hydrate；`chat_state` 缺失、走 `planning_events` 历史回放
+      // 时，回放的是后端真实广播过的历史（含这个标记），按发生顺序重放会
+      // 收敛到与当时在场者相同的最终状态——不是误清，是如实重放历史。
+      if ((ev as { source?: string }).source === "adjust") {
+        set({ lastRefinement: null });
+      }
+
       // R9：SSE schema 兼容降级。
       // 后端 edge model refactor 后 payload 自带 schema_version="edge_v1"。
       // 若版本字段缺失或不一致（旧后端 / 错误数据），不抛错也不全屏崩，

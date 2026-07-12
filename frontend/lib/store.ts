@@ -405,7 +405,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         onError: (err) =>
           set({ streamError: formatStreamError(err.reason, err.detail) }),
         onDone: () => {
-          set({ lockedNodeId: null });
+          // 换菜后清空 lastRefinement（DP4/forge round3.md T1）：换菜不是一次
+          // refinement——它有自己的方案卡叙事（AGENT_NARRATION"按你的要求把
+          // X换成Y"），不该复用反馈的"调整对比"卡。若上一轮反馈残留的
+          // lastRefinement 没清，换菜产出的 itinerary_ready 会让三元 AND
+          // （previousItinerary && itinerary && lastRefinement，见
+          // ItineraryCard.tsx/MobileHomeView.tsx）意外成立，错误展示"换菜前
+          // vs 换菜后"却挂着上一次反馈的摘要文案。onDone 无论成功/业务失败
+          // 都跑——业务失败时方案没变，本就不该亮对比卡，清了更安全，且下一次
+          // 真反馈会由 refine()/refinement_done 自己重新设置，不受影响。
+          set({ lockedNodeId: null, lastRefinement: null });
         },
       },
     );

@@ -1001,6 +1001,15 @@ class RoomManager:
             "seq": 0,
             "payload": new_itinerary.model_dump(),
             "timestamp_ms": int(time.time() * 1000),
+            # 换菜后错误亮起对比卡修复（DP4/forge round3.md T1）：换菜不是一次
+            # refinement，前端据此标记显式清空 lastRefinement（不能靠"这条
+            # itinerary_ready 序列里没有 refinement_done"这类隐式约定——脆、
+            # 难维护）。此键是本 event dict 的顶层兄弟字段，不进 "payload"
+            # （payload 是 Itinerary.model_dump()，Itinerary/SseEvent 两个
+            # schema 均 `extra="forbid"`，混进去会在任何未来把这个 dict 过一遍
+            # 严格校验时炸；本路径当前是手写 dict 直接广播，从不过 pydantic
+            # 校验，加在顶层安全，见 schemas/sse.py::SseEvent.model_config）。
+            "source": "adjust",
         })
         await self._broadcast_planning_event(room, {
             "type": "agent_narration",
@@ -1156,6 +1165,12 @@ class RoomManager:
             "trigger": trigger_reason,
             "trigger_user": trigger_user,
             "constraints_count": len(room.constraints),
+            # ComparisonView 0 调整竞态修复：上面第一行刚同步赋值好的权威快照
+            # 顺手带下去——前端此前读的是"自己本地 useChatStore.itinerary"，
+            # 在消息处理有任何滞后/交错时可能读到 null 或更旧版本，导致对比卡
+            # 显示"0 处变化"。这里是它唯一的真正来源（同步赋值，无竞态），
+            # 加这个键不影响旧前端（未知字段被忽略）。
+            "previous_itinerary": room.previous_itinerary_dict,
         })
 
         # 创建规划任务
@@ -1207,6 +1222,8 @@ class RoomManager:
             "type": "planning_started",
             "trigger": "planning",
             "trigger_user": trigger_user,
+            # 同 `_trigger_replan` 广播的同一修复——见该处注释。
+            "previous_itinerary": room.previous_itinerary_dict,
         })
 
         room.planning_task = asyncio.create_task(self._plan_fresh(room, user_input))

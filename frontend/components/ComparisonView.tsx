@@ -18,10 +18,22 @@
  *
  * 数据契约（edge_v1）：
  *   - Itinerary.nodes: ActivityNode[]（含 home 起终点；diff 时过滤）
- *   - 本视图把 nodes 投影到内部 DiffStage 形状（start/end/title/kind），保持原 diff 算法不变。
+ *   - 本视图把 nodes 投影到内部 DiffStage 形状（start/end/title/kind，含 target_id
+ *     供身份配对），保持字段级比较逻辑不变。
  *
- * Diff 算法：
- *   按节点索引对齐（不做 LCS / 模糊匹配），逐字段比较 start/end/title/kind。
+ * Diff 算法（按身份 target_id 配对，不按数组下标对齐）：
+ *   ActivityNode.target_id 是稳定实体身份（同 kind 内唯一，见 lib/types.ts）。
+ *   先按 target_id 建立新旧两侧的索引：
+ *     - 只在新侧出现 → added
+ *     - 只在旧侧出现 → removed
+ *     - 两侧都出现 → 比较 start/end/title/kind：有差异 → modified；全同 → unchanged
+ *   这修的是"插入/删除导致后续节点被错误判定为整体替换"的根因——旧实现按数组
+ *   下标逐位比较，插入一个节点会把它后面的所有节点错位比较成"改了"（同 React
+ *   用 index 当 key 的经典陷阱，见 forge round1.md DP1）。
+ *   不区分独立的"moved"类：即便同身份集合的相对顺序变了（如两节点真互换
+ *   先后），仍归为 unchanged/modified 四类之二——本业务时间轴下，顺序变化
+ *   几乎总伴随 start/end 变化，天然落入 modified 的 time 高亮，不需要为一个
+ *   几乎不发生的"纯移动不改时间"场景单开视觉类（见 forge round3.md T2 结论）。
  *   不同字段加 amber 高亮。新增/删除段加专门的 「新增」/「已移除」 占位。
  */
 
@@ -35,7 +47,9 @@ import { cn } from "@/lib/utils";
 // 渲染层 stage 形状（edge_v1 适配，不再依赖已删除的 ItineraryStage 类型）
 // ============================================================
 
-interface DiffStage {
+export interface DiffStage {
+  /** 身份配对键——ActivityNode.target_id，必填字段（lib/types.ts）。 */
+  targetId: string;
   start: string;
   end: string;
   title: string;
@@ -50,10 +64,13 @@ function addMinutesHHMM(start: string, minutes: number): string {
   return `${String(Math.floor(wrap / 60)).padStart(2, "0")}:${String(wrap % 60).padStart(2, "0")}`;
 }
 
-function nodesToDiffStages(itinerary: Itinerary): DiffStage[] {
+// 导出供测试直驱（同 collab-store.ts::handleWsMessage 的既有测试性导出先例）——
+// 这是纯数据转换函数，不依赖 React，直接单测比渲染 + DOM 断言更直接可靠。
+export function nodesToDiffStages(itinerary: Itinerary): DiffStage[] {
   return (itinerary.nodes || [])
     .filter((n) => n.target_kind !== "home")
     .map((n) => ({
+      targetId: n.target_id,
       start: n.start_time,
       end: addMinutesHHMM(n.start_time, n.duration_min),
       title: n.title,
@@ -75,32 +92,40 @@ interface StageDiff {
   changedFields: ReadonlyArray<"time" | "title" | "kind">;
 }
 
-function diffStages(
+/** 比较两个同身份节点的字段，返回变化字段列表（复用于 modified 判定）。 */
+function compareFields(
+  oldStage: DiffStage,
+  newStage: DiffStage,
+): Array<"time" | "title" | "kind"> {
+  const changed: Array<"time" | "title" | "kind"> = [];
+  if (oldStage.start !== newStage.start || oldStage.end !== newStage.end) {
+    changed.push("time");
+  }
+  if (oldStage.title !== newStage.title) changed.push("title");
+  if (oldStage.kind !== newStage.kind) changed.push("kind");
+  return changed;
+}
+
+export function diffStages(
   oldStages: ReadonlyArray<DiffStage>,
   newStages: ReadonlyArray<DiffStage>,
 ): StageDiff[] {
-  const maxLen = Math.max(oldStages.length, newStages.length);
+  // 按身份（target_id）配对，而非按数组下标逐位比较——插入/删除会让下标错位，
+  // 把"没变的节点因为往后挪了一位"误判成"改了"（见文件头 docstring 与
+  // forge round1.md DP1/round3.md T2）。
+  const oldById = new Map(oldStages.map((s) => [s.targetId, s]));
+  const newById = new Map(newStages.map((s) => [s.targetId, s]));
+
   const diffs: StageDiff[] = [];
-  for (let i = 0; i < maxLen; i++) {
-    const oldStage = oldStages[i] ?? null;
-    const newStage = newStages[i] ?? null;
-    if (!oldStage && newStage) {
+
+  // 按新方案的顺序渲染（新方案是用户接下来要看的时间轴顺序）。
+  for (const newStage of newStages) {
+    const oldStage = oldById.get(newStage.targetId);
+    if (!oldStage) {
       diffs.push({ oldStage: null, newStage, kind: "added", changedFields: [] });
       continue;
     }
-    if (oldStage && !newStage) {
-      diffs.push({ oldStage, newStage: null, kind: "removed", changedFields: [] });
-      continue;
-    }
-    if (!oldStage || !newStage) continue; // TS 缩窄
-
-    const changed: Array<"time" | "title" | "kind"> = [];
-    if (oldStage.start !== newStage.start || oldStage.end !== newStage.end) {
-      changed.push("time");
-    }
-    if (oldStage.title !== newStage.title) changed.push("title");
-    if (oldStage.kind !== newStage.kind) changed.push("kind");
-
+    const changed = compareFields(oldStage, newStage);
     diffs.push({
       oldStage,
       newStage,
@@ -108,6 +133,14 @@ function diffStages(
       changedFields: changed,
     });
   }
+
+  // 旧方案里没有出现在新方案中的身份 → removed（按旧方案顺序追加在后面）。
+  for (const oldStage of oldStages) {
+    if (!newById.has(oldStage.targetId)) {
+      diffs.push({ oldStage, newStage: null, kind: "removed", changedFields: [] });
+    }
+  }
+
   return diffs;
 }
 
