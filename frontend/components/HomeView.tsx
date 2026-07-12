@@ -10,6 +10,7 @@ import {
   useCollabStore,
 } from "@/lib/collab-store";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
+import { useScrollToBottomOnBooking } from "@/lib/hooks/useScrollToBottomOnBooking";
 import {
   clearUserIdCookie,
   generateSessionId,
@@ -59,6 +60,8 @@ export default function HomeView() {
   // A9 根治：planner 模式的 cookie/health 校准不再依赖 PlannerModeBadge 是否
   // 挂载，根组件统一调用一次（Web/移动端共用同一份实现，见 hook docstring）。
   useBootstrapPlannerMode();
+  // 预约成功后变速滚到底（web/移动/协作三端共用同一 hook，见其 docstring）。
+  useScrollToBottomOnBooking();
 
   // 2026-07-06 收口：「开多人房间」从「方案工具」ItineraryUtilityBar 摘到顶栏
   // 会话控件簇——这是协作/邀请动作，且不依赖已有方案（可以先开房再一起

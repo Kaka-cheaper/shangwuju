@@ -25,6 +25,7 @@ import {
 } from "@/lib/collab-store";
 import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
 import { useBootstrapPlannerMode } from "@/lib/hooks/useBootstrapPlannerMode";
+import { useScrollToBottomOnBooking } from "@/lib/hooks/useScrollToBottomOnBooking";
 import { useCollabDispatch } from "@/lib/hooks/useCollabDispatch";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
 import { useChatStore } from "@/lib/store";
@@ -95,6 +96,8 @@ export default function MobileHomeView() {
   // 挂载——移动端此前压根不挂那个徽章组件，plannerMode 永远停在硬编码的
   // "rule"，实际跑的是降智版规则规划。根组件统一调这个 hook 即可校准。
   useBootstrapPlannerMode();
+  // 预约成功后变速滚到底（web/移动/协作三端共用同一 hook，见其 docstring）。
+  useScrollToBottomOnBooking();
 
   useEffect(() => {
     if (sessionId === "sess_pending") {
