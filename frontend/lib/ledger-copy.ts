@@ -20,12 +20,18 @@
  * "维度→原值"原样打印 + console.warn 一条（H3 哨兵同款纪律：能在控制台看到
  * "台账映射缺了一个词"，而不是静默展示错误的英文单词或崩渲染）。
  *
- * id→店名映射复用 `ConstraintFeed.tsx::nodeTitleByTargetId` 的同一先例——
- * 从当前 `itinerary.nodes` 反查 `target_id` 对应的 `title`，查不到（节点已被
- * 换掉/itinerary 未加载）兜底显示原始 target_id，不留空。
+ * id→店名映射（UI 修复批·台账店名快照）：优先读 `node_ref.title`——后端在
+ * **记账时刻**（`graph_adjust.py`/`room.py` 构造 `NodeRef` 那一刻）就把当时的
+ * `node_title(itinerary, target_id)` 定格快照进这个字段，往后即便节点被换菜
+ * （`resolve_node_swap` 换菜成功后 `itinerary.nodes` 里该位置的 `target_id`
+ * 变成新实体、旧 id 从当前方案里彻底消失），台账历史行依然显示"当初是哪个
+ * 店"，不退化成裸 id（如 `WJP062`）——这是台账"不压扁历史"的产品承诺真正
+ * 兑现的地方。`title` 为 `null`（本字段新增前已落盘的旧条目，没有快照）时才
+ * 退回旧路径：反查当前 `itinerary.nodes`（`ConstraintFeed.tsx::nodeTitleByTargetId`
+ * 同一先例），查不到再兜底显示原始 target_id，不留空。
  */
 
-import type { DemandLedgerEntry, Itinerary, NodeAdjustmentDimension } from "./types";
+import type { DemandLedgerEntry, Itinerary, NodeAdjustmentDimension, NodeRef } from "./types";
 
 const _DIMENSION_LABELS: Record<NodeAdjustmentDimension, string> = {
   price: "价格",
@@ -59,7 +65,8 @@ export function ledgerValuePhrase(entry: DemandLedgerEntry): string {
 }
 
 /** 按 target_id 查节点店名/标题；查不到兜底原始 id（同 ConstraintFeed.tsx
- * 既有先例 `nodeTitleByTargetId`，不重复但保持同一语义）。 */
+ * 既有先例 `nodeTitleByTargetId`，不重复但保持同一语义）。仅作 `node_ref.title`
+ * 快照缺失（旧数据）时的退路——见本文件顶部 docstring。 */
 export function nodeNameByTargetId(
   itinerary: Itinerary | null | undefined,
   targetId: string,
@@ -68,13 +75,21 @@ export function nodeNameByTargetId(
   return node?.title ?? targetId;
 }
 
+/** 台账一条引用的节点店名——优先快照，快照缺失（旧数据）才反查当前方案。 */
+function nodeDisplayName(
+  nodeRef: NodeRef,
+  itinerary: Itinerary | null | undefined,
+): string {
+  return nodeRef.title ?? nodeNameByTargetId(itinerary, nodeRef.target_id);
+}
+
 /** 台账一条的完整人话句子——"（谁）· 店名/全局 · 调了什么"，不含状态徽标
  * （状态由调用方按 entry.status 单独渲染徽标，保持"文案"与"状态视觉"分离）。 */
 export function ledgerEntryLine(
   entry: DemandLedgerEntry,
   itinerary: Itinerary | null | undefined,
 ): string {
-  const where = entry.node_ref ? nodeNameByTargetId(itinerary, entry.node_ref.target_id) : "全局";
+  const where = entry.node_ref ? nodeDisplayName(entry.node_ref, itinerary) : "全局";
   const who = entry.nickname ? `${entry.nickname} · ` : "";
   return `${who}${where} · ${ledgerValuePhrase(entry)}`;
 }

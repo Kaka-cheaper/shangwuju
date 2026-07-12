@@ -57,6 +57,7 @@ from schemas.demand_ledger import LedgerEntry, LedgerEntryStatus  # noqa: E402
 from schemas.itinerary import Itinerary  # noqa: E402
 from schemas.node_adjustment import NodeAdjustment, NodeAdjustmentDimension  # noqa: E402
 from schemas.sse import SseEventType  # noqa: E402
+from agent.planning.planners.node_swap_support import node_title  # noqa: E402
 from tests.test_planner_node_swap import _build_itinerary, _intent, _node_ids, _poi, _rest  # noqa: E402
 
 _USER_INPUT = DEMO_SCENARIOS[1]["input"]  # S2，同 test_e0a 的确定性理由
@@ -208,6 +209,13 @@ def test_adjust_success_changes_plan_records_satisfied_and_syncs_session_store(m
     assert ledger_entries[0].adjustment.dimension == NodeAdjustmentDimension.DIETARY
     assert ledger_entries[0].source_text == "不辣的"
     assert ledger_entries[0].node_ref.target_id == "RB1"  # 记的是点击时那个节点，历史准确
+    # 台账店名快照（UI 修复批）：记账时刻现查现存店名，不是事后反查——RB1
+    # 换菜成为 RB_T1 后已从 itinerary.nodes 里消失，若是事后反查会查不到、
+    # 退化成裸 id；这里断言 title 在记账那一刻就已经带着，不依赖节点后续存亡。
+    # 期望值直接取原始（换菜前）itinerary 里 RB1 节点的 title——不猜测具体
+    # 字符串格式，只验证"记账时刻现查现存"这个契约本身。
+    assert ledger_entries[0].node_ref.title == node_title(itinerary, "RB1")
+    assert "RB1" not in _node_ids(Itinerary.model_validate(post_state["itinerary"]))
 
     # ---- SESSION_STORE 投影同步：换菜后确认必须拿到新方案 ----
     cached = SESSION_STORE[session_id]

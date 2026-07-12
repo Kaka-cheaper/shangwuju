@@ -310,11 +310,20 @@ export type NodeDetailMap = Record<string, NodeDetail>;
 
 export type DemandLedgerStatus = "active" | "superseded" | "satisfied";
 
+/** 台账条目指回的节点引用（schemas.demand_ledger.NodeRef 镜像）。`title` 是
+ * 记账时刻的店名快照（UI 修复批·台账店名快照）——换菜后旧节点从
+ * `itinerary.nodes` 消失也不丢名字；`null` 仅见于本字段新增前的旧数据。 */
+export interface NodeRef {
+  kind: "poi" | "restaurant";
+  target_id: string;
+  title: string | null;
+}
+
 /** 诉求台账展示投影一条（schemas.demand_ledger.ledger_for_display）。 */
 export interface DemandLedgerEntry {
   member_id: string | null;
   nickname: string | null;
-  node_ref: { kind: "poi" | "restaurant"; target_id: string } | null;
+  node_ref: NodeRef | null;
   dimension: NodeAdjustmentDimension;
   value: string;
   status: DemandLedgerStatus;

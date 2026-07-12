@@ -87,13 +87,24 @@ describe("ledgerEntryLine", () => {
     expect(line).toContain("全局");
   });
 
-  it("有 node_ref 时显示店名而非原始 id", () => {
+  it("有 node_ref 时显示店名而非原始 id（title 快照缺失，退回反查 itinerary.nodes——旧数据兼容路径）", () => {
     const line = ledgerEntryLine(
-      _entry({ node_ref: { kind: "restaurant", target_id: "R1" } }),
+      _entry({ node_ref: { kind: "restaurant", target_id: "R1", title: null } }),
       itinerary,
     );
     expect(line).toContain("小湘阁");
     expect(line).not.toContain("R1");
+  });
+
+  it("台账店名快照（UI 修复批）：node_ref.title 有值时优先使用，即便节点已从 itinerary.nodes 消失（换菜后）", () => {
+    const line = ledgerEntryLine(
+      _entry({
+        node_ref: { kind: "restaurant", target_id: "WJP062", title: "老地方火锅" },
+      }),
+      itinerary, // itinerary 里根本没有 WJP062 这个节点（已被换菜换掉）
+    );
+    expect(line).toContain("老地方火锅");
+    expect(line).not.toContain("WJP062");
   });
 
   it("房间模式 nickname 非空时点名前缀；单人模式恒为 null 不显示这段", () => {

@@ -579,6 +579,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       await get().refreshPreferences(sessionIdOverride);
+      // 清两轨（UI 修复批拍板）：此前只清 UserMemory（标签/行程轨，上面
+      // refreshPreferences 拉回的就是这轨），完全不碰 demandLedger（台账/
+      // "本次调整"轨）——用户点击"清空学到的记忆"最容易盯着看效果的恰恰是
+      // 台账区，那个区永远不受这个按钮影响，"点了没反应"的真机体验由此
+      // 而来。demandLedger 是纯前端会话展示态（不落库、不经后端接口，见
+      // store/types.ts 字段 docstring），清它不需要额外的后端往返，直接
+      // 清本地 state 即可——与 UserMemory 轨的清空一起，才是名副其实的
+      // "清空"。清空后必须有肉眼可见的即时反馈（面板从"有内容"变"空态"
+      // 这个动作本身，比右下角容易被真机忽略的 toast 更可靠）。
+      set({ demandLedger: [] });
       get().pushToast({ kind: "success", text: "已清空学到的记忆" });
     } catch (e) {
       get().pushToast({

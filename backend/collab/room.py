@@ -805,7 +805,9 @@ class RoomManager:
             return
 
         old_title = node_title(itinerary, node_id)
-        node_ref = NodeRef(kind=kind, target_id=node_id)  # type: ignore[arg-type]
+        # title 快照：记账时刻现查现存，往后即便这个节点被换菜掉也不丢名字
+        # （见 NodeRef.title docstring）。
+        node_ref = NodeRef(kind=kind, target_id=node_id, title=old_title)  # type: ignore[arg-type]
 
         tracer = Tracer()
         pois = _query_pois(intent, tracer)

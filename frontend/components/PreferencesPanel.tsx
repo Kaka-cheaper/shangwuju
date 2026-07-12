@@ -28,12 +28,38 @@
  *     生效中/已满足，被顶替的条目砍掉（不渲染）；≤5 条 + "还有 N 条"折叠。
  *     房间模式下**照常显示**，甚至是主角（归名台账是房间协商的核心价值）。
  *
+ * 三列并排重排（UI 修复批·2026-07，主代理拍板覆盖前一版诊断的"头像移左上"
+ * 方案）：头像**保持右侧不动**——它是既有布局的稳定锚点，折叠/展开态位置
+ * 一致，不需要为了给内容腾宽度而挪动它，宽横条本身已经够宽。三区改成**三列
+ * 并排**填满头像左侧的横向空间（`grid-cols-[repeat(auto-fit,minmax(0,1fr))]`——
+ * 用 `auto-fit` 而不是写死 `grid-cols-3`，是因为房间模式下"这次对话学到的"
+ * 整列不渲染，此时应自动收成两列平分宽度，不留一条空轨道），每列内部竖排、
+ * 左对齐——而不是旧版"内容区当一整栏、三区依次纵向堆叠、每行还各自
+ * justify-end 贴右边界"（那是本次修复要根治的"整体贴右、左边一大块空白"的
+ * 病灶：内容区够宽但每一行都不用宽度）。三列横向利用宽度，纵向自然更矮，
+ * 不必再靠"缩头像腾高度"这种以退为进的办法。
+ *   - 空列不占位：某列没有内容时，对应 Section 组件（`LearnedSection`/
+ *     `LedgerSection`）直接返回 `null`，grid 自动把宽度让给其余列（css grid
+ *     不渲染的轨道不产生视觉留白，不需要额外写"隐藏"逻辑）。
+ *   - 有内容时淡入：三列的共用容器 `ColumnShell` 套 `animate-fade-in`（同
+ *     文件已有的揭幕动效语汇，不新造一套）——组件从不渲染（null）到渲染
+ *     （有内容）那一刻，React 挂载新 DOM 节点，动效随挂载自然触发。
+ *   - 台账行状态徽标放行首（先看状态，再看内容）——同上一版诊断的结论，
+ *     三列布局下依然成立：徽标在前更符合"一览生效状态"的台账核心价值。
+ *
  * 硬约束：面板总高有界（外层 max-h + overflow-y-auto），每区超量各自独立
- * 折叠，不挤压下方 QuickScenarios/ChatDock；头像从 150px 缩到 96px 给三区
- * 腾高度。
+ * 折叠，不挤压下方 QuickScenarios/ChatDock。
  *
  * 房间模式清空按钮：整个隐藏（清空一个全房间共享键是影响所有成员的动作，
  * 不该被单个成员静默触发；见方案 §13）。
+ *
+ * 清空作用域全环闭合（UI 修复批）：`resetUserMemory` 现在两轨一起清——
+ * UserMemory（标签/行程轨，后端 `reset_memory` 原有职责）+ `demandLedger`
+ * 台账轨（新增，见 store.ts::resetUserMemory 内注释）。此前只清前者，
+ * "清空学到的记忆"点了常常像没反应——因为「这次对话学到的」区本来就常是
+ * 空态（没聊够几轮），真正有内容、用户盯着看效果的往往是"本次调整"台账区，
+ * 而台账完全不受这个按钮影响，落差感就是"点了没用"的真机体验根源。两轨
+ * 一起清 + 下面的清空反馈动效，才是名副其实的"清空"。
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -133,9 +159,6 @@ export default function PreferencesPanel() {
 
   if (!open) {
     const persona = preferences?.persona;
-    const learnedCount = collabMode
-      ? 0
-      : preferences?.top_priors?.length ?? 0;
     const PersonaIcon = persona
       ? personaIconFromEmoji(persona.icon, persona.label)
       : Icons.user;
@@ -176,13 +199,11 @@ export default function PreferencesPanel() {
           </button>
         </div>
 
-        {/* 右侧：已学徽标 + 台账呼吸 dot + 头像 */}
+        {/* 右侧：台账呼吸 dot（低调非计数）+ 头像——"已学 N" 绿色计数 chip
+            已删（用户拍板）：折叠态副标题本身已经承担"里面有内容"的引导
+            语义，不需要用数字强调；呼吸 dot 保留是因为它是"有新东西"的
+            提示，不是计数，两者语义不同，不是同一件事被删了两次。 */}
         <div className="shrink-0 flex items-center gap-2">
-          {learnedCount > 0 && (
-            <span className="chip-success text-xs">
-              已学 <span className="mono mx-0.5">{learnedCount}</span>
-            </span>
-          )}
           {hasUnseenLedger && (
             <span
               aria-hidden
@@ -221,18 +242,22 @@ export default function PreferencesPanel() {
             <>
               <PersonaHeader persona={persona} onCollapse={() => setOpen(false)} />
 
-              <PersonaSection persona={persona} />
-
-              {/* 房间模式：「这次对话学到的」整区隐藏（用户拍板 + 方案 §13）。 */}
-              {!collabMode && (
-                <LearnedSection
-                  topPriors={preferences?.top_priors ?? []}
-                  suggestedDistanceKm={preferences?.suggested_distance_max_km ?? null}
-                  recentTrips={preferences?.recent_trips ?? []}
-                />
-              )}
-
-              <LedgerSection entries={visibleLedger} itinerary={itinerary} />
+              {/* 三列并排（主代理拍板，见文件头 docstring "三列并排重排"）：
+                  画像 / 这次对话学到的 / 本次调整 填满宽横条，每列竖排左对齐。
+                  `items-start` 让高度不同的列各自顶对齐，不被最高列拉伸撑开；
+                  房间模式下"这次对话学到的"整区不渲染（grid 自动收窄成两列，
+                  不留空轨道）。 */}
+              <div className="mt-3 pt-3 border-t border-black/[0.06] grid grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-x-6 gap-y-3 items-start">
+                <PersonaSection persona={persona} />
+                {!collabMode && (
+                  <LearnedSection
+                    topPriors={preferences?.top_priors ?? []}
+                    suggestedDistanceKm={preferences?.suggested_distance_max_km ?? null}
+                    recentTrips={preferences?.recent_trips ?? []}
+                  />
+                )}
+                <LedgerSection entries={visibleLedger} itinerary={itinerary} />
+              </div>
 
               {/* 房间模式：清空按钮隐藏（清空全房间共享键是影响所有成员的
                   动作，不该被单个成员静默触发；方案 §13）。 */}
@@ -242,7 +267,7 @@ export default function PreferencesPanel() {
                     type="button"
                     onClick={() => resetUserMemory(roomSessionId)}
                     className="inline-flex items-center gap-1 text-sm text-ink-500 hover:text-rose-500 transition-colors"
-                    title="清空当前会话累积的学到的记忆（画像/台账不受影响）"
+                    title="清空当前会话累积的学到的记忆和本次调整（画像不受影响）"
                   >
                     <Icons.trash className="w-3 h-3" strokeWidth={2} />
                     清空学到的记忆
@@ -254,7 +279,8 @@ export default function PreferencesPanel() {
         </div>
       </div>
 
-      {/* 右侧：头像图片，单独展示 */}
+      {/* 右侧：头像图片，单独展示——保持原位不动（主代理拍板：覆盖前一版
+          诊断"头像挪左上"方案，宽横条本身已够宽，不需要靠挪头像腾宽度）。 */}
       <div className="shrink-0">
         {currentAvatar ? (
           <img src={currentAvatar} alt={persona?.label ?? "用户"} className="w-24 h-24 rounded-xl object-cover" />
@@ -317,47 +343,54 @@ function PersonaHeader({
   onCollapse: () => void;
 }) {
   return (
-    <div className="text-right">
-      <div className="flex items-center justify-end gap-2">
-        <h3 className="text-2xl font-semibold text-ink-900 tracking-tight">
-          {persona.label}
-        </h3>
-        <button
-          type="button"
-          onClick={onCollapse}
-          aria-label="收起偏好画像"
-          className="text-ink-500 hover:text-caramel-300 transition-colors"
+    <div className="flex items-center justify-between gap-2">
+      <h3 className="text-2xl font-semibold text-ink-900 tracking-tight">
+        {persona.label}
+      </h3>
+      <button
+        type="button"
+        onClick={onCollapse}
+        aria-label="收起偏好画像"
+        className="text-ink-500 hover:text-caramel-300 transition-colors"
+      >
+        <svg
+          className="w-3.5 h-3.5 transition-transform hover:-translate-y-0.5"
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
         >
-          <svg
-            className="w-3.5 h-3.5 transition-transform hover:-translate-y-0.5"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              d="M3 7.5L6 4.5L9 7.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-      </div>
+          <path
+            d="M3 7.5L6 4.5L9 7.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
     </div>
   );
+}
+
+// ============================================================
+// 三列共用的列容器：左对齐竖排 + 有内容才淡入（三列并排重排）
+// ============================================================
+
+/** 三列各自的小标题——左对齐（三列布局下不再需要"贴右当锚点"，见文件头
+ * docstring）。列本身"有没有内容"由各 Section 组件判断，本组件只管标签
+ * 长相，不做"是否渲染"的决策（那是调用方的事，保持单一职责）。 */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-xs font-medium text-ink-500">{children}</div>;
+}
+
+/** 三列并排布局的列容器——`animate-fade-in` 是列从"无内容"变"有内容"那一刻
+ * 的入场动效（同文件已有揭幕动效语汇），`min-w-0` 防止长文本撑破 grid 轨道。 */
+function ColumnShell({ children }: { children: React.ReactNode }) {
+  return <div className="min-w-0 animate-fade-in space-y-2">{children}</div>;
 }
 
 // ============================================================
 // 区一：画像（persona 模板，随画像切换，不随会话累积变化）
 // ============================================================
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mt-3 pt-3 border-t border-black/[0.06] flex items-center justify-end">
-      <span className="text-xs font-medium text-ink-500">{children}</span>
-    </div>
-  );
-}
 
 function PersonaSection({ persona }: { persona: Persona }) {
   const templateTags = [
@@ -366,34 +399,37 @@ function PersonaSection({ persona }: { persona: Persona }) {
     ...persona.default_tags.experience,
   ];
 
+  // 画像区理论上恒有内容（persona 模板自带 default_distance_max_km），
+  // 不判空——但保持结构对称（同 Learned/Ledger 一样包一层 ColumnShell），
+  // 三列渲染逻辑统一，不搞"画像区特殊、另外两区判空"的不一致。
   return (
-    <>
+    <ColumnShell>
       <SectionLabel>画像</SectionLabel>
-      <div className="mt-2 flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
-        {templateTags.length > 0 && (
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {templateTags.slice(0, PERSONA_TAGS_PREVIEW_N).map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1 text-xs font-medium leading-none text-ink-700"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.07] bg-white/70 px-3 py-1 text-xs text-ink-600">
+      <div className="flex flex-wrap items-center gap-2">
+        {templateTags.slice(0, PERSONA_TAGS_PREVIEW_N).map((t) => (
+          <span
+            key={t}
+            className="inline-flex items-center rounded-full border border-black/[0.08] bg-black/[0.03] px-3 py-1 text-xs font-medium leading-none text-ink-700"
+          >
+            {t}
+          </span>
+        ))}
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-black/[0.07] bg-white/70 px-3 py-1 text-xs text-ink-600">
           距离 {persona.default_distance_max_km}km
-        </div>
+        </span>
       </div>
-    </>
+    </ColumnShell>
   );
 }
 
 // ============================================================
-// 区二：这次对话学到的（偏好笔记 + 距离笔记 + 去过 + 诚实空态）
+// 区二：这次对话学到的（偏好笔记 + 距离笔记 + 去过）
 // 房间模式下由父组件整区不渲染（不在本组件内判 collabMode，保持组件职责
 // 单一——"要不要显示这个区"是父组件的编排决策）。
+//
+// 空区不显示（三列并排重排拍板）：此前空态会渲染"还没学到新偏好，继续
+// 聊聊看"这句占位——三列布局下，某列没内容时整列不占位（grid 自动把宽度
+// 让给其余列），不再渲染空态句子，改为组件直接返回 null。
 // ============================================================
 
 function LearnedSection({
@@ -413,51 +449,45 @@ function LearnedSection({
   const visibleTrips = tripsExpanded ? recentTrips : recentTrips.slice(0, TRIPS_PREVIEW_N);
   const hiddenTripsCount = recentTrips.length - visibleTrips.length;
 
-  const isEmpty = !prefNote && !distNote && !hasTrips;
+  if (!prefNote && !distNote && !hasTrips) return null;
 
   return (
-    <>
+    <ColumnShell>
       <SectionLabel>这次对话学到的</SectionLabel>
-      {isEmpty ? (
-        <div className="mt-2 flex justify-end">
-          <span className="text-xs text-ink-400">还没学到新偏好，继续聊聊看</span>
-        </div>
-      ) : (
-        <div className="mt-2 space-y-1.5 text-right">
-          {prefNote && (
-            <div className="text-xs text-ink-600">
-              <span className="text-ink-400">偏好 · </span>
-              {prefNote}
-            </div>
-          )}
-          {distNote && (
-            <div className="text-xs text-ink-600">
-              <span className="text-ink-400">距离 · </span>
-              {distNote}
-            </div>
-          )}
-          {hasTrips && (
-            <div className="space-y-1">
-              {visibleTrips.map((trip, i) => (
-                <div key={`${trip.timestamp}-${i}`} className="text-xs text-ink-600">
-                  <span className="text-ink-400">去过 · </span>
-                  {trip.summary}
-                </div>
-              ))}
-              {hiddenTripsCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setTripsExpanded(true)}
-                  className="text-xs text-caramel-400 hover:text-caramel-300 transition-colors"
-                >
-                  查看全部 {recentTrips.length} 条 ⌄
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </>
+      <div className="space-y-1.5">
+        {prefNote && (
+          <div className="text-xs text-ink-600">
+            <span className="text-ink-400">偏好 · </span>
+            {prefNote}
+          </div>
+        )}
+        {distNote && (
+          <div className="text-xs text-ink-600">
+            <span className="text-ink-400">距离 · </span>
+            {distNote}
+          </div>
+        )}
+        {hasTrips && (
+          <div className="space-y-1">
+            {visibleTrips.map((trip, i) => (
+              <div key={`${trip.timestamp}-${i}`} className="text-xs text-ink-600">
+                <span className="text-ink-400">去过 · </span>
+                {trip.summary}
+              </div>
+            ))}
+            {hiddenTripsCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setTripsExpanded(true)}
+                className="text-xs text-caramel-400 hover:text-caramel-300 transition-colors"
+              >
+                查看全部 {recentTrips.length} 条 ⌄
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </ColumnShell>
   );
 }
 
@@ -470,6 +500,11 @@ const _STATUS_THEME: Record<string, { label: string; className: string }> = {
   satisfied: { label: "已满足", className: "bg-emerald-500/12 text-emerald-700 border-emerald-500/30" },
 };
 
+/** 空区不显示（三列并排重排拍板）：台账为空时列直接不渲染（`useMarkLedgerSeen`
+ * 是"展开过一次即消呼吸 dot"的已读游标写入，必须无条件调用——不能塞进
+ * 下面的 `entries.length === 0` 分支，否则空态→有内容那一刻这个 effect
+ * 会因为 hook 调用路径变化而表现异常，同文件顶部 `useUnseenLedgerDot` 的
+ * 既有注释同一条 hooks 规则）。 */
 function LedgerSection({
   entries,
   itinerary,
@@ -480,16 +515,7 @@ function LedgerSection({
   const [expanded, setExpanded] = useState(false);
   useMarkLedgerSeen(entries.length);
 
-  if (entries.length === 0) {
-    return (
-      <>
-        <SectionLabel>本次调整</SectionLabel>
-        <div className="mt-2 flex justify-end">
-          <span className="text-xs text-ink-400">还没有调整过，换个菜试试</span>
-        </div>
-      </>
-    );
-  }
+  if (entries.length === 0) return null;
 
   // 最新在前（demandLedger 是追加写入的 append-only 列表）
   const ordered = [...entries].reverse();
@@ -497,19 +523,18 @@ function LedgerSection({
   const hiddenCount = ordered.length - visible.length;
 
   return (
-    <>
+    <ColumnShell>
       <SectionLabel>本次调整</SectionLabel>
-      <div className="mt-2 space-y-1.5">
+      <div className="space-y-1.5">
         {visible.map((entry, i) => {
           const theme = _STATUS_THEME[entry.status] ?? _STATUS_THEME.active;
           return (
             <div
               key={`${entry.created_at}-${i}`}
-              className="flex items-start justify-end gap-2 text-xs"
+              className="flex items-start gap-2 text-xs"
             >
-              <span className="text-ink-600 text-right break-all">
-                {ledgerEntryLine(entry, itinerary)}
-              </span>
+              {/* 状态徽标行首（先看状态，再看内容）——同上一版诊断结论，
+                  三列布局下依然是台账"一览生效状态"核心价值的正确顺序。 */}
               <span
                 className={cn(
                   "shrink-0 px-1.5 py-0 rounded border text-[11px] leading-[1.4] font-medium",
@@ -518,21 +543,22 @@ function LedgerSection({
               >
                 {theme.label}
               </span>
+              <span className="text-ink-600 break-all">
+                {ledgerEntryLine(entry, itinerary)}
+              </span>
             </div>
           );
         })}
         {hiddenCount > 0 && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setExpanded(true)}
-              className="text-xs text-caramel-400 hover:text-caramel-300 transition-colors"
-            >
-              查看更多 {hiddenCount} 条 ⌄
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-xs text-caramel-400 hover:text-caramel-300 transition-colors"
+          >
+            查看更多 {hiddenCount} 条 ⌄
+          </button>
         )}
       </div>
-    </>
+    </ColumnShell>
   );
 }

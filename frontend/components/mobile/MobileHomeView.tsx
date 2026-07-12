@@ -433,7 +433,6 @@ function MobilePreferencesCard() {
 
   if (!currentUserId) return null;
   const persona = preferences?.persona;
-  const learnedCount = collabMode ? 0 : preferences?.top_priors?.length ?? 0;
 
   const templateTags = persona
     ? [
@@ -472,12 +471,10 @@ function MobilePreferencesCard() {
             {persona?.notes ?? "点击查看 Agent 已学到的偏好"}
           </div>
         </div>
+        {/* "已学 N" 绿色计数 chip 已删（用户拍板，同桌面端 PreferencesPanel.tsx
+            折叠态）：副标题本身已经承担"里面有内容"的引导语义，不需要数字
+            强调；折叠态只留标题/副标题/箭头。 */}
         <div className="flex shrink-0 items-center gap-2">
-          {learnedCount > 0 && (
-            <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-semibold text-emerald-600">
-              已学 {learnedCount}
-            </span>
-          )}
           <ChevronDown
             className={cn("h-4 w-4 text-ink-400 transition-transform duration-200", open && "rotate-180")}
             strokeWidth={2.5}
@@ -588,7 +585,7 @@ function MobilePreferencesCard() {
               type="button"
               onClick={() => void resetUserMemory(roomSessionId)}
               className="text-xs text-ink-500 underline decoration-dotted underline-offset-2 transition-colors hover:text-rose-500"
-              title="清空当前会话累积的学到的记忆（画像/台账不受影响）"
+              title="清空当前会话累积的学到的记忆和本次调整（画像不受影响）"
             >
               清空学到的记忆
             </button>

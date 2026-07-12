@@ -87,6 +87,20 @@ class NodeRef(BaseModel):
 
     kind: Literal["poi", "restaurant"]
     target_id: str = Field(..., min_length=1, description="对应 Poi.id / Restaurant.id")
+    title: Optional[str] = Field(
+        default=None,
+        description=(
+            "记账时刻的节点店名快照（写入侧 `node_title(itinerary, target_id)` 现查后"
+            "原样存入，不是事后反查）。台账的产品承诺是「不压扁历史」——但节点会被"
+            "换菜（`resolve_node_swap` 换菜成功后 `itinerary.nodes` 里该位置的 "
+            "`target_id` 变成新实体的 id，旧 id 从当前方案里彻底消失），若展示层"
+            "只认『当下还活着的节点』反查店名，旧条目引用的节点一旦被换过一次就"
+            "永久退化成裸 id（如 `WJP062`）。这里在写入的那一刻就把当时的店名"
+            "定格，往后不管节点是否还在，人话化都不失效。`None` 仅用于兼容"
+            "本字段新增前已落盘的旧条目（历史数据没有这份快照，展示层退回"
+            "旧的『查当前 nodes」兜底路径）。"
+        ),
+    )
 
 
 class LedgerEntry(BaseModel):

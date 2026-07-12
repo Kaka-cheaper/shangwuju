@@ -261,7 +261,13 @@ def test_ledger_slices_active_only_and_global_vs_named():
     statuses = {e["status"] for e in ctx.ledger_active_named}
     assert statuses == {"active"}
     node_refs = [e["node_ref"] for e in ctx.ledger_active_named]
-    assert {"kind": "restaurant", "target_id": "R001"} in node_refs, "节点级点击必须在 named 切片里"
+    # node_ref 现含 title 快照字段（UI 修复批·台账店名快照，NodeRef 新增
+    # 字段，见 schemas/demand_ledger.py::NodeRef.title docstring）；本 fixture
+    # 构造的条目没有传 title，序列化后是 None——断言时把这个字段也带上，
+    # 不再只比对 kind/target_id 两个键，避免"看起来像通过、其实漏了新字段"。
+    assert {"kind": "restaurant", "target_id": "R001", "title": None} in node_refs, (
+        "节点级点击必须在 named 切片里"
+    )
 
 
 def test_render_demand_recap_contains_versions_and_active_demands():

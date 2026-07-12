@@ -262,7 +262,9 @@ async def _graph_adjust(
             "方案可能已在你点击的同时被别的操作换掉，请刷新后重试"
         )
     old_title = node_title(itinerary, req.node_id)
-    node_ref = NodeRef(kind=kind, target_id=req.node_id)  # type: ignore[arg-type]
+    # title 快照：记账时刻现查现存，往后即便这个节点被换菜掉也不丢名字
+    # （见 NodeRef.title docstring）。
+    node_ref = NodeRef(kind=kind, target_id=req.node_id, title=old_title)  # type: ignore[arg-type]
 
     updated_ledger = ledger
     satisfied_dimension: Optional[NodeAdjustmentDimension] = None

@@ -254,7 +254,7 @@ def test_ledger_for_display_projection_shape_and_includes_inactive():
     first = projected[0]
     assert first["member_id"] == "u1"
     assert first["nickname"] == "小明"
-    assert first["node_ref"] == {"kind": "restaurant", "target_id": "R1"}
+    assert first["node_ref"] == {"kind": "restaurant", "target_id": "R1", "title": None}
     assert first["dimension"] == "price"
     assert first["value"] == "cheaper"
     assert first["status"] == "active"
@@ -281,6 +281,44 @@ def test_node_ref_equality_by_value():
     """NodeRef 是 pydantic BaseModel，按字段值比较相等——顶替判定依赖这一点。"""
     assert NodeRef(kind="restaurant", target_id="R1") == NodeRef(kind="restaurant", target_id="R1")
     assert NodeRef(kind="restaurant", target_id="R1") != NodeRef(kind="restaurant", target_id="R2")
+
+
+# ============================================================
+# 9) NodeRef.title 店名快照（UI 修复批·台账店名快照）
+# ============================================================
+
+
+def test_node_ref_title_defaults_to_none_for_backward_compat():
+    """本字段新增前落盘的旧条目反序列化时没有这个 key——必须有默认值，
+    不能让老数据在 `LedgerEntry.model_validate` 这一步就炸（extra="forbid"
+    只禁多余字段，不禁缺失有默认值的字段，这里验证默认值确实是 None）。"""
+    ref = NodeRef(kind="restaurant", target_id="R1")
+    assert ref.title is None
+
+
+def test_node_ref_title_snapshot_survives_in_record_demand_and_display():
+    """记账时刻把店名快照存进 NodeRef.title，顶替/展示投影全程原样携带——
+    这是台账"不压扁历史"承诺在"节点被换菜后旧条目还认得出店名"这件事上的
+    根治（此前展示层事后反查 itinerary.nodes，节点被换菜后旧 id 查不到，
+    退化成裸 id，如 WJP062）。"""
+    ref_with_title = NodeRef(kind="restaurant", target_id="R1", title="老地方火锅")
+    entry = _entry(member_id="u1", node_ref=ref_with_title, dimension=NodeAdjustmentDimension.PRICE, value="cheaper")
+
+    ledger = record_demand([], entry)
+    assert ledger[0].node_ref.title == "老地方火锅"
+
+    projected = ledger_for_display(ledger)
+    assert projected[0]["node_ref"]["title"] == "老地方火锅"
+
+    # 顶替判定不受 title 影响——三元组仍是 (member_id, node_ref, dimension)，
+    # node_ref 相等性按 NodeRef 全部字段值比较（pydantic BaseModel 默认行为），
+    # 因此顶替新条目必须携带同样的 title 才会被判定为"同一节点引用"顶替；
+    # 这是既有设计的自然推论，不是本次新增行为，这里显式验证不留暗坑。
+    same_ref_new_value = NodeRef(kind="restaurant", target_id="R1", title="老地方火锅")
+    newer = _entry(member_id="u1", node_ref=same_ref_new_value, dimension=NodeAdjustmentDimension.PRICE, value="pricier")
+    ledger2 = record_demand(ledger, newer)
+    assert ledger2[0].status == LedgerEntryStatus.SUPERSEDED
+    assert ledger2[1].node_ref.title == "老地方火锅"
     assert NodeRef(kind="restaurant", target_id="R1") != NodeRef(kind="poi", target_id="R1")
 
 
