@@ -99,6 +99,15 @@ class Room:
     current_intent_dict: Optional[dict[str, Any]] = None
     current_itinerary_dict: Optional[dict[str, Any]] = None
     previous_itinerary_dict: Optional[dict[str, Any]] = None
+    # 房间人数（订位/购票头数的地板，2026-07-12）：None = 用实时在场人数
+    # len(members)。规则（用户定稿）：
+    #   - 没明说过 → None（跟随实时房间人数）；
+    #   - 全新规划里 LLM 解析出人数 ≥2（明说/明确的群体）→ 重设为该值（基线）；
+    #   - 有新协作者加入 → +1（只加不减，走人不减——用户明确"订了就别缩"）；
+    #   - 再一次全新规划又解析出 ≥2 → 重设基线（"只认最近一次明说"）。
+    # 消费：规划时作为 capacity_requirement 地板注入图（一处生效：搜餐容量过滤 /
+    # execute_finalize 预约头数 / critic 校验同源）。单人路径不传此地板 → 零影响。
+    party_size: Optional[int] = None
     # 规划过程事件历史（用于新成员加入时同步 ToolTracePanel）
     planning_events_history: list[dict[str, Any]] = field(default_factory=list)
     # 对话历史（用于新成员加入时同步 ChatPanel）
@@ -432,6 +441,12 @@ class RoomManager:
             room.members[user_id] = Member(
                 user_id=user_id, nickname=nickname, role="participant", ws=ws
             )
+            # 房间人数 +1（只加不减）：真·新协作者加入（此分支已排除上面的重连），
+            # 若已有明说基线就在其上累加；party_size 为 None 时不动——那是"跟随
+            # 实时 len(members)"态，本次加入已计入成员表，下次规划自然读到新计数
+            # （leave 只置 ws=None、不删成员，len(members) 本就单调不减，同"只加不减"）。
+            if room.party_size is not None:
+                room.party_size += 1
             await self._send(ws, room.get_state_snapshot())
             await self.broadcast(room, {
                 "type": "member_joined",
@@ -1427,6 +1442,27 @@ class RoomManager:
             _mark_constraints_consumed()  # 同上：切片已作为全新规划输入被消费
             return
 
+        # ---- 步骤 3.25：房间人数地板（反馈重排路径，2026-07-12）----
+        # resume 不重跑图 intent 节点，故在此对精炼后 intent 直接 floor
+        # capacity_requirement——覆盖①"单人方案迁入房间后首次反馈"（迁入 intent 无
+        # 地板）与②"全新规划后又进人的反馈轮"（继承的 capacity 是进人前的）两个边角。
+        # 地板值=房间当前有效人数：明说基线+累加（room.party_size）优先，否则实时在场
+        # 人数；<2 人不设（floor=0，与单人反馈轮逐字一致，护住 test_room_persistent_
+        # resume 金标准）。同步回写 refiner_diff["intent"]，让下方 aupdate_state 的
+        # values(**refiner_diff) 与 current_intent_dict 都用 floor 后的版本。
+        _floor = room.party_size if room.party_size is not None else (
+            len(room.members) if len(room.members) >= 2 else 0
+        )
+        if _floor > 0:
+            refined_intent = refined_intent.model_copy(
+                update={
+                    "capacity_requirement": max(
+                        refined_intent.capacity_requirement or 0, _floor
+                    )
+                }
+            )
+            refiner_diff = {**refiner_diff, "intent": refined_intent}
+
         # ---- 步骤 3.5：锁定清单翻译（赞锁定根治批）----
         # 实体级锁登记（update_vote 归名写入）→ 图状态 pinned_targets。注入形态
         # 是 plain dict {"kind","target_id","name"}（serde 白名单外 Pydantic 对象
@@ -1561,6 +1597,13 @@ class RoomManager:
                 user_input=user_input,
                 session_id=session_id,
                 user_id=user_id,
+                # 房间人数地板：≥2 人（真·群体）才用实时在场人数当底；1 人房（只有
+                # 房主，等价单人）不设地板（floor=0），行为与单人路径逐字一致——否则会
+                # 给 capacity_requirement 塞个 1，破坏"房间续跑=单人反馈轮"的金标准
+                # 等价（test_room_persistent_resume），也不合语义（1 人不需容量地板）。
+                # 用户明说的更大值经图内 max 主导；没明说就兜到房间人数。反馈重排走
+                # resume（不重跑 intent 节点），继承全新规划已 floor 的 capacity 延续。
+                party_size_floor=len(room.members) if len(room.members) >= 2 else 0,
             ):
                 # 广播每条规划事件
                 await self._broadcast_planning_event(room, event.model_dump())
@@ -1572,6 +1615,19 @@ class RoomManager:
                     self._append_to_llm_context(room, role="assistant", content=f"已规划行程：{summary}")
                 elif event.type.value == "intent_parsed":
                     room.current_intent_dict = event.payload
+                    # 明说基线（2026-07-12）：从 companions（未被地板污染——地板只碰
+                    # capacity_requirement）推用户明说的群体人数。≥2 视为明说，pin 成
+                    # 基线（此后每有新成员加入 +1，见 join 钩子）；否则 None（跟随实时
+                    # 在场人数）。"明说再说就重设基线"：每次全新规划都在这里重算。
+                    _comps = (event.payload or {}).get("companions") or []
+                    _explicit = 1 + sum((c.get("count") or 0) for c in _comps)
+                    # 只在 ≥2 人房间里 pin 明说基线：1 人房（仅房主，等价单人）不 pin——
+                    # 否则会把 companions 数塞进 capacity_requirement，破坏"房间续跑=单人
+                    # 反馈轮逐字等价"金标准（test_room_persistent_resume），且 1 人房本就
+                    # 该走单人语义。房间人数由 len(members) 在 ≥2 时兜底，不靠这里。
+                    room.party_size = (
+                        _explicit if (_explicit >= 2 and len(room.members) >= 2) else None
+                    )
 
             # 赞锁定根治批：新方案落地后收敛锁登记（正常入口 `_trigger_fresh_plan`
             # 已清空，这里是防御性收口——本方法还被 `_replan_with_refiner` 的

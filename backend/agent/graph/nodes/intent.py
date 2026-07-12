@@ -145,6 +145,17 @@ def intent_node(state: AgentState) -> dict[str, Any]:
         intent = _build_fallback_intent(user_input)
         fallback_used = True
 
+    # 房间人数地板（协作房间注入，2026-07-12）：用户没明说人数时，把
+    # capacity_requirement 兜到房间在场人数——一处生效全链路（搜餐容量过滤 /
+    # execute_finalize 预约头数 / critic 校验同源读它）。max 保证 LLM 已明说的更大
+    # 值不被拉低；单人路径 floor=0，max(x,0)=x 零影响。反馈重排走 resume（本节点
+    # 不重跑），那条路径的 floor 在 room.py 侧对精炼后 intent 另做。
+    _floor = state.get("party_size_floor") or 0
+    if _floor > 0:
+        intent = intent.model_copy(
+            update={"capacity_requirement": max(intent.capacity_requirement or 0, _floor)}
+        )
+
     # spec execution-quality-review R1：词典外社交意图降级文案
     # 本轮从零开始算（ADR-0012 决策 4）：intent_node 是 quality_issues 每个规划事件
     # 唯一的写手，不从 incoming state 的旧值累加——旧值可能是上一次规划事件（甚至

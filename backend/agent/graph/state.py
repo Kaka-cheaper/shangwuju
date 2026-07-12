@@ -129,6 +129,13 @@ class AgentState(TypedDict, total=False):
     # None  默认行为（保留向后兼容；当前等同 "llm"）
     planner_mode: Optional[Literal["rule", "llm"]]  # SESSION_SCOPED：会话级范式开关
 
+    # 房间人数地板（协作房间注入，2026-07-12）：capacity_requirement 的下限，让搜餐
+    # 容量/预约头数在用户没明说人数时兜到房间在场人数。单人路径不传（默认 0，
+    # max(x,0)=x 零影响）。全新规划由 intent 节点消费；反馈重排走 resume（intent
+    # 继承、intent 节点不重跑），改由 room.py 侧直接 floor 精炼后 intent——故 resume
+    # 路径此字段陈旧无妨。
+    party_size_floor: int  # SESSION_SCOPED：房间人数地板（0=无地板/单人）
+
     # ---- 跨 turn 消息历史（Pydantic AI / LangGraph 标准） ----
     # ADR-0011 前置核实①（会话日志基础设施，E-2 第一块砖）：轮次日志接的就是
     # 这个既有通道——HumanMessage=用户原话（router_node 写；壳1 拦截的轮次写
@@ -335,6 +342,7 @@ SESSION_SCOPED: frozenset[str] = frozenset({
     "session_id",
     "scenario_id",
     "planner_mode",
+    "party_size_floor",
     "messages",
     "demand_ledger",
     "plan_version_log",
@@ -460,6 +468,7 @@ def make_initial_state(
     session_id: str = "sess_default",
     scenario_id: Optional[str] = None,
     planner_mode: Optional[str] = None,
+    party_size_floor: int = 0,
 ) -> AgentState:
     """构造本轮图调用的输入 diff（每轮调用；ADR-0012 决策 4）。
 
@@ -492,6 +501,7 @@ def make_initial_state(
         session_id=session_id,
         scenario_id=scenario_id,
         planner_mode=planner_mode if planner_mode in ("rule", "llm") else None,
+        party_size_floor=party_size_floor,
         messages=[],
         demand_ledger=[],  # 经归并器 no-op,见字段注释
         plan_version_log=[],  # 经 operator.add 归并器 no-op,见字段注释

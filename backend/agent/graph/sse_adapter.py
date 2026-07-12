@@ -67,6 +67,7 @@ async def run_graph_stream(
     user_id: str = "demo_user",
     scenario_id: str | None = None,
     planner_mode: str | None = None,
+    party_size_floor: int = 0,
 ) -> AsyncIterator[SseEvent]:
     """跑一次 LangGraph，按节点完成顺序推送 SseEvent。
 
@@ -85,6 +86,7 @@ async def run_graph_stream(
         session_id=session_id,
         scenario_id=scenario_id,
         planner_mode=planner_mode,
+        party_size_floor=party_size_floor,
     )
     config: dict[str, Any] = {"configurable": {"thread_id": session_id}}
 
