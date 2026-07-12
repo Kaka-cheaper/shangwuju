@@ -43,6 +43,7 @@ import type {
   Itinerary,
   NodeChip,
   NodeDetail,
+  NodeDetailMap,
   ScheduleEntry,
   ChitchatReplyPayload,
 } from "@/lib/types";
@@ -833,6 +834,9 @@ function MobilePlanCard() {
   const memoryPersisted = useChatStore((s) => s.memoryPersisted);
   const lastRefinement = useChatStore((s) => s.lastRefinement);
   const cancelled = useChatStore((s) => s.cancelled);
+  // 预约卡重设计（UI 修复批）：时段/花费前端 join 需要 nodeDetail（同 Web 端
+  // ItineraryCard 的读法，见 NodeDetail.price_text）。
+  const nodeDetail = useChatStore((s) => s.nodeDetail);
 
   if (!itinerary && !streaming) return null;
 
@@ -967,25 +971,26 @@ function MobilePlanCard() {
         <MobileWebBookend kind="end" nodeCount={noteItems.length} />
       </ol>
 
+      {/* 预约卡重设计（UI 修复批·纯前端）：同 Web 端 ItineraryCard 的
+          MobileOrderCards——删内部编号、多卡横向排一行、暖金描边+中性文字，
+          时段/花费按 target_id 前端 join（itinerary.nodes + nodeDetail）。 */}
       {hasOrders && (
-        <div className="mx-4 mb-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/[0.08] px-3 py-2.5">
-          <div className="text-sm font-semibold text-emerald-700">
+        <div className="mx-4 mb-3">
+          <div className="mb-1.5 text-sm font-semibold text-ink-900">
             已为你预留
           </div>
-          <div className="mt-1 space-y-1">
-            {itinerary.orders.map((order) => (
-              <div key={order.order_id} className="text-sm text-emerald-800/85">
-                {order.target_name} · {order.detail}
-              </div>
-            ))}
-          </div>
+          <MobileOrderCards orders={itinerary.orders} nodes={itinerary.nodes} nodeDetail={nodeDetail} />
         </div>
       )}
 
       {/* B6：转发文案卡——itinerary.share_message，注意这与海报生成器
           （PosterGenerator，见下方 MobileActionRail 展开菜单）的文案不是
           同一份内容，不能互相替代：前者是 generate_share_message 工具产出，
-          后者是 PosterGenerator 自己拼的海报文案。 */}
+          后者是 PosterGenerator 自己拼的海报文案。
+          移动端海报/TTS 归属（用户拍板，覆盖桌面端"分享簇"方案）：屏窄，
+          "+"抽屉收纳比常驻分享簇更合适——继续留在 MobileActionRail 的
+          expanded 抽屉里，不挪到这里；本批只解除抽屉的 hasOrders 连坐
+          （见 MobileActionRail 内注释），确保确认后海报/TTS 仍可达。 */}
       {itinerary.share_message && (
         <div className="mx-4 mb-3">
           <MobileShareMessage text={itinerary.share_message} />
@@ -1144,6 +1149,83 @@ function MobileConfirmPreview({ itinerary }: { itinerary: Itinerary }) {
         </span>
       </div>
     </div>
+  );
+}
+
+// ============================================================
+// MobileOrderCards —— 预约卡重设计（UI 修复批·纯前端，零后端）
+// 照 ItineraryCard.tsx 的 OrderCards/OrderCard 移植，字段前端 join 的理由与
+// 桌面端完全一致（见该文件 OrderCards docstring）：时段/花费本来就在同一个
+// 组件树内可拿（itinerary.nodes + nodeDetail），不需要新增后端字段。
+// ============================================================
+
+function MobileOrderCard({
+  order,
+  nodes,
+  nodeDetail,
+}: {
+  order: Itinerary["orders"][number];
+  nodes: Itinerary["nodes"];
+  nodeDetail: NodeDetailMap | null;
+}) {
+  const node = nodes.find((n) => n.target_id === order.target_id);
+  const timeRange = node
+    ? `${node.start_time}-${addMinutes(node.start_time, node.duration_min)}`
+    : null;
+  const priceText = nodeDetail?.[order.target_id]?.price_text ?? null;
+  const countMatch = /(\d+\s*(?:人|张|份))/.exec(order.detail);
+  const countText = countMatch?.[1] ?? order.detail;
+
+  return (
+    <li
+      className="relative overflow-hidden rounded-2xl border border-[#e6bc00]/25 bg-white px-3.5 py-2.5"
+      style={{
+        boxShadow: "0 1px 2px rgba(0,0,0,.03), 0 6px 20px rgba(180,140,0,.05)",
+      }}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-y-2 left-0 w-[3px] rounded-full"
+        style={{ background: "rgba(255,201,0,.35)" }}
+      />
+      <div className="flex items-start justify-between gap-3 pl-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[15px] font-semibold tracking-tight text-ink-900">
+            <Icons.success className="h-3.5 w-3.5 shrink-0 text-[#9a5b00]" strokeWidth={2.2} />
+            <span className="truncate">{order.target_name}</span>
+          </div>
+          <div className="mt-0.5 text-xs text-ink-500">
+            {order.kind}
+            {timeRange && <span> · {timeRange}</span>}
+            {countText && <span> · {countText}</span>}
+          </div>
+        </div>
+        {priceText && (
+          <div className="shrink-0 text-right">
+            <div className="mono text-base font-bold leading-none text-ink-900">{priceText}</div>
+            <div className="mt-1 text-[11px] text-ink-400">预估花费</div>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function MobileOrderCards({
+  orders,
+  nodes,
+  nodeDetail,
+}: {
+  orders: Itinerary["orders"];
+  nodes: Itinerary["nodes"];
+  nodeDetail: NodeDetailMap | null;
+}) {
+  return (
+    <ul className="grid grid-cols-1 gap-2">
+      {orders.map((o) => (
+        <MobileOrderCard key={o.order_id} order={o} nodes={nodes} nodeDetail={nodeDetail} />
+      ))}
+    </ul>
   );
 }
 
@@ -1978,7 +2060,14 @@ function MobileActionRail({
           <MobileConfirmPreview itinerary={itinerary} />
         </div>
       )}
-      {expanded && itinerary && !hasOrders && !cancelled && (
+      {/* 抽屉本身解连坐（UI 修复批 + 用户移动端纠正）：海报/TTS 与"是否已
+          下单"无关（两个组件自身都没有 hasOrders 相关守卫），此前整个抽屉
+          随 hasOrders 一起消失，确认后海报/TTS 彻底够不着。现在抽屉容器
+          不再依赖 hasOrders——只要展开过、有方案、没取消就渲染；"取消方案"
+          这一项本身仍只在 !hasOrders 时渲染（不能取消一个已下单的方案，
+          这条业务规则不变，也是用户说的"确认/取消按钮布局不要动"的延伸：
+          取消按钮的门控逻辑保持原样，只是不再连带把 TTS/Poster 一起关掉）。 */}
+      {expanded && itinerary && !cancelled && (
         <div className="pointer-events-auto mx-auto mb-2 flex max-w-[480px] justify-end">
           <div className="flex w-[190px] flex-col gap-2 rounded-[24px] border border-white/[0.74] bg-white/[0.72] p-2 shadow-[0_18px_44px_-30px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 animate-drawer-slide-up">
           <TtsPlayer
@@ -1990,19 +2079,21 @@ function MobileActionRail({
             variant="mobile"
             className="!h-10 !rounded-full !text-sm !font-semibold"
           />
-          <button
-            type="button"
-            className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-red-500/15 bg-white/[0.78] px-3 text-sm font-semibold text-red-500 transition active:scale-[0.98] disabled:text-ink-400"
-            disabled={streaming}
-            onClick={() => {
-              setExpanded(false);
-              setPreviewOpen(false);
-              cancel();
-            }}
-          >
-            <X className="h-3.5 w-3.5" />
-            <span>取消方案</span>
-          </button>
+          {!hasOrders && (
+            <button
+              type="button"
+              className="flex h-10 items-center justify-center gap-1.5 rounded-full border border-red-500/15 bg-white/[0.78] px-3 text-sm font-semibold text-red-500 transition active:scale-[0.98] disabled:text-ink-400"
+              disabled={streaming}
+              onClick={() => {
+                setExpanded(false);
+                setPreviewOpen(false);
+                cancel();
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+              <span>取消方案</span>
+            </button>
+          )}
           </div>
         </div>
       )}
@@ -2018,58 +2109,67 @@ function MobileActionRail({
           </button>
         )}
         {itinerary && !hasOrders && !cancelled && (
-          <>
-            <div
-              className={cn(
-                "flex min-h-11 min-w-0 flex-1 overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition",
-                !canConfirm && "opacity-60",
-              )}
-            >
-              <button
-                type="button"
-                className="min-w-0 flex-1 px-2 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:text-ink-500"
-                disabled={!canConfirm}
-                onClick={handleConfirm}
-                title={
-                  blockedByOwnerGuard
-                    ? "只有房间发起人可以确认预约"
-                    : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
-                }
-              >
-                <span className="truncate">{confirmLabel}</span>
-              </button>
-              <button
-                type="button"
-                className="grid h-11 w-11 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition active:scale-95"
-                onClick={() => setPreviewOpen((open) => !open)}
-                aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
-                aria-expanded={previewOpen}
-                title="查看确认后会发生什么"
-              >
-                <Info className="h-5 w-5" strokeWidth={2.5} />
-              </button>
-            </div>
+          <div
+            className={cn(
+              "flex min-h-11 min-w-0 flex-1 overflow-hidden rounded-full border border-[#e6bc00]/45 bg-[#FFD100] text-ink-900 shadow-[0_14px_34px_-24px_rgba(245,158,11,0.98)] transition",
+              !canConfirm && "opacity-60",
+            )}
+          >
             <button
               type="button"
-              className={cn(
-                "grid h-11 w-11 shrink-0 place-items-center rounded-full border text-sm font-semibold shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400",
-                expanded
-                  ? "border-accent-600/45 bg-accent-500 text-white"
-                  : "border-white/[0.74] bg-white/[0.72] text-ink-700",
-              )}
-              disabled={streaming}
-              onClick={() => setExpanded((cur) => !cur)}
-              aria-expanded={expanded}
-              aria-label="展开更多方案工具"
+              className="min-w-0 flex-1 px-2 text-sm font-bold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:text-ink-500"
+              disabled={!canConfirm}
+              onClick={handleConfirm}
+              title={
+                blockedByOwnerGuard
+                  ? "只有房间发起人可以确认预约"
+                  : "确认后 Agent 会做三件事：锁定餐厅时段、整理转发文案、把本次偏好写进长期记忆"
+              }
             >
-              <Plus
-                className={cn(
-                  "h-5 w-5 transition-transform duration-200",
-                  expanded && "rotate-45",
-                )}
-              />
+              <span className="truncate">{confirmLabel}</span>
             </button>
-          </>
+            <button
+              type="button"
+              className="grid h-11 w-11 shrink-0 place-items-center bg-transparent text-[#8f4b00] transition active:scale-95"
+              onClick={() => setPreviewOpen((open) => !open)}
+              aria-label={previewOpen ? "收起预约说明" : "查看预约说明"}
+              aria-expanded={previewOpen}
+              title="查看确认后会发生什么"
+            >
+              <Info className="h-5 w-5" strokeWidth={2.5} />
+            </button>
+          </div>
+        )}
+        {/* "+"展开抽屉触发按钮——解连坐（UI 修复批 + 用户移动端纠正）：此前
+            和上面的确认/取消按钮组共用同一个 `!hasOrders` 门控 fragment，
+            确认后整个 fragment（含这个触发按钮）一起从 DOM 消失，导致抽屉
+            里的海报/TTS 确认后再也打不开、够不着（诊断稿问题4同款"一个变量
+            身兼两个不同粒度门控"病灶，移动端版本）。这里只解开触发按钮自己
+            的门控（不再依赖 hasOrders），确认/取消按钮组的门控不动（用户
+            明确要求"不要动移动端的确认/取消按钮布局"，那部分留给另一批）。
+            抽屉本身（下方 `expanded && ...` 块）的 hasOrders 门控一并解除，
+            两处要对应着改，否则触发按钮能点开但抽屉内容还是不渲染。 */}
+        {itinerary && !cancelled && (
+          <button
+            type="button"
+            className={cn(
+              "grid h-11 w-11 shrink-0 place-items-center rounded-full border text-sm font-semibold shadow-[0_14px_34px_-26px_rgba(17,24,39,0.78)] backdrop-blur-2xl backdrop-saturate-150 transition active:scale-[0.98] disabled:text-ink-400",
+              expanded
+                ? "border-accent-600/45 bg-accent-500 text-white"
+                : "border-white/[0.74] bg-white/[0.72] text-ink-700",
+            )}
+            disabled={streaming}
+            onClick={() => setExpanded((cur) => !cur)}
+            aria-expanded={expanded}
+            aria-label="展开更多方案工具"
+          >
+            <Plus
+              className={cn(
+                "h-5 w-5 transition-transform duration-200",
+                expanded && "rotate-45",
+              )}
+            />
+          </button>
         )}
       </div>
     </div>

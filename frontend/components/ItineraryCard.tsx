@@ -17,12 +17,14 @@ import { useChatStore } from "@/lib/store";
 import { useConfirmAction } from "@/lib/hooks/useConfirmAction";
 import { buildConfirmPreviewCopy } from "@/lib/confirm-preview";
 import type {
+  ActivityNode,
   AlternativeOption,
   HopMode,
   IntentExtraction,
   Itinerary,
   NodeChip,
   NodeDetail,
+  NodeDetailMap,
   ScheduleEntry,
 } from "@/lib/types";
 import { cn, primaryStoreName } from "@/lib/utils";
@@ -918,45 +920,23 @@ export default function ItineraryCard() {
         <MapOverlay visibleCount={visibleCount} />
       </div>
 
-      {/* 已为你预留：暗色 emerald 玻璃 */}
+      {/* 已为你预留：预约卡重设计（UI 修复批·纯前端）——多卡横向排一行，
+          暖金描边+中性文字（去掉游离于调色板外的 emerald 绿），字段全走
+          前端 join：时段/花费从时间线本就在渲染的 nodes/node_detail 反查，
+          不是新增数据源。见下方 OrderCards 组件 docstring。 */}
       {hasOrders && (
         <div className="px-4 pb-3">
           <div className="section-title mb-1.5">已为你预留</div>
-          <ul className="space-y-1.5">
-            {itinerary.orders.map((o) => (
-              <li
-                key={o.order_id}
-                className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 animate-fade-in-up backdrop-blur-sm"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <Icons.success
-                      className="w-3.5 h-3.5 shrink-0 text-emerald-400"
-                      strokeWidth={2}
-                    />
-                    <span className="font-medium tracking-tight truncate">
-                      {o.target_name}
-                    </span>
-                  </div>
-                  <span className="text-xs text-emerald-600/80 mono shrink-0">
-                    {o.kind}
-                  </span>
-                </div>
-                <div className="mt-1 text-emerald-600/90 ml-5">
-                  {o.detail}
-                  <span className="text-emerald-500/70 mx-1.5">·</span>
-                  <span className="mono text-xs">{o.order_id}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <OrderCards orders={itinerary.orders} nodes={itinerary.nodes} nodeDetail={nodeDetail} />
         </div>
       )}
 
-      {/* 转发文案 */}
-      {itinerary.share_message && (
+      {/* 转发文案 + 常驻工具行——"带走你的安排"分享簇（UI 修复批拍板方案A）：
+          海报/TTS 解除与 hasOrders 的连坐，归入这个簇，确认前后都能用。
+          见下方 ShareCluster 组件 docstring。 */}
+      {(itinerary.share_message || (hasOrders && !cancelled)) && (
         <div className="px-4 pb-3">
-          <ShareMessage text={itinerary.share_message} />
+          <ShareCluster shareMessage={itinerary.share_message} showTools={hasOrders && !cancelled} />
         </div>
       )}
 
@@ -1006,6 +986,164 @@ function RefinementSummaryBanner({
       {note && (
         <div className="mt-2 text-base leading-relaxed text-ink-700">
           {note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// OrderCards —— 预约卡重设计（UI 修复批·纯前端，零后端）
+//
+// 【这是什么问题】此前订单卡（问题诊断 `confirm-card-fix/设计.md` 问题1-3）
+// 有三处毛病：① 泄漏内部编号（R-WJR060-xxx，mock 订单号=实体id+哈希摘要，
+// 从未设计给用户看，`schemas/itinerary.py::OrderRecord.order_id` docstring
+// 自己的示例格式都是另一种，说明这本来就是内部可追溯 id 不是用户凭证号）；
+// ② 竖排堆叠、要素不全（`o.detail` 是后端拼好的纯字符串，餐厅没花费、
+// 门票没时段——曾诊断为"必须补后端"）；③ emerald 绿完全游离于项目暖色
+// 调色板（`路演PPT/配色克制设计终稿.md` 只定义 brand 黄/accent 深金/ink
+// 中性三类）。
+//
+// 【字段前端 join 复核，推翻"必须补后端"结论】时段和花费其实**同一个组件
+// 树内、时间轴本来就在渲染**：`itinerary.nodes`（同 target_id 节点的
+// `start_time`+`duration_min`）与 `nodeDetail[target_id].price_text`
+// （时间线 headline 已经在用的同一个字段，见本文件 `nodeDetail` 消费处）
+// ——`ItineraryCard` 组件树里两者都已经是 hook 订阅的 store 字段，订单卡
+// 按 `order.target_id` 一 join 就有，不需要新增后端字段/新接口。这是本批
+// 唯一定性为"纯前端"的原因：数据已经在场，只是订单卡自己没读。
+//
+// 【四个改动落地对照】
+// 1. 删内部编号——`order_id` 只做 React key，不渲染到卡面。
+// 2. 多卡横向排一行——`grid-cols-2`（桌面≥2 张订单双列，≤1 张/移动端单列，
+//    诊断稿"横向卡"指卡片内部布局改一行放完标题+金额，"多卡横向排布"是
+//    本次用户明确澄清的补充：多个订单卡并排，不是纵向堆叠）。
+// 3. 配色贴合整体——暖金描边 + 中性文字，圆角 16px（同节点卡/信任带）。
+// 4. （海报按钮解连坐见 `ShareCluster`，不在本组件范围。）
+// ============================================================
+
+/** 单张订单卡的四要素：名称/时段/人数(或张数)/花费——全部前端 join 得出。 */
+function OrderCard({
+  order,
+  nodes,
+  nodeDetail,
+}: {
+  order: Itinerary["orders"][number];
+  nodes: ActivityNode[];
+  nodeDetail: NodeDetailMap | null;
+}) {
+  const node = nodes.find((n) => n.target_id === order.target_id);
+  const timeRange = node
+    ? `${node.start_time}-${addMinutes(node.start_time, node.duration_min)}`
+    : null;
+  const priceText = nodeDetail?.[order.target_id]?.price_text ?? null;
+  // 人数/张数：order.detail 是后端已拼好的字符串（如"17:30 预订 2 人"/
+  // "2 张 / 总价 278 元"），本次只从中摘出"数量"这个量词短语，不吞掉整句、
+  // 也不新增字段——摘取失败（格式意外）时整句 detail 兜底展示，不留空。
+  const countMatch = /(\d+\s*(?:人|张|份))/.exec(order.detail);
+  const countText = countMatch?.[1] ?? order.detail;
+
+  return (
+    <li
+      className="relative overflow-hidden rounded-2xl border border-[#e6bc00]/25 bg-white px-3.5 py-2.5 animate-fade-in-up"
+      style={{
+        boxShadow: "0 1px 2px rgba(0,0,0,.03), 0 6px 20px rgba(180,140,0,.05)",
+      }}
+    >
+      {/* 左侧暖金竖线——替代绿色圆点图标，"这是一张确定性凭证"的锚点，
+          不引入新色相（同 `卡片精修设计终稿.md` §四"化用技法"）。 */}
+      <span
+        aria-hidden
+        className="absolute inset-y-2 left-0 w-[3px] rounded-full"
+        style={{ background: "rgba(255,201,0,.35)" }}
+      />
+      <div className="flex items-start justify-between gap-3 pl-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[15px] font-semibold tracking-tight text-ink-900">
+            <Icons.success className="h-3.5 w-3.5 shrink-0 text-[#9a5b00]" strokeWidth={2.2} />
+            <span className="truncate">{order.target_name}</span>
+          </div>
+          <div className="mt-0.5 text-xs text-ink-500">
+            {order.kind}
+            {timeRange && <span> · {timeRange}</span>}
+            {countText && <span> · {countText}</span>}
+          </div>
+        </div>
+        {priceText && (
+          <div className="shrink-0 text-right">
+            <div className="mono text-lg font-bold leading-none text-ink-900">{priceText}</div>
+            <div className="mt-1 text-[11px] text-ink-400">预估花费</div>
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/** 订单卡列表——多卡横向排一行（用户澄清：并排，不是竖排堆叠）。 */
+function OrderCards({
+  orders,
+  nodes,
+  nodeDetail,
+}: {
+  orders: Itinerary["orders"];
+  nodes: ActivityNode[];
+  nodeDetail: NodeDetailMap | null;
+}) {
+  return (
+    <ul className={cn("grid gap-2", orders.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1")}>
+      {orders.map((o) => (
+        <OrderCard key={o.order_id} order={o} nodes={nodes} nodeDetail={nodeDetail} />
+      ))}
+    </ul>
+  );
+}
+
+// ============================================================
+// ShareCluster —— "带走你的安排"分享簇（UI 修复批拍板方案A）
+//
+// 海报/TTS 与"是否已下单"无关（`PosterGenerator`/`TtsPlayer` 组件自身没有
+// 任何 hasOrders 相关守卫，通读两个组件全文件确认），此前却被打包进
+// `PlanActionBar`、随 `!hasOrders` 整块消失——一个变量身兼"该不该允许再次
+// 确认"和"该不该显示整个工具行"两个不同粒度的门控，语义无关的功能被连坐
+// 隐藏（诊断稿问题4根因）。这里把它们从 `PlanActionBar` 摘出来，归入订单卡
+// 下方"带走你的安排"分享簇，和转发文案放一起——确认前后都能点，不再受
+// `hasOrders` 影响。
+//
+// `showTools`：只在"已下单 && 未取消"时显示海报/TTS 工具行（转发文案则由
+// 调用方按 `shareMessage` 是否非空独立控制）——确认前用户仍可通过
+// `PlanActionBar` 里的"查看预约说明"预告了解海报，但海报/TTS 本身作为
+// 独立工具挂在这里，只在方案已经落地（下单）后才在这个"带走你的安排"
+// 簇里出现，避免方案还在草稿阶段就展示"带走"这类收尾语义的工具行。
+// ============================================================
+
+function ShareCluster({
+  shareMessage,
+  showTools,
+}: {
+  shareMessage?: string | null;
+  showTools: boolean;
+}) {
+  return (
+    <div className="space-y-2">
+      {shareMessage && <ShareMessage text={shareMessage} />}
+      {showTools && (
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <Icons.share className="h-3.5 w-3.5 text-ink-500" strokeWidth={2} />
+            <span className="text-xs font-medium tracking-tight text-ink-800">
+              带走你的安排
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <TtsPlayer
+              compact
+              className="h-10 rounded-full border border-ink-300 bg-white px-3 text-sm font-semibold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
+            />
+            <PosterGenerator
+              compact
+              className="h-10 rounded-full border border-ink-300 bg-white px-3 text-sm font-semibold text-ink-700 transition hover:border-[#e6bc00] hover:bg-white"
+            />
+          </div>
         </div>
       )}
     </div>
@@ -1237,15 +1375,13 @@ function PlanActionBar({
             </div>
           )}
 
-          <div className="grid grid-cols-[1fr_1fr_1fr_1.28fr] items-center gap-3">
-            <TtsPlayer
-              compact
-              className="h-12 rounded-full border-2 border-[#FFD100]/75 bg-white/[0.84] px-4 text-lg font-bold text-ink-800 shadow-[0_18px_42px_-30px_rgba(17,24,39,0.72)] backdrop-blur-2xl hover:border-[#e6bc00] hover:bg-white"
-            />
-            <PosterGenerator
-              compact
-              className="h-12 rounded-full border-2 border-[#FFD100]/75 bg-white/[0.84] px-4 text-lg font-bold text-ink-800 shadow-[0_18px_42px_-30px_rgba(17,24,39,0.72)] backdrop-blur-2xl hover:border-[#e6bc00] hover:bg-white"
-            />
+          {/* 海报/TTS 解连坐（UI 修复批拍板方案A）：这两个是"和是否下单无关"
+              的常驻工具，此前打包在这个 grid 里，随 hasOrders 一起从 DOM 消失
+              （父组件 `!hasOrders && !cancelled` 整块门控 PlanActionBar）。现在
+              只保留"确认这个动作本身"的两个按钮（取消/确认），海报/TTS 挪到
+              `ShareCluster`（"带走你的安排"分享簇），确认前后都能点，不再被
+              `hasOrders` 连坐隐藏。 */}
+          <div className="grid grid-cols-2 items-center gap-3">
             <button
               type="button"
               className={cn(
