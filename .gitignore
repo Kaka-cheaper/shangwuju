@@ -71,6 +71,7 @@ smoke_final_out/
 /路演PPT.rar
 /项目导览/
 /halfday_trip_planner_test_coverage.md
+/CONTEXT-MAP.md
 # 二进制文档 / 压缩包一律不入库
 *.docx
 *.pptx
