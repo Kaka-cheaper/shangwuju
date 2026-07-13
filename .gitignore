@@ -53,3 +53,27 @@ AGENTS.md
 chatgpt分析.md
 problem.md
 smoke_final_out/
+
+# ========================================================================
+# 仓库清理（2026-07-13）：以下曾误入库，已用 `git rm --cached` 移出线上仓库、
+# 本地文件保留。列进 .gitignore 防止 `git add` 再把它们带回。
+# ========================================================================
+# 脚手架 / 工具生成物（本不该入代码仓）
+/public components/
+/.kiro/
+/.codesee/
+/.codegraph/
+/.agents/
+/.mcp.json
+# 文档 / 路演素材（保留本地、不公开到线上仓库）
+/docs/
+/路演PPT/
+/路演PPT.rar
+/项目导览/
+/halfday_trip_planner_test_coverage.md
+# 二进制文档 / 压缩包一律不入库
+*.docx
+*.pptx
+*.rar
+*.zip
+*.7z
