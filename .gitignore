@@ -65,10 +65,10 @@ smoke_final_out/
 /.codegraph/
 /.agents/
 /.mcp.json
-# 文档 / 路演素材（保留本地、不公开到线上仓库）
-/docs/*
-!/docs/legal/
-!/docs/legal/**
+# 文档：过程设计稿入库；design-doc / defense / map 保留本地不公开
+/docs/design-doc/
+/docs/defense/
+/docs/map/
 /路演PPT/
 /路演PPT.rar
 /项目导览/
