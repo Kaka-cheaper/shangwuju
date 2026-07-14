@@ -1,6 +1,6 @@
 # 晌午局 · shangwuju
 
-![命题赛道 06](https://img.shields.io/badge/美团_AI_Hackathon-命题赛道_06-FFD100)
+[![命题赛道 06](https://img.shields.io/badge/美团_AI_Hackathon-命题赛道_06-FFD100)](https://ai-competition-hub.nocode.host/)
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)
@@ -98,10 +98,12 @@ LLM_MODEL=deepseek-chat
 │  FastAPI · /chat/turn(SSE) · /ws/{room}(WS) · /_AMapService     │
 └────────────────────────────────────────────────────────────────┘
 ┌─ Agent 编排 · backend/agent/ ──────────────────────────────────┐
-│  graph/    LangGraph StateGraph，十余节点 + 跨 turn checkpointer│
-│  intent/   级联路由 · 意图解析 · 反馈合并 · 叙述                 │
-│  planning/ TOPTW 求解器 · rule / ils planner · critic(20 类)   │
-│  core/     级联分诊 · 注入防护 · 诉求台账 · 对冲客户端           │
+│  routing/  级联分诊路由（确定性规则前置 + 大模型兜底）           │
+│  intent/   意图解析 · 反馈合并 · 叙述                            │
+│  graph/    LangGraph StateGraph，十余节点 + 跨 turn checkpointer │
+│  planning/ blueprint · planners(ils / rule) · critic(20 类) · commute │
+│  core/     注入防护 · 对话行为判定 · coverage_gate · hedged client │
+│  context/  会话上下文打包器（单人 / 房间统一）                   │
 └────────────────────────────────────────────────────────────────┘
 ┌─ Tool 层 · backend/tools/ ─────────────────────────────────────┐
 │  9 Tool（OpenAI Function Calling），统一注册 + 输入输出双校验    │
@@ -112,7 +114,7 @@ LLM_MODEL=deepseek-chat
 └────────────────────────────────────────────────────────────────┘
 ```
 
-数据源、持久化、地图 provider 都做了抽象，环境变量切换：`DATA_PROVIDER`、`NEARBY_PROVIDER`、`SESSION_STORE`（memory / redis，均真实现）。演示走 mock / memory / stub，真实 provider 留接入位，高德路径服务已接真实 API。
+持久化与地图 provider 都做了抽象，环境变量切换：`SESSION_STORE`（memory / redis）、`NEARBY_PROVIDER`（mock / gaode）。演示走 mock / memory / stub，高德路径服务已接真实 API。
 
 ## 📁 项目结构
 
@@ -122,10 +124,12 @@ LLM_MODEL=deepseek-chat
 │  ├─ main.py              app 装配 + 路由注册
 │  ├─ api/                 chat / collab / scenarios / amap / preferences / legal …
 │  ├─ agent/
+│  │  ├─ routing/          级联分诊路由（route_turn · brain · canonical_shortcut）
+│  │  ├─ intent/           parser · refiner · narrator
 │  │  ├─ graph/            LangGraph StateGraph + nodes/
-│  │  ├─ intent/           router · parser · refiner · narrator
-│  │  ├─ planning/         planners(blueprint / ils / rule) · critic · commute
-│  │  └─ core/             级联路由 · 注入防护 · 诉求台账 · hedged client
+│  │  ├─ planning/         blueprint · planners(ils / rule) · critic · commute
+│  │  ├─ core/             注入防护 · 对话行为 · coverage_gate · hedged client
+│  │  └─ context/          会话上下文打包器
 │  ├─ tools/               9 个 Function Calling Tool + registry
 │  ├─ schemas/             Pydantic v2 模型（intent / itinerary / sse …）
 │  └─ tests/               1896 个 pytest 用例
@@ -146,7 +150,9 @@ LLM_MODEL=deepseek-chat
 | POST | `/chat/confirm` | **SSE** 确认下单，派发执行类 Tool |
 | POST | `/chat/adjust` | **SSE** 单节点定向调整 / 具名备选 |
 | WS | `/ws/{room_id}` | **WebSocket** 多人协作（约束 / 投票 / 确认） |
+| POST · GET | `/room/create` · `/room/{room_id}/state` | 建房 / 房间状态快照 |
 | GET | `/scenarios` · `/personas` | 演示场景 / 画像 |
+| GET · POST | `/preferences/{user_id}` · `/preferences/{user_id}/reset` | 画像偏好 / 清空记忆 |
 | \* | `/_AMapService/{path}` | 高德 REST 代理（注入 jscode） |
 | GET | `/health` · `/ready` | 存活 / 就绪探针 |
 
@@ -156,12 +162,14 @@ LLM_MODEL=deepseek-chat
 
 后端 `backend/.env`（完整见 [`backend/.env.example`](backend/.env.example)）：
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | — | OpenAI 兼容凭证；不填走 stub |
-| `SESSION_STORE` | `memory` | memory / redis |
-| `DATA_PROVIDER` / `NEARBY_PROVIDER` | `mock` | 数据源，真实 provider 留接入位 |
-| `AMAP_REST_KEY` / `AMAP_JS_CODE` | — | 高德服务端 key + jscode |
+| 变量 | 说明 |
+|------|------|
+| `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` | OpenAI 兼容凭证；不填走 stub |
+| `LLM_TIMEOUT_S` / `LLM_MAX_RETRIES` | 调用超时与重试 |
+| `PLANNER_MODE` | 规划器：`rule` / `llm` |
+| `AMAP_REST_KEY` / `AMAP_JS_CODE` | 高德服务端 key + jscode（后端代理用） |
+
+会话与数据源另通过环境变量在运行时切换：`SESSION_STORE`（`memory` / `redis`，默认 memory）、`NEARBY_PROVIDER`（`mock` / `gaode`，默认 mock）。
 
 前端 `frontend/.env.local`：`NEXT_PUBLIC_API_BASE`（后端地址）、`NEXT_PUBLIC_BASE_PATH`（静态部署子路径）、`NEXT_PUBLIC_AMAP_KEY`（不填地图降级为文字）。
 
