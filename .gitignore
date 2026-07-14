@@ -66,7 +66,9 @@ smoke_final_out/
 /.agents/
 /.mcp.json
 # 文档 / 路演素材（保留本地、不公开到线上仓库）
-/docs/
+/docs/*
+!/docs/legal/
+!/docs/legal/**
 /路演PPT/
 /路演PPT.rar
 /项目导览/
